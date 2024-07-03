@@ -36,6 +36,7 @@ import org.apache.nifi.processor.util.StandardValidators;
 import javax.net.SocketFactory;
 import java.io.IOException;
 import java.nio.charset.Charset;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -124,6 +125,11 @@ public class GraphiteMetricReporterService extends AbstractControllerService imp
      */
     private String metricNamePrefix;
 
+    private long configurationVersion = -1;
+    private String host = "localhost";
+    private int port = -1;
+    private Charset charset = StandardCharsets.UTF_8;
+
     /**
      * Create the {@link #graphiteSender} according to configuration.
      *
@@ -131,11 +137,21 @@ public class GraphiteMetricReporterService extends AbstractControllerService imp
      */
     @OnEnabled
     public void onEnabled(final ConfigurationContext context) {
-        String host = context.getProperty(HOST).evaluateAttributeExpressions().getValue();
-        int port = context.getProperty(PORT).evaluateAttributeExpressions().asInteger();
-        Charset charset = Charset.forName(context.getProperty(CHARSET).getValue());
+        String newHost = context.getProperty(HOST).evaluateAttributeExpressions().getValue();
+        int newPort = context.getProperty(PORT).evaluateAttributeExpressions().asInteger();
+        Charset newCharset = Charset.forName(context.getProperty(CHARSET).getValue());
+        checkConfigurationVersion(newHost, newPort, newCharset,context.getProperty(METRIC_NAME_PREFIX).evaluateAttributeExpressions().getValue());
         graphiteSender = createSender(host, port, charset);
-        metricNamePrefix = context.getProperty(METRIC_NAME_PREFIX).evaluateAttributeExpressions().getValue();
+    }
+
+    private void checkConfigurationVersion(String newHost, int newPort, Charset newCharset,String newMetricNamePrefix) {
+        if (!host.equals(newHost) || newPort != port || !newCharset.equals(charset) || !newMetricNamePrefix.equals(metricNamePrefix)) {
+            configurationVersion++;
+            host = newHost;
+            port = newPort;
+            charset = newCharset;
+            metricNamePrefix = newMetricNamePrefix;
+        }
     }
 
     /**
@@ -179,5 +195,10 @@ public class GraphiteMetricReporterService extends AbstractControllerService imp
     @Override
     protected List<PropertyDescriptor> getSupportedPropertyDescriptors() {
         return properties;
+    }
+
+    @Override
+    public long getCurrentConfigurationVersion() {
+        return configurationVersion;
     }
 }

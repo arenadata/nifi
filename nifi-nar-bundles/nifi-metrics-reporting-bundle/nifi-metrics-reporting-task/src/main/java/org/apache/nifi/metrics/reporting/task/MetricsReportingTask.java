@@ -96,6 +96,8 @@ public class MetricsReportingTask extends AbstractReportingTask {
      */
     protected AtomicReference<ProcessGroupStatus> currentStatusReference;
 
+    private long reporterServiceConfigurationVersion = -1;
+
     /**
      * Register all wanted metrics to {@link #metricRegistry}.
      * <p>
@@ -117,9 +119,17 @@ public class MetricsReportingTask extends AbstractReportingTask {
      */
     @OnScheduled
     public void connect(ConfigurationContext context) {
-        if (reporter == null) {
-            reporter = ((MetricReporterService) context.getProperty(REPORTER_SERVICE).asControllerService())
-                    .createReporter(metricRegistry);
+        MetricReporterService reporterService = ((MetricReporterService) context.getProperty(REPORTER_SERVICE).asControllerService());
+        checkReporterServiceConfigurationVersion(reporterService);
+    }
+
+    private void checkReporterServiceConfigurationVersion(MetricReporterService reporterService) {
+        if (reporterService.getCurrentConfigurationVersion() != reporterServiceConfigurationVersion) {
+            if (reporter != null) {
+                reporter.close();
+            }
+            reporterServiceConfigurationVersion = reporterService.getCurrentConfigurationVersion();
+            reporter = reporterService.createReporter(metricRegistry);
         }
     }
 

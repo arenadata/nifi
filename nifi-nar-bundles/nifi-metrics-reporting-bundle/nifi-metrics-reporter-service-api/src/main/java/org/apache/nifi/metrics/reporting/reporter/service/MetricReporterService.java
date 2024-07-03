@@ -37,4 +37,6 @@ public interface MetricReporterService extends ControllerService {
      * @throws ProcessException if there was an error creating the reporter.
      */
     ScheduledReporter createReporter(MetricRegistry metricRegistry) throws ProcessException;
+
+    long getCurrentConfigurationVersion();
 }
