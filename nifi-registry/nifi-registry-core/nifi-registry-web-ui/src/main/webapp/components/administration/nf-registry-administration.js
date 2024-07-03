@@ -66,10 +66,6 @@ NfRegistryAdministration.prototype = {
      * @returns {*}
      */
     getUserTooltip: function () {
-        if (this.nfRegistryService.currentUser.anonymous) {
-            return 'Please configure NiFi Registry security to enable.';
-        }
-
         if (!this.nfRegistryService.currentUser.resourcePermissions.tenants.canRead) {
             return 'You do not have permission. Please contact your System Administrator.';
         }

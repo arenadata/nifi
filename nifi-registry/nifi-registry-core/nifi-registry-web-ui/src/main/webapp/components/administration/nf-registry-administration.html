@@ -28,7 +28,7 @@ limitations under the License.
             Buckets
         </mat-button-toggle>
         <mat-button-toggle
-                [disabled]="nfRegistryService.currentUser.anonymous || !nfRegistryService.currentUser.resourcePermissions.tenants.canRead"
+                [disabled]="!nfRegistryService.currentUser.resourcePermissions.tenants.canRead"
                 [matTooltip]="getUserTooltip()"
                 [checked]="nfRegistryService.adminPerspective === 'users'" value="users" class="uppercase"
                 (change)="navigateToAdminPerspective($event)"
