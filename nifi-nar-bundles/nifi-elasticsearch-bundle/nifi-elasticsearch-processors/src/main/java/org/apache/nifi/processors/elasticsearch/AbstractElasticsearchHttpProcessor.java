@@ -284,7 +284,7 @@ public abstract class AbstractElasticsearchHttpProcessor extends AbstractElastic
         return mapper.readTree(in);
     }
 
-    protected void buildBulkCommand(StringBuilder sb, String index, String docType, String indexOp, String id, String jsonString) {
+    protected void buildBulkCommand(StringBuilder sb, String index, String docType, String indexOp, String id, String routing, String jsonString) {
         if (indexOp.equalsIgnoreCase("index") || indexOp.equalsIgnoreCase("create")) {
             sb.append("{\"");
             sb.append(indexOp.toLowerCase());
@@ -301,21 +301,17 @@ public abstract class AbstractElasticsearchHttpProcessor extends AbstractElastic
                 sb.append(StringEscapeUtils.escapeJson(id));
                 sb.append("\"");
             }
+            if (!StringUtils.isEmpty(routing)){
+                sb.append(", \"routing\": \"");
+                sb.append(StringEscapeUtils.escapeJson(routing));
+                sb.append("\"");
+            }
             sb.append("}}\n");
             sb.append(jsonString);
             sb.append("\n");
         } else if (indexOp.equalsIgnoreCase("upsert") || indexOp.equalsIgnoreCase("update")) {
             sb.append("{\"update\": { \"_index\": \"");
-            sb.append(StringEscapeUtils.escapeJson(index));
-            sb.append("\"");
-            if (StringUtils.isNotBlank(docType)) {
-                sb.append(", \"_type\": \"");
-                sb.append(StringEscapeUtils.escapeJson(docType));
-                sb.append("\"");
-            }
-            sb.append(", \"_id\": \"");
-            sb.append(StringEscapeUtils.escapeJson(id));
-            sb.append("\" } }\n");
+            addElasticSearchDocMetadata(sb, index, docType, id, routing);
             sb.append("{\"doc\": ");
             sb.append(jsonString);
             sb.append(", \"doc_as_upsert\": ");
@@ -323,16 +319,18 @@ public abstract class AbstractElasticsearchHttpProcessor extends AbstractElastic
             sb.append(" }\n");
         } else if (indexOp.equalsIgnoreCase("delete")) {
             sb.append("{\"delete\": { \"_index\": \"");
-            sb.append(StringEscapeUtils.escapeJson(index));
-            sb.append("\"");
-            if (StringUtils.isNotBlank(docType)) {
-                sb.append(", \"_type\": \"");
-                sb.append(StringEscapeUtils.escapeJson(docType));
-                sb.append("\"");
-            }
-            sb.append(", \"_id\": \"");
-            sb.append(StringEscapeUtils.escapeJson(id));
-            sb.append("\" } }\n");
+            addElasticSearchDocMetadata(sb, index, docType, id, routing);
         }
+    }
+
+    protected void addElasticSearchDocMetadata(StringBuilder sb, String index, String docType, String id, String routing) {
+        sb.append(StringEscapeUtils.escapeJson(index));
+        sb.append("\", \"_type\": \"");
+        sb.append(StringEscapeUtils.escapeJson(docType));
+        sb.append("\", \"_id\": \"");
+        sb.append(StringEscapeUtils.escapeJson(id));
+        sb.append("\", \"routing\": \"");
+        sb.append(StringEscapeUtils.escapeJson(routing));
+        sb.append("\" }}\n");
     }
 }

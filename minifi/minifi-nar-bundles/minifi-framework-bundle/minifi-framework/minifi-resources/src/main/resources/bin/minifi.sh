@@ -317,12 +317,22 @@ run() {
 
     if [ -n "${run_as_user}" ]; then
       preserve_environment=$(grep '^\s*preserve.environment' "${BOOTSTRAP_CONF}" | cut -d'=' -f2 | tr '[:upper:]' '[:lower:]')
-      SUDO="sudo"
-      if [ "$preserve_environment" = "true" ]; then
-        SUDO="sudo -E"
+      use_su=$(grep '^\s*use.su' "${BOOTSTRAP_CONF}" | cut -d'=' -f2 | tr '[:upper:]' '[:lower:]')
+
+      if [ "$use_su" = "true" ]; then
+        SUDO="/bin/su"
+        if [ "$preserve_environment" = "true" ]; then
+          echo "The use.su option is not supported with preserve.environment enabled for compatibility reasons. Exiting."
+          exit 1
+        fi
+      else
+        SUDO="sudo -u"
+        if [ "$preserve_environment" = "true" ]; then
+          SUDO="sudo -E -u"
+        fi
       fi
       # Provide SCRIPT_DIR and execute nifi-env for the run.as user command
-      RUN_MINIFI_CMD="${SUDO} -u ${run_as_user} sh -c \"SCRIPT_DIR='${SCRIPT_DIR}' && . '${SCRIPT_DIR}/minifi-env.sh' && ${RUN_MINIFI_CMD}\""
+      RUN_MINIFI_CMD="${SUDO} ${run_as_user} -s /bin/sh -c \"SCRIPT_DIR='${SCRIPT_DIR}' && . '${SCRIPT_DIR}/minifi-env.sh' && ${RUN_MINIFI_CMD}\""
     fi
 
     if [ "$1" = "run" ]; then

@@ -193,6 +193,15 @@ public class PutElasticsearchHttpRecord extends AbstractElasticsearchHttpProcess
             .defaultValue("index")
             .build();
 
+    static final PropertyDescriptor ROUTING_RECORD_PATH = new PropertyDescriptor.Builder()
+            .name("put-es-record-routing-path")
+            .displayName("Routing Record Path")
+            .description("A RecordPath pointing to a field in the record(s) that contains the routing identifier for the document")
+            .required(false)
+            .addValidator(new RecordPathValidator())
+            .expressionLanguageSupported(ExpressionLanguageScope.FLOWFILE_ATTRIBUTES)
+            .build();
+
     static final AllowableValue ALWAYS_SUPPRESS = new AllowableValue("always-suppress", "Always Suppress",
             "Fields that are missing (present in the schema but not in the record), or that have a value of null, will not be written out");
 
@@ -287,6 +296,7 @@ public class PutElasticsearchHttpRecord extends AbstractElasticsearchHttpProcess
         descriptors.add(RECORD_WRITER);
         descriptors.add(LOG_ALL_ERRORS);
         descriptors.add(ID_RECORD_PATH);
+        descriptors.add(ROUTING_RECORD_PATH);
         descriptors.add(AT_TIMESTAMP_RECORD_PATH);
         descriptors.add(AT_TIMESTAMP);
         descriptors.add(INDEX);
@@ -429,7 +439,9 @@ public class PutElasticsearchHttpRecord extends AbstractElasticsearchHttpProcess
         this.nullSuppression = context.getProperty(SUPPRESS_NULLS).getValue();
 
         final String idPath = context.getProperty(ID_RECORD_PATH).evaluateAttributeExpressions(flowFile).getValue();
-        final RecordPath recordPath = StringUtils.isEmpty(idPath) ? null : recordPathCache.getCompiled(idPath);
+        final RecordPath idRecordPath = StringUtils.isEmpty(idPath) ? null : recordPathCache.getCompiled(idPath);
+        final String routingPath = context.getProperty(ROUTING_RECORD_PATH).evaluateAttributeExpressions(flowFile).getValue();
+        final RecordPath routingRecordPath = StringUtils.isEmpty(routingPath) ? null : recordPathCache.getCompiled(routingPath);
         final StringBuilder sb = new StringBuilder();
         final Charset charset = Charset.forName(context.getProperty(CHARSET).evaluateAttributeExpressions(flowFile).getValue());
 
@@ -445,15 +457,11 @@ public class PutElasticsearchHttpRecord extends AbstractElasticsearchHttpProcess
             while ((record = reader.nextRecord()) != null) {
 
                 final String id;
-                if (recordPath != null) {
-                    Optional<FieldValue> idPathValue = recordPath.evaluate(record).getSelectedFields().findFirst();
-                    if (!idPathValue.isPresent() || idPathValue.get().getValue() == null) {
-                        throw new IdentifierNotFoundException("Identifier Record Path specified but no value was found, transferring {} to failure.");
-                    }
-                    id = idPathValue.get().getValue().toString();
-                } else {
-                    id = null;
-                }
+                final String routing;
+
+                id = evaluateRecordPath(idRecordPath, record);
+
+                routing = evaluateRecordPath(routingRecordPath, record);
 
                 final Object timestamp;
                 if (atPath != null) {
@@ -478,7 +486,7 @@ public class PutElasticsearchHttpRecord extends AbstractElasticsearchHttpProcess
                 generator.close();
                 json.append(out.toString(charset.name()));
 
-                buildBulkCommand(sb, index, docType, indexOp, id, json.toString());
+                buildBulkCommand(sb, index, docType, indexOp, id, routing, json.toString());
                 recordCount++;
             }
         } catch (IdentifierNotFoundException infe) {
@@ -679,6 +687,18 @@ public class PutElasticsearchHttpRecord extends AbstractElasticsearchHttpProcess
             writeValue(generator, value, fieldName, dataType);
         }
         generator.writeEndObject();
+    }
+
+    private String evaluateRecordPath(RecordPath routingRecordPath, Record record) throws IdentifierNotFoundException {
+        if (routingRecordPath != null) {
+            Optional<FieldValue> routingPathValue = routingRecordPath.evaluate(record).getSelectedFields().findFirst();
+            if (!routingPathValue.isPresent() || routingPathValue.get().getValue() == null) {
+                throw new IdentifierNotFoundException("Identifier Record Path specified but no value was found, transferring {} to failure.");
+            }
+            return routingPathValue.get().getValue().toString();
+        } else {
+            return null;
+        }
     }
 
     private Object coerceTimestampStringToLong(final String stringValue) {
