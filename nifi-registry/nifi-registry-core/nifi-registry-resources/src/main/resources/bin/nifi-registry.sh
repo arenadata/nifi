@@ -310,8 +310,23 @@ run() {
     run_nifi_registry_cmd="'${JAVA}' -cp '${BOOTSTRAP_CLASSPATH}' -Xms12m -Xmx24m ${BOOTSTRAP_DIR_PARAMS} org.apache.nifi.registry.bootstrap.RunNiFiRegistry $@"
 
     if [ -n "${run_as_user}" ]; then
+      preserve_environment=$(grep '^\s*preserve.environment' "${BOOTSTRAP_CONF}" | cut -d'=' -f2 | tr '[:upper:]' '[:lower:]')
+      use_su=$(grep '^\s*use.su' "${BOOTSTRAP_CONF}" | cut -d'=' -f2 | tr '[:upper:]' '[:lower:]')
+
+      if [ "$use_su" = "true" ]; then
+        SUDO="/bin/su"
+        if [ "$preserve_environment" = "true" ]; then
+          echo "The use.su option is not supported with preserve.environment enabled for compatibility reasons. Exiting."
+          exit 1
+        fi
+      else
+        SUDO="sudo -u"
+        if [ "$preserve_environment" = "true" ]; then
+          SUDO="sudo -E -u"
+        fi
+      fi
       # Provide SCRIPT_DIR and execute nifi-env for the run.as user command
-      run_nifi_registry_cmd="sudo -u ${run_as_user} sh -c \"SCRIPT_DIR='${SCRIPT_DIR}' && . '${SCRIPT_DIR}/nifi-registry-env.sh' && ${run_nifi_registry_cmd}\""
+      run_nifi_registry_cmd="${SUDO} ${run_as_user} -s /bin/sh -c \"SCRIPT_DIR='${SCRIPT_DIR}' && . '${SCRIPT_DIR}/nifi-registry-env.sh' && ${run_nifi_registry_cmd}\""
     fi
 
     if [ "$1" = "run" ]; then
