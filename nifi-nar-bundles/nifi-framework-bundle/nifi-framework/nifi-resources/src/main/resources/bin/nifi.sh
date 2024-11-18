@@ -44,7 +44,7 @@ SCRIPT_DIR=$PHYS_DIR
 PROGNAME=$(basename "$0")
 
 # bigtop java discovery
-. /usr/lib/bigtop-utils/bigtop-detect-javahome
+. /usr/lib/bigtop-utils/bigtop-detect-javahome "17"
 
 . "${SCRIPT_DIR}/nifi-env.sh"
 
