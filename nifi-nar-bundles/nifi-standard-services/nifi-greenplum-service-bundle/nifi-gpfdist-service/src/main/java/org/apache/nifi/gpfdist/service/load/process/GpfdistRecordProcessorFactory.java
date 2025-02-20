@@ -1,9 +1,9 @@
 package org.apache.nifi.gpfdist.service.load.process;
 
 import org.apache.nifi.gpfdist.metadata.DataFormat;
-import org.apache.nifi.gpfdist.service.RecordProcessor;
 import org.apache.nifi.gpfdist.server.request.GpfdistReadableRequest;
 import org.apache.nifi.gpfdist.server.request.ReadableRequest;
+import org.apache.nifi.gpfdist.service.RecordProcessor;
 import org.apache.nifi.gpfdist.service.load.context.WriteContext;
 import org.apache.nifi.gpfdist.service.load.serialization.RecordSerializationService;
 import org.apache.nifi.gpfdist.service.load.serialization.csv.CsvRecordSerializationService;
@@ -35,7 +35,8 @@ public class GpfdistRecordProcessorFactory implements RecordProcessorFactory {
             CsvFormatConfig csvFormatConfig = (CsvFormatConfig) dataFormatConfig;
             return new CsvRecordSerializationService(writeContext.getMetadata().getRecordSchema(),
                     writeContext.getMetadata().getColumnDescriptions(),
-                    csvFormatConfig);
+                    csvFormatConfig,
+                    writeContext.getLogger());
         } else {
             throw new UnsupportedOperationException("Unsupported DataFormat: " + dataFormatConfig);
         }

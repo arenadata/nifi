@@ -1,10 +1,10 @@
 package org.apache.nifi.gpfdist.service.load.process;
 
+import org.apache.nifi.gpfdist.server.request.GpfdistReadableRequest;
 import org.apache.nifi.gpfdist.service.RecordProcessor;
 import org.apache.nifi.gpfdist.service.load.context.WriteContext;
 import org.apache.nifi.gpfdist.service.load.serialization.RecordSerializationService;
 import org.apache.nifi.gpfdist.service.load.serialization.RecordsSerializationResult;
-import org.apache.nifi.gpfdist.server.request.GpfdistReadableRequest;
 import org.apache.nifi.logging.ComponentLog;
 import org.apache.nifi.serialization.record.Record;
 

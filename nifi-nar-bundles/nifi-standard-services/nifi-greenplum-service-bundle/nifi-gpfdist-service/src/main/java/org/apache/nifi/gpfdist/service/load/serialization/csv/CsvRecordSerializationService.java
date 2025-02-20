@@ -3,6 +3,7 @@ package org.apache.nifi.gpfdist.service.load.serialization.csv;
 import org.apache.nifi.gpfdist.metadata.ColumnDescription;
 import org.apache.nifi.gpfdist.service.load.serialization.RecordSerializationService;
 import org.apache.nifi.gpfdist.service.metadata.CsvFormatConfig;
+import org.apache.nifi.logging.ComponentLog;
 import org.apache.nifi.serialization.RecordWriter;
 import org.apache.nifi.serialization.record.Record;
 import org.apache.nifi.serialization.record.RecordSchema;
@@ -14,11 +15,14 @@ import java.util.List;
 public class CsvRecordSerializationService implements RecordSerializationService {
     private final RecordWriter csvWriter;
     private final ByteArrayOutputStream outputStream;
+    private final ComponentLog logger;
     private int serializedRecords;
 
     public CsvRecordSerializationService(final RecordSchema recordSchema,
                                          final List<ColumnDescription> columnDescriptions,
-                                         final CsvFormatConfig csvFormatConfig) {
+                                         final CsvFormatConfig csvFormatConfig,
+                                         ComponentLog logger) {
+        this.logger = logger;
         this.outputStream = new ByteArrayOutputStream();
         csvWriter = createCsvWriter(recordSchema, columnDescriptions, csvFormatConfig);
     }
@@ -32,7 +36,8 @@ public class CsvRecordSerializationService implements RecordSerializationService
                     outputStream,
                     false,
                     csvFormatConfig.getEncoding(),
-                    columnDescriptions);
+                    columnDescriptions,
+                    logger);
         } catch (IOException e) {
             throw new RuntimeException("Failed to create csv record set writer", e);
         }

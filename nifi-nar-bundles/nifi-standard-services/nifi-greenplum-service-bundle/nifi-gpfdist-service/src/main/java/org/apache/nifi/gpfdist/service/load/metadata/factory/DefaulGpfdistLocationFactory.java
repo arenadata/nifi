@@ -13,9 +13,9 @@
  */
 package org.apache.nifi.gpfdist.service.load.metadata.factory;
 
+import org.apache.nifi.gpfdist.server.config.GpfdistServerConfig;
 import org.apache.nifi.gpfdist.service.metadata.ExternalTableType;
 import org.apache.nifi.gpfdist.service.metadata.GpfdistLocationFactory;
-import org.apache.nifi.gpfdist.server.config.GpfdistServerConfig;
 
 public class DefaulGpfdistLocationFactory
         implements GpfdistLocationFactory {

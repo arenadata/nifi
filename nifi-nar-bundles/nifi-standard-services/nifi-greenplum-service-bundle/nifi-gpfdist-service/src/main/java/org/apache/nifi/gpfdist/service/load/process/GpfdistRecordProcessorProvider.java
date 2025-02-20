@@ -14,7 +14,6 @@ import static java.lang.String.format;
 
 public class GpfdistRecordProcessorProvider implements RecordProcessorProvider {
     private static final long GREENPLUM_SEGMENT_WAIT_TIMEOUT = 60000L;
-    private final AtomicBoolean isCancelled = new AtomicBoolean(false);
     private final Queue<RecordProcessor> recordProcessors = new LinkedList<>();
     private final AtomicBoolean isReadyForProcessing = new AtomicBoolean(false);
     private final ReentrantLock lock = new ReentrantLock();
@@ -39,22 +38,20 @@ public class GpfdistRecordProcessorProvider implements RecordProcessorProvider {
     public RecordProcessor take() {
         lock.lock();
         try {
-            if (!isReadyForProcessing.get()) {
-                long startTime = System.currentTimeMillis();
-                while (recordProcessors.isEmpty() && !isCancelled.get()) {
-                    try {
-                        if (currentTimeMsProvider().get() - startTime > GREENPLUM_SEGMENT_WAIT_TIMEOUT) {
-                            throw new RuntimeException(
-                                    format("Timeout :%d ms waiting for segments responses is exceeded",
-                                            GREENPLUM_SEGMENT_WAIT_TIMEOUT));
-                        }
-                        isReadyForProcessingCondition.await();
-                    } catch (InterruptedException e) {
-                        throw new RuntimeException(e);
+            long startTime = System.currentTimeMillis();
+            while (recordProcessors.isEmpty()) {
+                try {
+                    if (!isReadyForProcessing.get() && currentTimeMsProvider().get() - startTime > GREENPLUM_SEGMENT_WAIT_TIMEOUT) {
+                        throw new RuntimeException(
+                                format("Timeout :%d ms waiting for segments responses is exceeded",
+                                        GREENPLUM_SEGMENT_WAIT_TIMEOUT));
                     }
+                    isReadyForProcessingCondition.await();
+                } catch (InterruptedException e) {
+                    throw new RuntimeException(e);
                 }
-                isReadyForProcessing.set(true);
             }
+            isReadyForProcessing.set(true);
             return recordProcessors.poll();
         } finally {
             lock.unlock();

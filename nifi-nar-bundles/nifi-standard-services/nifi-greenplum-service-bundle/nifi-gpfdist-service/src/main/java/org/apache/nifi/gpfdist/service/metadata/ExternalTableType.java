@@ -13,7 +13,6 @@
  */
 package org.apache.nifi.gpfdist.service.metadata;
 
-public enum ExternalTableType
-{
+public enum ExternalTableType {
     READABLE
 }

@@ -23,7 +23,7 @@ public class VarcharDataType
     private final String name;
 
     public VarcharDataType(int length) {
-        this.name =  format("varchar(%d)", length);
+        this.name = format("varchar(%d)", length);
     }
 
     public VarcharDataType() {

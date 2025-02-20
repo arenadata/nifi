@@ -17,24 +17,20 @@ import org.apache.nifi.gpfdist.service.metadata.ExternalTableType;
 
 import java.util.UUID;
 
-public final class GpfdistUtil
-{
+public final class GpfdistUtil {
     public static final String WRITE_CONTEXT_MANAGER_ATTR = "writeContextManager";
     public static final String RECORD_PROCESSOR_FACTORY_ATTR = "recordProcessorFactory";
     public static final String RECORD_PROCESSING_EXECUTOR_SERVICE_ATTR = "recordProcessingExecutorService";
     public static final String COMPONENT_LOG_ATTR = "componentLog";
 
-    private GpfdistUtil()
-    {
+    private GpfdistUtil() {
     }
 
-    public static String createGpfdistFileName(String externalTableName)
-    {
+    public static String createGpfdistFileName(String externalTableName) {
         return "/greenplum/" + externalTableName;
     }
 
-    public static String createExternalTableName(ExternalTableType tableType)
-    {
+    public static String createExternalTableName(ExternalTableType tableType) {
         return String.format("nifi_external_%s_%s", tableType.name().toLowerCase(),
                 UUID.randomUUID().toString().replace("-", ""));
     }

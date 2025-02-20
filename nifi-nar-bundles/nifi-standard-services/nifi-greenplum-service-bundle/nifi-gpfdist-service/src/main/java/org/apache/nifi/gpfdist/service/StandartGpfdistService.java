@@ -15,7 +15,10 @@ import org.apache.nifi.gpfdist.server.GpfdistServer;
 import org.apache.nifi.gpfdist.server.config.GpfdistServerConfig;
 import org.apache.nifi.gpfdist.service.greenplum.DefaultGreenplumTableService;
 import org.apache.nifi.gpfdist.service.load.context.WriteContextManager;
-import org.apache.nifi.gpfdist.service.load.metadata.factory.*;
+import org.apache.nifi.gpfdist.service.load.metadata.factory.CreateReadableExternalTableQueryFactory;
+import org.apache.nifi.gpfdist.service.load.metadata.factory.DefaulGpfdistLocationFactory;
+import org.apache.nifi.gpfdist.service.load.metadata.factory.DefaultGpfdistLoadMetadataFactory;
+import org.apache.nifi.gpfdist.service.load.metadata.factory.DefaultInsertDataQueryFactory;
 import org.apache.nifi.gpfdist.service.load.process.GpfdistRecordProcessorFactory;
 import org.apache.nifi.gpfdist.service.load.process.GpfdistRecordSinkProvider;
 import org.apache.nifi.gpfdist.service.load.process.RecordProcessorFactory;
@@ -62,7 +65,7 @@ public class StandartGpfdistService extends AbstractControllerService implements
             .description("The maximum amount of threads that are used to run the Gpffist server")
             .required(false)
             .addValidator(StandardValidators.INTEGER_VALIDATOR)
-            .defaultValue("10")
+            .defaultValue("4")
             .build();
     static final PropertyDescriptor GPFDIST_SERVER_THREAD_IDLE_TIMEOUT_MS = new PropertyDescriptor.Builder()
             .name("The Maximum Gpffist Server Threads Idle Timeout")
@@ -86,22 +89,36 @@ public class StandartGpfdistService extends AbstractControllerService implements
             .required(false)
             .defaultValue("1 MB")
             .build();
+    static final PropertyDescriptor RECORD_PROCESSOR_MAX_THREADS = new PropertyDescriptor.Builder()
+            .name("Maximum Record Processor Threads")
+            .description("The maximum amount of threads that are used to process the records")
+            .required(false)
+            .addValidator(StandardValidators.INTEGER_VALIDATOR)
+            .defaultValue("8")
+            .build();
+    static final PropertyDescriptor GPFDIST_REQUEST_PROCESSOR_MAX_THREADS = new PropertyDescriptor.Builder()
+            .name("Maximum Gpfdist Request Processor Threads")
+            .description("The maximum amount of threads that are used to process the gpfdist requests")
+            .required(false)
+            .addValidator(StandardValidators.INTEGER_VALIDATOR)
+            .defaultValue("8")
+            .build();
     private static final List<PropertyDescriptor> PROPERTIES;
+
     static {
         final List<PropertyDescriptor> props = new ArrayList<>();
         props.add(PORT);
         props.add(HOSTNAME);
         props.add(DBCP_SERVICE);
         props.add(WRITE_BUFFER_SIZE);
-        props.add(GPFDIST_SERVER_THREAD_IDLE_TIMEOUT_MS);
+        props.add(RECORD_PROCESSOR_MAX_THREADS);
+        props.add(GPFDIST_REQUEST_PROCESSOR_MAX_THREADS);
         props.add(GPFDIST_SERVER_MIN_THREADS);
         props.add(GPFDIST_SERVER_MAX_THREADS);
+        props.add(GPFDIST_SERVER_THREAD_IDLE_TIMEOUT_MS);
         PROPERTIES = Collections.unmodifiableList(props);
     }
 
-    private final ExecutorService recordProcessingExecutorService = Executors.newCachedThreadPool();
-    private final ExecutorService queryExecutorService = Executors.newCachedThreadPool();
-    private final ExecutorService requestExecutorService = Executors.newCachedThreadPool();
     private GpfdistServer server;
     private RecordSinkProvider recordSinkProvider;
     private GreenplumTableService greenplumTableService;
@@ -123,6 +140,12 @@ public class StandartGpfdistService extends AbstractControllerService implements
             int minServerThreads = context.getProperty(GPFDIST_SERVER_MIN_THREADS).asInteger();
             int maxServerThreads = context.getProperty(GPFDIST_SERVER_MAX_THREADS).asInteger();
             int threadsIdleTimeout = context.getProperty(GPFDIST_SERVER_THREAD_IDLE_TIMEOUT_MS).asInteger();
+            int recordProcessorMaxThreads = context.getProperty(RECORD_PROCESSOR_MAX_THREADS).asInteger();
+            int gpfdistRequestMaxThreads = context.getProperty(GPFDIST_REQUEST_PROCESSOR_MAX_THREADS).asInteger();
+
+            final ExecutorService recordProcessingExecutorService = Executors.newFixedThreadPool(recordProcessorMaxThreads);
+            final ExecutorService queryExecutorService = Executors.newSingleThreadExecutor();
+            final ExecutorService requestExecutorService = Executors.newFixedThreadPool(gpfdistRequestMaxThreads);
 
             final WriteContextManager writeContextManager = new WriteContextManager(logger);
             final CsvFormatConfig dataFormatConfig = new CsvFormatConfig();

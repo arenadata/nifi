@@ -21,25 +21,33 @@ import org.apache.commons.csv.CSVFormat;
 import org.apache.commons.csv.CSVPrinter;
 import org.apache.nifi.gpfdist.metadata.ColumnDataType;
 import org.apache.nifi.gpfdist.metadata.ColumnDescription;
+import org.apache.nifi.logging.ComponentLog;
 import org.apache.nifi.serialization.AbstractRecordSetWriter;
 import org.apache.nifi.serialization.RecordSetWriter;
 import org.apache.nifi.serialization.WriteResult;
 import org.apache.nifi.serialization.record.Record;
 import org.apache.nifi.serialization.record.*;
+import org.apache.nifi.serialization.record.type.ArrayDataType;
 
 import java.io.IOException;
 import java.io.OutputStream;
 import java.io.OutputStreamWriter;
+import java.nio.charset.StandardCharsets;
 import java.util.*;
+import java.util.stream.Collectors;
 
-import static java.lang.String.format;
+import static org.apache.nifi.gpfdist.metadata.GreenplumDataType.ARRAY;
+import static org.apache.nifi.gpfdist.metadata.GreenplumDataType.MAP;
 
 public class CsvRecordSetWriter extends AbstractRecordSetWriter implements RecordSetWriter, RawRecordWriter {
     private static final String TIMESTAMP_WITHOUT_TIME_ZONE_FORMAT = "yyyy-MM-dd HH:mm:ss.SSSSSS";
     private static final String TIMESTAMP_WITH_TIME_ZONE_FORMAT = "yyyy-MM-dd HH:mm:ss.SSSSSSXXX";
     private static final String TIME_FORMAT = "HH:mm:ss.SSSSSS";
     private static final String DATE_FORMAT = "yyyy-MM-dd";
-    private static final String ARRAY_VALUE_QUOTE = "\"";
+    private static final String MAP_TYPE_VALUE_SEPARATOR = "=>";
+    private static final char VALUE_QUOTE = '"';
+    private static final String ELEMENT_DELIMITER = ", ";
+    private static final String AARRAY_VALUE_DELIMITER = ",";
     private final RecordSchema recordSchema;
     private final CSVPrinter printer;
     private final Object[] fieldValues;
@@ -47,13 +55,15 @@ public class CsvRecordSetWriter extends AbstractRecordSetWriter implements Recor
     private boolean headerWritten = false;
     private String[] fieldNames;
     private final List<ColumnDescription> columnDescriptions;
+    private final ComponentLog logger;
 
     public CsvRecordSetWriter(final CSVFormat csvFormat,
                               final RecordSchema recordSchema,
                               final OutputStream out,
                               boolean includeHeaderLine,
                               final String charSet,
-                              final List<ColumnDescription> columnDescriptions) throws IOException {
+                              final List<ColumnDescription> columnDescriptions,
+                              ComponentLog logger) throws IOException {
 
         super(out);
         this.recordSchema = recordSchema;
@@ -62,6 +72,7 @@ public class CsvRecordSetWriter extends AbstractRecordSetWriter implements Recor
         final OutputStreamWriter streamWriter = new OutputStreamWriter(out, charSet);
         printer = new CSVPrinter(streamWriter, csvFormat);
         fieldValues = new Object[recordSchema.getFieldCount()];
+        this.logger = logger;
     }
 
     @Override
@@ -112,14 +123,20 @@ public class CsvRecordSetWriter extends AbstractRecordSetWriter implements Recor
     }
 
     @Override
-    public Map<String, String> writeRecord(final Record record) throws IOException {
-        includeHeaderIfNecessary(record, true);
-        int i = 0;
-        for (final RecordField recordField : recordSchema.getFields()) {
-            ColumnDescription columnDesc = columnDescriptions.get(i);
-            fieldValues[i++] = getFieldValue(record, recordField, columnDesc.getDataType());
+    public Map<String, String> writeRecord(final Record record) {
+        try {
+            includeHeaderIfNecessary(record, true);
+            int i = 0;
+            for (final RecordField recordField : recordSchema.getFields()) {
+                ColumnDescription columnDesc = columnDescriptions.get(i);
+                fieldValues[i++] = getFieldValue(record, recordField, columnDesc.getDataType());
+            }
+            printer.printRecord(fieldValues);
+        } catch (Exception e) {
+            String errMsg = "Failed to write record: " + e.getMessage();
+            logger.error(errMsg, e);
+            throw new RuntimeException(errMsg, e);
         }
-        printer.printRecord(fieldValues);
         return Collections.emptyMap();
     }
 
@@ -165,36 +182,82 @@ public class CsvRecordSetWriter extends AbstractRecordSetWriter implements Recor
             case TIMESTAMP_WITH_TIME_ZONE:
                 return record.getAsString(recordField, TIMESTAMP_WITH_TIME_ZONE_FORMAT);
             case ARRAY:
-                Object[] arrValue = record.getAsArray(recordField.getFieldName());
-                if (arrValue == null) {
-                    return null;
+                DataType arrayDataType = recordField.getDataType();
+                if (arrayDataType.getFieldType() == RecordFieldType.ARRAY) {
+                    return getArrayValue(record, recordField, arrayDataType);
+                } else if (arrayDataType.getFieldType() == RecordFieldType.STRING) {
+                    return record.getAsString(recordField.getFieldName());
                 }
-                //todo will be implement in another task
-                /*return '{' +
-                        Arrays.stream(arrValue)
-                                .filter(Objects::nonNull)
-                                .map(element -> ARRAY_VALUE_QUOTE + element + ARRAY_VALUE_QUOTE)
-                                .collect(Collectors.joining(",")) +
-                        '}';*/
-                throw new UnsupportedOperationException("Unsupported column type " + dataType);
+                throw new IllegalArgumentException("Unsupported field type: " + arrayDataType + " for column type " + ARRAY);
             case MAP:
-                DataType mapDataType = recordField.getDataType();
+                RecordFieldType mapDataType = recordField.getDataType().getFieldType();
                 Object mapValue = record.getValue(recordField.getFieldName());
                 if (mapValue == null) {
                     return null;
                 }
-                //todo will be implement in another task
-                /*if (mapDataType.getFieldType() == RecordFieldType.STRING) {
-                    String mapValueString = mapValue.toString().substring(1, mapValue.toString().length() - 1);
-                    return Arrays.stream(mapValueString.split(","))
-                            .map(val -> Arrays.stream(val.trim().split("="))
-                                    .map(entry -> '"' + entry + '"')
-                                    .collect(Collectors.joining("=>")))
-                            .collect(Collectors.joining(", "));
-                }*/
-                throw new IllegalArgumentException(format("Unsupported record field type: %s for column type hstore", mapDataType.getFieldType()));
+                if (mapDataType == RecordFieldType.STRING) {
+                    return getMapAsString(mapValue);
+                } else if (mapDataType == RecordFieldType.MAP) {
+                    return getMapValue((Map<?, ?>) mapValue);
+                }
+                throw new IllegalArgumentException("Unsupported record field type: " + mapDataType + " for column type " + MAP);
         }
         return record.getAsString(recordField, fieldDataType.getFormat());
+    }
+
+    private String getArrayValue(Record record, RecordField recordField, DataType arrayDataType) {
+        Object[] array = record.getAsArray(recordField.getFieldName());
+        if (array == null) {
+            return null;
+        }
+        DataType elementType = ((ArrayDataType) arrayDataType).getElementType();
+        switch (elementType.getFieldType()) {
+            case BYTE:
+                return getValueFromByteArray(array);
+            case STRING:
+                return getValueFromObjectArray(array);
+            default:
+                throw new IllegalArgumentException("Unsupported field array element type: " + elementType + " for column type " + ARRAY);
+        }
+    }
+
+    private String getValueFromByteArray(Object[] array) {
+        byte[] newByteArray = new byte[array.length];
+        for (int i = 0; i < array.length; i++) {
+            newByteArray[i] = (Byte) array[i];
+        }
+        String arrStr = new String(newByteArray, StandardCharsets.UTF_8);
+        String mapValueString = getValueWithoutBraces(arrStr);
+        return getValueFromObjectArray(mapValueString.split(AARRAY_VALUE_DELIMITER));
+    }
+
+    private String getValueFromObjectArray(Object[] array) {
+        return '{' +
+                Arrays.stream(array)
+                        .filter(Objects::nonNull)
+                        .map(value -> VALUE_QUOTE + value.toString() + VALUE_QUOTE)
+                        .collect(Collectors.joining(ELEMENT_DELIMITER)) +
+                '}';
+    }
+
+    private String getMapAsString(Object mapValue) {
+        return Arrays.stream(getValueWithoutBraces(mapValue.toString()).split(AARRAY_VALUE_DELIMITER))
+                .map(val -> Arrays.stream(val.trim().split("="))
+                        .map(entry -> VALUE_QUOTE + entry + VALUE_QUOTE)
+                        .collect(Collectors.joining(MAP_TYPE_VALUE_SEPARATOR)))
+                .collect(Collectors.joining(ELEMENT_DELIMITER));
+    }
+
+    private String getMapValue(Map<?, ?> mapValue) {
+        //support only map with v keys and values
+        return mapValue.entrySet().stream()
+                .map(entry -> VALUE_QUOTE + entry.getKey().toString() + VALUE_QUOTE
+                        + MAP_TYPE_VALUE_SEPARATOR + VALUE_QUOTE + entry.getValue().toString() + VALUE_QUOTE)
+                .collect(Collectors.joining(ELEMENT_DELIMITER));
+    }
+
+    private String getValueWithoutBraces(String arrStr) {
+        return arrStr.substring(1, arrStr.length() - 1);
     }
 
     @Override

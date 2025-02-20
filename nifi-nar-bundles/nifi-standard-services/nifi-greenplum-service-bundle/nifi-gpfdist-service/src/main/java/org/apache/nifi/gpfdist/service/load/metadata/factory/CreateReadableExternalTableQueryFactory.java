@@ -6,14 +6,12 @@ import org.apache.nifi.gpfdist.service.query.AbstractExternalTableQueryFactory;
 
 public class CreateReadableExternalTableQueryFactory extends AbstractExternalTableQueryFactory {
     @Override
-    public String createQuery(final GpfdistMetadata metadata)
-    {
+    public String createQuery(final GpfdistMetadata metadata) {
         return createCommonQuery(metadata);
     }
 
     @Override
-    public ExternalTableType getExternalTableType()
-    {
+    public ExternalTableType getExternalTableType() {
         return ExternalTableType.READABLE;
     }
 }

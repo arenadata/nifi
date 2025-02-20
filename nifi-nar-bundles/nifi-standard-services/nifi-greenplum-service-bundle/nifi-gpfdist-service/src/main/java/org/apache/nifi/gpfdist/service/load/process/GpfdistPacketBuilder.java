@@ -31,8 +31,7 @@ import java.nio.charset.StandardCharsets;
  * Error packet:
  * E + error data length + error data
  */
-public class GpfdistPacketBuilder
-{
+public class GpfdistPacketBuilder {
     private static final byte GPFDIST_PACKAGE_FILE_NAME_MSG_TYPE = (byte) 70;
     private static final byte GPFDIST_PACKAGE_OFFSET_MSG_TYPE = (byte) 79;
     private static final byte GPFDIST_PACKAGE_LINE_NUMBER_MSG_TYPE = (byte) 76;
@@ -45,8 +44,7 @@ public class GpfdistPacketBuilder
     private final ByteBuffer headerBuffer;
     private final ByteBuffer endPacketBuffer;
 
-    public GpfdistPacketBuilder(final String gpfdistFileName)
-    {
+    public GpfdistPacketBuilder(final String gpfdistFileName) {
         this.gpfdistFileName = gpfdistFileName;
         headerBuffer = ByteBuffer.allocate(HEADER_METADATA_TYPE_BYTES_LENGTH * 4
                 + OFFSET_BYTES_LENGTH
@@ -55,8 +53,7 @@ public class GpfdistPacketBuilder
         endPacketBuffer = ByteBuffer.allocate(HEADER_METADATA_TYPE_BYTES_LENGTH);
     }
 
-    public byte[] createDataPacket(RecordsSerializationResult serializationResult)
-    {
+    public byte[] createDataPacket(RecordsSerializationResult serializationResult) {
         headerBuffer.clear();
         byte[] fileNameBytes = gpfdistFileName.getBytes(StandardCharsets.UTF_8);
         headerBuffer.put(GPFDIST_PACKAGE_FILE_NAME_MSG_TYPE);
@@ -73,21 +70,18 @@ public class GpfdistPacketBuilder
         return ArrayUtils.addAll(headerBuffer.array(), serializationResult.getData());
     }
 
-    public byte[] createSingleEmptyDataPacket()
-    {
-        return createDataPacket(new RecordsSerializationResult(new byte[] {}, 0));
+    public byte[] createSingleEmptyDataPacket() {
+        return createDataPacket(new RecordsSerializationResult(new byte[]{}, 0));
     }
 
-    public byte[] createEndPacket()
-    {
+    public byte[] createEndPacket() {
         endPacketBuffer.clear();
         endPacketBuffer.put(GPFDIST_PACKAGE_END_MSG_TYPE);
         endPacketBuffer.putInt(0);
         return endPacketBuffer.array();
     }
 
-    public byte[] createErrorPacket(Throwable error)
-    {
+    public byte[] createErrorPacket(Throwable error) {
         byte[] msgBytes = error.getMessage().getBytes(StandardCharsets.UTF_8);
         ByteBuffer buffer = ByteBuffer.allocate(HEADER_METADATA_TYPE_BYTES_LENGTH + msgBytes.length);
         buffer.put(GPFDIST_PACKAGE_ERROR_MSG_TYPE);

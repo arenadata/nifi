@@ -18,7 +18,6 @@ public class GpfdistRequestHeader {
     public static final String X_GP_X_SEG_PORT = "X-GP-X-GP-SEG-PORT";
     public static final String X_GP_SESSION_ID = "x-gp-session-id";
 
-    private GpfdistRequestHeader()
-    {
+    private GpfdistRequestHeader() {
     }
 }
