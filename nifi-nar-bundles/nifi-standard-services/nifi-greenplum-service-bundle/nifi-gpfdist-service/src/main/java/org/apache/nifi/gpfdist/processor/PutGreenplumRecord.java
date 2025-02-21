@@ -52,14 +52,6 @@ public class PutGreenplumRecord extends AbstractProcessor {
             .identifiesControllerService(RecordReaderFactory.class)
             .required(true)
             .build();
-    static final PropertyDescriptor CATALOG_NAME = new PropertyDescriptor.Builder()
-            .name("put-greenplum-record-catalog-name")
-            .displayName("Catalog Name")
-            .description("The name of the catalog")
-            .required(false)
-            .expressionLanguageSupported(FLOWFILE_ATTRIBUTES)
-            .addValidator(StandardValidators.NON_EMPTY_VALIDATOR)
-            .build();
     static final PropertyDescriptor SCHEMA_NAME = new PropertyDescriptor.Builder()
             .name("put-greenplum-record-schema-name")
             .displayName("Schema Name")
@@ -102,7 +94,6 @@ public class PutGreenplumRecord extends AbstractProcessor {
         final List<PropertyDescriptor> pds = new ArrayList<>();
         pds.add(RECORD_READER_FACTORY);
         pds.add(GPFDIST_SERVICE);
-        pds.add(CATALOG_NAME);
         pds.add(SCHEMA_NAME);
         pds.add(TABLE_NAME);
         pds.add(TABLE_COLUMNS);
@@ -133,7 +124,6 @@ public class PutGreenplumRecord extends AbstractProcessor {
             return;
         }
         ComponentLog logger = getLogger();
-        final String catalog = context.getProperty(CATALOG_NAME).getValue();
         final String schema = context.getProperty(SCHEMA_NAME).getValue();
         final String table = context.getProperty(TABLE_NAME).getValue();
         final GpfdistService gpfdistService = context.getProperty(GPFDIST_SERVICE).asControllerService(GpfdistService.class);
@@ -142,7 +132,7 @@ public class PutGreenplumRecord extends AbstractProcessor {
         final TransferDataQueryExecutor transferDataQueryExecutor = gpfdistService.getQueryExecutor();
         final RecordSinkProvider recordSinkProvider = gpfdistService.getRecordSinkProvider();
         final GreenplumTableService tableService = gpfdistService.getGreenplumTableService();
-        final TableDescription tableDescription = tableService.getTableDescription(catalog, schema, table);
+        final TableDescription tableDescription = tableService.getTableDescription(schema, table);
         final List<ColumnDescription> columnDescriptions = getColumnDescriptions(context, tableDescription);
         final List<Throwable> errors = new ArrayList<>();
 

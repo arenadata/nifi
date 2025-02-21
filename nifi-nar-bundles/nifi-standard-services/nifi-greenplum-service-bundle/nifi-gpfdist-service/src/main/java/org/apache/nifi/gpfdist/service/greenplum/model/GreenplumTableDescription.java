@@ -6,16 +6,13 @@ import org.apache.nifi.gpfdist.metadata.TableDescription;
 import java.util.Map;
 
 public class GreenplumTableDescription implements TableDescription {
-    private final String catalogName;
     private final String schemaName;
     private final String tableName;
     private final Map<String, ColumnDescription> columns;
 
-    public GreenplumTableDescription(final String catalogName,
-                                     final String schemaName,
+    public GreenplumTableDescription(final String schemaName,
                                      final String tableName,
                                      final Map<String, ColumnDescription> columns) {
-        this.catalogName = catalogName;
         this.schemaName = schemaName;
         this.tableName = tableName;
         this.columns = columns;
@@ -29,11 +26,6 @@ public class GreenplumTableDescription implements TableDescription {
     @Override
     public String getSchemaName() {
         return schemaName;
-    }
-
-    @Override
-    public String getCatalogName() {
-        return catalogName;
     }
 
     @Override

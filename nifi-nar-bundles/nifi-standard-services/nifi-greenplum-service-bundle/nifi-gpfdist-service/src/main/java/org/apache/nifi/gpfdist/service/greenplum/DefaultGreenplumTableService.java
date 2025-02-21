@@ -28,12 +28,11 @@ public class DefaultGreenplumTableService implements GreenplumTableService {
     }
 
     @Override
-    public TableDescription getTableDescription(final String catalog, final String schemaName, final String tableName) {
+    public TableDescription getTableDescription(final String schemaName, final String tableName) {
         Connection connection = null;
         try {
             connection = dbcpService.getConnection();
             return createTableDescription(connection,
-                    catalog,
                     schemaName,
                     tableName,
                     false,
@@ -56,14 +55,13 @@ public class DefaultGreenplumTableService implements GreenplumTableService {
     }
 
     public GreenplumTableDescription createTableDescription(final Connection conn,
-                                                            final String catalog,
                                                             final String schema,
                                                             final String tableName,
                                                             final boolean translateColumnNames,
                                                             final String updateKeys,
                                                             ComponentLog logger) throws SQLException {
         final DatabaseMetaData dmd = conn.getMetaData();
-        try (final ResultSet colrs = dmd.getColumns(catalog, schema, tableName, "%")) {
+        try (final ResultSet colrs = dmd.getColumns(null, schema, tableName, "%")) {
             final List<GreenplumColumnDescription> cols = new ArrayList<>();
             while (colrs.next()) {
                 final GreenplumColumnDescription col = createColumnDescription(conn, colrs, schema, tableName);
@@ -71,11 +69,8 @@ public class DefaultGreenplumTableService implements GreenplumTableService {
             }
             // If no columns are found, check that the table exists
             if (cols.isEmpty()) {
-                try (final ResultSet tblrs = dmd.getTables(catalog, schema, tableName, null)) {
+                try (final ResultSet tblrs = dmd.getTables(null, schema, tableName, null)) {
                     List<String> qualifiedNameSegments = new ArrayList<>();
-                    if (catalog != null) {
-                        qualifiedNameSegments.add(catalog);
-                    }
                     if (schema != null) {
                         qualifiedNameSegments.add(schema);
                     }
@@ -96,7 +91,7 @@ public class DefaultGreenplumTableService implements GreenplumTableService {
 
             final Set<String> primaryKeyColumns = new HashSet<>();
             if (updateKeys == null) {
-                try (final ResultSet pkrs = dmd.getPrimaryKeys(catalog, schema, tableName)) {
+                try (final ResultSet pkrs = dmd.getPrimaryKeys(null, schema, tableName)) {
 
                     while (pkrs.next()) {
                         final String colName = pkrs.getString("COLUMN_NAME");
@@ -109,7 +104,7 @@ public class DefaultGreenplumTableService implements GreenplumTableService {
                     primaryKeyColumns.add(normalizeColumnName(updateKey.trim(), translateColumnNames));
                 }
             }
-            return new GreenplumTableDescription(catalog, schema, tableName, cols.stream()
+            return new GreenplumTableDescription(schema, tableName, cols.stream()
                     .collect(toMap(GreenplumColumnDescription::getName, Function.identity())));
         }
     }

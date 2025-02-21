@@ -3,11 +3,9 @@ package org.apache.nifi.gpfdist.metadata;
 import java.util.Map;
 
 public interface TableDescription {
-    String getTableName();
-
     String getSchemaName();
 
-    String getCatalogName();
+    String getTableName();
 
     Map<String, ColumnDescription> getColumns();
 }
