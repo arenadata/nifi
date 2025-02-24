@@ -5,7 +5,6 @@ import org.apache.nifi.gpfdist.service.RecordProcessorProvider;
 
 import java.util.LinkedList;
 import java.util.Queue;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.locks.Condition;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.Supplier;
@@ -15,10 +14,10 @@ import static java.lang.String.format;
 public class GpfdistRecordProcessorProvider implements RecordProcessorProvider {
     private static final long GREENPLUM_SEGMENT_WAIT_TIMEOUT = 60000L;
     private final Queue<RecordProcessor> recordProcessors = new LinkedList<>();
-    private final AtomicBoolean isReadyForProcessing = new AtomicBoolean(false);
     private final ReentrantLock lock = new ReentrantLock();
     private final Condition isReadyForProcessingCondition = lock.newCondition();
     private boolean isNeedMoreProcessors = true;
+    private boolean isReadyForProcessing;
 
     @Override
     public boolean add(final RecordProcessor processor) {
@@ -41,7 +40,7 @@ public class GpfdistRecordProcessorProvider implements RecordProcessorProvider {
             long startTime = System.currentTimeMillis();
             while (recordProcessors.isEmpty()) {
                 try {
-                    if (!isReadyForProcessing.get() && currentTimeMsProvider().get() - startTime > GREENPLUM_SEGMENT_WAIT_TIMEOUT) {
+                    if (!isReadyForProcessing && currentTimeMsProvider().get() - startTime > GREENPLUM_SEGMENT_WAIT_TIMEOUT) {
                         throw new RuntimeException(
                                 format("Timeout :%d ms waiting for segments responses is exceeded",
                                         GREENPLUM_SEGMENT_WAIT_TIMEOUT));
@@ -51,7 +50,7 @@ public class GpfdistRecordProcessorProvider implements RecordProcessorProvider {
                     throw new RuntimeException(e);
                 }
             }
-            isReadyForProcessing.set(true);
+            isReadyForProcessing = true;
             return recordProcessors.poll();
         } finally {
             lock.unlock();
