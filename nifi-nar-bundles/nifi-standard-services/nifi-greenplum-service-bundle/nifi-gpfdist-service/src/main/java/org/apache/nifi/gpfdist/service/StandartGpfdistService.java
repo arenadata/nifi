@@ -9,7 +9,6 @@ import org.apache.nifi.components.PropertyDescriptor;
 import org.apache.nifi.controller.AbstractControllerService;
 import org.apache.nifi.controller.ConfigurationContext;
 import org.apache.nifi.dbcp.DBCPService;
-import org.apache.nifi.expression.ExpressionLanguageScope;
 import org.apache.nifi.gpfdist.server.DefaultGpfdistServer;
 import org.apache.nifi.gpfdist.server.GpfdistServer;
 import org.apache.nifi.gpfdist.server.config.GpfdistServerConfig;
@@ -27,7 +26,6 @@ import org.apache.nifi.gpfdist.service.metadata.CsvFormatConfig;
 import org.apache.nifi.gpfdist.service.metadata.DefaultExternalTableFormatConfigFactory;
 import org.apache.nifi.logging.ComponentLog;
 import org.apache.nifi.processor.DataUnit;
-import org.apache.nifi.processor.util.StandardValidators;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -35,76 +33,12 @@ import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
+import static org.apache.nifi.gpfdist.service.GpfdistProperties.*;
+
 @Tags({"gpfdist"})
 @CapabilityDescription("Provides the ability to load data to Greenplum segments directly")
 public class StandartGpfdistService extends AbstractControllerService implements GpfdistService {
-    static final PropertyDescriptor PORT = new PropertyDescriptor.Builder()
-            .name("Listening Port")
-            .description("The Port to listen on for incoming gpfdist requests")
-            .required(true)
-            .addValidator(StandardValidators.PORT_VALIDATOR)
-            .expressionLanguageSupported(ExpressionLanguageScope.VARIABLE_REGISTRY)
-            .defaultValue("80")
-            .build();
-    static final PropertyDescriptor HOSTNAME = new PropertyDescriptor.Builder()
-            .name("Hostname")
-            .description("The Hostname to bind to. If not specified, will bind to all hosts")
-            .required(false)
-            .addValidator(StandardValidators.NON_EMPTY_VALIDATOR)
-            .expressionLanguageSupported(ExpressionLanguageScope.NONE)
-            .build();
-    static final PropertyDescriptor GPFDIST_SERVER_MIN_THREADS = new PropertyDescriptor.Builder()
-            .name("Minimum Gpffist Server Threads")
-            .description("The minimum amount of threads that are used to run the Gpffist server")
-            .required(false)
-            .addValidator(StandardValidators.INTEGER_VALIDATOR)
-            .defaultValue("1")
-            .build();
-    static final PropertyDescriptor GPFDIST_SERVER_MAX_THREADS = new PropertyDescriptor.Builder()
-            .name("Maximum Gpffist Server Threads")
-            .description("The maximum amount of threads that are used to run the Gpffist server")
-            .required(false)
-            .addValidator(StandardValidators.INTEGER_VALIDATOR)
-            .defaultValue("4")
-            .build();
-    static final PropertyDescriptor GPFDIST_SERVER_THREAD_IDLE_TIMEOUT_MS = new PropertyDescriptor.Builder()
-            .name("The Maximum Gpffist Server Threads Idle Timeout")
-            .description("The maximum gpffist server threads idle timeout in milliseconds")
-            .required(false)
-            .addValidator(StandardValidators.INTEGER_VALIDATOR)
-            .defaultValue("60000")
-            .build();
-    static final PropertyDescriptor DBCP_SERVICE = new PropertyDescriptor.Builder()
-            .name("put-greenplum-record-dcbp-service")
-            .displayName("Database Connection Pooling Service")
-            .description("The Controller Service that is used to obtain a connection to the greenplum for executing queries.")
-            .required(true)
-            .identifiesControllerService(DBCPService.class)
-            .build();
-    static final PropertyDescriptor WRITE_BUFFER_SIZE = new PropertyDescriptor.Builder()
-            .name("put-greenplum-record-write-buffer-size")
-            .displayName("Write buffer size in bytes")
-            .description("Write byte buffer size for serialized records.")
-            .addValidator(StandardValidators.DATA_SIZE_VALIDATOR)
-            .required(false)
-            .defaultValue("1 MB")
-            .build();
-    static final PropertyDescriptor RECORD_PROCESSOR_MAX_THREADS = new PropertyDescriptor.Builder()
-            .name("Maximum Record Processor Threads")
-            .description("The maximum amount of threads that are used to process the records")
-            .required(false)
-            .addValidator(StandardValidators.INTEGER_VALIDATOR)
-            .defaultValue("8")
-            .build();
-    static final PropertyDescriptor GPFDIST_REQUEST_PROCESSOR_MAX_THREADS = new PropertyDescriptor.Builder()
-            .name("Maximum Gpfdist Request Processor Threads")
-            .description("The maximum amount of threads that are used to process the gpfdist requests")
-            .required(false)
-            .addValidator(StandardValidators.INTEGER_VALIDATOR)
-            .defaultValue("8")
-            .build();
     private static final List<PropertyDescriptor> PROPERTIES;
-
     static {
         final List<PropertyDescriptor> props = new ArrayList<>();
         props.add(PORT);
@@ -182,7 +116,9 @@ public class StandartGpfdistService extends AbstractControllerService implements
                     writeBufferSize,
                     logger);
         } catch (Exception e) {
-            throw new RuntimeException("Failed to configure gpfdist service", e);
+            String errMsg = "Failed to configure gpfdist service: " + e.getMessage();
+            getLogger().error(errMsg, e);
+            throw new RuntimeException(errMsg, e);
         }
     }
 

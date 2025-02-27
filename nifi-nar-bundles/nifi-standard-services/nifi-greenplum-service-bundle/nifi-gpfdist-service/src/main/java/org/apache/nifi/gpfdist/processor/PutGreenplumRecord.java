@@ -133,10 +133,10 @@ public class PutGreenplumRecord extends AbstractProcessor {
         final RecordSinkProvider recordSinkProvider = gpfdistService.getRecordSinkProvider();
         final GreenplumTableService tableService = gpfdistService.getGreenplumTableService();
         final TableDescription tableDescription = tableService.getTableDescription(schema, table);
-        final List<ColumnDescription> columnDescriptions = getColumnDescriptions(context, tableDescription);
-        final List<Throwable> errors = new ArrayList<>();
 
         try (final InputStream in = session.read(flowFile)) {
+            final List<ColumnDescription> columnDescriptions = getColumnDescriptions(context, tableDescription);
+            final List<Throwable> errors = new ArrayList<>();
             final RecordReader recordReader = recordReaderFactory.createRecordReader(flowFile, in, logger);
             RecordSchema readerSchema = recordReader.getSchema();
             if (readerSchema.getFieldCount() != columnDescriptions.size()) {
@@ -156,6 +156,7 @@ public class PutGreenplumRecord extends AbstractProcessor {
             }
             finishLoading(errors);
             if (errors.isEmpty()) {
+                //todo implement correct report with loading record count details and time
                 session.getProvenanceReporter().send(flowFile, "GpfdistService");
             } else {
                 recordSink.abort();

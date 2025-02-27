@@ -13,12 +13,10 @@ import java.util.LinkedList;
 import java.util.Queue;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.TimeUnit;
 
 import static java.lang.String.format;
 
 public class GpfdistRecordSink implements RecordSink {
-    private static final int PROCESSING_RECORD_TIMEOUT_MS = 60000;
     private final WriteContext writeContext;
     private final ExecutorService executorService;
     private final WriteContextManager contextManager;
@@ -31,7 +29,7 @@ public class GpfdistRecordSink implements RecordSink {
                              ComponentLog logger) {
         this.contextManager = contextManager;
         this.writeContext = contextManager.get(contextId)
-                .orElseThrow(() -> new IllegalArgumentException("No write context found for " + contextId));
+                .orElseThrow(() -> new IllegalArgumentException("No write context found for contextId: " + contextId));
         this.executorService = executorService;
         this.logger = logger;
     }
@@ -51,13 +49,9 @@ public class GpfdistRecordSink implements RecordSink {
         return CompletableFuture.runAsync(() -> {
             CompletableFuture<Void> future;
             while ((future = loadingRecordfutureQueue.poll()) != null) {
-                try {
-                    future.get(PROCESSING_RECORD_TIMEOUT_MS, TimeUnit.MILLISECONDS);
-                } catch (Exception e) {
-                    throw new RuntimeException("Failed to process record", e);
-                }
+                future.join();
             }
-            logger.debug("Finished loading records within context {}", writeContext.getContextId());
+            logger.info("Finished loading records within context {}", writeContext.getContextId());
             writeContext.close();
             contextManager.remove(writeContext.getContextId());
         }, executorService);

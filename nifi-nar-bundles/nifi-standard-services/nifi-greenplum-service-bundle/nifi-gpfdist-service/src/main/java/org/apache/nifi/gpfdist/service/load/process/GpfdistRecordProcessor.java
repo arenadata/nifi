@@ -55,8 +55,8 @@ public class GpfdistRecordProcessor implements RecordProcessor {
                 bytesWritten = 0;
             }
             processedRows++;
-        } catch (IOException e) {
-            throw new RuntimeException(e);
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to process record: " + e.getMessage(), e);
         }
     }
 

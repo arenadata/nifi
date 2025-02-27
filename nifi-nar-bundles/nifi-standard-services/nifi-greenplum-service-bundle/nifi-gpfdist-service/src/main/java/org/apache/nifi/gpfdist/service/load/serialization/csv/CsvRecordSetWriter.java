@@ -36,8 +36,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.*;
 import java.util.stream.Collectors;
 
-import static org.apache.nifi.gpfdist.metadata.GreenplumDataType.ARRAY;
-import static org.apache.nifi.gpfdist.metadata.GreenplumDataType.MAP;
+import static org.apache.nifi.gpfdist.metadata.GreenplumDataType.*;
 
 public class CsvRecordSetWriter extends AbstractRecordSetWriter implements RecordSetWriter, RawRecordWriter {
     private static final String TIMESTAMP_WITHOUT_TIME_ZONE_FORMAT = "yyyy-MM-dd HH:mm:ss.SSSSSS";
@@ -168,11 +167,18 @@ public class CsvRecordSetWriter extends AbstractRecordSetWriter implements Recor
                 }
                 return booleanValue ? "1" : "0";
             case BYTEA:
-                Object[] objects = record.getAsArray(recordField.getFieldName());
-                if (objects == null) {
-                    return null;
+                DataType byteDataType = recordField.getDataType();
+                if (byteDataType.getFieldType() == RecordFieldType.ARRAY) {
+                    Object[] objects = record.getAsArray(recordField.getFieldName());
+                    if (objects == null) {
+                        return null;
+                    }
+                    return toPGString(Arrays.stream(objects).toArray(Byte[]::new));
+                } else if (byteDataType.getFieldType() == RecordFieldType.STRING) {
+                    return record.getAsString(recordField.getFieldName());
+                } else {
+                    throw new IllegalArgumentException("Unsupported field type: " + byteDataType + " for column type " + BYTEA);
                 }
-                return toPGString(Arrays.stream(objects).toArray(Byte[]::new));
             case DATE:
                 return record.getAsString(recordField, DATE_FORMAT);
             case TIME:
@@ -212,10 +218,18 @@ public class CsvRecordSetWriter extends AbstractRecordSetWriter implements Recor
         }
         DataType elementType = ((ArrayDataType) arrayDataType).getElementType();
         switch (elementType.getFieldType()) {
+            case STRING:
+            case INT:
+            case LONG:
+            case FLOAT:
+            case DOUBLE:
+            case DECIMAL:
+            case BIGINT:
+            case BOOLEAN:
+            case SHORT:
+                return getValueFromObjectArray(array);
             case BYTE:
                 return getValueFromByteArray(array);
-            case STRING:
-                return getValueFromObjectArray(array);
             default:
                 throw new IllegalArgumentException("Unsupported field array element type: " + elementType + " for column type " + ARRAY);
         }
@@ -228,7 +242,9 @@ public class CsvRecordSetWriter extends AbstractRecordSetWriter implements Recor
         }
         String arrStr = new String(newByteArray, StandardCharsets.UTF_8);
         String mapValueString = getValueWithoutBraces(arrStr);
-        return getValueFromObjectArray(mapValueString.split(AARRAY_VALUE_DELIMITER));
+        return getValueFromObjectArray(Arrays.stream(mapValueString.split(AARRAY_VALUE_DELIMITER))
+                .map(String::trim)
+                .toArray(String[]::new));
     }
 
     private String getValueFromObjectArray(Object[] array) {
