@@ -6,7 +6,7 @@ public interface GpfdistService extends ControllerService {
 
     RecordSinkProvider getRecordSinkProvider();
 
-    GreenplumTableService getGreenplumTableService();
+    GreenplumService getGreenplumTableService();
 
     TransferDataQueryExecutor getQueryExecutor();
 }

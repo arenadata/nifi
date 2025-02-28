@@ -23,11 +23,13 @@ import org.apache.nifi.serialization.RecordReaderFactory;
 import org.apache.nifi.serialization.record.Record;
 import org.apache.nifi.serialization.record.RecordSchema;
 import org.apache.nifi.serialization.record.RecordSet;
+import org.apache.nifi.util.StopWatch;
 
 import java.io.InputStream;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
 import static org.apache.nifi.expression.ExpressionLanguageScope.FLOWFILE_ATTRIBUTES;
@@ -131,10 +133,11 @@ public class PutGreenplumRecord extends AbstractProcessor {
 
         final TransferDataQueryExecutor transferDataQueryExecutor = gpfdistService.getQueryExecutor();
         final RecordSinkProvider recordSinkProvider = gpfdistService.getRecordSinkProvider();
-        final GreenplumTableService tableService = gpfdistService.getGreenplumTableService();
-        final TableDescription tableDescription = tableService.getTableDescription(schema, table);
-
+        final GreenplumService greenplumService = gpfdistService.getGreenplumTableService();
+        final TableDescription tableDescription = greenplumService.getTableDescription(schema, table);
+        final StopWatch stopWatch = new StopWatch(true);
         try (final InputStream in = session.read(flowFile)) {
+            final String destinationUrl = greenplumService.getDatabaseMetadata().getURL();
             final List<ColumnDescription> columnDescriptions = getColumnDescriptions(context, tableDescription);
             final List<Throwable> errors = new ArrayList<>();
             final RecordReader recordReader = recordReaderFactory.createRecordReader(flowFile, in, logger);
@@ -156,8 +159,10 @@ public class PutGreenplumRecord extends AbstractProcessor {
             }
             finishLoading(errors);
             if (errors.isEmpty()) {
-                //todo implement correct report with loading record count details and time
-                session.getProvenanceReporter().send(flowFile, "GpfdistService");
+                session.getProvenanceReporter().send(flowFile,
+                        destinationUrl,
+                        writeContext.getResult().toString(),
+                        stopWatch.getElapsed(TimeUnit.MILLISECONDS));
             } else {
                 recordSink.abort();
                 throw new RuntimeException(errors.stream()

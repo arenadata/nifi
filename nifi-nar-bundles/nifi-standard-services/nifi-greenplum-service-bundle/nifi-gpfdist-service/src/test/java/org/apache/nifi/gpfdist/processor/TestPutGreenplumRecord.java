@@ -1,6 +1,6 @@
 package org.apache.nifi.gpfdist.processor;
 
-import org.apache.nifi.gpfdist.service.GreenplumTableService;
+import org.apache.nifi.gpfdist.service.GreenplumService;
 import org.apache.nifi.gpfdist.service.RecordSink;
 import org.apache.nifi.gpfdist.service.RecordSinkProvider;
 import org.apache.nifi.gpfdist.service.TransferDataQueryExecutor;
@@ -10,6 +10,7 @@ import org.apache.nifi.gpfdist.service.greenplum.model.GreenplumColumnDescriptio
 import org.apache.nifi.gpfdist.service.greenplum.model.GreenplumTableDescription;
 import org.apache.nifi.gpfdist.service.load.context.WriteContext;
 import org.apache.nifi.gpfdist.service.load.metadata.GpfdistLoadMetadata;
+import org.apache.nifi.gpfdist.service.load.metadata.LoadingResult;
 import org.apache.nifi.reporting.InitializationException;
 import org.apache.nifi.serialization.record.MockRecordParser;
 import org.apache.nifi.serialization.record.RecordFieldType;
@@ -19,6 +20,8 @@ import org.apache.nifi.util.TestRunners;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import java.sql.DatabaseMetaData;
+import java.sql.SQLException;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
@@ -54,14 +57,22 @@ class TestPutGreenplumRecord {
         testRunner.addControllerService(RECORD_READER, recordReader);
         testRunner.enableControllerService(recordReader);
         GreenplumTableDescription tableDescription = createGreenplumTableDescription(tableColumns);
-        GreenplumTableService greenplumTableService = mockGpfdistService.getGreenplumTableService();
+        GreenplumService greenplumService = mockGpfdistService.getGreenplumTableService();
         RecordSinkProvider recordSinkProvider = mockGpfdistService.getRecordSinkProvider();
         TransferDataQueryExecutor queryExecutor = mockGpfdistService.getQueryExecutor();
-        when(greenplumTableService.getTableDescription(null, tableName)).thenReturn(tableDescription);
+        when(greenplumService.getTableDescription(null, tableName)).thenReturn(tableDescription);
+        DatabaseMetaData databaseMetaData = mock(DatabaseMetaData.class);
+        try {
+            when(databaseMetaData.getURL()).thenReturn("jdbc://test:6000");
+        } catch (SQLException e) {
+            throw new RuntimeException(e);
+        }
+        when(greenplumService.getDatabaseMetadata()).thenReturn(databaseMetaData);
         RecordSink recordSink = mock(RecordSink.class);
         WriteContext writeContext = mock(WriteContext.class);
         GpfdistLoadMetadata metadata = mock(GpfdistLoadMetadata.class);
         when(writeContext.getMetadata()).thenReturn(metadata);
+        when(writeContext.getResult()).thenReturn(new LoadingResult());
         when(recordSink.getContext()).thenReturn(writeContext);
         when(recordSinkProvider.createRecordSink(eq(tableDescription), any(List.class), any(RecordSchema.class)))
                 .thenReturn(recordSink);
@@ -94,10 +105,10 @@ class TestPutGreenplumRecord {
         GreenplumTableDescription tableDescription = createGreenplumTableDescription(List.of(tableColumns.get(0),
                 tableColumns.get(1),
                 "nonExistColumn"));
-        GreenplumTableService greenplumTableService = mockGpfdistService.getGreenplumTableService();
+        GreenplumService greenplumService = mockGpfdistService.getGreenplumTableService();
         RecordSinkProvider recordSinkProvider = mockGpfdistService.getRecordSinkProvider();
         TransferDataQueryExecutor queryExecutor = mockGpfdistService.getQueryExecutor();
-        when(greenplumTableService.getTableDescription(null, tableName)).thenReturn(tableDescription);
+        when(greenplumService.getTableDescription(null, tableName)).thenReturn(tableDescription);
         RecordSink recordSink = mock(RecordSink.class);
         WriteContext writeContext = mock(WriteContext.class);
         GpfdistLoadMetadata metadata = mock(GpfdistLoadMetadata.class);
@@ -132,10 +143,10 @@ class TestPutGreenplumRecord {
         testRunner.addControllerService(RECORD_READER, recordReader);
         testRunner.enableControllerService(recordReader);
         GreenplumTableDescription tableDescription = createGreenplumTableDescription(tableColumns);
-        GreenplumTableService greenplumTableService = mockGpfdistService.getGreenplumTableService();
+        GreenplumService greenplumService = mockGpfdistService.getGreenplumTableService();
         RecordSinkProvider recordSinkProvider = mockGpfdistService.getRecordSinkProvider();
         TransferDataQueryExecutor queryExecutor = mockGpfdistService.getQueryExecutor();
-        when(greenplumTableService.getTableDescription(null, tableName)).thenReturn(tableDescription);
+        when(greenplumService.getTableDescription(null, tableName)).thenReturn(tableDescription);
         RecordSink recordSink = mock(RecordSink.class);
         WriteContext writeContext = mock(WriteContext.class);
         GpfdistLoadMetadata metadata = mock(GpfdistLoadMetadata.class);
@@ -172,10 +183,10 @@ class TestPutGreenplumRecord {
         testRunner.addControllerService(RECORD_READER, recordReader);
         testRunner.enableControllerService(recordReader);
         GreenplumTableDescription tableDescription = createGreenplumTableDescription(tableColumns);
-        GreenplumTableService greenplumTableService = mockGpfdistService.getGreenplumTableService();
+        GreenplumService greenplumService = mockGpfdistService.getGreenplumTableService();
         RecordSinkProvider recordSinkProvider = mockGpfdistService.getRecordSinkProvider();
         TransferDataQueryExecutor queryExecutor = mockGpfdistService.getQueryExecutor();
-        when(greenplumTableService.getTableDescription(null, tableName)).thenReturn(tableDescription);
+        when(greenplumService.getTableDescription(null, tableName)).thenReturn(tableDescription);
         RecordSink recordSink = mock(RecordSink.class);
         WriteContext writeContext = mock(WriteContext.class);
         GpfdistLoadMetadata metadata = mock(GpfdistLoadMetadata.class);
@@ -212,10 +223,10 @@ class TestPutGreenplumRecord {
         testRunner.addControllerService(RECORD_READER, recordReader);
         testRunner.enableControllerService(recordReader);
         GreenplumTableDescription tableDescription = createGreenplumTableDescription(tableColumns);
-        GreenplumTableService greenplumTableService = mockGpfdistService.getGreenplumTableService();
+        GreenplumService greenplumService = mockGpfdistService.getGreenplumTableService();
         RecordSinkProvider recordSinkProvider = mockGpfdistService.getRecordSinkProvider();
         TransferDataQueryExecutor queryExecutor = mockGpfdistService.getQueryExecutor();
-        when(greenplumTableService.getTableDescription(null, tableName)).thenReturn(tableDescription);
+        when(greenplumService.getTableDescription(null, tableName)).thenReturn(tableDescription);
         RecordSink recordSink = mock(RecordSink.class);
         WriteContext writeContext = mock(WriteContext.class);
         GpfdistLoadMetadata metadata = mock(GpfdistLoadMetadata.class);
