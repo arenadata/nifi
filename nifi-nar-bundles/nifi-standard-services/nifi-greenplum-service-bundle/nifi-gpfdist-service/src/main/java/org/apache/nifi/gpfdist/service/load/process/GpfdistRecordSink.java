@@ -67,7 +67,7 @@ public class GpfdistRecordSink implements RecordSink {
     private void failContext(Throwable e) {
         try {
             loadingRecordfutureQueue.clear();
-            writeContext.getError().set(e);
+            writeContext.getResult().getError().set(e);
             writeContext.close();
         } finally {
             contextManager.remove(writeContext.getContextId());

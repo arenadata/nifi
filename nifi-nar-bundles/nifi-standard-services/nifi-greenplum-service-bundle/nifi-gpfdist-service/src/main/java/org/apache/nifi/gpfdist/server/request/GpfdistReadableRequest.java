@@ -10,8 +10,8 @@ public class GpfdistReadableRequest extends ReadableRequest {
     private final String transactionId;
     private final String commandId;
     private final String scanId;
-    private final Optional<Integer> segmentId;
-    private final Optional<Integer> segmentsCount;
+    private final int segmentId;
+    private final int segmentsCount;
     private final Optional<Integer> lineDelimiterLength;
     private final short gpProtocol;
     private final Optional<String> gpMasterHost;
@@ -29,8 +29,8 @@ public class GpfdistReadableRequest extends ReadableRequest {
             String transactionId,
             String commandId,
             String scanId,
-            Optional<Integer> segmentId,
-            Optional<Integer> segmentsCount,
+            int segmentId,
+            int segmentsCount,
             Optional<Integer> lineDelimiterLength,
             short gpProtocol,
             Optional<String> gpMasterHost,
@@ -68,9 +68,11 @@ public class GpfdistReadableRequest extends ReadableRequest {
                 values.get(X_GP_CID),
                 values.get(X_GP_SN),
                 Optional.ofNullable(values.get(X_GP_SEGMENT_ID))
-                        .map(Integer::parseInt),
+                        .map(Integer::parseInt)
+                        .orElseThrow(() -> new IllegalArgumentException("Failed to get segmentId from gpfdist request header")),
                 Optional.ofNullable(values.get(X_GP_SEGMENT_COUNT))
-                        .map(Integer::parseInt),
+                        .map(Integer::parseInt)
+                        .orElseThrow(() -> new IllegalArgumentException("Failed to get segmentCount from gpfdist request header")),
                 Optional.ofNullable(values.get(X_GP_LINE_DELIM_LENGTH))
                         .map(Integer::parseInt),
                 Short.parseShort(values.get(X_GP_PROTO)),
@@ -94,6 +96,14 @@ public class GpfdistReadableRequest extends ReadableRequest {
 
     public short getGpProtocol() {
         return gpProtocol;
+    }
+
+    public int getSegmentId() {
+        return segmentId;
+    }
+
+    public int getSegmentsCount() {
+        return segmentsCount;
     }
 
     @Override

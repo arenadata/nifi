@@ -3,7 +3,7 @@ package org.apache.nifi.gpfdist.service.greenplum;
 import org.apache.nifi.dbcp.DBCPService;
 import org.apache.nifi.gpfdist.metadata.ColumnDataType;
 import org.apache.nifi.gpfdist.metadata.TableDescription;
-import org.apache.nifi.gpfdist.service.GreenplumTableService;
+import org.apache.nifi.gpfdist.service.GreenplumService;
 import org.apache.nifi.gpfdist.service.datatype.*;
 import org.apache.nifi.gpfdist.service.greenplum.model.GreenplumColumnDescription;
 import org.apache.nifi.gpfdist.service.greenplum.model.GreenplumTableDescription;
@@ -17,14 +17,29 @@ import static java.lang.Math.max;
 import static java.util.stream.Collectors.toMap;
 import static org.apache.nifi.gpfdist.service.util.GreenplumUtil.getJdbcTypeFromOid;
 
-public class DefaultGreenplumTableService implements GreenplumTableService {
+public class DefaultGreenplumService implements GreenplumService {
     private static final int VARCHAR_MAXIMUM_SIZE = 65535;
     private final DBCPService dbcpService;
     private final ComponentLog logger;
 
-    public DefaultGreenplumTableService(final DBCPService dbcpService, ComponentLog logger) {
+    public DefaultGreenplumService(final DBCPService dbcpService, ComponentLog logger) {
         this.dbcpService = dbcpService;
         this.logger = logger;
+    }
+
+    @Override
+    public DatabaseMetaData getDatabaseMetadata() {
+        Connection connection = null;
+        try {
+            connection = dbcpService.getConnection();
+            return connection.getMetaData();
+        } catch (Exception e) {
+            String errMsg = "Failed to get greenplum database metadata";
+            logger.error(errMsg, e);
+            throw new RuntimeException(errMsg, e);
+        } finally {
+            closeConnection(connection);
+        }
     }
 
     @Override
@@ -44,13 +59,7 @@ public class DefaultGreenplumTableService implements GreenplumTableService {
             logger.error(errMsg, e);
             throw new RuntimeException(errMsg, e);
         } finally {
-            if (connection != null) {
-                try {
-                    connection.close();
-                } catch (SQLException e) {
-                    logger.warn("Failed to close connection", e);
-                }
-            }
+            closeConnection(connection);
         }
     }
 
@@ -106,6 +115,16 @@ public class DefaultGreenplumTableService implements GreenplumTableService {
             }
             return new GreenplumTableDescription(schema, tableName, cols.stream()
                     .collect(toMap(GreenplumColumnDescription::getName, Function.identity())));
+        }
+    }
+
+    private void closeConnection(Connection connection) {
+        if (connection != null) {
+            try {
+                connection.close();
+            } catch (SQLException e) {
+                logger.warn("Failed to close connection", e);
+            }
         }
     }
 

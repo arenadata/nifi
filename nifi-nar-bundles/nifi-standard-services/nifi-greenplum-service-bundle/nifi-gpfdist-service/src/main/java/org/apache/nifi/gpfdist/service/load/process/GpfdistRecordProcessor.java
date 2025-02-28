@@ -3,6 +3,7 @@ package org.apache.nifi.gpfdist.service.load.process;
 import org.apache.nifi.gpfdist.server.request.GpfdistReadableRequest;
 import org.apache.nifi.gpfdist.service.RecordProcessor;
 import org.apache.nifi.gpfdist.service.load.context.WriteContext;
+import org.apache.nifi.gpfdist.service.load.metadata.LoadingSegmentResult;
 import org.apache.nifi.gpfdist.service.load.serialization.RecordSerializationService;
 import org.apache.nifi.gpfdist.service.load.serialization.RecordsSerializationResult;
 import org.apache.nifi.logging.ComponentLog;
@@ -63,7 +64,7 @@ public class GpfdistRecordProcessor implements RecordProcessor {
     @Override
     public void stop() {
         try {
-            Throwable error = writeContext.getError().get();
+            Throwable error = writeContext.getResult().getError().get();
             if (error != null) {
                 writePacket(packetBuilder.createErrorPacket(error));
                 logger.warn("Stopped writing process with error. Sent error packet data for request: {}", error);
@@ -82,10 +83,10 @@ public class GpfdistRecordProcessor implements RecordProcessor {
                     logger.info("Stopped writing process. Sent finished single empty packet data for request: {}", request);
                 }
             }
-            logger.info("Processing records result: count={}, estimated bytes={}. Request: {}",
-                    processedRows,
-                    processedBytes,
-                    request);
+            LoadingSegmentResult segmentResult = new LoadingSegmentResult(request.getSegmentId(), processedRows, processedBytes);
+            writeContext.getResult().getSegmentsCount().compareAndSet(0, request.getSegmentsCount());
+            writeContext.getResult().getSegmentResults().put(segmentResult.getSegmentId(), segmentResult);
+            logger.info("Processing records segment result: {}", segmentResult);
             close();
         } catch (Exception e) {
             throw new RuntimeException(e);

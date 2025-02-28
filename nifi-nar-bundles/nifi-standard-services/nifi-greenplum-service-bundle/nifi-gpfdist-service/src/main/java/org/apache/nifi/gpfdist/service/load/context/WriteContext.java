@@ -4,9 +4,8 @@ import org.apache.nifi.gpfdist.metadata.Context;
 import org.apache.nifi.gpfdist.metadata.ContextId;
 import org.apache.nifi.gpfdist.service.RecordProcessorProvider;
 import org.apache.nifi.gpfdist.service.load.metadata.GpfdistLoadMetadata;
+import org.apache.nifi.gpfdist.service.load.metadata.LoadingResult;
 import org.apache.nifi.logging.ComponentLog;
-
-import java.util.concurrent.atomic.AtomicReference;
 
 public class WriteContext implements Context {
     private final ContextId contextId;
@@ -14,7 +13,7 @@ public class WriteContext implements Context {
     private final GpfdistLoadMetadata metadata;
     private final RecordProcessorProvider recordProcessorProvider;
     private final ComponentLog logger;
-    private final AtomicReference<Throwable> error = new AtomicReference<>();
+    private final LoadingResult result;
 
     public WriteContext(final ContextId contextId,
                         int bufferSize,
@@ -26,6 +25,7 @@ public class WriteContext implements Context {
         this.metadata = metadata;
         this.recordProcessorProvider = recordProcessorProvider;
         this.logger = logger;
+        this.result = new LoadingResult();
     }
 
     @Override
@@ -41,8 +41,8 @@ public class WriteContext implements Context {
         return metadata;
     }
 
-    public AtomicReference<Throwable> getError() {
-        return error;
+    public LoadingResult getResult() {
+        return result;
     }
 
     public RecordProcessorProvider getRecordProcessorProvider() {
@@ -62,7 +62,8 @@ public class WriteContext implements Context {
     @Override
     public String toString() {
         return "WriteContext{" +
-                "contextId=" + contextId.getId() +
+                "contextId=" + contextId +
+                ", result=" + result +
                 '}';
     }
 }

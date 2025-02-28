@@ -12,7 +12,7 @@ import org.apache.nifi.dbcp.DBCPService;
 import org.apache.nifi.gpfdist.server.DefaultGpfdistServer;
 import org.apache.nifi.gpfdist.server.GpfdistServer;
 import org.apache.nifi.gpfdist.server.config.GpfdistServerConfig;
-import org.apache.nifi.gpfdist.service.greenplum.DefaultGreenplumTableService;
+import org.apache.nifi.gpfdist.service.greenplum.DefaultGreenplumService;
 import org.apache.nifi.gpfdist.service.load.context.WriteContextManager;
 import org.apache.nifi.gpfdist.service.load.metadata.factory.CreateReadableExternalTableQueryFactory;
 import org.apache.nifi.gpfdist.service.load.metadata.factory.DefaulGpfdistLocationFactory;
@@ -55,7 +55,7 @@ public class StandartGpfdistService extends AbstractControllerService implements
 
     private GpfdistServer server;
     private RecordSinkProvider recordSinkProvider;
-    private GreenplumTableService greenplumTableService;
+    private GreenplumService greenplumService;
     private TransferDataQueryExecutor queryExecutor;
 
     @Override
@@ -96,7 +96,7 @@ public class StandartGpfdistService extends AbstractControllerService implements
                     requestExecutorService,
                     logger);
             server.start();
-            greenplumTableService = new DefaultGreenplumTableService(dbcpService, logger);
+            greenplumService = new DefaultGreenplumService(dbcpService, logger);
             final DefaultGpfdistLoadMetadataFactory loadMetadataFactory =
                     new DefaultGpfdistLoadMetadataFactory(new DefaulGpfdistLocationFactory(new GpfdistServerConfig(server.getPort(),
                             server.getHost(),
@@ -136,8 +136,8 @@ public class StandartGpfdistService extends AbstractControllerService implements
     }
 
     @Override
-    public GreenplumTableService getGreenplumTableService() {
-        return greenplumTableService;
+    public GreenplumService getGreenplumTableService() {
+        return greenplumService;
     }
 
     @Override
