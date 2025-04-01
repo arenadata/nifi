@@ -1,0 +1,106 @@
+version: "3.8"
+services:
+    mdw:
+        image: "hub.adsw.io/trino/gpdb6-distributed:it"
+        restart: on-failure:3
+        working_dir: /home/gpadmin
+        hostname: mdw
+        ports:
+            - "6000:6000"
+        environment:
+            - DOCKER_GP_CLUSTER_HOSTS=mdw,smdw,sdw1,sdw2
+            - DOCKER_GP_MASTER_SERVER=mdw
+            - DOCKER_GP_STANDBY_SERVER=smdw
+            - DOCKER_GP_SEGMENT_SERVERS=sdw1,sdw2
+            - DOCKER_GP_PRIMARY_SEGMENTS_PER_HOST=2
+            - DOCKER_GP_WITH_MIRROR=true
+        depends_on:
+            - sdw1
+            - sdw2
+            - smdw
+        healthcheck:
+            test: 'bash /home/gpadmin/healthcheck.sh true 2 true'
+            interval: 10s
+            timeout: 1s
+            retries: 20
+        entrypoint: ["bash", "start_adb.sh" ]
+        privileged: true
+        extra_hosts:
+            - "host.docker.internal:host-gateway"
+        sysctls:
+            kernel.sem: 500 1024000 200 4096
+
+    sdw1:
+        image: "hub.adsw.io/trino/gpdb6-distributed:it"
+        restart: on-failure:3
+        privileged: true
+        hostname: sdw1
+        healthcheck:
+            test: 'bash /home/gpadmin/healthcheck.sh false 2 true'
+        environment:
+            - DOCKER_GP_CLUSTER_HOSTS=mdw,smdw,sdw1,sdw2
+            - DOCKER_GP_MASTER_SERVER=mdw
+            - DOCKER_GP_STANDBY_SERVER=smdw
+            - DOCKER_GP_SEGMENT_SERVERS=sdw1,sdw2
+            - DOCKER_GP_PRIMARY_SEGMENTS_PER_HOST=2
+            - DOCKER_GP_WITH_MIRROR=true
+        entrypoint: ["bash", "start_adb.sh" ]
+        extra_hosts:
+            - "host.docker.internal:host-gateway"
+        sysctls:
+            kernel.sem: 500 1024000 200 4096
+
+    sdw2:
+        image: "hub.adsw.io/trino/gpdb6-distributed:it"
+        restart: on-failure:3
+        privileged: true
+        hostname: sdw2
+        healthcheck:
+            test: 'bash /home/gpadmin/healthcheck.sh false 2 true'
+        environment:
+            - DOCKER_GP_CLUSTER_HOSTS=mdw,smdw,sdw1,sdw2
+            - DOCKER_GP_MASTER_SERVER=mdw
+            - DOCKER_GP_STANDBY_SERVER=smdw
+            - DOCKER_GP_SEGMENT_SERVERS=sdw1,sdw2
+            - DOCKER_GP_PRIMARY_SEGMENTS_PER_HOST=2
+            - DOCKER_GP_WITH_MIRROR=true
+        entrypoint: ["bash", "start_adb.sh" ]
+        extra_hosts:
+            - "host.docker.internal:host-gateway"
+        sysctls:
+            kernel.sem: 500 1024000 200 4096
+
+    smdw:
+        image: "hub.adsw.io/trino/gpdb6-distributed:it"
+        restart: on-failure:3
+        privileged: true
+        hostname: smdw
+        healthcheck:
+            test: 'bash /home/gpadmin/healthcheck.sh true 2 true'
+        environment:
+            - DOCKER_GP_CLUSTER_HOSTS=mdw,smdw,sdw1,sdw2
+            - DOCKER_GP_MASTER_SERVER=mdw
+            - DOCKER_GP_STANDBY_SERVER=smdw
+            - DOCKER_GP_SEGMENT_SERVERS=sdw1,sdw2
+            - DOCKER_GP_PRIMARY_SEGMENTS_PER_HOST=2
+            - DOCKER_GP_WITH_MIRROR=true
+        entrypoint: ["bash", "start_adb.sh" ]
+        extra_hosts:
+            - "host.docker.internal:host-gateway"
+        sysctls:
+            kernel.sem: 500 1024000 200 4096
+
+    postgres:
+        image: "docker.io/library/postgres:12.0"
+        restart: unless-stopped
+        environment:
+            POSTGRES_DB: 'postgres'
+            POSTGRES_USER: 'nifi'
+#            POSTGRES_PASSWORD: 'nifi'
+        ports:
+            - '5432:5432'
+        healthcheck:
+            test: psql -d postgres -U nifi -Atc 'SELECT 1;'
+            interval: 30s
+            timeout: 15s
+            retries: 3

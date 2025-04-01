@@ -1,0 +1,14 @@
+FROM hub.adsw.io/library/gpdb6_regress:adb-6.x-dev
+RUN gpdb_src/concourse/scripts/setup_gpadmin_user.bash
+RUN mkdir -p /data/gpdata/master /data/gpdata/primary /data/gpdata/mirror && chmod -R 755 /data && \
+    source gpdb_src/concourse/scripts/common.bash  && \
+    chown -R gpadmin:gpadmin /data && \
+    chown -R gpadmin:gpadmin /home/gpadmin && install_gpdb
+
+RUN yum install -y lz4-devel libzstd-devel bzip2-devel ksh python2-pyyaml
+
+ADD ./start_adb.sh /home/gpadmin/start_adb.sh
+ADD ./healthcheck.sh /home/gpadmin/healthcheck.sh
+RUN chmod +x /home/gpadmin/start_adb.sh
+RUN chmod +x /home/gpadmin/healthcheck.sh
+ENTRYPOINT ["/home/gpadmin/start_adb.sh"]
