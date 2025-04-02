@@ -186,7 +186,7 @@ public class PutGreenplumRecordIT extends NiFiSystemIT {
         assertEquals(0, adbService.queryCountOfRowsInTable(GP_TABLE_NAME));
     }
 
-    @Test @Disabled
+    @Test @Disabled("Bug https://tracker.yandex.ru/ADS-2379")
     @SneakyThrows
     public void testUnsupportedEnumTypeNegative() {
         adbService.exec(CREATE_ENUM_SQL);
