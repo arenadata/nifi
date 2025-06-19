@@ -6,7 +6,7 @@
     <parent>
         <groupId>org.apache.nifi</groupId>
         <artifactId>nifi-greenplum-service-bundle</artifactId>
-        <version>1.26.0</version>
+        <version>1.28.1</version>
     </parent>
 
     <artifactId>nifi-greenplum-service-nar</artifactId>
@@ -16,13 +16,13 @@
         <dependency>
             <groupId>org.apache.nifi</groupId>
             <artifactId>nifi-standard-services-api-nar</artifactId>
-            <version>1.26.0</version>
+            <version>1.28.1</version>
             <type>nar</type>
         </dependency>
         <dependency>
             <groupId>org.apache.nifi</groupId>
             <artifactId>nifi-gpfdist-service</artifactId>
-            <version>1.26.0</version>
+            <version>1.28.1</version>
         </dependency>
     </dependencies>
 

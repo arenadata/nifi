@@ -27,7 +27,7 @@
     <properties>
         <allure-maven.version>2.15.2</allure-maven.version>
         <allure.version>2.29.0</allure.version>
-        <nifi.version>1.26.0</nifi.version>
+        <nifi.version>${project.version}</nifi.version>
     </properties>
 
     <profiles>
