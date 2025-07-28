@@ -17,13 +17,6 @@ public final class GpfdistProperties {
             .expressionLanguageSupported(ExpressionLanguageScope.VARIABLE_REGISTRY)
             .defaultValue("80")
             .build();
-    public static final PropertyDescriptor HOSTNAME = new PropertyDescriptor.Builder()
-            .name("Hostname")
-            .description("The Hostname to bind to. If not specified, will bind to all hosts")
-            .required(false)
-            .addValidator(StandardValidators.NON_EMPTY_VALIDATOR)
-            .expressionLanguageSupported(ExpressionLanguageScope.NONE)
-            .build();
     public static final PropertyDescriptor GPFDIST_SERVER_MIN_THREADS = new PropertyDescriptor.Builder()
             .name("Minimum Gpffist Server Threads")
             .description("The minimum amount of threads that are used to run the Gpffist server")

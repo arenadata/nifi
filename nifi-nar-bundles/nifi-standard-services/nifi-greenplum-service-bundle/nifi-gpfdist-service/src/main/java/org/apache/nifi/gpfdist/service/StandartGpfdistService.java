@@ -27,6 +27,8 @@ import org.apache.nifi.gpfdist.service.metadata.DefaultExternalTableFormatConfig
 import org.apache.nifi.logging.ComponentLog;
 import org.apache.nifi.processor.DataUnit;
 
+import java.net.InetAddress;
+import java.net.UnknownHostException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -39,10 +41,10 @@ import static org.apache.nifi.gpfdist.service.GpfdistProperties.*;
 @CapabilityDescription("Provides the ability to load data to Greenplum segments directly")
 public class StandartGpfdistService extends AbstractControllerService implements GpfdistService {
     private static final List<PropertyDescriptor> PROPERTIES;
+
     static {
         final List<PropertyDescriptor> props = new ArrayList<>();
         props.add(PORT);
-        props.add(HOSTNAME);
         props.add(DBCP_SERVICE);
         props.add(WRITE_BUFFER_SIZE);
         props.add(RECORD_PROCESSOR_MAX_THREADS);
@@ -67,9 +69,13 @@ public class StandartGpfdistService extends AbstractControllerService implements
     public void onConfigured(final ConfigurationContext context) {
         try {
             ComponentLog logger = getLogger();
+            if (server != null && server.isRunning()) {
+                logger.info("A Gpfdist server is already running. {}", server);
+                return;
+            }
             final DBCPService dbcpService = context.getProperty(DBCP_SERVICE).asControllerService(DBCPService.class);
             int port = context.getProperty(PORT).evaluateAttributeExpressions().asInteger();
-            final String host = context.getProperty(HOSTNAME).getValue();
+            final String host = getLocalCanonicalHostname();
             int writeBufferSize = context.getProperty(WRITE_BUFFER_SIZE).asDataSize(DataUnit.B).intValue();
             int minServerThreads = context.getProperty(GPFDIST_SERVER_MIN_THREADS).asInteger();
             int maxServerThreads = context.getProperty(GPFDIST_SERVER_MAX_THREADS).asInteger();
@@ -127,6 +133,15 @@ public class StandartGpfdistService extends AbstractControllerService implements
     public void cleanup() {
         if (server != null) {
             server.stop();
+        }
+    }
+
+    private static String getLocalCanonicalHostname() {
+        try {
+            InetAddress localHost = InetAddress.getLocalHost();
+            return localHost.getCanonicalHostName();
+        } catch (UnknownHostException e) {
+            throw new RuntimeException("Failed to get hostname");
         }
     }
 

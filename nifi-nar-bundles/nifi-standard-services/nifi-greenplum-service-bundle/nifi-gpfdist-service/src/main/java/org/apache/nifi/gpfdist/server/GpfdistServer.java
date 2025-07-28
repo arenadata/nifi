@@ -8,4 +8,6 @@ public interface GpfdistServer {
     int getPort();
 
     String getHost();
+
+    boolean isRunning();
 }

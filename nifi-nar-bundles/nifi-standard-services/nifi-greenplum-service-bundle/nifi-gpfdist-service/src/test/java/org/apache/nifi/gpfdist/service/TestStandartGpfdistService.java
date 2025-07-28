@@ -43,12 +43,6 @@ public class TestStandartGpfdistService {
     }
 
     @Test
-    void testHostNameInvalid() {
-        runner.setProperty(service, GpfdistProperties.HOSTNAME, "");
-        runner.assertNotValid(service);
-    }
-
-    @Test
     void testWriteBufferSizeInvalid() {
         runner.setProperty(service, GpfdistProperties.WRITE_BUFFER_SIZE, "1kk");
         runner.assertNotValid(service);

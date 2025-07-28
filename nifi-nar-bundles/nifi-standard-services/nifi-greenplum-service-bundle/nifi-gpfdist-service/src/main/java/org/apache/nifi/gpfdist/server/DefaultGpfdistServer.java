@@ -74,6 +74,11 @@ public class DefaultGpfdistServer implements GpfdistServer {
         return server.getHost();
     }
 
+    @Override
+    public boolean isRunning() {
+        return server.isRunning();
+    }
+
     public static class JettyServer {
         private final GpfdistServerConfig serverConfig;
         private final WriteContextManager writeContextManager;
@@ -131,5 +136,17 @@ public class DefaultGpfdistServer implements GpfdistServer {
         public String getHost() {
             return connector.getHost();
         }
+
+        public boolean isRunning() {
+            return server.isRunning();
+        }
+    }
+
+    @Override
+    public String toString() {
+        return "DefaultGpfdistServer{" +
+                "host=" + server.getHost() +
+                ", port=" + server.getPort() +
+                '}';
     }
 }
