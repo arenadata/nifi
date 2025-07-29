@@ -51,8 +51,8 @@ public class JdbcService {
 
     @Step("Get result list by query with reconnection on fail {reconnectOnFail}")
     public List<Map<String, Object>> queryForList(String sql, boolean reconnectOnFail) {
-        List<Map<String, Object>> resultList = reconnectOnFail ?
-                executeWithReconnection(CompletableFuture.supplyAsync(() -> jdbcTemplate.queryForList(sql))) :
+        List<Map<String, Object>> resultList = reconnectOnFail
+                ? executeWithReconnection(CompletableFuture.supplyAsync(() -> jdbcTemplate.queryForList(sql))) :
                 jdbcTemplate.queryForList(sql);
         StringBuilder resultText = new StringBuilder("Query Result:\n");
         for (Map<String, Object> row : resultList) {

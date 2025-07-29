@@ -20,7 +20,11 @@ import org.junit.jupiter.api.Test;
 import org.testcontainers.shaded.org.awaitility.Awaitility;
 
 import java.time.Duration;
-import java.util.*;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 import static org.apache.nifi.tests.system.arenadata.util.ConfigUtil.getTestConfig;
@@ -186,7 +190,8 @@ public class PutGreenplumRecordIT extends NiFiSystemIT {
         assertEquals(0, adbService.queryCountOfRowsInTable(GP_TABLE_NAME));
     }
 
-    @Test @Disabled("Bug https://tracker.yandex.ru/ADS-2379")
+    @Test
+    @Disabled("Bug https://tracker.yandex.ru/ADS-2379")
     @SneakyThrows
     public void testUnsupportedEnumTypeNegative() {
         adbService.exec(CREATE_ENUM_SQL);
