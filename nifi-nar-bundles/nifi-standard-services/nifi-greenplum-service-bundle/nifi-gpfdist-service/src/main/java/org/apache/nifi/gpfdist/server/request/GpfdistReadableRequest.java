@@ -1,10 +1,41 @@
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one or more
+ * contributor license agreements.  See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.
+ * The ASF licenses this file to You under the Apache License, Version 2.0
+ * (the "License"); you may not use this file except in compliance with
+ * the License.  You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
 package org.apache.nifi.gpfdist.server.request;
 
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
-import static org.apache.nifi.gpfdist.server.request.GpfdistRequestHeader.*;
+import static org.apache.nifi.gpfdist.server.request.GpfdistRequestHeader.X_GP_CID;
+import static org.apache.nifi.gpfdist.server.request.GpfdistRequestHeader.X_GP_CSV_OPT;
+import static org.apache.nifi.gpfdist.server.request.GpfdistRequestHeader.X_GP_DATABASE;
+import static org.apache.nifi.gpfdist.server.request.GpfdistRequestHeader.X_GP_LINE_DELIM_LENGTH;
+import static org.apache.nifi.gpfdist.server.request.GpfdistRequestHeader.X_GP_MASTER_HOST;
+import static org.apache.nifi.gpfdist.server.request.GpfdistRequestHeader.X_GP_MASTER_PORT;
+import static org.apache.nifi.gpfdist.server.request.GpfdistRequestHeader.X_GP_PROTO;
+import static org.apache.nifi.gpfdist.server.request.GpfdistRequestHeader.X_GP_SEGMENT_COUNT;
+import static org.apache.nifi.gpfdist.server.request.GpfdistRequestHeader.X_GP_SEGMENT_ID;
+import static org.apache.nifi.gpfdist.server.request.GpfdistRequestHeader.X_GP_SEG_DATADIR;
+import static org.apache.nifi.gpfdist.server.request.GpfdistRequestHeader.X_GP_SEG_PG_CONF;
+import static org.apache.nifi.gpfdist.server.request.GpfdistRequestHeader.X_GP_SESSION_ID;
+import static org.apache.nifi.gpfdist.server.request.GpfdistRequestHeader.X_GP_SN;
+import static org.apache.nifi.gpfdist.server.request.GpfdistRequestHeader.X_GP_XID;
+import static org.apache.nifi.gpfdist.server.request.GpfdistRequestHeader.X_GP_X_GP_USER;
+import static org.apache.nifi.gpfdist.server.request.GpfdistRequestHeader.X_GP_X_SEG_PORT;
 
 public class GpfdistReadableRequest extends ReadableRequest {
     private final String transactionId;
