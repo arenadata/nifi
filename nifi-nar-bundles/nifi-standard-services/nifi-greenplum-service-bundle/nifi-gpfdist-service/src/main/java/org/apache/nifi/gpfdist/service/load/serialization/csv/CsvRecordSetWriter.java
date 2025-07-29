@@ -25,18 +25,31 @@ import org.apache.nifi.logging.ComponentLog;
 import org.apache.nifi.serialization.AbstractRecordSetWriter;
 import org.apache.nifi.serialization.RecordSetWriter;
 import org.apache.nifi.serialization.WriteResult;
+import org.apache.nifi.serialization.record.DataType;
+import org.apache.nifi.serialization.record.RawRecordWriter;
 import org.apache.nifi.serialization.record.Record;
-import org.apache.nifi.serialization.record.*;
+import org.apache.nifi.serialization.record.RecordField;
+import org.apache.nifi.serialization.record.RecordFieldType;
+import org.apache.nifi.serialization.record.RecordSchema;
 import org.apache.nifi.serialization.record.type.ArrayDataType;
 
 import java.io.IOException;
 import java.io.OutputStream;
 import java.io.OutputStreamWriter;
 import java.nio.charset.StandardCharsets;
-import java.util.*;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Optional;
+import java.util.Set;
 import java.util.stream.Collectors;
 
-import static org.apache.nifi.gpfdist.metadata.GreenplumDataType.*;
+import static org.apache.nifi.gpfdist.metadata.GreenplumDataType.ARRAY;
+import static org.apache.nifi.gpfdist.metadata.GreenplumDataType.BYTEA;
+import static org.apache.nifi.gpfdist.metadata.GreenplumDataType.MAP;
 
 public class CsvRecordSetWriter extends AbstractRecordSetWriter implements RecordSetWriter, RawRecordWriter {
     private static final String TIMESTAMP_WITHOUT_TIME_ZONE_FORMAT = "yyyy-MM-dd HH:mm:ss.SSSSSS";

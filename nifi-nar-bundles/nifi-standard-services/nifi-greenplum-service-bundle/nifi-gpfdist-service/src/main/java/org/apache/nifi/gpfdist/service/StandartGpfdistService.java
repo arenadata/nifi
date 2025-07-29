@@ -51,7 +51,14 @@ import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
-import static org.apache.nifi.gpfdist.service.GpfdistProperties.*;
+import static org.apache.nifi.gpfdist.service.GpfdistProperties.DBCP_SERVICE;
+import static org.apache.nifi.gpfdist.service.GpfdistProperties.GPFDIST_REQUEST_PROCESSOR_MAX_THREADS;
+import static org.apache.nifi.gpfdist.service.GpfdistProperties.GPFDIST_SERVER_MAX_THREADS;
+import static org.apache.nifi.gpfdist.service.GpfdistProperties.GPFDIST_SERVER_MIN_THREADS;
+import static org.apache.nifi.gpfdist.service.GpfdistProperties.GPFDIST_SERVER_THREAD_IDLE_TIMEOUT_MS;
+import static org.apache.nifi.gpfdist.service.GpfdistProperties.PORT;
+import static org.apache.nifi.gpfdist.service.GpfdistProperties.RECORD_PROCESSOR_MAX_THREADS;
+import static org.apache.nifi.gpfdist.service.GpfdistProperties.WRITE_BUFFER_SIZE;
 
 @Tags({"gpfdist"})
 @CapabilityDescription("Provides the ability to load data to Greenplum segments directly")

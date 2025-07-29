@@ -13,7 +13,8 @@ import static org.mockito.Mockito.mock;
 
 public class MockGpfdistService extends AbstractConfigurableComponent implements GpfdistService {
     private final RecordSinkProvider recordSinkProvider = mock(RecordSinkProvider.class);
-    private final GreenplumService greenplumService = mock(GreenplumService.class);;
+    private final GreenplumService greenplumService = mock(GreenplumService.class);
+    ;
     private final TransferDataQueryExecutor transferDataQueryExecutor = mock(TransferDataQueryExecutor.class);
 
     @Override

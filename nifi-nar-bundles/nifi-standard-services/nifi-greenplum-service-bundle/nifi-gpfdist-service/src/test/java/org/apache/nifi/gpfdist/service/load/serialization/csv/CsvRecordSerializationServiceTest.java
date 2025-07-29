@@ -2,20 +2,46 @@ package org.apache.nifi.gpfdist.service.load.serialization.csv;
 
 import org.apache.commons.lang3.ArrayUtils;
 import org.apache.nifi.gpfdist.metadata.ColumnDescription;
-import org.apache.nifi.gpfdist.service.datatype.*;
+import org.apache.nifi.gpfdist.service.datatype.ArrayDataType;
+import org.apache.nifi.gpfdist.service.datatype.BigintDataType;
+import org.apache.nifi.gpfdist.service.datatype.BitDataType;
+import org.apache.nifi.gpfdist.service.datatype.BooleanDataType;
+import org.apache.nifi.gpfdist.service.datatype.ByteaDataType;
+import org.apache.nifi.gpfdist.service.datatype.CharDataType;
+import org.apache.nifi.gpfdist.service.datatype.DateDataType;
+import org.apache.nifi.gpfdist.service.datatype.DecimalDataType;
+import org.apache.nifi.gpfdist.service.datatype.DoubleDataType;
+import org.apache.nifi.gpfdist.service.datatype.IntegerDataType;
+import org.apache.nifi.gpfdist.service.datatype.JsonbDataType;
+import org.apache.nifi.gpfdist.service.datatype.MapDataType;
+import org.apache.nifi.gpfdist.service.datatype.MoneyDataType;
+import org.apache.nifi.gpfdist.service.datatype.RealDataType;
+import org.apache.nifi.gpfdist.service.datatype.SmallintDataType;
+import org.apache.nifi.gpfdist.service.datatype.TimeDataType;
+import org.apache.nifi.gpfdist.service.datatype.TimestampWithTimeZoneDataType;
+import org.apache.nifi.gpfdist.service.datatype.TimestampWithoutTimeZoneDataType;
+import org.apache.nifi.gpfdist.service.datatype.UuidDataType;
+import org.apache.nifi.gpfdist.service.datatype.VarcharDataType;
 import org.apache.nifi.gpfdist.service.greenplum.model.GreenplumColumnDescription;
 import org.apache.nifi.gpfdist.service.load.serialization.RecordSerializationService;
 import org.apache.nifi.gpfdist.service.metadata.CsvFormatConfig;
 import org.apache.nifi.logging.ComponentLog;
 import org.apache.nifi.serialization.SimpleRecordSchema;
+import org.apache.nifi.serialization.record.MapRecord;
 import org.apache.nifi.serialization.record.Record;
-import org.apache.nifi.serialization.record.*;
+import org.apache.nifi.serialization.record.RecordField;
+import org.apache.nifi.serialization.record.RecordFieldType;
+import org.apache.nifi.serialization.record.RecordSchema;
 import org.junit.jupiter.api.Test;
 
 import java.nio.charset.StandardCharsets;
 import java.sql.Time;
 import java.sql.Timestamp;
-import java.util.*;
+import java.util.Date;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.TreeMap;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -151,7 +177,13 @@ class CsvRecordSerializationServiceTest {
         serializationService = new CsvRecordSerializationService(recordSchema, columns, csvFormatConfig, logger);
         records.forEach(r -> serializationService.append(r));
         String result = new String(serializationService.toByteArray(), StandardCharsets.UTF_8);
-        assertEquals("\"1\"|\"2478701872\"|\"0\"|\"true\"|\"\\xd078\"|\"tt\"|\"c4ca4238a0\"|\"edc8acddc2e9a0a6aec79ddd681c75ac\"|\"2025-02-20\"|\"0.557235836982727\"|\"6.559277\"|\"{\"\"a\"\": \"\"b\"\"}\"|\"45.51123\"|\"10.3\"|\"15\"|\"5000\"|\"04:57:53.000375\"|\"2025-02-20 11:57:53.000375+07:00\"|\"2025-02-20 04:57:53.000375\"|\"c2142fe5-e305-42ab-8b95-598567e9ea86\"|\"{val, val}\"|\"\"\"ISBN-13\"\"=>\"\"978-1449370000\"\", \"\"weight\"\"=>\"\"11.2 ounces\"\", \"\"paperback\"\"=>\"\"243\"\", \"\"publisher\"\"=>\"\"postgresqltutorial.com\"\", \"\"language\"\"=>\"\"English\"\"\"\r\n|||||||||||||||||||||\r\n", result);
+        assertEquals("\"1\"|\"2478701872\"|\"0\"|\"true\"|\"\\xd078\"|\"tt\"|\"c4ca4238a0\"|\"edc8acddc2e9a" +
+                "0a6aec79ddd681c75ac\"|\"2025-02-20\"|\"0.557235836982727\"|\"6.559277\"|\"{\"\"a\"\": \"\"b\"\"}\"|" +
+                "\"45.51123\"|\"10.3\"|\"15\"|\"5000\"|\"04:57:53.000375\"|\"2025-02-20 11:57:53.000375+07:00\"|" +
+                "\"2025-02-20 04:57:53.000375\"|\"c2142fe5-e305-42ab-8b95-598567e9ea86\"|\"{val, val}\"|" +
+                "\"\"\"ISBN-13\"\"=>\"\"978-1449370000\"\", \"\"weight\"\"=>\"\"11.2 ounces\"\", " +
+                "\"\"paperback\"\"=>\"\"243\"\", \"\"publisher\"\"=>\"\"postgresqltutorial.com\"\", " +
+                "\"\"language\"\"=>\"\"English\"\"\"\r\n|||||||||||||||||||||\r\n", result);
     }
 
     @Test
@@ -333,7 +365,9 @@ class CsvRecordSerializationServiceTest {
         List<ColumnDescription> columns = List.of(
                 new GreenplumColumnDescription(fieldNames.get(0), new ArrayDataType(new VarcharDataType()), false));
         RecordSchema recordSchema = new SimpleRecordSchema(List.of(
-                new RecordField(fieldNames.get(0), new org.apache.nifi.serialization.record.type.ArrayDataType(new org.apache.nifi.serialization.record.type.ArrayDataType(RecordFieldType.STRING.getDataType())))
+                new RecordField(fieldNames.get(0),
+                        new org.apache.nifi.serialization.record.type.ArrayDataType(
+                                new org.apache.nifi.serialization.record.type.ArrayDataType(RecordFieldType.STRING.getDataType())))
         ));
         List<Record> records = List.of(
                 new MapRecord(recordSchema, Map.ofEntries(
