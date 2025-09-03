@@ -148,8 +148,12 @@ public class PutGreenplumRecord extends AbstractProcessor {
             return;
         }
         ComponentLog logger = getLogger();
-        final String schema = context.getProperty(SCHEMA_NAME).getValue();
-        final String table = context.getProperty(TABLE_NAME).getValue();
+        final String schema = context.getProperty(SCHEMA_NAME)
+            .evaluateAttributeExpressions(flowFile)
+            .getValue();
+        final String table = context.getProperty(TABLE_NAME)
+            .evaluateAttributeExpressions(flowFile)
+            .getValue();
         final GpfdistService gpfdistService = context.getProperty(GPFDIST_SERVICE).asControllerService(GpfdistService.class);
         final RecordReaderFactory recordReaderFactory = context.getProperty(RECORD_READER_FACTORY).asControllerService(RecordReaderFactory.class);
 
@@ -160,7 +164,7 @@ public class PutGreenplumRecord extends AbstractProcessor {
         final StopWatch stopWatch = new StopWatch(true);
         try (final InputStream in = session.read(flowFile)) {
             final String destinationUrl = greenplumService.getDatabaseMetadata().getURL();
-            final List<ColumnDescription> columnDescriptions = getColumnDescriptions(context, tableDescription);
+            final List<ColumnDescription> columnDescriptions = getColumnDescriptions(context, flowFile, tableDescription);
             final List<Throwable> errors = new ArrayList<>();
             final RecordReader recordReader = recordReaderFactory.createRecordReader(flowFile, in, logger);
             RecordSchema readerSchema = recordReader.getSchema();
@@ -201,8 +205,13 @@ public class PutGreenplumRecord extends AbstractProcessor {
     }
 
     private List<ColumnDescription> getColumnDescriptions(ProcessContext context,
+                                                          FlowFile flowFile,
                                                           TableDescription tableDescription) {
-        List<String> columns = Arrays.stream(context.getProperty(TABLE_COLUMNS).getValue().split(","))
+        String rawColumns = context.getProperty(TABLE_COLUMNS)
+            .evaluateAttributeExpressions(flowFile)
+            .getValue();
+
+        List<String> columns = Arrays.stream(rawColumns.split(","))
                 .map(col -> col.replace(QUOTE, "").trim())
                 .collect(Collectors.toList());
         List<ColumnDescription> columnDescriptions = new ArrayList<>();
