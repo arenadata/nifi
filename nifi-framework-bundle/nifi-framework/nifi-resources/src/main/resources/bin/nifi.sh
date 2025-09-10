@@ -45,7 +45,7 @@ PROGNAME=$(basename "$0")
 
 . "${SCRIPT_DIR}/nifi-env.sh"
 
-. /usr/lib/bigtop-utils/bigtop-detect-javahome "17"
+. /usr/lib/bigtop-utils/bigtop-detect-javahome "21"
 
 
 warn() {
