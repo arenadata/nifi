@@ -91,7 +91,7 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v3
       - name: Cache Maven Modules
-        uses: actions/cache@v3
+        uses: actions/cache@v4
         with:
           path: |
             ~/.m2/repository
@@ -126,7 +126,7 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v3
       - name: Cache Node Modules
-        uses: actions/cache@v3
+        uses: actions/cache@v4
         with:
           path: |
             ~/.npm
@@ -164,7 +164,7 @@ jobs:
           ${{ env.MAVEN_BUILD_PROFILES }}
           ${{ env.MAVEN_PROJECTS }}
       - name: Upload Test Reports
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: surefire-reports-ubuntu-17
           path: |
@@ -189,7 +189,7 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v3
       - name: Cache Node Modules
-        uses: actions/cache@v3
+        uses: actions/cache@v4
         with:
           path: |
             ~/.npm
@@ -227,7 +227,7 @@ jobs:
           ${{ env.MAVEN_BUILD_PROFILES }}
           ${{ env.MAVEN_PROJECTS }}
       - name: Upload Test Reports
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: surefire-reports-ubuntu-en
           path: |
@@ -252,7 +252,7 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v3
       - name: Cache Node Modules
-        uses: actions/cache@v3
+        uses: actions/cache@v4
         with:
           path: |
             ~/.npm
@@ -290,7 +290,7 @@ jobs:
           ${{ env.MAVEN_BUILD_PROFILES }}
           ${{ env.MAVEN_PROJECTS }}
       - name: Upload Test Reports
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: surefire-reports-macos-jp
           path: |
@@ -317,7 +317,7 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v3
       - name: Cache Node Modules
-        uses: actions/cache@v3
+        uses: actions/cache@v4
         with:
           path: |
             ~\AppData\npm-cache
@@ -355,7 +355,7 @@ jobs:
           ${{ env.MAVEN_BUILD_PROFILES }}
           ${{ env.MAVEN_PROJECTS }}
       - name: Upload Test Reports
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: surefire-reports-windows-fr
           path: |
