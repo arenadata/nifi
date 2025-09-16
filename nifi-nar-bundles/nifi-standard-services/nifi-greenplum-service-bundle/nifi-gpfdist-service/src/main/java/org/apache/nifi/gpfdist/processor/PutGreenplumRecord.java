@@ -52,7 +52,6 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
@@ -112,6 +111,8 @@ public class PutGreenplumRecord extends AbstractProcessor {
             .build();
     protected static Set<Relationship> relationships;
     protected static List<PropertyDescriptor> propDescriptors;
+
+    // todo (ADS-2739) turn this fields to local vars or use thread-safe structures
     private CompletableFuture<Void> queryLoadFuture;
     private RecordSink recordSink;
 
@@ -188,12 +189,14 @@ public class PutGreenplumRecord extends AbstractProcessor {
                         writeContext.getResult().toString(),
                         stopWatch.getElapsed(TimeUnit.MILLISECONDS));
             } else {
-                recordSink.abort();
                 throw new RuntimeException(errors.stream()
                         .map(Throwable::getMessage)
                         .collect(Collectors.joining(";")));
             }
         } catch (Exception e) {
+            if (recordSink != null) {
+                recordSink.abort();
+            }
             logger.error("Sending record failed {}", flowFile, e);
             session.penalize(flowFile);
             session.transfer(flowFile, REL_FAILURE);
@@ -218,17 +221,12 @@ public class PutGreenplumRecord extends AbstractProcessor {
         return columnDescriptions;
     }
 
-    private void finishLoading(List<Throwable> errors) throws InterruptedException, ExecutionException {
-        CompletableFuture<Void> finishFuture = recordSink.finish()
-                .exceptionally(ex -> {
-                    errors.add(ex);
-                    return null;
-                });
-        List<CompletableFuture<Void>> futures = Arrays.asList(finishFuture, queryLoadFuture);
-        CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]))
-                .thenApply(future -> futures.stream()
-                        .map(CompletableFuture::join)
-                        .collect(Collectors.toList()))
-                .get();
+    private void finishLoading(List<Throwable> errors) {
+        CompletableFuture.allOf(recordSink.finish(), queryLoadFuture)
+            .exceptionally(ex -> {
+                errors.add(ex);
+                return null;
+            })
+            .join();
     }
 }
