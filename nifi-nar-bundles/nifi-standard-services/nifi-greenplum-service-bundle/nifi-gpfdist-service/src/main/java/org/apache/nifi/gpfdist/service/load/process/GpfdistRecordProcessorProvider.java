@@ -93,8 +93,8 @@ public class GpfdistRecordProcessorProvider implements RecordProcessorProvider {
             long startTime = System.currentTimeMillis();
             while (recordProcessors.isEmpty()) {
                 try {
-                    if (!isReadyForProcessing &&
-                        currentTimeMsProvider().get() - startTime > GREENPLUM_SEGMENT_WAIT_TIMEOUT) {
+                    if (!isReadyForProcessing
+                        && currentTimeMsProvider().get() - startTime > GREENPLUM_SEGMENT_WAIT_TIMEOUT) {
                         throw new RuntimeException(
                             format("Timeout :%d ms waiting for segments responses is exceeded",
                                 GREENPLUM_SEGMENT_WAIT_TIMEOUT));
