@@ -87,7 +87,7 @@ jobs:
           ${{ env.MAVEN_PROJECTS }}
       - name: Upload Troubleshooting Logs
         if: failure() || cancelled()
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: ubuntu-17-troubleshooting-logs
           path: |
@@ -127,7 +127,7 @@ jobs:
           ${{ env.MAVEN_PROJECTS }}
       - name: Upload Troubleshooting Logs
         if: failure() || cancelled()
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: ubuntu-latest-troubleshooting-logs
           path: |
@@ -167,7 +167,7 @@ jobs:
           ${{ env.MAVEN_PROJECTS }}
       - name: Upload Troubleshooting Logs
         if: failure() || cancelled()
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: macos-latest-troubleshooting-logs
           path: |

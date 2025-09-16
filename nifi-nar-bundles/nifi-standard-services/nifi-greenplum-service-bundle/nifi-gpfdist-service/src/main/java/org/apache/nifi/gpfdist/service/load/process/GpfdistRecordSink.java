@@ -16,19 +16,17 @@
  */
 package org.apache.nifi.gpfdist.service.load.process;
 
+import java.util.LinkedList;
+import java.util.Queue;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutorService;
 import org.apache.nifi.gpfdist.metadata.Context;
 import org.apache.nifi.gpfdist.metadata.ContextId;
-import org.apache.nifi.gpfdist.service.RecordProcessor;
 import org.apache.nifi.gpfdist.service.RecordSink;
 import org.apache.nifi.gpfdist.service.load.context.WriteContext;
 import org.apache.nifi.gpfdist.service.load.context.WriteContextManager;
 import org.apache.nifi.logging.ComponentLog;
 import org.apache.nifi.serialization.record.Record;
-
-import java.util.LinkedList;
-import java.util.Queue;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ExecutorService;
 
 import static java.lang.String.format;
 
@@ -36,7 +34,9 @@ public class GpfdistRecordSink implements RecordSink {
     private final WriteContext writeContext;
     private final ExecutorService executorService;
     private final WriteContextManager contextManager;
-    private final Queue<CompletableFuture<Void>> loadingRecordfutureQueue = new LinkedList<>();
+    // todo (ADS-2739) in case of concurrent PutGreenplumRecord either make sink exclusive
+    // per thread or use thread-safe structure here
+    private final Queue<CompletableFuture<Void>> loadingRecordFutureQueue = new LinkedList<>();
     private final ComponentLog logger;
 
     public GpfdistRecordSink(final ContextId contextId,
@@ -45,32 +45,28 @@ public class GpfdistRecordSink implements RecordSink {
                              ComponentLog logger) {
         this.contextManager = contextManager;
         this.writeContext = contextManager.get(contextId)
-                .orElseThrow(() -> new IllegalArgumentException("No write context found for contextId: " + contextId));
+            .orElseThrow(() -> new IllegalArgumentException("No write context found for contextId: " + contextId));
         this.executorService = executorService;
         this.logger = logger;
     }
 
     @Override
     public void load(Record record) {
-        CompletableFuture<Void> recordFuture = CompletableFuture.runAsync(() -> {
-            RecordProcessor recordProcessor = writeContext.getRecordProcessorProvider().take();
-            recordProcessor.process(record);
-            writeContext.getRecordProcessorProvider().add(recordProcessor);
-        }, executorService);
-        loadingRecordfutureQueue.add(recordFuture);
+        CompletableFuture<Void> recordFuture = CompletableFuture.runAsync(() ->
+                writeContext.getRecordProcessorProvider()
+                    .useProcessor(processor -> processor.process(record)),
+            executorService);
+        loadingRecordFutureQueue.add(recordFuture);
     }
 
     @Override
     public CompletableFuture<Void> finish() {
-        return CompletableFuture.runAsync(() -> {
-            CompletableFuture<Void> future;
-            while ((future = loadingRecordfutureQueue.poll()) != null) {
-                future.join();
-            }
-            logger.info("Finished loading records within context {}", writeContext.getContextId());
-            writeContext.close();
-            contextManager.remove(writeContext.getContextId());
-        }, executorService);
+        return CompletableFuture.allOf(loadingRecordFutureQueue.toArray(new CompletableFuture[0]))
+            .thenRunAsync(() -> {
+                logger.info("Finished loading records within context {}", writeContext.getContextId());
+                writeContext.close();
+                contextManager.remove(writeContext.getContextId());
+            }, executorService);
     }
 
     @Override
@@ -82,7 +78,7 @@ public class GpfdistRecordSink implements RecordSink {
 
     private void failContext(Throwable e) {
         try {
-            loadingRecordfutureQueue.clear();
+            loadingRecordFutureQueue.clear();
             writeContext.getResult().getError().set(e);
             writeContext.close();
         } finally {
