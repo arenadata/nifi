@@ -81,14 +81,14 @@ public abstract class NiFiSystemIT implements NiFiInstanceProvider {
 
     private NiFiClient nifiClient;
     private NiFiClientUtil clientUtil;
-    private static final AtomicReference<NiFiInstance> nifiRef = new AtomicReference<>();
-    private static final NiFiInstanceCache instanceCache = new NiFiInstanceCache();
+    protected static final AtomicReference<NiFiInstance> nifiRef = new AtomicReference<>();
+    protected static final NiFiInstanceCache instanceCache = new NiFiInstanceCache();
 
     static {
         Runtime.getRuntime().addShutdownHook(new Thread(() -> instanceCache.shutdown()));
     }
 
-    private TestInfo testInfo;
+    protected TestInfo testInfo;
 
     @BeforeEach
     public void setup(final TestInfo testInfo) throws IOException {

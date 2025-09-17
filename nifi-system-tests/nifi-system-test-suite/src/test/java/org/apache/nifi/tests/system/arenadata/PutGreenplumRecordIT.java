@@ -19,7 +19,6 @@ package org.apache.nifi.tests.system.arenadata;
 import io.qameta.allure.Feature;
 import io.qameta.allure.Step;
 import lombok.SneakyThrows;
-import org.apache.nifi.tests.system.NiFiSystemIT;
 import org.apache.nifi.tests.system.arenadata.model.Component;
 import org.apache.nifi.tests.system.arenadata.model.DataSourceProperties;
 import org.apache.nifi.tests.system.arenadata.service.DockerComposeService;
@@ -48,7 +47,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 @Feature("Put Greenplum Record processor")
-public class PutGreenplumRecordIT extends NiFiSystemIT {
+public class PutGreenplumRecordIT extends NifiSystemContainerizedIT {
 
     private static final String QUERY_DB_TABLE_PROCESSOR_CLASS_NAME = "org.apache.nifi.processors.standard.QueryDatabaseTable";
     private static final String QUERY_DB_TABLE_PROCESSOR_NAR_ARTIFACT = "nifi-standard-nar";
@@ -283,7 +282,7 @@ public class PutGreenplumRecordIT extends NiFiSystemIT {
         ControllerServiceEntity dbcpService = getClientUtil().createControllerService(DBCP_SERVICE_CLASS_NAME,
                 ROOT_GROUP_ID, NIFI_GROUP_ID, DBCP_SERVICE_NAR_ARTIFACT, getNiFiVersion());
         Map<String, String> dbcpServiceProperties = new HashMap<>();
-        dbcpServiceProperties.put("Database Connection URL", dsProperties.getUrl());
+        dbcpServiceProperties.put("Database Connection URL", dsProperties.getContainerAddress());
         dbcpServiceProperties.put("Database Driver Class Name", dsProperties.getDriverName());
         dbcpServiceProperties.put("database-driver-locations", dsProperties.getDriverLocation());
         dbcpServiceProperties.put("Database User", dsProperties.getUsername());
