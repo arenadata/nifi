@@ -13,25 +13,15 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-#!/bin/bash
-git submodule update --init --recursive
-IMAGE_VERSION=$1
-MAVEN_PROFILE='test'
+FROM apache/nifi:1.26.0
 
-if [ -z "$IMAGE_VERSION" ]
-then
-  IMAGE_VERSION=it
-fi
+USER root
+# Copy necessary nar and configuration files
 
-cd ../..
-mvn clean install -DskipTests=true
-cd nifi-system-tests/nifi-system-test-suite
-mvn dependency:copy -Dartifact=org.postgresql:postgresql:42.7.5 -DoutputDirectory=./target
-cd env/arenadata
+COPY --from=root target/nifi-greenplum-service-nar-1.26.0.nar /opt/nifi/nifi-current/lib/
+COPY ./conf/* /opt/nifi/nifi-current/conf/
+# Add permissions
+RUN chown -R nifi:nifi /opt/nifi/nifi-current/conf && \
+    chmod -R 755 /opt/nifi/nifi-current/conf
 
-# Build ADB image
-docker build -f Dockerfile-adb -t gpdb6-distributed:"${IMAGE_VERSION}" .
-
-cd nifi-cluster
-# Build NiFi image
-docker build -f Dockerfile-nifi --build-context root=../../.. -t nifi:"${IMAGE_VERSION}" .
+USER nifi
