@@ -70,13 +70,14 @@ public class GpfdistAsyncServlet extends HttpServlet {
         if (writeContextOptional.isPresent()) {
             WriteContext writeContext = writeContextOptional.get();
             executorService.submit(() -> {
+                logger.info("Start handling input GET gpfdist request: {}", readableRequest);
                 try {
                     try (PipedOutputStream outputStream = new PipedOutputStream();
                          PipedInputStream inputStream = new PipedInputStream(outputStream, writeContext.getBufferSize())) {
                         GpfdistRecordProcessor recordProcessor = (GpfdistRecordProcessor) recordProcessorFactory.create(readableRequest,
                                 writeContext,
                                 outputStream);
-                        boolean isAdded = writeContext.getRecordProcessorProvider().add(recordProcessor);
+                        boolean isAdded = writeContext.getRecordProcessorProvider().register(recordProcessor);
                         ServletOutputStream out = response.getOutputStream();
                         if (isAdded) {
                             byte[] buf = new byte[writeContext.getBufferSize()];
@@ -93,7 +94,7 @@ public class GpfdistAsyncServlet extends HttpServlet {
                     response.setStatus(HttpServletResponse.SC_OK);
                 } catch (Exception e) {
                     response.setStatus(HttpServletResponse.SC_INTERNAL_SERVER_ERROR);
-                    getServletContext().log("Failed to load data", e);
+                    getServletContext().log("Failed to load data. Request: " + readableRequest, e);
                 } finally {
                     async.complete();
                 }

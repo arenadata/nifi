@@ -27,7 +27,6 @@ import org.apache.nifi.gpfdist.metadata.TableDescription;
 import org.apache.nifi.gpfdist.service.GpfdistService;
 import org.apache.nifi.gpfdist.service.GreenplumService;
 import org.apache.nifi.gpfdist.service.RecordSink;
-import org.apache.nifi.gpfdist.service.RecordSinkProvider;
 import org.apache.nifi.gpfdist.service.TransferDataQueryExecutor;
 import org.apache.nifi.gpfdist.service.load.context.WriteContext;
 import org.apache.nifi.logging.ComponentLog;
@@ -47,11 +46,13 @@ import org.apache.nifi.util.StopWatch;
 import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.Collections;
 import java.util.List;
 import java.util.Set;
+import java.util.Objects;
+import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ExecutionException;
+import java.util.concurrent.CompletionException;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
@@ -63,82 +64,85 @@ import static org.apache.nifi.gpfdist.service.util.GreenplumUtil.QUOTE;
 @CapabilityDescription("Writes the contents of a FlowFile to Greenplum")
 public class PutGreenplumRecord extends AbstractProcessor {
     static final PropertyDescriptor GPFDIST_SERVICE = new PropertyDescriptor.Builder()
-            .name("gpfdist-record-processing-service")
-            .displayName("Gpfdist Service")
-            .description("The Controller Service that is used to load records into greenplum.")
-            .required(true)
-            .identifiesControllerService(GpfdistService.class)
-            .build();
+        .name("gpfdist-record-processing-service")
+        .displayName("Gpfdist Service")
+        .description("The Controller Service that is used to load records into greenplum.")
+        .required(true)
+        .identifiesControllerService(GpfdistService.class)
+        .build();
     static final PropertyDescriptor RECORD_READER_FACTORY = new PropertyDescriptor.Builder()
-            .name("put-greenplum-record-record-reader")
-            .displayName("Record Reader")
-            .description("Specifies the Controller Service to use for parsing incoming data and determining the data's schema.")
-            .identifiesControllerService(RecordReaderFactory.class)
-            .required(true)
-            .build();
+        .name("put-greenplum-record-record-reader")
+        .displayName("Record Reader")
+        .description(
+            "Specifies the Controller Service to use for parsing incoming data and determining the data's schema.")
+        .identifiesControllerService(RecordReaderFactory.class)
+        .required(true)
+        .build();
     static final PropertyDescriptor SCHEMA_NAME = new PropertyDescriptor.Builder()
-            .name("put-greenplum-record-schema-name")
-            .displayName("Schema Name")
-            .description("The name of the schema where the data will be loaded.")
-            .required(false)
-            .expressionLanguageSupported(FLOWFILE_ATTRIBUTES)
-            .addValidator(StandardValidators.NON_EMPTY_VALIDATOR)
-            .build();
+        .name("put-greenplum-record-schema-name")
+        .displayName("Schema Name")
+        .description("The name of the schema where the data will be loaded.")
+        .required(false)
+        .expressionLanguageSupported(FLOWFILE_ATTRIBUTES)
+        .addValidator(StandardValidators.NON_EMPTY_VALIDATOR)
+        .build();
     static final PropertyDescriptor TABLE_NAME = new PropertyDescriptor.Builder()
-            .name("put-greenplum-record-table-name")
-            .displayName("Table Name")
-            .description("Name of the table where the data will be loaded.")
-            .required(true)
-            .expressionLanguageSupported(FLOWFILE_ATTRIBUTES)
-            .addValidator(StandardValidators.NON_EMPTY_VALIDATOR)
-            .build();
+        .name("put-greenplum-record-table-name")
+        .displayName("Table Name")
+        .description("Name of the table where the data will be loaded.")
+        .required(true)
+        .expressionLanguageSupported(FLOWFILE_ATTRIBUTES)
+        .addValidator(StandardValidators.NON_EMPTY_VALIDATOR)
+        .build();
     static final PropertyDescriptor TABLE_COLUMNS = new PropertyDescriptor.Builder()
-            .name("put-greenplum-table-columns")
-            .displayName("Table Columns")
-            .description("Columns of the table where the data will be loaded.")
-            .required(true)
-            .expressionLanguageSupported(FLOWFILE_ATTRIBUTES)
-            .addValidator(StandardValidators.NON_EMPTY_VALIDATOR)
-            .build();
+        .name("put-greenplum-table-columns")
+        .displayName("Table Columns")
+        .description("Columns of the table where the data will be loaded.")
+        .required(true)
+        .expressionLanguageSupported(FLOWFILE_ATTRIBUTES)
+        .addValidator(StandardValidators.NON_EMPTY_VALIDATOR)
+        .build();
     public static final Relationship REL_SUCCESS = new Relationship.Builder()
-            .name("success")
-            .description("Successfully created FlowFile from input records.")
-            .build();
+        .name("success")
+        .description("Successfully created FlowFile from input records.")
+        .build();
     public static final Relationship REL_FAILURE = new Relationship.Builder()
-            .name("failure")
-            .description("A FlowFile is routed to this relationship if records cannot be loaded into Greenplum.")
-            .build();
-    protected static Set<Relationship> relationships;
-    protected static List<PropertyDescriptor> propDescriptors;
-    private CompletableFuture<Void> queryLoadFuture;
-    private RecordSink recordSink;
+        .name("failure")
+        .description("A FlowFile is routed to this relationship if records cannot be loaded into Greenplum.")
+        .build();
 
-    static {
-        relationships = Set.of(REL_SUCCESS, REL_FAILURE);
-        final List<PropertyDescriptor> pds = new ArrayList<>();
-        pds.add(RECORD_READER_FACTORY);
-        pds.add(GPFDIST_SERVICE);
-        pds.add(SCHEMA_NAME);
-        pds.add(TABLE_NAME);
-        pds.add(TABLE_COLUMNS);
-        propDescriptors = Collections.unmodifiableList(pds);
-    }
+    private static final Set<Relationship> RELATIONSHIPS = Set.of(REL_SUCCESS, REL_FAILURE);
+    private static final List<PropertyDescriptor> PROPERTY_DESCRIPTORS = List.of(
+        RECORD_READER_FACTORY,
+        GPFDIST_SERVICE,
+        SCHEMA_NAME,
+        TABLE_NAME,
+        TABLE_COLUMNS
+    );
+
+    private final Set<RecordSink> recordSinks = ConcurrentHashMap.newKeySet();
 
     @Override
     public Set<Relationship> getRelationships() {
-        return relationships;
+        return RELATIONSHIPS;
     }
 
     @Override
     protected List<PropertyDescriptor> getSupportedPropertyDescriptors() {
-        return propDescriptors;
+        return PROPERTY_DESCRIPTORS;
     }
 
     @OnStopped
-    public void onStopped(final ProcessContext context) {
-        if (recordSink != null) {
-            recordSink.abort();
+    public void onStopped() {
+        for (RecordSink recordSink : recordSinks) {
+            try {
+                recordSink.abort();
+            } catch (Exception e) {
+                getLogger().error("Error while trying to abort record sink of {}", recordSink, e);
+            }
         }
+
+        recordSinks.clear();
     }
 
     @Override
@@ -147,61 +151,85 @@ public class PutGreenplumRecord extends AbstractProcessor {
         if (flowFile == null) {
             return;
         }
-        ComponentLog logger = getLogger();
-        final String schema = context.getProperty(SCHEMA_NAME)
-            .evaluateAttributeExpressions(flowFile)
-            .getValue();
-        final String table = context.getProperty(TABLE_NAME)
-            .evaluateAttributeExpressions(flowFile)
-            .getValue();
-        final GpfdistService gpfdistService = context.getProperty(GPFDIST_SERVICE).asControllerService(GpfdistService.class);
-        final RecordReaderFactory recordReaderFactory = context.getProperty(RECORD_READER_FACTORY).asControllerService(RecordReaderFactory.class);
 
+        final GpfdistService gpfdistService = context.getProperty(GPFDIST_SERVICE)
+            .asControllerService(GpfdistService.class);
         final TransferDataQueryExecutor transferDataQueryExecutor = gpfdistService.getQueryExecutor();
-        final RecordSinkProvider recordSinkProvider = gpfdistService.getRecordSinkProvider();
         final GreenplumService greenplumService = gpfdistService.getGreenplumTableService();
-        final TableDescription tableDescription = greenplumService.getTableDescription(schema, table);
+        final TableDescription tableDescription = greenplumService.getTableDescription(
+            context.getProperty(SCHEMA_NAME).getValue(),
+            context.getProperty(TABLE_NAME).getValue()
+        );
         final StopWatch stopWatch = new StopWatch(true);
+
+        RecordSink recordSink = null;
         try (final InputStream in = session.read(flowFile)) {
             final String destinationUrl = greenplumService.getDatabaseMetadata().getURL();
-            final List<ColumnDescription> columnDescriptions = getColumnDescriptions(context, flowFile, tableDescription);
-            final List<Throwable> errors = new ArrayList<>();
-            final RecordReader recordReader = recordReaderFactory.createRecordReader(flowFile, in, logger);
+            final List<ColumnDescription> columnDescriptions =
+                getColumnDescriptions(context, flowFile, tableDescription);
+            final RecordReader recordReader = context.getProperty(RECORD_READER_FACTORY)
+                .asControllerService(RecordReaderFactory.class)
+                .createRecordReader(flowFile, in, getLogger());
+
             RecordSchema readerSchema = recordReader.getSchema();
             if (readerSchema.getFieldCount() != columnDescriptions.size()) {
                 throw new ProcessException("Schema does not match target column count");
             }
-            recordSink = recordSinkProvider.createRecordSink(tableDescription, columnDescriptions, readerSchema);
+            recordSink = gpfdistService.getRecordSinkProvider()
+                .createRecordSink(tableDescription, columnDescriptions, readerSchema);
             WriteContext writeContext = (WriteContext) recordSink.getContext();
-            queryLoadFuture = transferDataQueryExecutor.execute(writeContext.getMetadata())
-                    .exceptionally(ex -> {
-                        errors.add(ex);
-                        return null;
-                    });
+
+            CompletableFuture<Void> queryLoadFuture = transferDataQueryExecutor.execute(writeContext.getMetadata());
             final RecordSet recordSet = recordReader.createRecordSet();
             Record record;
-            while ((record = recordSet.next()) != null && errors.isEmpty()) {
+            while ((record = recordSet.next()) != null && !queryLoadFuture.isCompletedExceptionally()) {
                 recordSink.load(record);
             }
-            finishLoading(errors);
-            if (errors.isEmpty()) {
+
+            final List<Throwable> processingErrors = allOfWithExceptions(recordSink.finish(), queryLoadFuture).get();
+            if (processingErrors.isEmpty()) {
                 session.getProvenanceReporter().send(flowFile,
-                        destinationUrl,
-                        writeContext.getResult().toString(),
-                        stopWatch.getElapsed(TimeUnit.MILLISECONDS));
+                    destinationUrl,
+                    writeContext.getResult().toString(),
+                    stopWatch.getElapsed(TimeUnit.MILLISECONDS));
             } else {
-                recordSink.abort();
-                throw new RuntimeException(errors.stream()
-                        .map(Throwable::getMessage)
-                        .collect(Collectors.joining(";")));
+                throw new RuntimeException(processingErrors.stream()
+                    .map(Throwable::getMessage)
+                    .collect(Collectors.joining(";")));
             }
         } catch (Exception e) {
-            logger.error("Sending record failed {}", flowFile, e);
+            Optional.ofNullable(recordSink).ifPresent(RecordSink::abort);
+            getLogger().error("Sending record failed {}", flowFile, e);
             session.penalize(flowFile);
             session.transfer(flowFile, REL_FAILURE);
             return;
+        } finally {
+            Optional.ofNullable(recordSink).ifPresent(recordSinks::remove);
         }
         session.transfer(flowFile, REL_SUCCESS);
+    }
+
+    @SuppressWarnings("unchecked")
+    private CompletableFuture<List<Throwable>> allOfWithExceptions(CompletableFuture<?>... futures) {
+        CompletableFuture<Throwable>[] futuresWithErrors = Arrays.stream(futures)
+            .map(this::withErrorRecording)
+            .toArray(CompletableFuture[]::new);
+
+        return CompletableFuture.allOf(futuresWithErrors)
+            .thenApply(ignored -> Arrays.stream(futuresWithErrors)
+                .map(CompletableFuture::join)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toList())
+            );
+    }
+
+    private CompletableFuture<Throwable> withErrorRecording(CompletableFuture<?> future) {
+        return future.handle((ignored, ex) -> {
+            if (ex instanceof CompletionException && ex.getCause() != null) {
+                return ex.getCause();
+            }
+            return ex;
+        });
     }
 
     private List<ColumnDescription> getColumnDescriptions(ProcessContext context,
@@ -218,24 +246,11 @@ public class PutGreenplumRecord extends AbstractProcessor {
         for (String s : columns) {
             ColumnDescription columnDescription = tableDescription.getColumns().get(s);
             if (columnDescription == null) {
-                throw new IllegalStateException("Column " + s + " not found in table " + tableDescription.getTableName());
+                throw new IllegalStateException(
+                    "Column " + s + " not found in table " + tableDescription.getTableName());
             }
             columnDescriptions.add(columnDescription);
         }
         return columnDescriptions;
-    }
-
-    private void finishLoading(List<Throwable> errors) throws InterruptedException, ExecutionException {
-        CompletableFuture<Void> finishFuture = recordSink.finish()
-                .exceptionally(ex -> {
-                    errors.add(ex);
-                    return null;
-                });
-        List<CompletableFuture<Void>> futures = Arrays.asList(finishFuture, queryLoadFuture);
-        CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]))
-                .thenApply(future -> futures.stream()
-                        .map(CompletableFuture::join)
-                        .collect(Collectors.toList()))
-                .get();
     }
 }
