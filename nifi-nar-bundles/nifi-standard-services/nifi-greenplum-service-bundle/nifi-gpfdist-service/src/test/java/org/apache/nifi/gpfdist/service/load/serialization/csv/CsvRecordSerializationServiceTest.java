@@ -48,6 +48,7 @@ import org.apache.nifi.serialization.record.Record;
 import org.apache.nifi.serialization.record.RecordField;
 import org.apache.nifi.serialization.record.RecordFieldType;
 import org.apache.nifi.serialization.record.RecordSchema;
+import org.apache.nifi.serialization.record.util.DataTypeUtils;
 import org.junit.jupiter.api.Test;
 
 import java.nio.charset.StandardCharsets;
@@ -59,6 +60,10 @@ import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
 
+import static org.apache.nifi.gpfdist.service.load.serialization.csv.CsvRecordSetWriter.DATE_FORMAT;
+import static org.apache.nifi.gpfdist.service.load.serialization.csv.CsvRecordSetWriter.TIMESTAMP_WITHOUT_TIME_ZONE_FORMAT;
+import static org.apache.nifi.gpfdist.service.load.serialization.csv.CsvRecordSetWriter.TIMESTAMP_WITH_TIME_ZONE_FORMAT;
+import static org.apache.nifi.gpfdist.service.load.serialization.csv.CsvRecordSetWriter.TIME_FORMAT;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.Mockito.mock;
@@ -140,6 +145,12 @@ class CsvRecordSerializationServiceTest {
                 new RecordField(fieldNames.get(20), RecordFieldType.STRING.getDataType()),
                 new RecordField(fieldNames.get(21), RecordFieldType.STRING.getDataType())
         ));
+
+        Date dateField = new Date(1739984400000L);
+        Time timeField = new Time(79073375);
+        Timestamp timestampField = new Timestamp(1740027473375L);
+        Timestamp zonedTimestampField = new Timestamp(1740002273375L);
+
         List<Record> records = List.of(
                 new MapRecord(recordSchema, new HashMap<>() {{
                     put(fieldNames.get(0), 1);
@@ -150,7 +161,7 @@ class CsvRecordSerializationServiceTest {
                     put(fieldNames.get(5), "tt");
                     put(fieldNames.get(6), "c4ca4238a0");
                     put(fieldNames.get(7), "edc8acddc2e9a0a6aec79ddd681c75ac");
-                    put(fieldNames.get(8), new Date(1739984400000L));
+                    put(fieldNames.get(8), dateField);
                     put(fieldNames.get(9), 0.557235836982727);
                     put(fieldNames.get(10), 6.559277);
                     put(fieldNames.get(11), "{\"a\": \"b\"}");
@@ -158,9 +169,9 @@ class CsvRecordSerializationServiceTest {
                     put(fieldNames.get(13), 10.3);
                     put(fieldNames.get(14), 15);
                     put(fieldNames.get(15), 5000);
-                    put(fieldNames.get(16), new Time(79073375));
-                    put(fieldNames.get(17), new Timestamp(1740027473375L));
-                    put(fieldNames.get(18), new Timestamp(1740002273375L));
+                    put(fieldNames.get(16), timeField);
+                    put(fieldNames.get(17), timestampField);
+                    put(fieldNames.get(18), zonedTimestampField);
                     put(fieldNames.get(19), "c2142fe5-e305-42ab-8b95-598567e9ea86");
                     put(fieldNames.get(20), "{val, val}");
                     put(fieldNames.get(21), "{ISBN-13=978-1449370000, weight=11.2 ounces, paperback=243, publisher=postgresqltutorial.com, language=English}");
@@ -193,13 +204,22 @@ class CsvRecordSerializationServiceTest {
         serializationService = new CsvRecordSerializationService(recordSchema, columns, csvFormatConfig, logger);
         records.forEach(r -> serializationService.append(r));
         String result = new String(serializationService.toByteArray(), StandardCharsets.UTF_8);
-        assertEquals("\"1\"|\"2478701872\"|\"0\"|\"true\"|\"\\xd078\"|\"tt\"|\"c4ca4238a0\"|\"edc8acddc2e9a" +
-                "0a6aec79ddd681c75ac\"|\"2025-02-20\"|\"0.557235836982727\"|\"6.559277\"|\"{\"\"a\"\": \"\"b\"\"}\"|" +
-                "\"45.51123\"|\"10.3\"|\"15\"|\"5000\"|\"04:57:53.000375\"|\"2025-02-20 11:57:53.000375+07:00\"|" +
-                "\"2025-02-20 04:57:53.000375\"|\"c2142fe5-e305-42ab-8b95-598567e9ea86\"|\"{val, val}\"|" +
-                "\"\"\"ISBN-13\"\"=>\"\"978-1449370000\"\", \"\"weight\"\"=>\"\"11.2 ounces\"\", " +
-                "\"\"paperback\"\"=>\"\"243\"\", \"\"publisher\"\"=>\"\"postgresqltutorial.com\"\", " +
-                "\"\"language\"\"=>\"\"English\"\"\"\r\n|||||||||||||||||||||\r\n", result);
+        assertEquals(
+            String.format(
+                "\"1\"|\"2478701872\"|\"0\"|\"true\"|\"\\xd078\"|\"tt\"|\"c4ca4238a0\"|\"edc8acddc2e9a" +
+                    "0a6aec79ddd681c75ac\"|\"%s\"|\"0.557235836982727\"|\"6.559277\"|\"{\"\"a\"\": \"\"b\"\"}\"|" +
+                    "\"45.51123\"|\"10.3\"|\"15\"|\"5000\"|\"%s\"|\"%s\"|" +
+                    "\"%s\"|\"c2142fe5-e305-42ab-8b95-598567e9ea86\"|\"{val, val}\"|" +
+                    "\"\"\"ISBN-13\"\"=>\"\"978-1449370000\"\", \"\"weight\"\"=>\"\"11.2 ounces\"\", " +
+                    "\"\"paperback\"\"=>\"\"243\"\", \"\"publisher\"\"=>\"\"postgresqltutorial.com\"\", " +
+                    "\"\"language\"\"=>\"\"English\"\"\"\r\n|||||||||||||||||||||\r\n",
+                dateToString(dateField),
+                timeToString(timeField),
+                timestampWithZoneToString(timestampField),
+                timestampToString(zonedTimestampField)
+            ),
+            result
+        );
     }
 
     @Test
@@ -392,5 +412,21 @@ class CsvRecordSerializationServiceTest {
 
         serializationService = new CsvRecordSerializationService(recordSchema, columns, csvFormatConfig, logger);
         assertThrows(RuntimeException.class, () -> records.forEach(r -> serializationService.append(r)), "Unsupported field array element type: string for column type ARRAY");
+    }
+
+    private String dateToString(Date date) {
+        return DataTypeUtils.toString(date, DATE_FORMAT);
+    }
+
+    private String timeToString(Time time) {
+        return DataTypeUtils.toString(time, TIME_FORMAT);
+    }
+
+    private String timestampToString(Timestamp timestamp) {
+        return DataTypeUtils.toString(timestamp, TIMESTAMP_WITHOUT_TIME_ZONE_FORMAT);
+    }
+
+    private String timestampWithZoneToString(Timestamp timestamp) {
+        return DataTypeUtils.toString(timestamp, TIMESTAMP_WITH_TIME_ZONE_FORMAT);
     }
 }
