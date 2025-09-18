@@ -29,7 +29,6 @@ import org.apache.nifi.gpfdist.service.GreenplumService;
 import org.apache.nifi.gpfdist.service.RecordSink;
 import org.apache.nifi.gpfdist.service.TransferDataQueryExecutor;
 import org.apache.nifi.gpfdist.service.load.context.WriteContext;
-import org.apache.nifi.logging.ComponentLog;
 import org.apache.nifi.processor.AbstractProcessor;
 import org.apache.nifi.processor.ProcessContext;
 import org.apache.nifi.processor.ProcessSession;
@@ -152,14 +151,17 @@ public class PutGreenplumRecord extends AbstractProcessor {
             return;
         }
 
+        final String schema = context.getProperty(SCHEMA_NAME)
+            .evaluateAttributeExpressions(flowFile)
+            .getValue();
+        final String table = context.getProperty(TABLE_NAME)
+            .evaluateAttributeExpressions(flowFile)
+            .getValue();
         final GpfdistService gpfdistService = context.getProperty(GPFDIST_SERVICE)
             .asControllerService(GpfdistService.class);
         final TransferDataQueryExecutor transferDataQueryExecutor = gpfdistService.getQueryExecutor();
         final GreenplumService greenplumService = gpfdistService.getGreenplumTableService();
-        final TableDescription tableDescription = greenplumService.getTableDescription(
-            context.getProperty(SCHEMA_NAME).getValue(),
-            context.getProperty(TABLE_NAME).getValue()
-        );
+        final TableDescription tableDescription = greenplumService.getTableDescription(schema, table);
         final StopWatch stopWatch = new StopWatch(true);
 
         RecordSink recordSink = null;
