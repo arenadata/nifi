@@ -16,7 +16,8 @@
  */
 package org.apache.nifi.gpfdist.service.load.process;
 
-import java.util.LinkedList;
+import java.util.ArrayDeque;
+import java.util.Objects;
 import java.util.Queue;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
@@ -34,9 +35,7 @@ public class GpfdistRecordSink implements RecordSink {
     private final WriteContext writeContext;
     private final ExecutorService executorService;
     private final WriteContextManager contextManager;
-    // todo (ADS-2739) in case of concurrent PutGreenplumRecord either make sink exclusive
-    // per thread or use thread-safe structure here
-    private final Queue<CompletableFuture<Void>> loadingRecordFutureQueue = new LinkedList<>();
+    private final Queue<CompletableFuture<Void>> loadingRecordFutureQueue = new ArrayDeque<>();
     private final ComponentLog logger;
 
     public GpfdistRecordSink(final ContextId contextId,
@@ -76,6 +75,16 @@ public class GpfdistRecordSink implements RecordSink {
         logger.warn(errMsg);
     }
 
+    @Override
+    public Context getContext() {
+        return writeContext;
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hashCode(writeContext);
+    }
+
     private void failContext(Throwable e) {
         try {
             loadingRecordFutureQueue.clear();
@@ -84,10 +93,5 @@ public class GpfdistRecordSink implements RecordSink {
         } finally {
             contextManager.remove(writeContext.getContextId());
         }
-    }
-
-    @Override
-    public Context getContext() {
-        return writeContext;
     }
 }
