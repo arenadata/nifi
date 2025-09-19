@@ -52,7 +52,7 @@ public class GpfdistAsyncServlet extends HttpServlet {
 
     @Override
     protected void doGet(HttpServletRequest request, HttpServletResponse response) throws IOException {
-        AsyncContext async = request.startAsync();
+        AsyncContext asyncCtx = request.startAsync();
         String tableName = getExternalTableName(request);
         Map<String, String> headers = getHeaderMap(request);
         GpfdistReadableRequest readableRequest = GpfdistReadableRequest.create(tableName, headers);
@@ -63,21 +63,24 @@ public class GpfdistAsyncServlet extends HttpServlet {
         Optional<WriteContext> writeContextOptional = contextManager.get(new GpfdistContextId(tableName));
         logger.info("Input GET gpfdist request: {}", readableRequest);
 
-        response.setHeader(HttpHeaders.CONTENT_TYPE, ContentType.TEXT_PLAIN.getMimeType());
-        response.setHeader(HttpHeaders.CACHE_CONTROL, "no-cache");
-        response.setHeader(X_GP_PROTO, String.valueOf(readableRequest.getGpProtocol()));
+        HttpServletResponse asyncResponse = (HttpServletResponse) asyncCtx.getResponse();
+        asyncResponse.setHeader(HttpHeaders.CONTENT_TYPE, ContentType.TEXT_PLAIN.getMimeType());
+        asyncResponse.setHeader(HttpHeaders.CACHE_CONTROL, "no-cache");
+        asyncResponse.setHeader(X_GP_PROTO, String.valueOf(readableRequest.getGpProtocol()));
 
         if (writeContextOptional.isPresent()) {
             WriteContext writeContext = writeContextOptional.get();
             executorService.submit(() -> {
+                logger.info("Start handling input GET gpfdist request: {}", readableRequest);
                 try {
+                    asyncResponse.setStatus(HttpServletResponse.SC_OK);
                     try (PipedOutputStream outputStream = new PipedOutputStream();
                          PipedInputStream inputStream = new PipedInputStream(outputStream, writeContext.getBufferSize())) {
                         GpfdistRecordProcessor recordProcessor = (GpfdistRecordProcessor) recordProcessorFactory.create(readableRequest,
                                 writeContext,
                                 outputStream);
-                        boolean isAdded = writeContext.getRecordProcessorProvider().add(recordProcessor);
-                        ServletOutputStream out = response.getOutputStream();
+                        boolean isAdded = writeContext.getRecordProcessorProvider().register(recordProcessor);
+                        ServletOutputStream out = asyncResponse.getOutputStream();
                         if (isAdded) {
                             byte[] buf = new byte[writeContext.getBufferSize()];
                             int readLen;
@@ -90,19 +93,18 @@ public class GpfdistAsyncServlet extends HttpServlet {
                         }
                         logger.info("Request completed successfully: {}", readableRequest);
                     }
-                    response.setStatus(HttpServletResponse.SC_OK);
                 } catch (Exception e) {
-                    response.setStatus(HttpServletResponse.SC_INTERNAL_SERVER_ERROR);
-                    getServletContext().log("Failed to load data", e);
+                    asyncResponse.setStatus(HttpServletResponse.SC_INTERNAL_SERVER_ERROR);
+                    getServletContext().log("Failed to load data. Request: " + readableRequest, e);
                 } finally {
-                    async.complete();
+                    asyncCtx.complete();
                 }
             });
         } else {
-            response.setStatus(HttpServletResponse.SC_OK);
+            asyncResponse.setStatus(HttpServletResponse.SC_OK);
             logger.info("There is no data for loading responded by request: {}", readableRequest);
-            response.getOutputStream().write(new GpfdistPacketBuilder(createGpfdistFileName(tableName)).createSingleEmptyDataPacket());
-            async.complete();
+            asyncResponse.getOutputStream().write(new GpfdistPacketBuilder(createGpfdistFileName(tableName)).createSingleEmptyDataPacket());
+            asyncCtx.complete();
         }
     }
 

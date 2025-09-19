@@ -24,10 +24,11 @@ import java.util.concurrent.ConcurrentHashMap;
 public abstract class AbstractContextManager<T extends Context>
         implements ContextManager<T> {
     private final ComponentLog logger;
-    private final Map<ContextId, T> contextMap = new ConcurrentHashMap<>();
+    private final Map<ContextId, T> contextMap;
 
     protected AbstractContextManager(ComponentLog logger) {
         this.logger = logger;
+        this.contextMap = new ConcurrentHashMap<>();
     }
 
     @Override

@@ -16,6 +16,7 @@
  */
 package org.apache.nifi.gpfdist.service.load.context;
 
+import java.util.Objects;
 import org.apache.nifi.gpfdist.metadata.Context;
 import org.apache.nifi.gpfdist.metadata.ContextId;
 import org.apache.nifi.gpfdist.service.RecordProcessorProvider;
@@ -73,6 +74,11 @@ public class WriteContext implements Context {
     public void close() {
         recordProcessorProvider.close();
         logger.debug("Closed write context {}", contextId);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hashCode(contextId);
     }
 
     @Override
