@@ -16,10 +16,12 @@
  */
 package org.apache.nifi.gpfdist.service;
 
-public interface RecordProcessorProvider {
-    boolean add(RecordProcessor processor);
+import java.util.function.Consumer;
 
-    RecordProcessor take();
+public interface RecordProcessorProvider {
+    boolean register(RecordProcessor processor);
+
+    void useProcessor(Consumer<RecordProcessor> processor);
 
     void close();
 }
