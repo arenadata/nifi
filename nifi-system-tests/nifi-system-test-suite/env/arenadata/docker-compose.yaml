@@ -16,7 +16,7 @@
 version: "3.8"
 services:
     mdw:
-        image: "gpdb6-distributed:it"
+        image: "cloud-hub.adsw.io/java/gpdb6-java-ubuntu:latest"
         restart: on-failure:3
         working_dir: /home/gpadmin
         hostname: mdw
@@ -29,6 +29,10 @@ services:
             - DOCKER_GP_SEGMENT_SERVERS=sdw1,sdw2
             - DOCKER_GP_PRIMARY_SEGMENTS_PER_HOST=2
             - DOCKER_GP_WITH_MIRROR=true
+            - HZ_NETWORK_JOIN_TCPIP_MEMBERS=adb,sdw1,sdw2
+            - ADB_CLUSTER_NAME=primary_cluster
+            - ADB_CLUSTER_GUID=deadbeef-feed-beef-dead-baddadfeedad
+            - AGENT_JAVA_OPTS=-XX:+HeapDumpOnOutOfMemoryError -XX:+UseStringDeduplication -XX:+OptimizeStringConcat -Xlog:gc*,safepoint:gc.log:time,uptime:filecount=100,filesize=50M -Xmx2g -Xms256m
         depends_on:
             - sdw1
             - sdw2
@@ -38,17 +42,21 @@ services:
             interval: 10s
             timeout: 1s
             retries: 20
-        entrypoint: ["bash", "start_adb.sh" ]
+        entrypoint: ["bash", "start_adb_service.sh"]
         privileged: true
         extra_hosts:
             - "host.docker.internal:host-gateway"
         sysctls:
             kernel.sem: 500 1024000 200 4096
+            net.unix.max_dgram_qlen: 4096
+        volumes:
+          - "./healthcheck.sh:/home/gpadmin/healthcheck.sh:rw"
+          - "./start_adb_service.sh:/home/gpadmin/start_adb_service.sh:rw"
         networks:
           - nifinet
 
     sdw1:
-        image: "gpdb6-distributed:it"
+        image: "cloud-hub.adsw.io/java/gpdb6-java-ubuntu:latest"
         restart: on-failure:3
         privileged: true
         hostname: sdw1
@@ -61,16 +69,24 @@ services:
             - DOCKER_GP_SEGMENT_SERVERS=sdw1,sdw2
             - DOCKER_GP_PRIMARY_SEGMENTS_PER_HOST=2
             - DOCKER_GP_WITH_MIRROR=true
-        entrypoint: ["bash", "start_adb.sh" ]
+            - HZ_NETWORK_JOIN_TCPIP_MEMBERS=adb,sdw1,sdw2
+            - ADB_CLUSTER_NAME=primary_cluster
+            - ADB_CLUSTER_GUID=deadbeef-feed-beef-dead-baddadfeedad
+            - AGENT_JAVA_OPTS=-XX:+HeapDumpOnOutOfMemoryError -XX:+UseStringDeduplication -XX:+OptimizeStringConcat -Xlog:gc*,safepoint:gc.log:time,uptime:filecount=100,filesize=50M -Xmx2g -Xms256m
+        entrypoint: ["bash", "start_adb_service.sh"]
         extra_hosts:
             - "host.docker.internal:host-gateway"
         sysctls:
             kernel.sem: 500 1024000 200 4096
+            net.unix.max_dgram_qlen: 4096
+        volumes:
+          - "./healthcheck.sh:/home/gpadmin/healthcheck.sh:rw"
+          - "./start_adb_service.sh:/home/gpadmin/start_adb_service.sh:rw"
         networks:
           - nifinet
 
     sdw2:
-        image: "gpdb6-distributed:it"
+        image: "cloud-hub.adsw.io/java/gpdb6-java-ubuntu:latest"
         restart: on-failure:3
         privileged: true
         hostname: sdw2
@@ -83,16 +99,24 @@ services:
             - DOCKER_GP_SEGMENT_SERVERS=sdw1,sdw2
             - DOCKER_GP_PRIMARY_SEGMENTS_PER_HOST=2
             - DOCKER_GP_WITH_MIRROR=true
-        entrypoint: ["bash", "start_adb.sh" ]
+            - HZ_NETWORK_JOIN_TCPIP_MEMBERS=adb,sdw1,sdw2
+            - ADB_CLUSTER_NAME=primary_cluster
+            - ADB_CLUSTER_GUID=deadbeef-feed-beef-dead-baddadfeedad
+            - AGENT_JAVA_OPTS=-XX:+HeapDumpOnOutOfMemoryError -XX:+UseStringDeduplication -XX:+OptimizeStringConcat -Xlog:gc*,safepoint:gc.log:time,uptime:filecount=100,filesize=50M -Xmx2g -Xms256m
+        entrypoint: ["bash", "start_adb_service.sh"]
         extra_hosts:
             - "host.docker.internal:host-gateway"
         sysctls:
             kernel.sem: 500 1024000 200 4096
+            net.unix.max_dgram_qlen: 4096
+        volumes:
+          - "./healthcheck.sh:/home/gpadmin/healthcheck.sh:rw"
+          - "./start_adb_service.sh:/home/gpadmin/start_adb_service.sh:rw"
         networks:
           - nifinet
 
     smdw:
-        image: "gpdb6-distributed:it"
+        image: "cloud-hub.adsw.io/java/gpdb6-java-ubuntu:latest"
         restart: on-failure:3
         privileged: true
         hostname: smdw
@@ -105,11 +129,19 @@ services:
             - DOCKER_GP_SEGMENT_SERVERS=sdw1,sdw2
             - DOCKER_GP_PRIMARY_SEGMENTS_PER_HOST=2
             - DOCKER_GP_WITH_MIRROR=true
-        entrypoint: ["bash", "start_adb.sh" ]
+            - HZ_NETWORK_JOIN_TCPIP_MEMBERS=adb,sdw1,sdw2
+            - ADB_CLUSTER_NAME=primary_cluster
+            - ADB_CLUSTER_GUID=deadbeef-feed-beef-dead-baddadfeedad
+            - AGENT_JAVA_OPTS=-XX:+HeapDumpOnOutOfMemoryError -XX:+UseStringDeduplication -XX:+OptimizeStringConcat -Xlog:gc*,safepoint:gc.log:time,uptime:filecount=100,filesize=50M -Xmx2g -Xms256m
+        entrypoint: ["bash", "start_adb_service.sh"]
         extra_hosts:
             - "host.docker.internal:host-gateway"
         sysctls:
             kernel.sem: 500 1024000 200 4096
+            net.unix.max_dgram_qlen: 4096
+        volumes:
+          - "./healthcheck.sh:/home/gpadmin/healthcheck.sh:rw"
+          - "./start_adb_service.sh:/home/gpadmin/start_adb_service.sh:rw"
         networks:
           - nifinet
 
@@ -143,7 +175,7 @@ services:
         - nifinet
 
     nifi01:
-        image: nifi:it
+        image: apache/nifi:1.26.0
         ports:
           - 6980:8080
           - 8000:8000 #debug port
@@ -161,12 +193,16 @@ services:
           interval: 60s
           timeout: 15s
           retries: 3
+        entrypoint: [ "bash","/opt/nifi/nifi-current/prepare_nifi_configs.sh", "../scripts/start.sh" ]
         volumes:
-          - "nifi_node1_data:/data"
-          - "../../target/postgresql-42.7.5.jar:/opt/postgresql-42.7.5.jar"
+          - "nifi_node3_data:/data"
+          - "../../target/postgresql-42.6.1.jar:/opt/postgresql-42.6.1.jar"
+          - "../../target/nifi-greenplum-service-nar-1.26.0.nar:/opt/nifi/nifi-current/lib/nifi-greenplum-service-nar-1.26.0.nar"
+          - "./nifi-cluster/conf:/opt/nifi/nifi-current/bootstrap_conf"
+          - "./prepare_nifi_configs.sh:/opt/nifi/nifi-current/prepare_nifi_configs.sh"
 
     nifi02:
-        image: nifi:it
+        image: apache/nifi:1.26.0
         ports:
           - 6979:8080
           - 8002:8000
@@ -184,12 +220,16 @@ services:
           interval: 60s
           timeout: 15s
           retries: 3
+        entrypoint: [ "bash","/opt/nifi/nifi-current/prepare_nifi_configs.sh", "../scripts/start.sh" ]
         volumes:
-          - "nifi_node2_data:/data"
-          - "../../target/postgresql-42.7.5.jar:/opt/postgresql-42.7.5.jar"
+          - "nifi_node3_data:/data"
+          - "../../target/postgresql-42.6.1.jar:/opt/postgresql-42.6.1.jar"
+          - "../../target/nifi-greenplum-service-nar-1.26.0.nar:/opt/nifi/nifi-current/lib/nifi-greenplum-service-nar-1.26.0.nar"
+          - "./nifi-cluster/conf:/opt/nifi/nifi-current/bootstrap_conf"
+          - "./prepare_nifi_configs.sh:/opt/nifi/nifi-current/prepare_nifi_configs.sh"
 
     nifi03:
-        image: nifi:it
+        image: apache/nifi:1.26.0
         ports:
           - 6978:8080
           - 8003:8000
@@ -207,9 +247,13 @@ services:
           interval: 60s
           timeout: 15s
           retries: 3
+        entrypoint: ["bash","/opt/nifi/nifi-current/prepare_nifi_configs.sh", "../scripts/start.sh"]
         volumes:
           - "nifi_node3_data:/data"
-          - "../../target/postgresql-42.7.5.jar:/opt/postgresql-42.7.5.jar"
+          - "../../target/postgresql-42.6.1.jar:/opt/postgresql-42.6.1.jar"
+          - "../../target/nifi-greenplum-service-nar-1.26.0.nar:/opt/nifi/nifi-current/lib/nifi-greenplum-service-nar-1.26.0.nar"
+          - "./nifi-cluster/conf:/opt/nifi/nifi-current/bootstrap_conf"
+          - "./prepare_nifi_configs.sh:/opt/nifi/nifi-current/prepare_nifi_configs.sh"
 
 volumes:
   nifi_node1_data:
@@ -218,4 +262,3 @@ volumes:
 
 networks:
   nifinet:
-#    external: true

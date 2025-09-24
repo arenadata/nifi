@@ -13,7 +13,8 @@
   See the License for the specific language governing permissions and
   limitations under the License.
 -->
-<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
     <parent>
         <artifactId>nifi-system-tests</artifactId>
         <groupId>org.apache.nifi</groupId>
@@ -29,6 +30,7 @@
         <allure.version>2.29.0</allure.version>
         <nifi.version>1.26.0</nifi.version>
         <maven-resource-plugin.version>3.2.0</maven-resource-plugin.version>
+        <postgresql.version>42.6.1</postgresql.version>
     </properties>
 
     <profiles>
@@ -49,7 +51,8 @@
                             <goal>verify</goal>
                             <testFailureIgnore>false</testFailureIgnore>
                             <systemPropertyVariables>
-                                <allure.results.directory>${project.build.directory}/allure-results</allure.results.directory>
+                                <allure.results.directory>${project.build.directory}/allure-results
+                                </allure.results.directory>
                                 <useSystemClassLoader>true</useSystemClassLoader>
                             </systemPropertyVariables>
                             <argLine>
@@ -138,10 +141,30 @@
                             <silent>true</silent>
                         </configuration>
                     </execution>
+                    <execution>
+                        <id>copy-postgresql-driver</id>
+                        <phase>package</phase>
+                        <goals>
+                            <goal>copy</goal>
+                        </goals>
+                        <configuration>
+                            <artifactItems>
+                                <artifactItem>
+                                    <groupId>org.postgresql</groupId>
+                                    <artifactId>postgresql</artifactId>
+                                    <version>${postgresql.version}</version>
+                                    <type>jar</type>
+                                    <overWrite>true</overWrite>
+                                    <outputDirectory>target</outputDirectory>
+                                    <destFileName>postgresql-${postgresql.version}.jar</destFileName>
+                                </artifactItem>
+                            </artifactItems>
+                        </configuration>
+                    </execution>
                 </executions>
             </plugin>
             <plugin>
-            <groupId>org.apache.rat</groupId>
+                <groupId>org.apache.rat</groupId>
                 <artifactId>apache-rat-plugin</artifactId>
                 <configuration>
                     <excludes combine.children="append">
@@ -190,7 +213,9 @@
                             <outputDirectory>target</outputDirectory>
                             <resources>
                                 <resource>
-                                    <directory>../../nifi-nar-bundles/nifi-standard-services/nifi-greenplum-service-bundle/nifi-greenplum-service-nar/target</directory>
+                                    <directory>
+                                        ../../nifi-nar-bundles/nifi-standard-services/nifi-greenplum-service-bundle/nifi-greenplum-service-nar/target
+                                    </directory>
                                     <includes>
                                         <include>nifi-greenplum-service-nar-1.26.0.nar</include>
                                     </includes>
@@ -281,7 +306,7 @@
         <dependency>
             <groupId>org.postgresql</groupId>
             <artifactId>postgresql</artifactId>
-            <version>42.6.1</version>
+            <version>${postgresql.version}</version>
         </dependency>
         <dependency>
             <groupId>com.fasterxml.jackson.dataformat</groupId>
