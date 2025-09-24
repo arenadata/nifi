@@ -12,14 +12,14 @@
   See the License for the specific language governing permissions and
   limitations under the License.
 -->
-### Build ADB docker image
+### Build nifi project
 
 ```bash
-env/arenadata/build_docker_images.sh
+mvn clean install -DskipTests=true -f ../../pom.xml
 ```
 
 ### Start Arenadata integration tests
 
 ```bash
-mvn clean install -P arenadata
+mvn install -P arenadata
 ```
