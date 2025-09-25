@@ -15,7 +15,7 @@
 ### Build nifi project
 
 ```bash
-mvn clean install -DskipTests=true -f ../../pom.xml
+mvn clean install -T2C -DskipTests=true -f ../../pom.xml
 ```
 
 ### Start Arenadata integration tests
