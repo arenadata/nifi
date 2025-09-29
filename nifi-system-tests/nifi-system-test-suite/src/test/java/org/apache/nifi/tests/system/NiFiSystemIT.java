@@ -48,6 +48,8 @@ import javax.net.ssl.SSLContext;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
+import java.security.KeyManagementException;
+import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
@@ -97,19 +99,19 @@ public abstract class NiFiSystemIT implements NiFiInstanceProvider {
     private static final File LIB_DIR = new File("target/nifi-lib-assembly/lib");
     private static volatile String nifiFrameworkVersion = null;
 
-    private NiFiClient nifiClient;
-    private NiFiClientUtil clientUtil;
-    private static final AtomicReference<NiFiInstance> nifiRef = new AtomicReference<>();
-    private static final NiFiInstanceCache instanceCache = new NiFiInstanceCache();
+    protected NiFiClient nifiClient;
+    protected NiFiClientUtil clientUtil;
+    protected static final AtomicReference<NiFiInstance> nifiRef = new AtomicReference<>();
+    protected static final NiFiInstanceCache instanceCache = new NiFiInstanceCache();
 
     static {
         Runtime.getRuntime().addShutdownHook(new Thread(instanceCache::shutdown));
     }
 
-    private TestInfo testInfo;
+    protected TestInfo testInfo;
 
     @BeforeEach
-    public void setup(final TestInfo testInfo) throws IOException {
+    public void setup(final TestInfo testInfo) throws IOException, NoSuchAlgorithmException {
         this.testInfo = testInfo;
 
         final String testClassName = testInfo.getTestClass().map(Class::getSimpleName).orElse("<Unknown Test Class>");
