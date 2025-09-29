@@ -17,8 +17,6 @@
 package org.apache.nifi.tests.system.arenadata;
 
 import org.apache.nifi.tests.system.NiFiClientUtil;
-import org.apache.nifi.tests.system.NiFiInstance;
-import org.apache.nifi.tests.system.NiFiInstanceFactory;
 import org.apache.nifi.tests.system.NiFiSystemIT;
 import org.apache.nifi.toolkit.client.NiFiClient;
 import org.apache.nifi.toolkit.client.NiFiClientConfig;
@@ -37,7 +35,6 @@ import java.security.KeyManagementException;
 import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
 import java.security.cert.X509Certificate;
-import java.util.Optional;
 
 public class NifiSystemContainerizedIT extends NiFiSystemIT {
     private static final Logger logger = LoggerFactory.getLogger(NifiSystemContainerizedIT.class);
@@ -69,9 +66,18 @@ public class NifiSystemContainerizedIT extends NiFiSystemIT {
             sslContext = SSLContext.getInstance("TLS");
             sslContext.init(null, new TrustManager[]{
                     new X509TrustManager() {
-                        @Override public void checkClientTrusted(X509Certificate[] chain, String authType) {}
-                        @Override public void checkServerTrusted(X509Certificate[] chain, String authType) {}
-                        @Override public X509Certificate[] getAcceptedIssuers() { return new X509Certificate[0]; }
+                        @Override
+                        public void checkClientTrusted(X509Certificate[] chain, String authType) {
+                        }
+
+                        @Override
+                        public void checkServerTrusted(X509Certificate[] chain, String authType) {
+                        }
+
+                        @Override
+                        public X509Certificate[] getAcceptedIssuers() {
+                            return new X509Certificate[0];
+                        }
                     }
             }, new SecureRandom());
         } catch (NoSuchAlgorithmException | KeyManagementException e) {

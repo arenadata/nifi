@@ -28,9 +28,9 @@ public enum Component {
     SMDW("smdw", 0),
     POSTGRES("postgres", 5432),
     ZOOKEEPER("zookeeper", 0),
-    NIFI01("nifi01",6980),
-    NIFI02("nifi02",6979),
-    NIFI03("nifi03",6978);
+    NIFI01("nifi01", 6980),
+    NIFI02("nifi02", 6979),
+    NIFI03("nifi03", 6978);
 
     private final String name;
     private final int port;
