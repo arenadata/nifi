@@ -61,32 +61,9 @@ public class NifiSystemContainerizedIT extends NiFiSystemIT {
                 .baseUrl("http://localhost:" + port)
                 .connectTimeout(15000)
                 .readTimeout(30000);
-        SSLContext sslContext = null;
-        try {
-            sslContext = SSLContext.getInstance("TLS");
-            sslContext.init(null, new TrustManager[]{
-                    new X509TrustManager() {
-                        @Override
-                        public void checkClientTrusted(X509Certificate[] chain, String authType) {
-                        }
 
-                        @Override
-                        public void checkServerTrusted(X509Certificate[] chain, String authType) {
-                        }
-
-                        @Override
-                        public X509Certificate[] getAcceptedIssuers() {
-                            return new X509Certificate[0];
-                        }
-                    }
-            }, new SecureRandom());
-        } catch (NoSuchAlgorithmException | KeyManagementException e) {
-            throw new RuntimeException(e);
-        }
-        HttpsURLConnection.setDefaultSSLSocketFactory(sslContext.getSocketFactory());
-        HttpsURLConnection.setDefaultHostnameVerifier((hostname, session) -> true);
         return new JerseyNiFiClient.Builder()
-                .config(clientConfigBuilder.sslContext(sslContext).build())
+                .config(clientConfigBuilder.build())
                 .build();
     }
 }

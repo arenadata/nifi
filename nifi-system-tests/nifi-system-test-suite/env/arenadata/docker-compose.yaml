@@ -196,11 +196,13 @@ services:
           interval: 60s
           timeout: 15s
           retries: 3
+        entrypoint: [ "bash","/opt/nifi/nifi-current/prepare_nifi_configs.sh"]
         volumes:
           - "nifi_node3_data:/data"
           - "../../target/postgresql-42.6.1.jar:/opt/postgresql-42.6.1.jar"
           - "../../target/nifi-greenplum-service-nar-${NIFI_VERSION:-2.5.0}.nar:/opt/nifi/nifi-current/lib/nifi-greenplum-service-nar-${NIFI_VERSION:-2.5.0}.nar"
           - "./nifi-cluster/conf/start.sh:/opt/nifi/scripts/start.sh"
+          - "./prepare_nifi_configs.sh:/opt/nifi/nifi-current/prepare_nifi_configs.sh"
 
     nifi02:
         image: apache/nifi:${NIFI_VERSION:-2.5.0}
@@ -224,11 +226,13 @@ services:
           interval: 60s
           timeout: 15s
           retries: 3
+        entrypoint: [ "bash","/opt/nifi/nifi-current/prepare_nifi_configs.sh" ]
         volumes:
           - "nifi_node3_data:/data"
           - "../../target/postgresql-42.6.1.jar:/opt/postgresql-42.6.1.jar"
           - "../../target/nifi-greenplum-service-nar-${NIFI_VERSION:-2.5.0}.nar:/opt/nifi/nifi-current/lib/nifi-greenplum-service-nar-${NIFI_VERSION:-2.5.0}.nar"
           - "./nifi-cluster/conf/start.sh:/opt/nifi/scripts/start.sh"
+          - "./prepare_nifi_configs.sh:/opt/nifi/nifi-current/prepare_nifi_configs.sh"
 
     nifi03:
         image: apache/nifi:${NIFI_VERSION:-2.5.0}
@@ -252,11 +256,13 @@ services:
           interval: 60s
           timeout: 15s
           retries: 3
+        entrypoint: [ "bash","/opt/nifi/nifi-current/prepare_nifi_configs.sh" ]
         volumes:
           - "nifi_node3_data:/data"
           - "../../target/postgresql-42.6.1.jar:/opt/postgresql-42.6.1.jar"
           - "../../target/nifi-greenplum-service-nar-${NIFI_VERSION:-2.5.0}.nar:/opt/nifi/nifi-current/lib/nifi-greenplum-service-nar-${NIFI_VERSION:-2.5.0}.nar"
           - "./nifi-cluster/conf/start.sh:/opt/nifi/scripts/start.sh"
+          - "./prepare_nifi_configs.sh:/opt/nifi/nifi-current/prepare_nifi_configs.sh"
 
 volumes:
   nifi_node1_data:
