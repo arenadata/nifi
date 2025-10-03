@@ -26,7 +26,11 @@ public enum Component {
     SDW1("sdw1", 0),
     SDW2("sdw2", 0),
     SMDW("smdw", 0),
-    POSTGRES("postgres", 5432);
+    POSTGRES("postgres", 5432),
+    ZOOKEEPER("zookeeper", 0),
+    NIFI01("nifi01", 6980),
+    NIFI02("nifi02", 6979),
+    NIFI03("nifi03", 6978);
 
     private final String name;
     private final int port;

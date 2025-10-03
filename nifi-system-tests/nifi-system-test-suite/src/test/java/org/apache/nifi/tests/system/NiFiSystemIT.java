@@ -70,7 +70,6 @@ public abstract class NiFiSystemIT implements NiFiInstanceProvider {
     public static final int STANDALONE_CLIENT_API_BASE_PORT = 5670;
     public static final String NIFI_GROUP_ID = "org.apache.nifi";
     public static final String TEST_EXTENSIONS_ARTIFACT_ID = "nifi-system-test-extensions-nar";
-    public static final String TEST_EXTENSIONS_SERVICES_ARTIFACT_ID = "nifi-system-test-extensions-services-nar";
     public static final String TEST_PARAM_PROVIDERS_PACKAGE = "org.apache.nifi.parameter.tests.system";
     public static final String TEST_PROCESSORS_PACKAGE = "org.apache.nifi.processors.tests.system";
     public static final String TEST_CS_PACKAGE = "org.apache.nifi.cs.tests.system";
@@ -82,14 +81,14 @@ public abstract class NiFiSystemIT implements NiFiInstanceProvider {
 
     private NiFiClient nifiClient;
     private NiFiClientUtil clientUtil;
-    private static final AtomicReference<NiFiInstance> nifiRef = new AtomicReference<>();
-    private static final NiFiInstanceCache instanceCache = new NiFiInstanceCache();
+    protected static final AtomicReference<NiFiInstance> nifiRef = new AtomicReference<>();
+    protected static final NiFiInstanceCache instanceCache = new NiFiInstanceCache();
 
     static {
         Runtime.getRuntime().addShutdownHook(new Thread(() -> instanceCache.shutdown()));
     }
 
-    private TestInfo testInfo;
+    protected TestInfo testInfo;
 
     @BeforeEach
     public void setup(final TestInfo testInfo) throws IOException {

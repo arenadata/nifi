@@ -16,18 +16,19 @@
 adb:
   url: "jdbc:postgresql://localhost:6000/adb"
   driverName: "org.postgresql.Driver"
-  driverLocation: "/var/tmp/postgresql-42.7.5.jar"
+  driverLocation: "/opt/postgresql-42.6.1.jar"
   username: gpadmin
   password: gpadmin
+  containerAddress: "jdbc:postgresql://mdw:6000/adb"
 
 postgres:
   url: "jdbc:postgresql://localhost:5432/postgres"
   driverName: "org.postgresql.Driver"
-  driverLocation: "/var/tmp/postgresql-42.7.5.jar"
+  driverLocation: "/opt/postgresql-42.6.1.jar"
   username: nifi
   password:
+  containerAddress: "jdbc:postgresql://postgres:5432/postgres"
 
 gpfdistPort: 8099
 generalTimeout: 30
 pollInterval: 3
-dockerHostIp: 172.17.0.1 # Default IP of docker host in docker0 network

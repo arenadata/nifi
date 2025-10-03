@@ -29,4 +29,5 @@ public class DataSourceProperties {
     private String driverLocation;
     private String username;
     private String password;
+    private String containerAddress;
 }
