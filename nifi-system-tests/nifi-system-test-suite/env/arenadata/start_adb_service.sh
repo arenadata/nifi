@@ -13,15 +13,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-#!/bin/bash
-git submodule update --init --recursive
-IMAGE_VERSION=$1
-MAVEN_PROFILE='test'
-
-if [ -z "$IMAGE_VERSION" ]
-then
-  IMAGE_VERSION=it
-fi
-
-# Build ADB image
-docker build -f ./Dockerfile-adb -t gpdb6-distributed:"${IMAGE_VERSION}" .
+#!/usr/bin/env bash
+# The script serves as an entrypoint
+echo "-----------------"
+echo " Run ADB service "
+echo "-----------------"
+source "$ADB_ENTRYPOINT_DIR/start_adb.sh"
+# Keep container running
+tail -f /dev/null

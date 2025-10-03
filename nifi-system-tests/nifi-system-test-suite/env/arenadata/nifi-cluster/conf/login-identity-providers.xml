@@ -1,3 +1,4 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <!--
   Licensed to the Apache Software Foundation (ASF) under one or more
   contributor license agreements.  See the NOTICE file distributed with
@@ -12,14 +13,10 @@
   See the License for the specific language governing permissions and
   limitations under the License.
 -->
-### Build nifi project
 
-```bash
-mvn clean install -DskipTests=true -f ../../pom.xml
-```
-
-### Start Arenadata integration tests
-
-```bash
-mvn install -P arenadata
-```
+<loginIdentityProviders>
+    <provider>
+        <identifier>single-user-provider</identifier>
+        <class>org.apache.nifi.authentication.single.user.SingleUserLoginIdentityProvider</class>
+    </provider>
+</loginIdentityProviders>
