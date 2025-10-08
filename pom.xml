@@ -738,16 +738,6 @@
                 <artifactId>nifi-utils</artifactId>
                 <version>1.26.0</version>
             </dependency>
-            <dependency>
-                <groupId>net.java.dev.jna</groupId>
-                <artifactId>jna</artifactId>
-                <version>${jna.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>net.java.dev.jna</groupId>
-                <artifactId>jna-platform</artifactId>
-                <version>${jna.version}</version>
-            </dependency>
         </dependencies>
     </dependencyManagement>
 
