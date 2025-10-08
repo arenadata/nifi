@@ -152,7 +152,6 @@
         <h2.version>2.2.224</h2.version>
         <zookeeper.version>3.9.2</zookeeper.version>
         <caffeine.version>2.9.3</caffeine.version>
-        <jna.version>5.18.1</jna.version>
     </properties>
     <dependencyManagement>
         <dependencies>
@@ -787,14 +786,6 @@
             <groupId>org.slf4j</groupId>
             <artifactId>slf4j-simple</artifactId>
             <scope>test</scope>
-        </dependency>
-        <dependency>
-            <groupId>net.java.dev.jna</groupId>
-            <artifactId>jna</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>net.java.dev.jna</groupId>
-            <artifactId>jna-platform</artifactId>
         </dependency>
     </dependencies>
 
