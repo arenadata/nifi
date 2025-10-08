@@ -152,6 +152,7 @@
         <h2.version>2.2.224</h2.version>
         <zookeeper.version>3.9.2</zookeeper.version>
         <caffeine.version>2.9.3</caffeine.version>
+        <jna.version>5.18.1</jna.version>
     </properties>
     <dependencyManagement>
         <dependencies>
@@ -738,6 +739,16 @@
                 <artifactId>nifi-utils</artifactId>
                 <version>1.26.0</version>
             </dependency>
+            <dependency>
+                <groupId>net.java.dev.jna</groupId>
+                <artifactId>jna</artifactId>
+                <version>${jna.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>net.java.dev.jna</groupId>
+                <artifactId>jna-platform</artifactId>
+                <version>${jna.version}</version>
+            </dependency>
         </dependencies>
     </dependencyManagement>
 
@@ -776,6 +787,14 @@
             <groupId>org.slf4j</groupId>
             <artifactId>slf4j-simple</artifactId>
             <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>net.java.dev.jna</groupId>
+            <artifactId>jna</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>net.java.dev.jna</groupId>
+            <artifactId>jna-platform</artifactId>
         </dependency>
     </dependencies>
 
