@@ -58,7 +58,7 @@
                             </systemPropertyVariables>
                             <argLine>
                                 -ea -Xmx4G -XX:MaxMetaspaceSize=2G
-                                -javaagent:"${settings.localRepository}/org/aspectj/aspectjweaver/${aspectj.version}/aspectjweaver-${aspectj.version}.jar"
+<!--                                -javaagent:"${settings.localRepository}/org/aspectj/aspectjweaver/${aspectj.version}/aspectjweaver-${aspectj.version}.jar"-->
                             </argLine>
                             <properties>
                                 <property>
@@ -71,11 +71,11 @@
                             </includes>
                         </configuration>
                         <dependencies>
-                            <dependency>
-                                <groupId>org.aspectj</groupId>
-                                <artifactId>aspectjweaver</artifactId>
-                                <version>${aspectj.version}</version>
-                            </dependency>
+<!--                            <dependency>-->
+<!--                                <groupId>org.aspectj</groupId>-->
+<!--                                <artifactId>aspectjweaver</artifactId>-->
+<!--                                <version>${aspectj.version}</version>-->
+<!--                            </dependency>-->
                             <dependency>
                                 <groupId>org.junit.jupiter</groupId>
                                 <artifactId>junit-jupiter-engine</artifactId>
