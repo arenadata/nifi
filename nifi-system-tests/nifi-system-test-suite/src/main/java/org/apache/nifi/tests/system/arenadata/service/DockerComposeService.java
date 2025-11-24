@@ -37,6 +37,9 @@ public class DockerComposeService {
     private final List<Component> components;
     private DockerComposeContainer<?> compose;
 
+    static {
+        System.setProperty("docker.client.strategy", "org.testcontainers.dockerclient.DockerClientProviderStrategy");
+    }
 
     public DockerComposeService(List<Component> components) {
         this.components = components;
