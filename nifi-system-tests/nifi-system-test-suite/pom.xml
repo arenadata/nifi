@@ -247,10 +247,10 @@
                             <resources>
                                 <resource>
                                     <directory>
-                                        ../../nifi-extension-bundles/nifi-standard-services/nifi-greenplum-service-bundle/nifi-greenplum-service-nar/target
+                                        ../../nifi-extension-bundles/nifi-standard-services/nifi-greengage-service-bundle/nifi-greengage-service-nar/target
                                     </directory>
                                     <includes>
-                                        <include>nifi-greenplum-service-nar-${nifi.version}.nar</include>
+                                        <include>nifi-greengage-service-nar-${nifi.version}.nar</include>
                                     </includes>
                                 </resource>
                             </resources>
