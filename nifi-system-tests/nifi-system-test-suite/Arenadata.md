@@ -23,4 +23,3 @@ mvn clean install -DskipTests=true -f ../../pom.xml
 ```bash
 mvn install -P arenadata
 ```
-

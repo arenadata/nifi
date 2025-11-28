@@ -1,6 +1,5 @@
 <aspectj>
     <weaver options="-verbose -showWeaveInfo">
-        <exclude within="org.testcontainers..*"/>
         <exclude within="com.sun.jna..*"/>
     </weaver>
     <aspects>
