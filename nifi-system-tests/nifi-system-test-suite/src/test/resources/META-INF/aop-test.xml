@@ -1,0 +1,8 @@
+<aspectj>
+    <weaver options="-verbose -showWeaveInfo">
+        <exclude within="com.sun.jna..*"/>
+    </weaver>
+    <aspects>
+        <aspect name="org.apache.nifi.nar.LoadNativeLibAspect"/>
+    </aspects>
+</aspectj>
