@@ -45,9 +45,6 @@ PROGNAME=$(basename "$0")
 
 . "${SCRIPT_DIR}/nifi-registry-env.sh"
 
-. /usr/lib/bigtop-utils/bigtop-detect-javahome "21"
-
-
 warn() {
     echo "${PROGNAME}: $*"
 }
