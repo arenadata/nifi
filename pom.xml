@@ -1000,7 +1000,7 @@
                         <configuration>
                             <rules>
                                 <requireJavaVersion>
-                                    <version>[${minimalJavaBuildVersion}, 21)</version>
+                                    <version>[${minimalJavaBuildVersion}, 22)</version>
                                 </requireJavaVersion>
                                 <banDuplicatePomDependencyVersions />
                                 <requireSameVersions>
