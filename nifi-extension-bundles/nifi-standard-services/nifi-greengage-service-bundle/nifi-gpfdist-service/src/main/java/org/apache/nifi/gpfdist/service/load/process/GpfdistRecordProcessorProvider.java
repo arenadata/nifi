@@ -30,7 +30,7 @@ import org.apache.nifi.gpfdist.service.RecordProcessorProvider;
 import static java.lang.String.format;
 
 public class GpfdistRecordProcessorProvider implements RecordProcessorProvider {
-    private static final long GREENPLUM_SEGMENT_WAIT_TIMEOUT = 60000L;
+    private static final long GREENGAGE_SEGMENT_WAIT_TIMEOUT = 60000L;
 
     private final Set<RecordProcessor> registeredProcessors = new HashSet<>();
     private final Queue<RecordProcessor> recordProcessors = new LinkedList<>();
@@ -94,10 +94,10 @@ public class GpfdistRecordProcessorProvider implements RecordProcessorProvider {
             while (recordProcessors.isEmpty()) {
                 try {
                     if (!isReadyForProcessing
-                        && currentTimeMsProvider().get() - startTime > GREENPLUM_SEGMENT_WAIT_TIMEOUT) {
+                        && currentTimeMsProvider().get() - startTime > GREENGAGE_SEGMENT_WAIT_TIMEOUT) {
                         throw new RuntimeException(
                             format("Timeout :%d ms waiting for segments responses is exceeded",
-                                GREENPLUM_SEGMENT_WAIT_TIMEOUT));
+                                    GREENGAGE_SEGMENT_WAIT_TIMEOUT));
                     }
                     isReadyForProcessingCondition.await();
                 } catch (InterruptedException e) {
