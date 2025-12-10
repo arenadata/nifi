@@ -52,10 +52,10 @@ import static org.apache.nifi.gpfdist.metadata.GreenplumDataType.BYTEA;
 import static org.apache.nifi.gpfdist.metadata.GreenplumDataType.MAP;
 
 public class CsvRecordSetWriter extends AbstractRecordSetWriter implements RecordSetWriter, RawRecordWriter {
-    private static final String TIMESTAMP_WITHOUT_TIME_ZONE_FORMAT = "yyyy-MM-dd HH:mm:ss.SSSSSS";
-    private static final String TIMESTAMP_WITH_TIME_ZONE_FORMAT = "yyyy-MM-dd HH:mm:ss.SSSSSSXXX";
-    private static final String TIME_FORMAT = "HH:mm:ss.SSSSSS";
-    private static final String DATE_FORMAT = "yyyy-MM-dd";
+    static final String TIMESTAMP_WITHOUT_TIME_ZONE_FORMAT = "yyyy-MM-dd HH:mm:ss.SSSSSS";
+    static final String TIMESTAMP_WITH_TIME_ZONE_FORMAT = "yyyy-MM-dd HH:mm:ss.SSSSSSXXX";
+    static final String TIME_FORMAT = "HH:mm:ss.SSSSSS";
+    static final String DATE_FORMAT = "yyyy-MM-dd";
     private static final String MAP_TYPE_VALUE_SEPARATOR = "=>";
     private static final char VALUE_QUOTE = '"';
     private static final String ELEMENT_DELIMITER = ", ";

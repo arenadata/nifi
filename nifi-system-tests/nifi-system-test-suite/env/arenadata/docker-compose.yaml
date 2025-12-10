@@ -163,7 +163,7 @@ services:
             retries: 3
 
     zookeeper:
-      image: 'bitnami/zookeeper:latest'
+      image: 'zookeeper:latest'
       environment:
         - ALLOW_ANONYMOUS_LOGIN=yes
       healthcheck:
