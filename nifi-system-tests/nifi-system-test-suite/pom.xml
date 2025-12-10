@@ -56,6 +56,7 @@
                             <argLine>
                                 -ea -Xmx4G -XX:MaxMetaspaceSize=2G
                                 -javaagent:"${settings.localRepository}/org/aspectj/aspectjweaver/${aspectj.version}/aspectjweaver-${aspectj.version}.jar"
+                                -Dorg.aspectj.weaver.loadtime.configuration=META-INF/aop-test.xml
                             </argLine>
                             <properties>
                                 <property>
