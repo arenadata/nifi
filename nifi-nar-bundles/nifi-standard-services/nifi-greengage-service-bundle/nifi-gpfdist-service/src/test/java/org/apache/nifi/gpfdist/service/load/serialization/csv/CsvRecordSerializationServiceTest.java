@@ -99,28 +99,28 @@ class CsvRecordSerializationServiceTest {
                 "f_text_array",
                 "f_hstore");
         List<ColumnDescription> columns = List.of(
-                new GreengageColumnDescription(fieldNames.get(0), new IntegerDataType(), true),
-                new GreengageColumnDescription(fieldNames.get(1), new BigintDataType(), false),
-                new GreengageColumnDescription(fieldNames.get(2), new BitDataType(null), false),
-                new GreengageColumnDescription(fieldNames.get(3), new BooleanDataType(), false),
-                new GreengageColumnDescription(fieldNames.get(4), new ByteaDataType(), false),
-                new GreengageColumnDescription(fieldNames.get(5), new CharDataType(2), false),
-                new GreengageColumnDescription(fieldNames.get(6), new VarcharDataType(10), false),
-                new GreengageColumnDescription(fieldNames.get(7), new VarcharDataType(), false),
-                new GreengageColumnDescription(fieldNames.get(8), new DateDataType(), false),
-                new GreengageColumnDescription(fieldNames.get(9), new MoneyDataType(), false),
-                new GreengageColumnDescription(fieldNames.get(10), new RealDataType(), false),
-                new GreengageColumnDescription(fieldNames.get(11), new JsonbDataType(), false),
-                new GreengageColumnDescription(fieldNames.get(12), new DecimalDataType(10, 5), false),
-                new GreengageColumnDescription(fieldNames.get(13), new DoubleDataType(), false),
-                new GreengageColumnDescription(fieldNames.get(14), new SmallintDataType(), false),
-                new GreengageColumnDescription(fieldNames.get(15), new SmallintDataType(), false),
-                new GreengageColumnDescription(fieldNames.get(16), new TimeDataType(6), false),
-                new GreengageColumnDescription(fieldNames.get(17), new TimestampWithTimeZoneDataType(12), false),
-                new GreengageColumnDescription(fieldNames.get(18), new TimestampWithoutTimeZoneDataType(12), false),
-                new GreengageColumnDescription(fieldNames.get(19), new UuidDataType(), false),
-                new GreengageColumnDescription(fieldNames.get(20), new ArrayDataType(new VarcharDataType()), false),
-                new GreengageColumnDescription(fieldNames.get(21), new MapDataType(), false));
+                new GreengageColumnDescription(fieldNames.get(0), new IntegerDataType(), true, false),
+                new GreengageColumnDescription(fieldNames.get(1), new BigintDataType(), false, true),
+                new GreengageColumnDescription(fieldNames.get(2), new BitDataType(null), false, true),
+                new GreengageColumnDescription(fieldNames.get(3), new BooleanDataType(), false, true),
+                new GreengageColumnDescription(fieldNames.get(4), new ByteaDataType(), false, true),
+                new GreengageColumnDescription(fieldNames.get(5), new CharDataType(2), false, true),
+                new GreengageColumnDescription(fieldNames.get(6), new VarcharDataType(10), false, true),
+                new GreengageColumnDescription(fieldNames.get(7), new VarcharDataType(), false, true),
+                new GreengageColumnDescription(fieldNames.get(8), new DateDataType(), false, true),
+                new GreengageColumnDescription(fieldNames.get(9), new MoneyDataType(), false, true),
+                new GreengageColumnDescription(fieldNames.get(10), new RealDataType(), false, true),
+                new GreengageColumnDescription(fieldNames.get(11), new JsonbDataType(), false, true),
+                new GreengageColumnDescription(fieldNames.get(12), new DecimalDataType(10, 5), false, true),
+                new GreengageColumnDescription(fieldNames.get(13), new DoubleDataType(), false, true),
+                new GreengageColumnDescription(fieldNames.get(14), new SmallintDataType(), false, true),
+                new GreengageColumnDescription(fieldNames.get(15), new SmallintDataType(), false, true),
+                new GreengageColumnDescription(fieldNames.get(16), new TimeDataType(6), false, true),
+                new GreengageColumnDescription(fieldNames.get(17), new TimestampWithTimeZoneDataType(12), false, true),
+                new GreengageColumnDescription(fieldNames.get(18), new TimestampWithoutTimeZoneDataType(12), false, true),
+                new GreengageColumnDescription(fieldNames.get(19), new UuidDataType(), false, true),
+                new GreengageColumnDescription(fieldNames.get(20), new ArrayDataType(new VarcharDataType()), false, true),
+                new GreengageColumnDescription(fieldNames.get(21), new MapDataType(), false, true));
         RecordSchema recordSchema = new SimpleRecordSchema(List.of(
                 new RecordField(fieldNames.get(0), RecordFieldType.INT.getDataType()),
                 new RecordField(fieldNames.get(1), RecordFieldType.LONG.getDataType()),
@@ -229,7 +229,7 @@ class CsvRecordSerializationServiceTest {
         List<String> fieldNames = List.of(
                 "f_text_array");
         List<ColumnDescription> columns = List.of(
-                new GreengageColumnDescription(fieldNames.get(0), new ArrayDataType(new VarcharDataType()), false));
+                new GreengageColumnDescription(fieldNames.get(0), new ArrayDataType(new VarcharDataType()), false, true));
         RecordSchema recordSchema = new SimpleRecordSchema(List.of(
                 new RecordField(fieldNames.get(0), new org.apache.nifi.serialization.record.type.ArrayDataType(RecordFieldType.STRING.getDataType()))
         ));
@@ -251,7 +251,7 @@ class CsvRecordSerializationServiceTest {
         List<String> fieldNames = List.of(
                 "f_text_array");
         List<ColumnDescription> columns = List.of(
-                new GreengageColumnDescription(fieldNames.get(0), new ArrayDataType(new VarcharDataType()), false));
+                new GreengageColumnDescription(fieldNames.get(0), new ArrayDataType(new VarcharDataType()), false, true));
         RecordSchema recordSchema = new SimpleRecordSchema(List.of(
                 new RecordField(fieldNames.get(0), new org.apache.nifi.serialization.record.type.ArrayDataType(RecordFieldType.BYTE.getDataType()))
         ));
@@ -273,7 +273,7 @@ class CsvRecordSerializationServiceTest {
         List<String> fieldNames = List.of(
                 "f_hstore");
         List<ColumnDescription> columns = List.of(
-                new GreengageColumnDescription(fieldNames.get(0), new MapDataType(), false));
+                new GreengageColumnDescription(fieldNames.get(0), new MapDataType(), false, true));
         RecordSchema recordSchema = new SimpleRecordSchema(List.of(
                 new RecordField(fieldNames.get(0), new org.apache.nifi.serialization.record.type.MapDataType(RecordFieldType.STRING.getDataType()))
         ));
@@ -295,7 +295,7 @@ class CsvRecordSerializationServiceTest {
         List<String> fieldNames = List.of(
                 "f_hstore");
         List<ColumnDescription> columns = List.of(
-                new GreengageColumnDescription(fieldNames.get(0), new MapDataType(), false));
+                new GreengageColumnDescription(fieldNames.get(0), new MapDataType(), false, true));
         RecordSchema recordSchema = new SimpleRecordSchema(List.of(
                 new RecordField(fieldNames.get(0), RecordFieldType.STRING.getDataType())
         ));
@@ -317,7 +317,7 @@ class CsvRecordSerializationServiceTest {
         List<String> fieldNames = List.of(
                 "f_byte");
         List<ColumnDescription> columns = List.of(
-                new GreengageColumnDescription(fieldNames.get(0), new ByteaDataType(), false));
+                new GreengageColumnDescription(fieldNames.get(0), new ByteaDataType(), false, true));
         RecordSchema recordSchema = new SimpleRecordSchema(List.of(
                 new RecordField(fieldNames.get(0), RecordFieldType.STRING.getDataType())
         ));
@@ -339,7 +339,7 @@ class CsvRecordSerializationServiceTest {
         List<String> fieldNames = List.of(
                 "f_byte");
         List<ColumnDescription> columns = List.of(
-                new GreengageColumnDescription(fieldNames.get(0), new ByteaDataType(), false));
+                new GreengageColumnDescription(fieldNames.get(0), new ByteaDataType(), false, true));
         RecordSchema recordSchema = new SimpleRecordSchema(List.of(
                 new RecordField(fieldNames.get(0), RecordFieldType.INT.getDataType())
         ));
@@ -359,7 +359,7 @@ class CsvRecordSerializationServiceTest {
         List<String> fieldNames = List.of(
                 "f_array");
         List<ColumnDescription> columns = List.of(
-                new GreengageColumnDescription(fieldNames.get(0), new ArrayDataType(new IntegerDataType()), false));
+                new GreengageColumnDescription(fieldNames.get(0), new ArrayDataType(new IntegerDataType()), false, true));
         RecordSchema recordSchema = new SimpleRecordSchema(List.of(
                 new RecordField(fieldNames.get(0), RecordFieldType.INT.getDataType())
         ));
@@ -379,7 +379,7 @@ class CsvRecordSerializationServiceTest {
         List<String> fieldNames = List.of(
                 "f_hstore");
         List<ColumnDescription> columns = List.of(
-                new GreengageColumnDescription(fieldNames.get(0), new MapDataType(), false));
+                new GreengageColumnDescription(fieldNames.get(0), new MapDataType(), false, true));
         RecordSchema recordSchema = new SimpleRecordSchema(List.of(
                 new RecordField(fieldNames.get(0), RecordFieldType.INT.getDataType())
         ));
@@ -399,7 +399,7 @@ class CsvRecordSerializationServiceTest {
         List<String> fieldNames = List.of(
                 "f_array");
         List<ColumnDescription> columns = List.of(
-                new GreengageColumnDescription(fieldNames.get(0), new ArrayDataType(new VarcharDataType()), false));
+                new GreengageColumnDescription(fieldNames.get(0), new ArrayDataType(new VarcharDataType()), false, true));
         RecordSchema recordSchema = new SimpleRecordSchema(List.of(
                 new RecordField(fieldNames.get(0),
                         new org.apache.nifi.serialization.record.type.ArrayDataType(

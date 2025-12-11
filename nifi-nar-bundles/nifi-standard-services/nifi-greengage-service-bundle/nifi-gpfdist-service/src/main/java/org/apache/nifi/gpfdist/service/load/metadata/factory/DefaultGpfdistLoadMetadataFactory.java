@@ -17,6 +17,7 @@
 package org.apache.nifi.gpfdist.service.load.metadata.factory;
 
 import org.apache.nifi.gpfdist.metadata.ColumnDescription;
+import org.apache.nifi.gpfdist.metadata.ContextId;
 import org.apache.nifi.gpfdist.metadata.ExternalTableFormat;
 import org.apache.nifi.gpfdist.metadata.TableDescription;
 import org.apache.nifi.gpfdist.service.load.metadata.GpfdistLoadMetadata;
@@ -26,6 +27,7 @@ import org.apache.nifi.gpfdist.service.metadata.GpfdistLocationFactory;
 import org.apache.nifi.serialization.record.RecordSchema;
 
 import java.util.List;
+import java.util.UUID;
 
 import static org.apache.nifi.gpfdist.service.util.GpfdistUtil.createExternalTableName;
 
@@ -41,10 +43,15 @@ public class DefaultGpfdistLoadMetadataFactory {
         this.externalTableFormatConfigFactory = externalTableFormatConfigFactory;
     }
 
-    public GpfdistLoadMetadata create(RecordSchema recordSchema, TableDescription tableMetadata, List<ColumnDescription> columnDescriptions) {
+    public GpfdistLoadMetadata create(ContextId contextId,
+                                      RecordSchema recordSchema,
+                                      TableDescription tableMetadata,
+                                      List<ColumnDescription> columnDescriptions) {
         ExternalTableFormat tableFormatConfig = externalTableFormatConfigFactory.create();
         String externalTable = createExternalTableName(EXTERNAL_TABLE_TYPE);
-        String gpfdistLocation = gpfdistLocationFactory.create(externalTable, EXTERNAL_TABLE_TYPE);
+        //todo get from PutGreengageRecord processor
+        String processorTaskId = UUID.randomUUID().toString();
+        String gpfdistLocation = gpfdistLocationFactory.create(contextId, processorTaskId, externalTable, EXTERNAL_TABLE_TYPE);
         return new GpfdistLoadMetadata(externalTable,
                 tableMetadata,
                 columnDescriptions,

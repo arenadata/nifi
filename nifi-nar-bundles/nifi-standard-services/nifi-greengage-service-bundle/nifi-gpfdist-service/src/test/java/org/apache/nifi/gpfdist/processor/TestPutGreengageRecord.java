@@ -16,10 +16,12 @@
  */
 package org.apache.nifi.gpfdist.processor;
 
+import org.apache.nifi.gpfdist.metadata.ContextId;
 import org.apache.nifi.gpfdist.service.GreengageService;
 import org.apache.nifi.gpfdist.service.RecordSink;
 import org.apache.nifi.gpfdist.service.RecordSinkProvider;
 import org.apache.nifi.gpfdist.service.TransferDataQueryExecutor;
+import org.apache.nifi.gpfdist.service.context.GpfdistContextId;
 import org.apache.nifi.gpfdist.service.datatype.IntegerDataType;
 import org.apache.nifi.gpfdist.service.datatype.VarcharDataType;
 import org.apache.nifi.gpfdist.service.greengage.model.GreengageColumnDescription;
@@ -40,6 +42,7 @@ import java.sql.DatabaseMetaData;
 import java.sql.SQLException;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 
 import static org.mockito.ArgumentMatchers.any;
@@ -75,9 +78,9 @@ class TestPutGreengageRecord {
         testRunner.addControllerService(RECORD_READER, recordReader);
         testRunner.enableControllerService(recordReader);
         GreengageTableDescription tableDescription = createGreengageTableDescription(tableColumns);
-        GreengageService greengageService = mockGpfdistService.getGreengageTableService();
+        GreengageService greengageService = mockGpfdistService.getGreengageMetadataService();
         RecordSinkProvider recordSinkProvider = mockGpfdistService.getRecordSinkProvider();
-        TransferDataQueryExecutor queryExecutor = mockGpfdistService.getQueryExecutor();
+        TransferDataQueryExecutor queryExecutor = mockGpfdistService.getLoadDataQueryExecutor();
         when(greengageService.getTableDescription(null, tableName)).thenReturn(tableDescription);
         DatabaseMetaData databaseMetaData = mock(DatabaseMetaData.class);
         try {
@@ -92,7 +95,7 @@ class TestPutGreengageRecord {
         when(writeContext.getMetadata()).thenReturn(metadata);
         when(writeContext.getResult()).thenReturn(new LoadingResult());
         when(recordSink.getContext()).thenReturn(writeContext);
-        when(recordSinkProvider.createRecordSink(eq(tableDescription), any(List.class), any(RecordSchema.class)))
+        when(recordSinkProvider.createRecordSink(any(ContextId.class), eq(tableDescription), any(List.class), any(RecordSchema.class)))
                 .thenReturn(recordSink);
         when(queryExecutor.execute(eq(metadata))).thenReturn(CompletableFuture.completedFuture(null));
         doNothing().when(recordSink).load(any());
@@ -123,16 +126,16 @@ class TestPutGreengageRecord {
         GreengageTableDescription tableDescription = createGreengageTableDescription(List.of(tableColumns.get(0),
                 tableColumns.get(1),
                 "nonExistColumn"));
-        GreengageService greengageService = mockGpfdistService.getGreengageTableService();
+        GreengageService greengageService = mockGpfdistService.getGreengageMetadataService();
         RecordSinkProvider recordSinkProvider = mockGpfdistService.getRecordSinkProvider();
-        TransferDataQueryExecutor queryExecutor = mockGpfdistService.getQueryExecutor();
+        TransferDataQueryExecutor queryExecutor = mockGpfdistService.getLoadDataQueryExecutor();
         when(greengageService.getTableDescription(null, tableName)).thenReturn(tableDescription);
         RecordSink recordSink = mock(RecordSink.class);
         WriteContext writeContext = mock(WriteContext.class);
         GpfdistLoadMetadata metadata = mock(GpfdistLoadMetadata.class);
         when(writeContext.getMetadata()).thenReturn(metadata);
         when(recordSink.getContext()).thenReturn(writeContext);
-        when(recordSinkProvider.createRecordSink(eq(tableDescription), any(List.class), any(RecordSchema.class)))
+        when(recordSinkProvider.createRecordSink(any(ContextId.class), eq(tableDescription), any(List.class), any(RecordSchema.class)))
                 .thenReturn(recordSink);
         when(queryExecutor.execute(eq(metadata))).thenReturn(CompletableFuture.completedFuture(null));
         doNothing().when(recordSink).load(any());
@@ -161,16 +164,16 @@ class TestPutGreengageRecord {
         testRunner.addControllerService(RECORD_READER, recordReader);
         testRunner.enableControllerService(recordReader);
         GreengageTableDescription tableDescription = createGreengageTableDescription(tableColumns);
-        GreengageService greengageService = mockGpfdistService.getGreengageTableService();
+        GreengageService greengageService = mockGpfdistService.getGreengageMetadataService();
         RecordSinkProvider recordSinkProvider = mockGpfdistService.getRecordSinkProvider();
-        TransferDataQueryExecutor queryExecutor = mockGpfdistService.getQueryExecutor();
+        TransferDataQueryExecutor queryExecutor = mockGpfdistService.getLoadDataQueryExecutor();
         when(greengageService.getTableDescription(null, tableName)).thenReturn(tableDescription);
         RecordSink recordSink = mock(RecordSink.class);
         WriteContext writeContext = mock(WriteContext.class);
         GpfdistLoadMetadata metadata = mock(GpfdistLoadMetadata.class);
         when(writeContext.getMetadata()).thenReturn(metadata);
         when(recordSink.getContext()).thenReturn(writeContext);
-        when(recordSinkProvider.createRecordSink(eq(tableDescription), any(List.class), any(RecordSchema.class)))
+        when(recordSinkProvider.createRecordSink(any(ContextId.class), eq(tableDescription), any(List.class), any(RecordSchema.class)))
                 .thenReturn(recordSink);
         RuntimeException queryError = new RuntimeException("Failed loading query");
         when(queryExecutor.execute(eq(metadata)))
@@ -201,16 +204,16 @@ class TestPutGreengageRecord {
         testRunner.addControllerService(RECORD_READER, recordReader);
         testRunner.enableControllerService(recordReader);
         GreengageTableDescription tableDescription = createGreengageTableDescription(tableColumns);
-        GreengageService greengageService = mockGpfdistService.getGreengageTableService();
+        GreengageService greengageService = mockGpfdistService.getGreengageMetadataService();
         RecordSinkProvider recordSinkProvider = mockGpfdistService.getRecordSinkProvider();
-        TransferDataQueryExecutor queryExecutor = mockGpfdistService.getQueryExecutor();
+        TransferDataQueryExecutor queryExecutor = mockGpfdistService.getLoadDataQueryExecutor();
         when(greengageService.getTableDescription(null, tableName)).thenReturn(tableDescription);
         RecordSink recordSink = mock(RecordSink.class);
         WriteContext writeContext = mock(WriteContext.class);
         GpfdistLoadMetadata metadata = mock(GpfdistLoadMetadata.class);
         when(writeContext.getMetadata()).thenReturn(metadata);
         when(recordSink.getContext()).thenReturn(writeContext);
-        when(recordSinkProvider.createRecordSink(eq(tableDescription), any(List.class), any(RecordSchema.class)))
+        when(recordSinkProvider.createRecordSink(any(ContextId.class), eq(tableDescription), any(List.class), any(RecordSchema.class)))
                 .thenReturn(recordSink);
         RuntimeException recordSinkError = new RuntimeException("Failed loading query");
         when(queryExecutor.execute(eq(metadata)))
@@ -241,16 +244,16 @@ class TestPutGreengageRecord {
         testRunner.addControllerService(RECORD_READER, recordReader);
         testRunner.enableControllerService(recordReader);
         GreengageTableDescription tableDescription = createGreengageTableDescription(tableColumns);
-        GreengageService greengageService = mockGpfdistService.getGreengageTableService();
+        GreengageService greengageService = mockGpfdistService.getGreengageMetadataService();
         RecordSinkProvider recordSinkProvider = mockGpfdistService.getRecordSinkProvider();
-        TransferDataQueryExecutor queryExecutor = mockGpfdistService.getQueryExecutor();
+        TransferDataQueryExecutor queryExecutor = mockGpfdistService.getLoadDataQueryExecutor();
         when(greengageService.getTableDescription(null, tableName)).thenReturn(tableDescription);
         RecordSink recordSink = mock(RecordSink.class);
         WriteContext writeContext = mock(WriteContext.class);
         GpfdistLoadMetadata metadata = mock(GpfdistLoadMetadata.class);
         when(writeContext.getMetadata()).thenReturn(metadata);
         when(recordSink.getContext()).thenReturn(writeContext);
-        when(recordSinkProvider.createRecordSink(eq(tableDescription), any(List.class), any(RecordSchema.class)))
+        when(recordSinkProvider.createRecordSink(any(ContextId.class), eq(tableDescription), any(List.class), any(RecordSchema.class)))
                 .thenReturn(recordSink);
         when(queryExecutor.execute(eq(metadata)))
                 .thenReturn(CompletableFuture.completedFuture(null));
@@ -278,8 +281,8 @@ class TestPutGreengageRecord {
 
     private GreengageTableDescription createGreengageTableDescription(List<String> columnNames) {
         return new GreengageTableDescription(null, tableName, Map.of(
-                columnNames.get(0), new GreengageColumnDescription(columnNames.get(0), new VarcharDataType(100), true),
-                columnNames.get(1), new GreengageColumnDescription(columnNames.get(1), new IntegerDataType(), true),
-                columnNames.get(2), new GreengageColumnDescription(columnNames.get(2), new VarcharDataType(), false)));
+                columnNames.get(0), new GreengageColumnDescription(columnNames.get(0), new VarcharDataType(100), true, false),
+                columnNames.get(1), new GreengageColumnDescription(columnNames.get(1), new IntegerDataType(), true, false),
+                columnNames.get(2), new GreengageColumnDescription(columnNames.get(2), new VarcharDataType(), false, false)));
     }
 }

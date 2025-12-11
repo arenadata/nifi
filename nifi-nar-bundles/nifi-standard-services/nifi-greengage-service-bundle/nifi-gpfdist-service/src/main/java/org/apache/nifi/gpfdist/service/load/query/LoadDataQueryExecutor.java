@@ -45,7 +45,7 @@ public class LoadDataQueryExecutor extends AbstractDataQueryExecutor {
     @Override
     protected void executeQueries(GpfdistMetadata metadata, Connection connection) throws SQLException {
         createReadableExternalTable(metadata, connection);
-        insertIntoExternalTable(metadata, connection);
+        insertFromExternalTable(metadata, connection);
     }
 
     private void createReadableExternalTable(GpfdistMetadata metadata, Connection connection)
@@ -56,9 +56,9 @@ public class LoadDataQueryExecutor extends AbstractDataQueryExecutor {
         logger.info("Executed create readable external table query: ", sql);
     }
 
-    private void insertIntoExternalTable(GpfdistMetadata metadata, Connection connection)
+    private void insertFromExternalTable(GpfdistMetadata metadata, Connection connection)
             throws SQLException {
-        String sql = insertDataQueryFactory.createInsertFromExternalTableQuery(metadata);
+        String sql = insertDataQueryFactory.create(metadata);
         logger.info("Executing insert query: {}", sql);
         connection.createStatement().execute(sql);
         logger.info("Executed insert into target table from external table query: {}", sql);

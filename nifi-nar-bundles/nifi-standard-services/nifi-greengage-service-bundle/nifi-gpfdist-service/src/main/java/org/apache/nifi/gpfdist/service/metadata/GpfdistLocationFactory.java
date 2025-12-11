@@ -13,6 +13,8 @@
  */
 package org.apache.nifi.gpfdist.service.metadata;
 
+import org.apache.nifi.gpfdist.metadata.ContextId;
+
 public interface GpfdistLocationFactory {
-    String create(String externalTableName, ExternalTableType externalTableType);
+    String create(ContextId contextId, String processorTaskId, String externalTableName, ExternalTableType externalTableType);
 }

@@ -52,11 +52,11 @@ public class GpfdistRecordSinkProvider implements RecordSinkProvider {
     }
 
     @Override
-    public RecordSink createRecordSink(final TableDescription tableMetadata,
+    public RecordSink createRecordSink(final ContextId contextId,
+                                       final TableDescription tableMetadata,
                                        final List<ColumnDescription> columnDescriptions,
                                        final RecordSchema recordSchema) {
-        GpfdistLoadMetadata metadata = loadMetadataFactory.create(recordSchema, tableMetadata, columnDescriptions);
-        ContextId contextId = new GpfdistContextId(metadata.getExternalTable());
+        GpfdistLoadMetadata metadata = loadMetadataFactory.create(contextId, recordSchema, tableMetadata, columnDescriptions);
         WriteContext writeContext = new WriteContext(
                 contextId,
                 bufferSize,

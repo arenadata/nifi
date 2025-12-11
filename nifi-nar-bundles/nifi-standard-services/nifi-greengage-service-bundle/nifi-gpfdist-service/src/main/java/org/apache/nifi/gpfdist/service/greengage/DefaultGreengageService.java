@@ -108,6 +108,31 @@ public class DefaultGreengageService implements GreengageService {
         }
     }
 
+    @Override
+    public int getSegmentCount() {
+        Connection connection = null;
+        try {
+            connection = dbcpService.getConnection();
+            final String sql = "SELECT COUNT(*) " +
+                    "FROM gp_segment_configuration " +
+                    "WHERE role = 'p' AND content >= 0 AND status = 'u'";
+            try (PreparedStatement st = connection.prepareStatement(sql);
+                 ResultSet rs = st.executeQuery()) {
+                if (rs.next()) {
+                    return rs.getInt(1);
+                } else {
+                    throw new RuntimeException("Failed to read segment count from gp_segment_configuration");
+                }
+            }
+        } catch (Exception e) {
+            String errMsg = "Failed to get Greenplum segment count";
+            logger.error(errMsg, e);
+            throw new RuntimeException(errMsg, e);
+        } finally {
+            closeConnection(connection);
+        }
+    }
+
     public GreengageTableDescription createTableDescription(final Connection conn,
                                                             final String schema,
                                                             final String tableName,
@@ -206,7 +231,7 @@ public class DefaultGreengageService implements GreengageService {
                 jdbcDataType,
                 colSize,
                 decimalDigits);
-        return new GreengageColumnDescription(columnName, columnDataType, required);
+        return new GreengageColumnDescription(columnName, columnDataType, required, isNullable);
     }
 
     private ColumnDataType getColumnDataType(Connection conn,

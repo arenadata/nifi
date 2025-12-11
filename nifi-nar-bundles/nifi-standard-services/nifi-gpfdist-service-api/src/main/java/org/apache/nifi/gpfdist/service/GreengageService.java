@@ -25,4 +25,6 @@ public interface GreengageService {
     DatabaseMetaData getDatabaseMetadata();
 
     TableDescription getTableDescription(String schemaName, String tableName);
+
+    int getSegmentCount();
 }
