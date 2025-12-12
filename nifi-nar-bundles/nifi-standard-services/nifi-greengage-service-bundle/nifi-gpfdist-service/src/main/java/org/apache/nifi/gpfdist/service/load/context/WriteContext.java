@@ -16,13 +16,14 @@
  */
 package org.apache.nifi.gpfdist.service.load.context;
 
-import java.util.Objects;
 import org.apache.nifi.gpfdist.metadata.Context;
 import org.apache.nifi.gpfdist.metadata.ContextId;
 import org.apache.nifi.gpfdist.service.RecordProcessorProvider;
 import org.apache.nifi.gpfdist.service.load.metadata.GpfdistLoadMetadata;
 import org.apache.nifi.gpfdist.service.load.metadata.LoadingResult;
 import org.apache.nifi.logging.ComponentLog;
+
+import java.util.Objects;
 
 public class WriteContext implements Context {
     private final ContextId contextId;

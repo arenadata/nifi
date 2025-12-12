@@ -21,7 +21,6 @@ import org.apache.nifi.gpfdist.metadata.ContextId;
 import org.apache.nifi.gpfdist.metadata.TableDescription;
 import org.apache.nifi.gpfdist.service.RecordSink;
 import org.apache.nifi.gpfdist.service.RecordSinkProvider;
-import org.apache.nifi.gpfdist.service.context.GpfdistContextId;
 import org.apache.nifi.gpfdist.service.load.context.WriteContext;
 import org.apache.nifi.gpfdist.service.load.context.WriteContextManager;
 import org.apache.nifi.gpfdist.service.load.metadata.GpfdistLoadMetadata;

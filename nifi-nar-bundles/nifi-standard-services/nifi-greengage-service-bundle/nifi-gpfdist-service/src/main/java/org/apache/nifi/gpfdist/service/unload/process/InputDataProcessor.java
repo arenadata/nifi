@@ -19,8 +19,7 @@ import org.apache.nifi.serialization.MalformedRecordException;
 import java.io.IOException;
 import java.io.InputStream;
 
-public interface InputDataProcessor
-{
+public interface InputDataProcessor {
     void process(InputStream dataStream) throws IOException, MalformedRecordException;
 
     UnloadingResult getResult();

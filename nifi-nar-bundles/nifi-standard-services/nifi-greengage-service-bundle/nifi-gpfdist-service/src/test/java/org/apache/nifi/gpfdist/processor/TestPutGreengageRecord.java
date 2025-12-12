@@ -21,7 +21,6 @@ import org.apache.nifi.gpfdist.service.GreengageService;
 import org.apache.nifi.gpfdist.service.RecordSink;
 import org.apache.nifi.gpfdist.service.RecordSinkProvider;
 import org.apache.nifi.gpfdist.service.TransferDataQueryExecutor;
-import org.apache.nifi.gpfdist.service.context.GpfdistContextId;
 import org.apache.nifi.gpfdist.service.datatype.IntegerDataType;
 import org.apache.nifi.gpfdist.service.datatype.VarcharDataType;
 import org.apache.nifi.gpfdist.service.greengage.model.GreengageColumnDescription;
@@ -42,7 +41,6 @@ import java.sql.DatabaseMetaData;
 import java.sql.SQLException;
 import java.util.List;
 import java.util.Map;
-import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 
 import static org.mockito.ArgumentMatchers.any;

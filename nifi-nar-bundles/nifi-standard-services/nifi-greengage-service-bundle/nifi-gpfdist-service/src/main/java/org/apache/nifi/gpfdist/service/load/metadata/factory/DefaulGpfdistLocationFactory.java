@@ -18,8 +18,6 @@ import org.apache.nifi.gpfdist.server.config.GpfdistServerConfig;
 import org.apache.nifi.gpfdist.service.metadata.ExternalTableType;
 import org.apache.nifi.gpfdist.service.metadata.GpfdistLocationFactory;
 
-import java.util.Objects;
-
 public class DefaulGpfdistLocationFactory
         implements GpfdistLocationFactory {
     private final GpfdistServerConfig config;

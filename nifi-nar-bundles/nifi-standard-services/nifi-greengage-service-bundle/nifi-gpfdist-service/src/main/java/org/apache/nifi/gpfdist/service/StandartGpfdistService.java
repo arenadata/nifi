@@ -16,6 +16,7 @@
  */
 package org.apache.nifi.gpfdist.service;
 
+import org.apache.nifi.annotation.behavior.Stateful;
 import org.apache.nifi.annotation.documentation.CapabilityDescription;
 import org.apache.nifi.annotation.documentation.Tags;
 import org.apache.nifi.annotation.lifecycle.OnDisabled;
@@ -78,6 +79,7 @@ import static org.apache.nifi.gpfdist.service.GpfdistProperties.PORT;
 import static org.apache.nifi.gpfdist.service.GpfdistProperties.RECORD_PROCESSOR_MAX_THREADS;
 import static org.apache.nifi.gpfdist.service.GpfdistProperties.WRITE_BUFFER_SIZE;
 
+@Stateful(description = "Store information about cluster nodes hostnames", scopes = {Scope.CLUSTER})
 @Tags({"gpfdist"})
 @CapabilityDescription("Provides the ability to load data to Greengage segments directly")
 public class StandartGpfdistService extends AbstractControllerService implements GpfdistService {

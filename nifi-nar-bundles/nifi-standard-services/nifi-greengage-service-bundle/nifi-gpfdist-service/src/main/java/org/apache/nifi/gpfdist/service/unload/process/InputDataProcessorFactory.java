@@ -16,7 +16,6 @@ package org.apache.nifi.gpfdist.service.unload.process;
 import org.apache.nifi.gpfdist.service.unload.context.ReadContext;
 import org.apache.nifi.gpfdist.service.unload.dto.ProcessingChunkId;
 
-public interface InputDataProcessorFactory
-{
+public interface InputDataProcessorFactory {
     InputDataProcessor create(ReadContext readContext, ProcessingChunkId metadata, RecordProcessingService recordProcessingService);
 }

@@ -205,20 +205,20 @@ class CsvRecordSerializationServiceTest {
         records.forEach(r -> serializationService.append(r));
         String result = new String(serializationService.toByteArray(), StandardCharsets.UTF_8);
         assertEquals(
-            String.format(
-                "\"1\"|\"2478701872\"|\"0\"|\"true\"|\"\\xd078\"|\"tt\"|\"c4ca4238a0\"|\"edc8acddc2e9a" +
-                    "0a6aec79ddd681c75ac\"|\"%s\"|\"0.557235836982727\"|\"6.559277\"|\"{\"\"a\"\": \"\"b\"\"}\"|" +
-                    "\"45.51123\"|\"10.3\"|\"15\"|\"5000\"|\"%s\"|\"%s\"|" +
-                    "\"%s\"|\"c2142fe5-e305-42ab-8b95-598567e9ea86\"|\"{val, val}\"|" +
-                    "\"\"\"ISBN-13\"\"=>\"\"978-1449370000\"\", \"\"weight\"\"=>\"\"11.2 ounces\"\", " +
-                    "\"\"paperback\"\"=>\"\"243\"\", \"\"publisher\"\"=>\"\"postgresqltutorial.com\"\", " +
-                    "\"\"language\"\"=>\"\"English\"\"\"\r\n|||||||||||||||||||||\r\n",
-                dateToString(dateField),
-                timeToString(timeField),
-                timestampWithZoneToString(timestampField),
-                timestampToString(zonedTimestampField)
-            ),
-            result
+                String.format(
+                        "\"1\"|\"2478701872\"|\"0\"|\"true\"|\"\\xd078\"|\"tt\"|\"c4ca4238a0\"|\"edc8acddc2e9a" +
+                                "0a6aec79ddd681c75ac\"|\"%s\"|\"0.557235836982727\"|\"6.559277\"|\"{\"\"a\"\": \"\"b\"\"}\"|" +
+                                "\"45.51123\"|\"10.3\"|\"15\"|\"5000\"|\"%s\"|\"%s\"|" +
+                                "\"%s\"|\"c2142fe5-e305-42ab-8b95-598567e9ea86\"|\"{val, val}\"|" +
+                                "\"\"\"ISBN-13\"\"=>\"\"978-1449370000\"\", \"\"weight\"\"=>\"\"11.2 ounces\"\", " +
+                                "\"\"paperback\"\"=>\"\"243\"\", \"\"publisher\"\"=>\"\"postgresqltutorial.com\"\", " +
+                                "\"\"language\"\"=>\"\"English\"\"\"\r\n|||||||||||||||||||||\r\n",
+                        dateToString(dateField),
+                        timeToString(timeField),
+                        timestampWithZoneToString(timestampField),
+                        timestampToString(zonedTimestampField)
+                ),
+                result
         );
     }
 
