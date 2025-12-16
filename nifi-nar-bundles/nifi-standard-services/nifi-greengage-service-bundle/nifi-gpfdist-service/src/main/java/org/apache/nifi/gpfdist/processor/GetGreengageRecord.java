@@ -26,21 +26,22 @@ import org.apache.nifi.components.PropertyDescriptor;
 import org.apache.nifi.flowfile.FlowFile;
 import org.apache.nifi.gpfdist.metadata.ColumnDataType;
 import org.apache.nifi.gpfdist.metadata.ColumnDescription;
+import org.apache.nifi.gpfdist.metadata.Context;
+import org.apache.nifi.gpfdist.metadata.ContextManager;
 import org.apache.nifi.gpfdist.metadata.GpfdistMetadata;
 import org.apache.nifi.gpfdist.metadata.TableDescription;
 import org.apache.nifi.gpfdist.service.GpfdistService;
 import org.apache.nifi.gpfdist.service.GpfdistUnloadMetadataFactory;
 import org.apache.nifi.gpfdist.service.TransferDataQueryExecutor;
 import org.apache.nifi.gpfdist.service.context.GpfdistContextId;
-import org.apache.nifi.gpfdist.service.datatype.GreenplumColumnDataTypeConverter;
 import org.apache.nifi.gpfdist.service.unload.context.ReadContext;
-import org.apache.nifi.gpfdist.service.unload.context.ReadContextManager;
 import org.apache.nifi.gpfdist.service.unload.dto.ProcessorTaskResult;
 import org.apache.nifi.gpfdist.service.unload.dto.UnloadingResult;
 import org.apache.nifi.gpfdist.service.unload.process.FlowFileGenerator;
 import org.apache.nifi.gpfdist.service.unload.process.GpfdistRecordProcessingService;
 import org.apache.nifi.gpfdist.service.unload.process.ProcessorTaskManager;
 import org.apache.nifi.gpfdist.service.unload.process.RecordProcessingService;
+import org.apache.nifi.gpfdist.service.util.GreengageColumnDataTypeConverter;
 import org.apache.nifi.processor.AbstractProcessor;
 import org.apache.nifi.processor.ProcessContext;
 import org.apache.nifi.processor.ProcessSession;
@@ -174,7 +175,7 @@ public class GetGreengageRecord extends AbstractProcessor {
     private TransferDataQueryExecutor transferDataQueryExecutor;
     private ReadContext readContext;
     private FlowFileGenerator flowFileGenerator;
-    private ReadContextManager readContextManager;
+    private ContextManager<Context> readContextManager;
 
     @Override
     public Set<Relationship> getRelationships() {
@@ -186,7 +187,7 @@ public class GetGreengageRecord extends AbstractProcessor {
         return PROPERTY_DESCRIPTORS;
     }
 
-
+    @SuppressWarnings("unchecked")
     @OnScheduled
     public void onScheduled(final ProcessContext context) {
         int parallelFactor = context.getProperty(NODE_PARALLEL_FACTOR).asInteger();
@@ -201,12 +202,12 @@ public class GetGreengageRecord extends AbstractProcessor {
         String columns = context.getProperty(TABLE_COLUMNS).evaluateAttributeExpressions().getValue();
         RecordSetWriterFactory recordSetWriterFactory = context.getProperty(RECORD_WRITER).asControllerService(RecordSetWriterFactory.class);
 
-        readContextManager = (ReadContextManager) gpfdistService.getReadContextManager();
+        readContextManager = (ContextManager<Context>) gpfdistService.getReadContextManager();
         TableDescription tableDescription = gpfdistService.getGreengageMetadataService().getTableDescription(schema, table);
         transferDataQueryExecutor = gpfdistService.getUnloadDataQueryExecutor();
         GpfdistUnloadMetadataFactory gpfdistUnloadMetadataFactory = gpfdistService.getGpfdistUnloadMetadataFactory();
         List<ColumnDescription> columnDescriptions = getColumnDescriptions(columns, tableDescription);
-        RecordSchema recordSchema = GreenplumColumnDataTypeConverter.convert(columnDescriptions);
+        RecordSchema recordSchema = GreengageColumnDataTypeConverter.convert(columnDescriptions);
         Map<String, ColumnDataType> dataTypes = columnDescriptions.stream()
                 .collect(Collectors.toMap(ColumnDescription::getName, ColumnDescription::getDataType));
 

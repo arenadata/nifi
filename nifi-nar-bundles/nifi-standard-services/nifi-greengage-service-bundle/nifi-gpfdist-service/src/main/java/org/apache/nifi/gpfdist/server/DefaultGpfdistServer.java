@@ -16,12 +16,12 @@
  */
 package org.apache.nifi.gpfdist.server;
 
+import org.apache.nifi.gpfdist.metadata.Context;
+import org.apache.nifi.gpfdist.metadata.ContextManager;
 import org.apache.nifi.gpfdist.server.config.GpfdistServerConfig;
 import org.apache.nifi.gpfdist.server.servlet.GpfdistAsyncServlet;
 import org.apache.nifi.gpfdist.server.servlet.GpfdistServletContextListener;
-import org.apache.nifi.gpfdist.service.load.context.WriteContextManager;
 import org.apache.nifi.gpfdist.service.load.process.RecordProcessorFactory;
-import org.apache.nifi.gpfdist.service.unload.context.ReadContextManager;
 import org.apache.nifi.gpfdist.service.unload.process.InputDataProcessorFactory;
 import org.apache.nifi.logging.ComponentLog;
 import org.apache.nifi.util.StringUtils;
@@ -39,16 +39,16 @@ public class DefaultGpfdistServer implements GpfdistServer {
     private static final String GPFDIST_CONTEXT_PATH = "/gpfdist";
     private final GpfdistServerConfig serverConfig;
     private volatile JettyServer server;
-    private final WriteContextManager writeContextManager;
-    private final ReadContextManager readContextManager;
+    private final ContextManager<Context> writeContextManager;
+    private final ContextManager<Context> readContextManager;
     private final InputDataProcessorFactory inputDataProcessorFactory;
     private final RecordProcessorFactory recordProcessorFactory;
     private final ExecutorService recordProcessingExecutorService;
     private final ComponentLog logger;
 
     public DefaultGpfdistServer(final GpfdistServerConfig serverConfig,
-                                final WriteContextManager writeContextManager,
-                                final ReadContextManager readContextManager,
+                                final ContextManager<Context> writeContextManager,
+                                final ContextManager<Context> readContextManager,
                                 final InputDataProcessorFactory inputDataProcessorFactory,
                                 final RecordProcessorFactory recordProcessorFactory,
                                 final ExecutorService recordProcessingExecutorService,
@@ -108,8 +108,8 @@ public class DefaultGpfdistServer implements GpfdistServer {
 
     public static class JettyServer {
         private final GpfdistServerConfig serverConfig;
-        private final WriteContextManager writeContextManager;
-        private final ReadContextManager readContextManager;
+        private final ContextManager<Context> writeContextManager;
+        private final ContextManager<Context> readContextManager;
         private final InputDataProcessorFactory inputDataProcessorFactory;
         private final RecordProcessorFactory recordProcessorFactory;
         private final ExecutorService recordProcessingExecutorService;
@@ -118,8 +118,8 @@ public class DefaultGpfdistServer implements GpfdistServer {
         private Server server;
 
         public JettyServer(final GpfdistServerConfig serverConfig,
-                           final WriteContextManager writeContextManager,
-                           final ReadContextManager readContextManager,
+                           final ContextManager<Context> writeContextManager,
+                           final ContextManager<Context> readContextManager,
                            final InputDataProcessorFactory inputDataProcessorFactory,
                            final RecordProcessorFactory recordProcessorFactory,
                            final ExecutorService recordProcessingExecutorService,

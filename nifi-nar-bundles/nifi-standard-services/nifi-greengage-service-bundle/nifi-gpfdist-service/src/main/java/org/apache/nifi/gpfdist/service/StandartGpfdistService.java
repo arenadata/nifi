@@ -35,8 +35,8 @@ import org.apache.nifi.gpfdist.server.DefaultGpfdistServer;
 import org.apache.nifi.gpfdist.server.GpfdistServer;
 import org.apache.nifi.gpfdist.server.config.GpfdistServerConfig;
 import org.apache.nifi.gpfdist.service.cluster.ClusterStateNodeIndexService;
+import org.apache.nifi.gpfdist.service.context.DefaultContextManager;
 import org.apache.nifi.gpfdist.service.greengage.DefaultGreengageService;
-import org.apache.nifi.gpfdist.service.load.context.WriteContextManager;
 import org.apache.nifi.gpfdist.service.load.metadata.factory.CreateReadableExternalTableQueryFactory;
 import org.apache.nifi.gpfdist.service.load.metadata.factory.DefaulGpfdistLocationFactory;
 import org.apache.nifi.gpfdist.service.load.metadata.factory.DefaultGpfdistLoadMetadataFactory;
@@ -47,7 +47,6 @@ import org.apache.nifi.gpfdist.service.load.process.RecordProcessorFactory;
 import org.apache.nifi.gpfdist.service.load.query.LoadDataQueryExecutor;
 import org.apache.nifi.gpfdist.service.metadata.CsvFormatConfig;
 import org.apache.nifi.gpfdist.service.metadata.DefaultExternalTableFormatConfigFactory;
-import org.apache.nifi.gpfdist.service.unload.context.ReadContextManager;
 import org.apache.nifi.gpfdist.service.unload.metadata.DefaultGpfdistUnloadMetadataFactory;
 import org.apache.nifi.gpfdist.service.unload.process.GpfdistInputDataProcessorFactory;
 import org.apache.nifi.gpfdist.service.unload.process.InputDataProcessorFactory;
@@ -78,6 +77,7 @@ import static org.apache.nifi.gpfdist.service.GpfdistProperties.GPFDIST_SERVER_T
 import static org.apache.nifi.gpfdist.service.GpfdistProperties.PORT;
 import static org.apache.nifi.gpfdist.service.GpfdistProperties.RECORD_PROCESSOR_MAX_THREADS;
 import static org.apache.nifi.gpfdist.service.GpfdistProperties.WRITE_BUFFER_SIZE;
+import static org.apache.nifi.gpfdist.service.util.ClusterNodeUtil.getNodesHostnames;
 
 @Stateful(description = "Store information about cluster nodes hostnames", scopes = {Scope.CLUSTER})
 @Tags({"gpfdist"})
@@ -115,7 +115,7 @@ public class StandartGpfdistService extends AbstractControllerService implements
     private TransferDataQueryExecutor loadDataQueryExecutor;
     private TransferDataQueryExecutor unloadDataQueryExecutor;
     private GpfdistUnloadMetadataFactory gpfdistUnloadMetadataFactory;
-    private ReadContextManager readContextManager;
+    private ContextManager<Context> readContextManager;
     private NodeIndexService nodeIndexService;
 
     @Override
@@ -146,8 +146,8 @@ public class StandartGpfdistService extends AbstractControllerService implements
             final ExecutorService queryExecutorService = Executors.newCachedThreadPool();
             final ExecutorService requestExecutorService = Executors.newFixedThreadPool(gpfdistRequestMaxThreads);
 
-            final WriteContextManager writeContextManager = new WriteContextManager(logger);
-            readContextManager = new ReadContextManager(logger);
+            final ContextManager<Context> writeContextManager = new DefaultContextManager(logger);
+            readContextManager = new DefaultContextManager(logger);
             final CsvFormatConfig dataFormatConfig = new CsvFormatConfig();
             final RecordProcessorFactory recordProcessorFactory = new GpfdistRecordProcessorFactory(dataFormatConfig);
             final GpfdistServerConfig gpfdistServerConfig = new GpfdistServerConfig(port,
@@ -210,13 +210,7 @@ public class StandartGpfdistService extends AbstractControllerService implements
             final String currentHostsStr = newState.getOrDefault(KEY_HOSTS, "");
             final Set<String> hosts = new LinkedHashSet<>();
             if (!currentHostsStr.isEmpty()) {
-                String[] arr = currentHostsStr.split(",");
-                for (String h : arr) {
-                    String trimmed = h.trim();
-                    if (!trimmed.isEmpty()) {
-                        hosts.add(trimmed);
-                    }
-                }
+                hosts.addAll(getNodesHostnames(currentHostsStr));
             }
             if (hosts.contains(hostname)) {
                 getLogger().info("Node {} is already registered in cluster state", hostname);

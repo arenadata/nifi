@@ -18,16 +18,16 @@ package org.apache.nifi.gpfdist.server.servlet;
 
 import org.apache.hc.core5.http.ContentType;
 import org.apache.hc.core5.http.HttpHeaders;
+import org.apache.nifi.gpfdist.metadata.Context;
+import org.apache.nifi.gpfdist.metadata.ContextManager;
 import org.apache.nifi.gpfdist.server.request.GpfdistReadableRequest;
 import org.apache.nifi.gpfdist.server.request.GpfdistWritableRequest;
 import org.apache.nifi.gpfdist.service.context.GpfdistContextId;
 import org.apache.nifi.gpfdist.service.load.context.WriteContext;
-import org.apache.nifi.gpfdist.service.load.context.WriteContextManager;
 import org.apache.nifi.gpfdist.service.load.process.GpfdistPacketBuilder;
 import org.apache.nifi.gpfdist.service.load.process.GpfdistRecordProcessor;
 import org.apache.nifi.gpfdist.service.load.process.RecordProcessorFactory;
 import org.apache.nifi.gpfdist.service.unload.context.ReadContext;
-import org.apache.nifi.gpfdist.service.unload.context.ReadContextManager;
 import org.apache.nifi.gpfdist.service.unload.dto.GreengageChunkId;
 import org.apache.nifi.gpfdist.service.unload.dto.ProcessingChunkId;
 import org.apache.nifi.gpfdist.service.unload.process.GpfdistChunkRequestProcessor;
@@ -64,6 +64,7 @@ public class GpfdistAsyncServlet extends HttpServlet {
 
     private static final int GPFDIST_FOR_WRITE_PROTOCOL_VERSION = 0;
 
+    @SuppressWarnings("unchecked")
     @Override
     protected void doGet(HttpServletRequest request, HttpServletResponse response) throws IOException {
         AsyncContext asyncCtx = request.startAsync();
@@ -72,10 +73,10 @@ public class GpfdistAsyncServlet extends HttpServlet {
         Map<String, String> headers = getHeaderMap(request);
         GpfdistReadableRequest readableRequest = GpfdistReadableRequest.create(tableName, headers);
         ExecutorService executorService = (ExecutorService) getServletContext().getAttribute(RECORD_PROCESSING_EXECUTOR_SERVICE_ATTR);
-        WriteContextManager contextManager = (WriteContextManager) getServletContext().getAttribute(WRITE_CONTEXT_MANAGER_ATTR);
+        ContextManager<Context> contextManager = (ContextManager<Context>) getServletContext().getAttribute(WRITE_CONTEXT_MANAGER_ATTR);
         RecordProcessorFactory recordProcessorFactory = (RecordProcessorFactory) getServletContext().getAttribute(RECORD_PROCESSOR_FACTORY_ATTR);
         ComponentLog logger = (ComponentLog) getServletContext().getAttribute(COMPONENT_LOG_ATTR);
-        Optional<WriteContext> writeContextOptional = contextManager.get(new GpfdistContextId(tableName));
+        Optional<Context> writeContextOptional = contextManager.get(new GpfdistContextId(tableName));
         logger.info("Input GET gpfdist request: {}", readableRequest);
 
         HttpServletResponse asyncResponse = (HttpServletResponse) asyncCtx.getResponse();
@@ -84,7 +85,7 @@ public class GpfdistAsyncServlet extends HttpServlet {
         asyncResponse.setHeader(X_GP_PROTO, String.valueOf(readableRequest.getGpProtocol()));
 
         if (writeContextOptional.isPresent()) {
-            WriteContext writeContext = writeContextOptional.get();
+            WriteContext writeContext = (WriteContext) writeContextOptional.get();
             executorService.submit(() -> {
                 logger.info("Start handling input GET gpfdist request: {}", readableRequest);
                 try {
@@ -123,6 +124,7 @@ public class GpfdistAsyncServlet extends HttpServlet {
         }
     }
 
+    @SuppressWarnings("unchecked")
     @Override
     protected void doPost(HttpServletRequest request, HttpServletResponse response) {
         //process POST request for endpoint: "gpfdist://<host>:<port>/gpfdist/read/<contextId>/<processorTaskId>/<external_table_name>
@@ -131,7 +133,7 @@ public class GpfdistAsyncServlet extends HttpServlet {
         try {
             GpfdistUrlMetadata metadata = getMetadata(request.getRequestURI());
             Map<String, String> headers = getHeaderMap(request);
-            ReadContextManager contextManager = (ReadContextManager) getServletContext().getAttribute(READ_CONTEXT_MANAGER_ATTR);
+            ContextManager<Context> contextManager = (ContextManager<Context>) getServletContext().getAttribute(READ_CONTEXT_MANAGER_ATTR);
             InputDataProcessorFactory inputDataProcessorFactory = (InputDataProcessorFactory) getServletContext().getAttribute(INPUT_DATA_PROCESSOR_FACTORY_ATTR);
             ExecutorService executorService = (ExecutorService) getServletContext().getAttribute(RECORD_PROCESSING_EXECUTOR_SERVICE_ATTR);
             GpfdistWritableRequest writableRequest = GpfdistWritableRequest.create(metadata.getTableName(), headers);
@@ -144,13 +146,13 @@ public class GpfdistAsyncServlet extends HttpServlet {
                 asyncResponse.setStatus(HttpServletResponse.SC_INTERNAL_SERVER_ERROR);
                 asyncCtx.complete();
             }
-            Optional<ReadContext> readContextOptional = contextManager.get(new GpfdistContextId(metadata.getContextId()));
+            Optional<Context> readContextOptional = contextManager.get(new GpfdistContextId(metadata.getContextId()));
             if (readContextOptional.isEmpty()) {
                 asyncResponse.sendError(HttpServletResponse.SC_INTERNAL_SERVER_ERROR, "No active query for contextId: " + metadata.getContextId());
                 logger.warn("No active query for contextId: {}", metadata.getContextId());
                 asyncCtx.complete();
             } else {
-                ReadContext readContext = readContextOptional.get();
+                ReadContext readContext = (ReadContext) readContextOptional.get();
                 if (initialRequest(writableRequest)) {
                     processInitialRequest(asyncResponse,
                             metadata.getProcessorTaskId(),

@@ -11,10 +11,13 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.apache.nifi.gpfdist.service.datatype;
+package org.apache.nifi.gpfdist.service.util;
 
 import org.apache.nifi.gpfdist.metadata.ColumnDataType;
 import org.apache.nifi.gpfdist.metadata.ColumnDescription;
+import org.apache.nifi.gpfdist.service.datatype.ArrayDataType;
+import org.apache.nifi.gpfdist.service.datatype.DecimalDataType;
+import org.apache.nifi.gpfdist.service.datatype.MapDataType;
 import org.apache.nifi.serialization.SimpleRecordSchema;
 import org.apache.nifi.serialization.record.DataType;
 import org.apache.nifi.serialization.record.RecordField;
@@ -30,7 +33,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.function.Supplier;
 
-public class GreenplumColumnDataTypeConverter {
+public class GreengageColumnDataTypeConverter {
 
     public static RecordSchema convert(List<ColumnDescription> columns) {
         List<RecordField> fields = new ArrayList<>();
@@ -65,6 +68,7 @@ public class GreenplumColumnDataTypeConverter {
     private static RecordFieldType mapColumnDataType(ColumnDataType columnType) {
         switch (columnType.getType()) {
             case BOOLEAN:
+            case BIT:
                 return RecordFieldType.BOOLEAN;
             case MONEY:
             case DECIMAL:
@@ -92,7 +96,6 @@ public class GreenplumColumnDataTypeConverter {
             case CHAR:
             case VARCHAR:
             case BYTEA:
-            case BIT:
             case JSONB:
             case UUID:
             default:

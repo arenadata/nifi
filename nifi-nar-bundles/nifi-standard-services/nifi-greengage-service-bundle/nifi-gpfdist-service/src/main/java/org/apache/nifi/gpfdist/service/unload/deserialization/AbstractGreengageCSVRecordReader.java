@@ -36,8 +36,8 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.function.Supplier;
 
-import static org.apache.nifi.gpfdist.service.datatype.GreenplumColumnDataTypeConverter.parseArray;
-import static org.apache.nifi.gpfdist.service.datatype.GreenplumColumnDataTypeConverter.parseMap;
+import static org.apache.nifi.gpfdist.service.util.GreengageColumnDataTypeConverter.parseArray;
+import static org.apache.nifi.gpfdist.service.util.GreengageColumnDataTypeConverter.parseMap;
 
 abstract public class AbstractGreengageCSVRecordReader implements RecordReader {
     private final boolean trimDoubleQuote;
@@ -128,9 +128,13 @@ abstract public class AbstractGreengageCSVRecordReader implements RecordReader {
     }
 
     private boolean convertBoolean(final String value) {
-        if ("t".equals(value)) {
+        if ("1".equals(value)
+                || "true".equalsIgnoreCase(value)
+                || "t".equalsIgnoreCase(value)) {
             return true;
-        } else if ("f".equals(value)) {
+        } else if ("0".equals(value)
+                || "false".equalsIgnoreCase(value)
+                || "f".equalsIgnoreCase(value)) {
             return false;
         } else {
             throw new IllegalArgumentException("Failed to convert " + value + " to boolean");

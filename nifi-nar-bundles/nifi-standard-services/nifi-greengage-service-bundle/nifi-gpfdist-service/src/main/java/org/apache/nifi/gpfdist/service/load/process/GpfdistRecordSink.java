@@ -18,9 +18,9 @@ package org.apache.nifi.gpfdist.service.load.process;
 
 import org.apache.nifi.gpfdist.metadata.Context;
 import org.apache.nifi.gpfdist.metadata.ContextId;
+import org.apache.nifi.gpfdist.metadata.ContextManager;
 import org.apache.nifi.gpfdist.service.RecordSink;
 import org.apache.nifi.gpfdist.service.load.context.WriteContext;
-import org.apache.nifi.gpfdist.service.load.context.WriteContextManager;
 import org.apache.nifi.logging.ComponentLog;
 import org.apache.nifi.serialization.record.Record;
 
@@ -35,16 +35,17 @@ import static java.lang.String.format;
 public class GpfdistRecordSink implements RecordSink {
     private final WriteContext writeContext;
     private final ExecutorService executorService;
-    private final WriteContextManager contextManager;
+    private final ContextManager<Context> contextManager;
     private final Queue<CompletableFuture<Void>> loadingRecordFutureQueue = new ArrayDeque<>();
     private final ComponentLog logger;
 
     public GpfdistRecordSink(final ContextId contextId,
                              final ExecutorService executorService,
-                             final WriteContextManager contextManager,
+                             final ContextManager<Context> contextManager,
                              ComponentLog logger) {
         this.contextManager = contextManager;
         this.writeContext = contextManager.get(contextId)
+                .map(context -> (WriteContext) context)
                 .orElseThrow(() -> new IllegalArgumentException("No write context found for contextId: " + contextId));
         this.executorService = executorService;
         this.logger = logger;

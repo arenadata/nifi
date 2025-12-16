@@ -23,10 +23,11 @@ import org.apache.nifi.gpfdist.service.NodeIndexService;
 import org.apache.nifi.logging.ComponentLog;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 public class ClusterStateNodeIndexService implements NodeIndexService {
     private static final String HOSTS_KEY = "hosts";
@@ -64,14 +65,11 @@ public class ClusterStateNodeIndexService implements NodeIndexService {
         if (hostsStr == null || hostsStr.trim().isEmpty()) {
             throw new IllegalStateException("Cluster hosts state is empty when getting node index for " + hostName);
         }
-        final String[] arr = hostsStr.split(",");
-        final Set<String> hosts = new HashSet<>();
-        for (String h : arr) {
-            final String trimmed = h.trim();
-            if (!trimmed.isEmpty()) {
-                hosts.add(trimmed);
-            }
-        }
+        final Set<String> hosts = Arrays.stream(hostsStr.split(","))
+                .map(String::trim)
+                .filter(s -> !s.isEmpty())
+                .collect(Collectors.toSet());
+
         if (!hosts.contains(hostName)) {
             throw new IllegalStateException("Hostname " + hostName + " is not found in cluster hosts: " + hostsStr);
         }

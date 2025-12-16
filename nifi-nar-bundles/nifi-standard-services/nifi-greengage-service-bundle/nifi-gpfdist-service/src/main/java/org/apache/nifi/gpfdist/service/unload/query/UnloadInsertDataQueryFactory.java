@@ -16,10 +16,11 @@
  */
 package org.apache.nifi.gpfdist.service.unload.query;
 
+import org.apache.nifi.gpfdist.metadata.Context;
+import org.apache.nifi.gpfdist.metadata.ContextManager;
 import org.apache.nifi.gpfdist.metadata.GpfdistMetadata;
 import org.apache.nifi.gpfdist.service.query.InsertDataQueryFactory;
 import org.apache.nifi.gpfdist.service.unload.context.ReadContext;
-import org.apache.nifi.gpfdist.service.unload.context.ReadContextManager;
 import org.apache.nifi.gpfdist.service.unload.metadata.GpfdistUnloadMetadata;
 
 import java.util.stream.Collectors;
@@ -30,9 +31,9 @@ import static org.apache.nifi.gpfdist.service.util.GreengageUtil.quote;
 
 public class UnloadInsertDataQueryFactory implements InsertDataQueryFactory {
     private static final String COLUMN_DELIMITER = ", ";
-    private final ReadContextManager readContextManager;
+    private final ContextManager<Context> readContextManager;
 
-    public UnloadInsertDataQueryFactory(ReadContextManager readContextManager) {
+    public UnloadInsertDataQueryFactory(ContextManager<Context> readContextManager) {
         this.readContextManager = readContextManager;
     }
 
@@ -54,6 +55,7 @@ public class UnloadInsertDataQueryFactory implements InsertDataQueryFactory {
     private String getWhereCondition(GpfdistMetadata metadata) {
         GpfdistUnloadMetadata unloadMetadata = (GpfdistUnloadMetadata) metadata;
         ReadContext readContext = readContextManager.get(unloadMetadata.getContextId())
+                .map(context -> (ReadContext) context)
                 .orElseThrow(() -> new IllegalArgumentException(String.format("Failed to find read context with id %s",
                         unloadMetadata.getContextId())));
         return String.format("gp_segment_id %% %d = %d",

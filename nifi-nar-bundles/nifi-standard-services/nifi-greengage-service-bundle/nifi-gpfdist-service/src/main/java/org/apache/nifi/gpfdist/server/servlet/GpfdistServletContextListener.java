@@ -16,9 +16,9 @@
  */
 package org.apache.nifi.gpfdist.server.servlet;
 
-import org.apache.nifi.gpfdist.service.load.context.WriteContextManager;
+import org.apache.nifi.gpfdist.metadata.Context;
+import org.apache.nifi.gpfdist.metadata.ContextManager;
 import org.apache.nifi.gpfdist.service.load.process.RecordProcessorFactory;
-import org.apache.nifi.gpfdist.service.unload.context.ReadContextManager;
 import org.apache.nifi.gpfdist.service.unload.process.InputDataProcessorFactory;
 import org.apache.nifi.logging.ComponentLog;
 
@@ -36,15 +36,15 @@ import static org.apache.nifi.gpfdist.service.util.GpfdistUtil.WRITE_CONTEXT_MAN
 
 public class GpfdistServletContextListener implements ServletContextListener {
 
-    private final WriteContextManager writeContextManager;
-    private final ReadContextManager readContextManager;
+    private final ContextManager<Context> writeContextManager;
+    private final ContextManager<Context> readContextManager;
     private final RecordProcessorFactory recordProcessorFactory;
     private final InputDataProcessorFactory inputDataProcessorFactory;
     private final ExecutorService executorService;
     private final ComponentLog logger;
 
-    public GpfdistServletContextListener(final WriteContextManager writeContextManager,
-                                         final ReadContextManager readContextManager,
+    public GpfdistServletContextListener(final ContextManager<Context> writeContextManager,
+                                         final ContextManager<Context> readContextManager,
                                          final RecordProcessorFactory recordProcessorFactory,
                                          final InputDataProcessorFactory inputDataProcessorFactory,
                                          final ExecutorService executorService,
