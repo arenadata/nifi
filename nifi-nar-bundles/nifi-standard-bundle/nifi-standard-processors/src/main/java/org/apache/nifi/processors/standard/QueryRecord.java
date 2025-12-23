@@ -92,87 +92,87 @@ import static org.apache.nifi.util.db.JdbcProperties.DEFAULT_SCALE;
 @Tags({"sql", "query", "calcite", "route", "record", "transform", "select", "update", "modify", "etl", "filter", "record", "csv", "json", "logs", "text", "avro", "aggregate"})
 @InputRequirement(Requirement.INPUT_REQUIRED)
 @CapabilityDescription("Evaluates one or more SQL queries against the contents of a FlowFile. The result of the "
-    + "SQL query then becomes the content of the output FlowFile. This can be used, for example, "
-    + "for field-specific filtering, transformation, and row-level filtering. "
-    + "Columns can be renamed, simple calculations and aggregations performed, etc. "
-    + "The Processor is configured with a Record Reader Controller Service and a Record Writer service so as to allow flexibility in incoming and outgoing data formats. "
-    + "The Processor must be configured with at least one user-defined property. The name of the Property "
-    + "is the Relationship to route data to, and the value of the Property is a SQL SELECT statement that is used to specify how input data should be transformed/filtered. "
-    + "The SQL statement must be valid ANSI SQL and is powered by Apache Calcite. "
-    + "If the transformation fails, the original FlowFile is routed to the 'failure' relationship. Otherwise, the data selected will be routed to the associated "
-    + "relationship. If the Record Writer chooses to inherit the schema from the Record, it is important to note that the schema that is inherited will be from the "
-    + "ResultSet, rather than the input Record. This allows a single instance of the QueryRecord processor to have multiple queries, each of which returns a different "
-    + "set of columns and aggregations. As a result, though, the schema that is derived will have no schema name, so it is important that the configured Record Writer not attempt "
-    + "to write the Schema Name as an attribute if inheriting the Schema from the Record. See the Processor Usage documentation for more information.")
-@DynamicRelationship(name="<Property Name>", description="Each user-defined property defines a new Relationship for this Processor.")
+        + "SQL query then becomes the content of the output FlowFile. This can be used, for example, "
+        + "for field-specific filtering, transformation, and row-level filtering. "
+        + "Columns can be renamed, simple calculations and aggregations performed, etc. "
+        + "The Processor is configured with a Record Reader Controller Service and a Record Writer service so as to allow flexibility in incoming and outgoing data formats. "
+        + "The Processor must be configured with at least one user-defined property. The name of the Property "
+        + "is the Relationship to route data to, and the value of the Property is a SQL SELECT statement that is used to specify how input data should be transformed/filtered. "
+        + "The SQL statement must be valid ANSI SQL and is powered by Apache Calcite. "
+        + "If the transformation fails, the original FlowFile is routed to the 'failure' relationship. Otherwise, the data selected will be routed to the associated "
+        + "relationship. If the Record Writer chooses to inherit the schema from the Record, it is important to note that the schema that is inherited will be from the "
+        + "ResultSet, rather than the input Record. This allows a single instance of the QueryRecord processor to have multiple queries, each of which returns a different "
+        + "set of columns and aggregations. As a result, though, the schema that is derived will have no schema name, so it is important that the configured Record Writer not attempt "
+        + "to write the Schema Name as an attribute if inheriting the Schema from the Record. See the Processor Usage documentation for more information.")
+@DynamicRelationship(name = "<Property Name>", description = "Each user-defined property defines a new Relationship for this Processor.")
 @DynamicProperty(name = "The name of the relationship to route data to",
-                 value="A SQL SELECT statement that is used to determine what data should be routed to this relationship.",
-                 expressionLanguageScope = ExpressionLanguageScope.FLOWFILE_ATTRIBUTES,
-                 description="Each user-defined property specifies a SQL SELECT statement to run over the data, with the data "
-                         + "that is selected being routed to the relationship whose name is the property name")
+        value = "A SQL SELECT statement that is used to determine what data should be routed to this relationship.",
+        expressionLanguageScope = ExpressionLanguageScope.FLOWFILE_ATTRIBUTES,
+        description = "Each user-defined property specifies a SQL SELECT statement to run over the data, with the data "
+                + "that is selected being routed to the relationship whose name is the property name")
 @WritesAttributes({
-    @WritesAttribute(attribute = "mime.type", description = "Sets the mime.type attribute to the MIME Type specified by the Record Writer"),
-    @WritesAttribute(attribute = "record.count", description = "The number of records selected by the query"),
-    @WritesAttribute(attribute = QueryRecord.ROUTE_ATTRIBUTE_KEY, description = "The relation to which the FlowFile was routed")
+        @WritesAttribute(attribute = "mime.type", description = "Sets the mime.type attribute to the MIME Type specified by the Record Writer"),
+        @WritesAttribute(attribute = "record.count", description = "The number of records selected by the query"),
+        @WritesAttribute(attribute = QueryRecord.ROUTE_ATTRIBUTE_KEY, description = "The relation to which the FlowFile was routed")
 })
 public class QueryRecord extends AbstractProcessor {
 
     public static final String ROUTE_ATTRIBUTE_KEY = "QueryRecord.Route";
 
     static final PropertyDescriptor RECORD_READER_FACTORY = new PropertyDescriptor.Builder()
-        .name("record-reader")
-        .displayName("Record Reader")
-        .description("Specifies the Controller Service to use for parsing incoming data and determining the data's schema")
-        .identifiesControllerService(RecordReaderFactory.class)
-        .required(true)
-        .build();
+            .name("record-reader")
+            .displayName("Record Reader")
+            .description("Specifies the Controller Service to use for parsing incoming data and determining the data's schema")
+            .identifiesControllerService(RecordReaderFactory.class)
+            .required(true)
+            .build();
     static final PropertyDescriptor RECORD_WRITER_FACTORY = new PropertyDescriptor.Builder()
-        .name("record-writer")
-        .displayName("Record Writer")
-        .description("Specifies the Controller Service to use for writing results to a FlowFile")
-        .identifiesControllerService(RecordSetWriterFactory.class)
-        .required(true)
-        .build();
+            .name("record-writer")
+            .displayName("Record Writer")
+            .description("Specifies the Controller Service to use for writing results to a FlowFile")
+            .identifiesControllerService(RecordSetWriterFactory.class)
+            .required(true)
+            .build();
     static final PropertyDescriptor INCLUDE_ZERO_RECORD_FLOWFILES = new PropertyDescriptor.Builder()
-        .name("include-zero-record-flowfiles")
-        .displayName("Include Zero Record FlowFiles")
-        .description("When running the SQL statement against an incoming FlowFile, if the result has no data, "
-            + "this property specifies whether or not a FlowFile will be sent to the corresponding relationship")
-        .expressionLanguageSupported(ExpressionLanguageScope.NONE)
-        .allowableValues("true", "false")
-        .defaultValue("true")
-        .required(true)
-        .build();
+            .name("include-zero-record-flowfiles")
+            .displayName("Include Zero Record FlowFiles")
+            .description("When running the SQL statement against an incoming FlowFile, if the result has no data, "
+                    + "this property specifies whether or not a FlowFile will be sent to the corresponding relationship")
+            .expressionLanguageSupported(ExpressionLanguageScope.NONE)
+            .allowableValues("true", "false")
+            .defaultValue("true")
+            .required(true)
+            .build();
     static final PropertyDescriptor CACHE_SCHEMA = new PropertyDescriptor.Builder()
-        .name("cache-schema")
-        .displayName("Cache Schema")
-        .description("This property is no longer used. It remains solely for backward compatibility in order to avoid making existing Processors invalid upon upgrade. This property will be" +
-            " removed in future versions. Now, instead of forcing the user to understand the semantics of schema caching, the Processor caches up to 25 schemas and automatically rolls off the" +
-            " old schemas. This provides the same performance when caching was enabled previously and in some cases very significant performance improvements if caching was previously disabled.")
-        .expressionLanguageSupported(ExpressionLanguageScope.NONE)
-        .allowableValues("true", "false")
-        .defaultValue("true")
-        .required(true)
-        .build();
+            .name("cache-schema")
+            .displayName("Cache Schema")
+            .description("This property is no longer used. It remains solely for backward compatibility in order to avoid making existing Processors invalid upon upgrade. This property will be" +
+                    " removed in future versions. Now, instead of forcing the user to understand the semantics of schema caching, the Processor caches up to 25 schemas and automatically rolls off the" +
+                    " old schemas. This provides the same performance when caching was enabled previously and in some cases very significant performance improvements if caching was previously disabled.")
+            .expressionLanguageSupported(ExpressionLanguageScope.NONE)
+            .allowableValues("true", "false")
+            .defaultValue("true")
+            .required(true)
+            .build();
 
     public static final Relationship REL_ORIGINAL = new Relationship.Builder()
-        .name("original")
-        .description("The original FlowFile is routed to this relationship")
-        .build();
+            .name("original")
+            .description("The original FlowFile is routed to this relationship")
+            .build();
     public static final Relationship REL_FAILURE = new Relationship.Builder()
-        .name("failure")
-        .description("If a FlowFile fails processing for any reason (for example, the SQL "
-            + "statement contains columns not present in input data), the original FlowFile it will "
-            + "be routed to this relationship")
-        .build();
+            .name("failure")
+            .description("If a FlowFile fails processing for any reason (for example, the SQL "
+                    + "statement contains columns not present in input data), the original FlowFile it will "
+                    + "be routed to this relationship")
+            .build();
 
     private List<PropertyDescriptor> properties;
     private final Set<Relationship> relationships = Collections.synchronizedSet(new HashSet<>());
 
     private final Cache<Tuple<String, RecordSchema>, BlockingQueue<CachedStatement>> statementQueues = Caffeine.newBuilder()
-        .maximumSize(25)
-        .removalListener(this::onCacheEviction)
-        .build();
+            .maximumSize(25)
+            .removalListener(this::onCacheEviction)
+            .build();
 
     @Override
     protected void init(final ProcessorInitializationContext context) {
@@ -212,9 +212,9 @@ public class QueryRecord extends AbstractProcessor {
         }
 
         final Relationship relationship = new Relationship.Builder()
-            .name(descriptor.getName())
-            .description("User-defined relationship that specifies where data that matches the specified SQL query should be routed")
-            .build();
+                .name(descriptor.getName())
+                .description("User-defined relationship that specifies where data that matches the specified SQL query should be routed")
+                .build();
 
         if (newValue == null) {
             relationships.remove(relationship);
@@ -226,14 +226,14 @@ public class QueryRecord extends AbstractProcessor {
     @Override
     protected PropertyDescriptor getSupportedDynamicPropertyDescriptor(final String propertyDescriptorName) {
         return new PropertyDescriptor.Builder()
-            .name(propertyDescriptorName)
-            .description("SQL select statement specifies how data should be filtered/transformed. "
-                + "SQL SELECT should select from the FLOWFILE table")
-            .required(false)
-            .dynamic(true)
-            .expressionLanguageSupported(ExpressionLanguageScope.FLOWFILE_ATTRIBUTES)
-            .addValidator(new SqlValidator())
-            .build();
+                .name(propertyDescriptorName)
+                .description("SQL select statement specifies how data should be filtered/transformed. "
+                        + "SQL SELECT should select from the FLOWFILE table")
+                .required(false)
+                .dynamic(true)
+                .expressionLanguageSupported(ExpressionLanguageScope.FLOWFILE_ATTRIBUTES)
+                .addValidator(new SqlValidator())
+                .build();
     }
 
     @OnStopped
@@ -395,7 +395,7 @@ public class QueryRecord extends AbstractProcessor {
         return statementBuilder.get();
     }
 
-    private CachedStatement buildCachedStatement(final String sql, final ProcessSession session,  final FlowFile flowFile, final RecordSchema schema,
+    private CachedStatement buildCachedStatement(final String sql, final ProcessSession session, final FlowFile flowFile, final RecordSchema schema,
                                                  final RecordReaderFactory recordReaderFactory) {
 
         final CalciteConnection connection = createConnection();
@@ -418,7 +418,7 @@ public class QueryRecord extends AbstractProcessor {
         final Properties properties = new Properties();
         properties.put(CalciteConnectionProperty.LEX.camelName(), Lex.MYSQL_ANSI.name());
         properties.put(CalciteConnectionProperty.TIME_ZONE, "UTC");
-
+        properties.put("typeSystem", "org.apache.nifi.processors.standard.type.DecimalTypeSystem");
         try {
             final Connection connection = DriverManager.getConnection("jdbc:calcite:", properties);
             final CalciteConnection calciteConnection = connection.unwrap(CalciteConnection.class);
@@ -428,9 +428,8 @@ public class QueryRecord extends AbstractProcessor {
         }
     }
 
-
     protected QueryResult query(final ProcessSession session, final FlowFile flowFile, final RecordSchema schema, final String sql, final RecordReaderFactory recordReaderFactory)
-                throws SQLException {
+            throws SQLException {
 
         final Supplier<CachedStatement> statementBuilder = () -> buildCachedStatement(sql, session, flowFile, schema, recordReaderFactory);
 
@@ -476,7 +475,6 @@ public class QueryRecord extends AbstractProcessor {
     }
 
 
-
     private void closeQuietly(final AutoCloseable... closeables) {
         if (closeables == null) {
             return;
@@ -500,34 +498,34 @@ public class QueryRecord extends AbstractProcessor {
         public ValidationResult validate(final String subject, final String input, final ValidationContext context) {
             if (context.isExpressionLanguagePresent(input)) {
                 return new ValidationResult.Builder()
-                    .input(input)
-                    .subject(subject)
-                    .valid(true)
-                    .explanation("Expression Language Present")
-                    .build();
+                        .input(input)
+                        .subject(subject)
+                        .valid(true)
+                        .explanation("Expression Language Present")
+                        .build();
             }
 
             final String substituted = context.newPropertyValue(input).evaluateAttributeExpressions().getValue();
 
             final Config config = SqlParser.configBuilder()
-                .setLex(Lex.MYSQL_ANSI)
-                .build();
+                    .setLex(Lex.MYSQL_ANSI)
+                    .build();
 
             final SqlParser parser = SqlParser.create(substituted, config);
             try {
                 parser.parseStmt();
                 return new ValidationResult.Builder()
-                    .subject(subject)
-                    .input(input)
-                    .valid(true)
-                    .build();
+                        .subject(subject)
+                        .input(input)
+                        .valid(true)
+                        .build();
             } catch (final Exception e) {
                 return new ValidationResult.Builder()
-                    .subject(subject)
-                    .input(input)
-                    .valid(false)
-                    .explanation("Not a valid SQL Statement: " + e.getMessage())
-                    .build();
+                        .subject(subject)
+                        .input(input)
+                        .valid(false)
+                        .explanation("Not a valid SQL Statement: " + e.getMessage())
+                        .build();
             }
         }
     }
