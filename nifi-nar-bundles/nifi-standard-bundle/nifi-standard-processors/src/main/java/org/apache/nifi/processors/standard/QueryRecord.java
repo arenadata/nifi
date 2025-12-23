@@ -146,9 +146,12 @@ public class QueryRecord extends AbstractProcessor {
     static final PropertyDescriptor CACHE_SCHEMA = new PropertyDescriptor.Builder()
             .name("cache-schema")
             .displayName("Cache Schema")
-            .description("This property is no longer used. It remains solely for backward compatibility in order to avoid making existing Processors invalid upon upgrade. This property will be" +
-                    " removed in future versions. Now, instead of forcing the user to understand the semantics of schema caching, the Processor caches up to 25 schemas and automatically rolls off the" +
-                    " old schemas. This provides the same performance when caching was enabled previously and in some cases very significant performance improvements if caching was previously disabled.")
+            .description("This property is no longer used. It remains solely for backward compatibility in order to avoid " +
+                    "making existing Processors invalid upon upgrade. This property will be" +
+                    " removed in future versions. Now, instead of forcing the user to understand the semantics of schema caching," +
+                    " the Processor caches up to 25 schemas and automatically rolls off the" +
+                    " old schemas. This provides the same performance when caching was enabled previously and in some cases very " +
+                    "significant performance improvements if caching was previously disabled.")
             .expressionLanguageSupported(ExpressionLanguageScope.NONE)
             .allowableValues("true", "false")
             .defaultValue("true")
