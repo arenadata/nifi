@@ -14,14 +14,30 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.apache.nifi.gpfdist.service.load.context;
+package org.apache.nifi.gpfdist.service.unload.process;
 
-import org.apache.nifi.gpfdist.service.context.AbstractContextManager;
-import org.apache.nifi.logging.ComponentLog;
+import org.apache.nifi.gpfdist.service.unload.dto.GreengageChunkId;
+import org.apache.nifi.gpfdist.service.unload.dto.UnloadingResult;
+import org.apache.nifi.serialization.record.Record;
 
-public class WriteContextManager extends AbstractContextManager<WriteContext> {
+import java.util.Collection;
 
-    public WriteContextManager(ComponentLog logger) {
-        super(logger);
-    }
+public interface RecordProcessingService {
+    void put(Record row);
+
+    int drainTo(Collection<Record> collection, int maxElements, long waitMillis);
+
+    int drainToImmediate(Collection<Record> collection, int maxElements);
+
+    boolean isFinished();
+
+    void stop();
+
+    void clear();
+
+    void addChunkRequestProcessor(GpfdistChunkRequestProcessor requestProcessor);
+
+    GpfdistChunkRequestProcessor getChunkRequestProcessor(GreengageChunkId chunkId);
+
+    Collection<UnloadingResult> getResult();
 }

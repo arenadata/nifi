@@ -20,5 +20,5 @@ import org.apache.nifi.gpfdist.metadata.GpfdistMetadata;
 
 public interface InsertDataQueryFactory {
 
-    String createInsertFromExternalTableQuery(GpfdistMetadata loadMetadata);
+    String create(GpfdistMetadata loadMetadata);
 }

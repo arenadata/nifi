@@ -17,13 +17,13 @@
 package org.apache.nifi.gpfdist.service.load.process;
 
 import org.apache.nifi.gpfdist.metadata.ColumnDescription;
+import org.apache.nifi.gpfdist.metadata.Context;
 import org.apache.nifi.gpfdist.metadata.ContextId;
+import org.apache.nifi.gpfdist.metadata.ContextManager;
 import org.apache.nifi.gpfdist.metadata.TableDescription;
 import org.apache.nifi.gpfdist.service.RecordSink;
 import org.apache.nifi.gpfdist.service.RecordSinkProvider;
-import org.apache.nifi.gpfdist.service.context.GpfdistContextId;
 import org.apache.nifi.gpfdist.service.load.context.WriteContext;
-import org.apache.nifi.gpfdist.service.load.context.WriteContextManager;
 import org.apache.nifi.gpfdist.service.load.metadata.GpfdistLoadMetadata;
 import org.apache.nifi.gpfdist.service.load.metadata.factory.DefaultGpfdistLoadMetadataFactory;
 import org.apache.nifi.logging.ComponentLog;
@@ -34,13 +34,13 @@ import java.util.concurrent.ExecutorService;
 
 public class GpfdistRecordSinkProvider implements RecordSinkProvider {
     private final ExecutorService recordProcessingExecutorService;
-    private final WriteContextManager contextManager;
+    private final ContextManager<Context> contextManager;
     private final DefaultGpfdistLoadMetadataFactory loadMetadataFactory;
     private final int bufferSize;
     private final ComponentLog logger;
 
     public GpfdistRecordSinkProvider(final ExecutorService recordProcessingExecutorService,
-                                     final WriteContextManager contextManager,
+                                     final ContextManager<Context> contextManager,
                                      final DefaultGpfdistLoadMetadataFactory loadMetadataFactory,
                                      final int bufferSize,
                                      final ComponentLog logger) {
@@ -52,11 +52,11 @@ public class GpfdistRecordSinkProvider implements RecordSinkProvider {
     }
 
     @Override
-    public RecordSink createRecordSink(final TableDescription tableMetadata,
+    public RecordSink createRecordSink(final ContextId contextId,
+                                       final TableDescription tableMetadata,
                                        final List<ColumnDescription> columnDescriptions,
                                        final RecordSchema recordSchema) {
-        GpfdistLoadMetadata metadata = loadMetadataFactory.create(recordSchema, tableMetadata, columnDescriptions);
-        ContextId contextId = new GpfdistContextId(metadata.getExternalTable());
+        GpfdistLoadMetadata metadata = loadMetadataFactory.create(contextId, recordSchema, tableMetadata, columnDescriptions);
         WriteContext writeContext = new WriteContext(
                 contextId,
                 bufferSize,

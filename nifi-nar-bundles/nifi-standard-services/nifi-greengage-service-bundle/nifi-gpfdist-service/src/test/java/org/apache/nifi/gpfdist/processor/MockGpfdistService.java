@@ -19,8 +19,12 @@ package org.apache.nifi.gpfdist.processor;
 import org.apache.nifi.components.AbstractConfigurableComponent;
 import org.apache.nifi.components.PropertyDescriptor;
 import org.apache.nifi.controller.ControllerServiceInitializationContext;
+import org.apache.nifi.gpfdist.metadata.Context;
+import org.apache.nifi.gpfdist.metadata.ContextManager;
 import org.apache.nifi.gpfdist.service.GpfdistService;
+import org.apache.nifi.gpfdist.service.GpfdistUnloadMetadataFactory;
 import org.apache.nifi.gpfdist.service.GreengageService;
+import org.apache.nifi.gpfdist.service.NodeIndexService;
 import org.apache.nifi.gpfdist.service.RecordSinkProvider;
 import org.apache.nifi.gpfdist.service.TransferDataQueryExecutor;
 import org.apache.nifi.reporting.InitializationException;
@@ -30,8 +34,11 @@ import static org.mockito.Mockito.mock;
 public class MockGpfdistService extends AbstractConfigurableComponent implements GpfdistService {
     private final RecordSinkProvider recordSinkProvider = mock(RecordSinkProvider.class);
     private final GreengageService greengageService = mock(GreengageService.class);
-    ;
+    private final TransferDataQueryExecutor unloadDataQueryExecutor = mock(TransferDataQueryExecutor.class);
     private final TransferDataQueryExecutor transferDataQueryExecutor = mock(TransferDataQueryExecutor.class);
+    private final GpfdistUnloadMetadataFactory unloadMetadataFactory = mock(GpfdistUnloadMetadataFactory.class);
+    private final ContextManager<? extends Context> readContextManager = mock(ContextManager.class);
+    private final NodeIndexService nodeIndexService = mock(NodeIndexService.class);
 
     @Override
     public RecordSinkProvider getRecordSinkProvider() {
@@ -39,13 +46,33 @@ public class MockGpfdistService extends AbstractConfigurableComponent implements
     }
 
     @Override
-    public GreengageService getGreengageTableService() {
+    public GreengageService getGreengageMetadataService() {
         return greengageService;
     }
 
     @Override
-    public TransferDataQueryExecutor getQueryExecutor() {
+    public TransferDataQueryExecutor getLoadDataQueryExecutor() {
         return transferDataQueryExecutor;
+    }
+
+    @Override
+    public TransferDataQueryExecutor getUnloadDataQueryExecutor() {
+        return unloadDataQueryExecutor;
+    }
+
+    @Override
+    public GpfdistUnloadMetadataFactory getGpfdistUnloadMetadataFactory() {
+        return unloadMetadataFactory;
+    }
+
+    @Override
+    public ContextManager<? extends Context> getReadContextManager() {
+        return readContextManager;
+    }
+
+    @Override
+    public NodeIndexService getNodeIndexService() {
+        return nodeIndexService;
     }
 
     @Override

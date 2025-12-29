@@ -19,17 +19,22 @@ package org.apache.nifi.gpfdist.service.greengage.model;
 import org.apache.nifi.gpfdist.metadata.ColumnDataType;
 import org.apache.nifi.gpfdist.metadata.ColumnDescription;
 
+import java.util.Objects;
+
 public class GreengageColumnDescription implements ColumnDescription {
     private final String columnName;
     private final ColumnDataType dataType;
     private final boolean required;
+    private final boolean isNullable;
 
     public GreengageColumnDescription(final String columnName,
                                       final ColumnDataType dataType,
-                                      final boolean required) {
+                                      final boolean required,
+                                      boolean isNullable) {
         this.columnName = columnName;
         this.dataType = dataType;
         this.required = required;
+        this.isNullable = isNullable;
     }
 
     @Override
@@ -45,5 +50,31 @@ public class GreengageColumnDescription implements ColumnDescription {
     @Override
     public boolean isRequired() {
         return required;
+    }
+
+    @Override
+    public boolean isNullable() {
+        return isNullable;
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (o == null || getClass() != o.getClass()) return false;
+        GreengageColumnDescription that = (GreengageColumnDescription) o;
+        return required == that.required && Objects.equals(columnName, that.columnName) && Objects.equals(dataType, that.dataType);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(columnName, dataType, required);
+    }
+
+    @Override
+    public String toString() {
+        return "GreengageColumnDescription{" +
+                "columnName='" + columnName + '\'' +
+                ", dataType=" + dataType +
+                ", required=" + required +
+                '}';
     }
 }

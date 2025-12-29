@@ -19,9 +19,15 @@ import org.apache.nifi.gpfdist.metadata.GreengageDataType;
 public class MapDataType
         implements ColumnDataType {
     private final String name;
+    private final ColumnDataType valueDataType;
+
+    public MapDataType(ColumnDataType valueDataType) {
+        this.valueDataType = valueDataType;
+        this.name = "hstore";
+    }
 
     public MapDataType() {
-        this.name = "hstore";
+        this(new VarcharDataType());
     }
 
     @Override
@@ -32,6 +38,10 @@ public class MapDataType
     @Override
     public GreengageDataType getType() {
         return GreengageDataType.MAP;
+    }
+
+    public ColumnDataType getValueDataType() {
+        return valueDataType;
     }
 
     @Override

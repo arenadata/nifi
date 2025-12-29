@@ -16,35 +16,37 @@
  */
 package org.apache.nifi.gpfdist.service.load.process;
 
+import org.apache.nifi.gpfdist.metadata.Context;
+import org.apache.nifi.gpfdist.metadata.ContextId;
+import org.apache.nifi.gpfdist.metadata.ContextManager;
+import org.apache.nifi.gpfdist.service.RecordSink;
+import org.apache.nifi.gpfdist.service.load.context.WriteContext;
+import org.apache.nifi.logging.ComponentLog;
+import org.apache.nifi.serialization.record.Record;
+
 import java.util.ArrayDeque;
 import java.util.Objects;
 import java.util.Queue;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
-import org.apache.nifi.gpfdist.metadata.Context;
-import org.apache.nifi.gpfdist.metadata.ContextId;
-import org.apache.nifi.gpfdist.service.RecordSink;
-import org.apache.nifi.gpfdist.service.load.context.WriteContext;
-import org.apache.nifi.gpfdist.service.load.context.WriteContextManager;
-import org.apache.nifi.logging.ComponentLog;
-import org.apache.nifi.serialization.record.Record;
 
 import static java.lang.String.format;
 
 public class GpfdistRecordSink implements RecordSink {
     private final WriteContext writeContext;
     private final ExecutorService executorService;
-    private final WriteContextManager contextManager;
+    private final ContextManager<Context> contextManager;
     private final Queue<CompletableFuture<Void>> loadingRecordFutureQueue = new ArrayDeque<>();
     private final ComponentLog logger;
 
     public GpfdistRecordSink(final ContextId contextId,
                              final ExecutorService executorService,
-                             final WriteContextManager contextManager,
+                             final ContextManager<Context> contextManager,
                              ComponentLog logger) {
         this.contextManager = contextManager;
         this.writeContext = contextManager.get(contextId)
-            .orElseThrow(() -> new IllegalArgumentException("No write context found for contextId: " + contextId));
+                .map(context -> (WriteContext) context)
+                .orElseThrow(() -> new IllegalArgumentException("No write context found for contextId: " + contextId));
         this.executorService = executorService;
         this.logger = logger;
     }
@@ -52,20 +54,20 @@ public class GpfdistRecordSink implements RecordSink {
     @Override
     public void load(Record record) {
         CompletableFuture<Void> recordFuture = CompletableFuture.runAsync(() ->
-                writeContext.getRecordProcessorProvider()
-                    .useProcessor(processor -> processor.process(record)),
-            executorService);
+                        writeContext.getRecordProcessorProvider()
+                                .useProcessor(processor -> processor.process(record)),
+                executorService);
         loadingRecordFutureQueue.add(recordFuture);
     }
 
     @Override
     public CompletableFuture<Void> finish() {
         return CompletableFuture.allOf(loadingRecordFutureQueue.toArray(new CompletableFuture[0]))
-            .thenRunAsync(() -> {
-                logger.info("Finished loading records within context {}", writeContext.getContextId());
-                writeContext.close();
-                contextManager.remove(writeContext.getContextId());
-            }, executorService);
+                .thenRunAsync(() -> {
+                    logger.info("Finished loading records within context {}", writeContext.getContextId());
+                    writeContext.close();
+                    contextManager.remove(writeContext.getContextId());
+                }, executorService);
     }
 
     @Override

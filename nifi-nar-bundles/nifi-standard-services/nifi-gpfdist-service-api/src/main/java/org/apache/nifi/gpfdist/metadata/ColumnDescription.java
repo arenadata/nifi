@@ -22,4 +22,6 @@ public interface ColumnDescription {
     ColumnDataType getDataType();
 
     boolean isRequired();
+
+    boolean isNullable();
 }

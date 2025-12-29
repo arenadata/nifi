@@ -16,10 +16,6 @@
  */
 package org.apache.nifi.gpfdist.processor;
 
-import java.util.Objects;
-import java.util.Optional;
-import java.util.concurrent.CompletionException;
-import java.util.concurrent.ConcurrentHashMap;
 import org.apache.nifi.annotation.behavior.EventDriven;
 import org.apache.nifi.annotation.behavior.InputRequirement;
 import org.apache.nifi.annotation.documentation.CapabilityDescription;
@@ -28,11 +24,13 @@ import org.apache.nifi.annotation.lifecycle.OnStopped;
 import org.apache.nifi.components.PropertyDescriptor;
 import org.apache.nifi.flowfile.FlowFile;
 import org.apache.nifi.gpfdist.metadata.ColumnDescription;
+import org.apache.nifi.gpfdist.metadata.ContextId;
 import org.apache.nifi.gpfdist.metadata.TableDescription;
 import org.apache.nifi.gpfdist.service.GpfdistService;
 import org.apache.nifi.gpfdist.service.GreengageService;
 import org.apache.nifi.gpfdist.service.RecordSink;
 import org.apache.nifi.gpfdist.service.TransferDataQueryExecutor;
+import org.apache.nifi.gpfdist.service.context.GpfdistContextId;
 import org.apache.nifi.gpfdist.service.load.context.WriteContext;
 import org.apache.nifi.processor.AbstractProcessor;
 import org.apache.nifi.processor.ProcessContext;
@@ -51,8 +49,13 @@ import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
+import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
@@ -113,11 +116,11 @@ public class PutGreengageRecord extends AbstractProcessor {
 
     private static final Set<Relationship> RELATIONSHIPS = Set.of(REL_SUCCESS, REL_FAILURE);
     private static final List<PropertyDescriptor> PROPERTY_DESCRIPTORS = List.of(
-        RECORD_READER_FACTORY,
-        GPFDIST_SERVICE,
-        SCHEMA_NAME,
-        TABLE_NAME,
-        TABLE_COLUMNS
+            RECORD_READER_FACTORY,
+            GPFDIST_SERVICE,
+            SCHEMA_NAME,
+            TABLE_NAME,
+            TABLE_COLUMNS
     );
 
     private final Set<RecordSink> recordSinks = ConcurrentHashMap.newKeySet();
@@ -158,26 +161,27 @@ public class PutGreengageRecord extends AbstractProcessor {
                 .evaluateAttributeExpressions(flowFile)
                 .getValue();
         final GpfdistService gpfdistService = context.getProperty(GPFDIST_SERVICE)
-            .asControllerService(GpfdistService.class);
-        final TransferDataQueryExecutor transferDataQueryExecutor = gpfdistService.getQueryExecutor();
-        final GreengageService greengageService = gpfdistService.getGreengageTableService();
+                .asControllerService(GpfdistService.class);
+        final TransferDataQueryExecutor transferDataQueryExecutor = gpfdistService.getLoadDataQueryExecutor();
+        final GreengageService greengageService = gpfdistService.getGreengageMetadataService();
         final TableDescription tableDescription = greengageService.getTableDescription(schema, table);
         final StopWatch stopWatch = new StopWatch(true);
-
+        //todo need to refactor for concurrent mode
+        ContextId contextId = new GpfdistContextId(UUID.randomUUID().toString());
         RecordSink recordSink = null;
         try (final InputStream in = session.read(flowFile)) {
             final String destinationUrl = greengageService.getDatabaseMetadata().getURL();
             final List<ColumnDescription> columnDescriptions = getColumnDescriptions(flowFile, context, tableDescription);
             final RecordReader recordReader = context.getProperty(RECORD_READER_FACTORY)
-                .asControllerService(RecordReaderFactory.class)
-                .createRecordReader(flowFile, in, getLogger());
+                    .asControllerService(RecordReaderFactory.class)
+                    .createRecordReader(flowFile, in, getLogger());
 
             RecordSchema readerSchema = recordReader.getSchema();
             if (readerSchema.getFieldCount() != columnDescriptions.size()) {
                 throw new ProcessException("Schema does not match target column count");
             }
             recordSink = gpfdistService.getRecordSinkProvider()
-                .createRecordSink(tableDescription, columnDescriptions, readerSchema);
+                    .createRecordSink(contextId, tableDescription, columnDescriptions, readerSchema);
             recordSinks.add(recordSink);
             WriteContext writeContext = (WriteContext) recordSink.getContext();
 
@@ -214,15 +218,15 @@ public class PutGreengageRecord extends AbstractProcessor {
     @SuppressWarnings("unchecked")
     private CompletableFuture<List<Throwable>> allOfWithExceptions(CompletableFuture<?>... futures) {
         CompletableFuture<Throwable>[] futuresWithErrors = Arrays.stream(futures)
-            .map(this::withErrorRecording)
-            .toArray(CompletableFuture[]::new);
+                .map(this::withErrorRecording)
+                .toArray(CompletableFuture[]::new);
 
         return CompletableFuture.allOf(futuresWithErrors)
-            .thenApply(ignored -> Arrays.stream(futuresWithErrors)
-                .map(CompletableFuture::join)
-                .filter(Objects::nonNull)
-                .collect(Collectors.toList())
-            );
+                .thenApply(ignored -> Arrays.stream(futuresWithErrors)
+                        .map(CompletableFuture::join)
+                        .filter(Objects::nonNull)
+                        .collect(Collectors.toList())
+                );
     }
 
     private CompletableFuture<Throwable> withErrorRecording(CompletableFuture<?> future) {

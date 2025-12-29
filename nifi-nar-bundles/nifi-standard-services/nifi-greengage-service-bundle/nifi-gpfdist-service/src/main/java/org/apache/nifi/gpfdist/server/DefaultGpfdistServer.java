@@ -16,11 +16,13 @@
  */
 package org.apache.nifi.gpfdist.server;
 
+import org.apache.nifi.gpfdist.metadata.Context;
+import org.apache.nifi.gpfdist.metadata.ContextManager;
 import org.apache.nifi.gpfdist.server.config.GpfdistServerConfig;
 import org.apache.nifi.gpfdist.server.servlet.GpfdistAsyncServlet;
 import org.apache.nifi.gpfdist.server.servlet.GpfdistServletContextListener;
-import org.apache.nifi.gpfdist.service.load.context.WriteContextManager;
 import org.apache.nifi.gpfdist.service.load.process.RecordProcessorFactory;
+import org.apache.nifi.gpfdist.service.unload.process.InputDataProcessorFactory;
 import org.apache.nifi.logging.ComponentLog;
 import org.apache.nifi.util.StringUtils;
 import org.eclipse.jetty.server.Connector;
@@ -33,21 +35,28 @@ import java.util.concurrent.ExecutorService;
 
 public class DefaultGpfdistServer implements GpfdistServer {
     private static final String GPFDIST_READ_ENDPOINT = "/read/*";
+    private static final String GPFDIST_WRITE_ENDPOINT = "/write/*";
     private static final String GPFDIST_CONTEXT_PATH = "/gpfdist";
     private final GpfdistServerConfig serverConfig;
     private volatile JettyServer server;
-    private final WriteContextManager writeContextManager;
+    private final ContextManager<Context> writeContextManager;
+    private final ContextManager<Context> readContextManager;
+    private final InputDataProcessorFactory inputDataProcessorFactory;
     private final RecordProcessorFactory recordProcessorFactory;
     private final ExecutorService recordProcessingExecutorService;
     private final ComponentLog logger;
 
     public DefaultGpfdistServer(final GpfdistServerConfig serverConfig,
-                                final WriteContextManager writeContextManager,
+                                final ContextManager<Context> writeContextManager,
+                                final ContextManager<Context> readContextManager,
+                                final InputDataProcessorFactory inputDataProcessorFactory,
                                 final RecordProcessorFactory recordProcessorFactory,
                                 final ExecutorService recordProcessingExecutorService,
                                 ComponentLog logger) {
         this.serverConfig = serverConfig;
         this.writeContextManager = writeContextManager;
+        this.readContextManager = readContextManager;
+        this.inputDataProcessorFactory = inputDataProcessorFactory;
         this.recordProcessingExecutorService = recordProcessingExecutorService;
         this.logger = logger;
         this.recordProcessorFactory = recordProcessorFactory;
@@ -58,6 +67,8 @@ public class DefaultGpfdistServer implements GpfdistServer {
         try {
             server = new JettyServer(serverConfig,
                     writeContextManager,
+                    readContextManager,
+                    inputDataProcessorFactory,
                     recordProcessorFactory,
                     recordProcessingExecutorService,
                     logger);
@@ -97,7 +108,9 @@ public class DefaultGpfdistServer implements GpfdistServer {
 
     public static class JettyServer {
         private final GpfdistServerConfig serverConfig;
-        private final WriteContextManager writeContextManager;
+        private final ContextManager<Context> writeContextManager;
+        private final ContextManager<Context> readContextManager;
+        private final InputDataProcessorFactory inputDataProcessorFactory;
         private final RecordProcessorFactory recordProcessorFactory;
         private final ExecutorService recordProcessingExecutorService;
         private final ComponentLog logger;
@@ -105,11 +118,15 @@ public class DefaultGpfdistServer implements GpfdistServer {
         private Server server;
 
         public JettyServer(final GpfdistServerConfig serverConfig,
-                           final WriteContextManager writeContextManager,
+                           final ContextManager<Context> writeContextManager,
+                           final ContextManager<Context> readContextManager,
+                           final InputDataProcessorFactory inputDataProcessorFactory,
                            final RecordProcessorFactory recordProcessorFactory,
                            final ExecutorService recordProcessingExecutorService,
                            ComponentLog logger) {
             this.writeContextManager = writeContextManager;
+            this.readContextManager = readContextManager;
+            this.inputDataProcessorFactory = inputDataProcessorFactory;
             this.recordProcessorFactory = recordProcessorFactory;
             this.recordProcessingExecutorService = recordProcessingExecutorService;
             this.logger = logger;
@@ -121,6 +138,7 @@ public class DefaultGpfdistServer implements GpfdistServer {
                     serverConfig.getMinThreads(),
                     serverConfig.getIdleTimeoutMs()));
             connector = new ServerConnector(server);
+            connector.setIdleTimeout(serverConfig.getIdleTimeoutMs());
             connector.setPort(serverConfig.getPort());
             if (StringUtils.isNotBlank(serverConfig.getHost())) {
                 connector.setHost(serverConfig.getHost());
@@ -134,10 +152,13 @@ public class DefaultGpfdistServer implements GpfdistServer {
             ServletContextHandler context = new ServletContextHandler();
             context.setContextPath(GPFDIST_CONTEXT_PATH);
             context.addEventListener(new GpfdistServletContextListener(writeContextManager,
+                    readContextManager,
                     recordProcessorFactory,
+                    inputDataProcessorFactory,
                     recordProcessingExecutorService,
                     logger));
             context.addServlet(GpfdistAsyncServlet.class, GPFDIST_READ_ENDPOINT);
+            context.addServlet(GpfdistAsyncServlet.class, GPFDIST_WRITE_ENDPOINT);
             return context;
         }
 

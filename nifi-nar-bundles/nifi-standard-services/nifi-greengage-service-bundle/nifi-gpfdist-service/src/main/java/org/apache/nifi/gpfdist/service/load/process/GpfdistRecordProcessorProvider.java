@@ -16,6 +16,9 @@
  */
 package org.apache.nifi.gpfdist.service.load.process;
 
+import org.apache.nifi.gpfdist.service.RecordProcessor;
+import org.apache.nifi.gpfdist.service.RecordProcessorProvider;
+
 import java.util.HashSet;
 import java.util.LinkedList;
 import java.util.Queue;
@@ -24,8 +27,6 @@ import java.util.concurrent.locks.Condition;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
-import org.apache.nifi.gpfdist.service.RecordProcessor;
-import org.apache.nifi.gpfdist.service.RecordProcessorProvider;
 
 import static java.lang.String.format;
 
@@ -94,10 +95,10 @@ public class GpfdistRecordProcessorProvider implements RecordProcessorProvider {
             while (recordProcessors.isEmpty()) {
                 try {
                     if (!isReadyForProcessing
-                        && currentTimeMsProvider().get() - startTime > GREENGAGE_SEGMENT_WAIT_TIMEOUT) {
+                            && currentTimeMsProvider().get() - startTime > GREENGAGE_SEGMENT_WAIT_TIMEOUT) {
                         throw new RuntimeException(
-                            format("Timeout :%d ms waiting for segments responses is exceeded",
-                                    GREENGAGE_SEGMENT_WAIT_TIMEOUT));
+                                format("Timeout :%d ms waiting for segments responses is exceeded",
+                                        GREENGAGE_SEGMENT_WAIT_TIMEOUT));
                     }
                     isReadyForProcessingCondition.await();
                 } catch (InterruptedException e) {
@@ -118,7 +119,7 @@ public class GpfdistRecordProcessorProvider implements RecordProcessorProvider {
                 processor.stop();
             } catch (Exception e) {
                 errorMessages.append(
-                    format("Failed to stop record processor %s. Error: %s;", processor, e.getMessage()));
+                        format("Failed to stop record processor %s. Error: %s;", processor, e.getMessage()));
             }
         });
         registeredProcessors.clear();

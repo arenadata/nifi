@@ -92,8 +92,8 @@ public class TestStandartGpfdistService {
     void testServiceMethods() {
         runner.enableControllerService(service);
         assertNotNull(service.getRecordSinkProvider());
-        assertNotNull(service.getGreengageTableService());
-        assertNotNull(service.getQueryExecutor());
+        assertNotNull(service.getGreengageMetadataService());
+        assertNotNull(service.getLoadDataQueryExecutor());
         runner.disableControllerService(service);
     }
 

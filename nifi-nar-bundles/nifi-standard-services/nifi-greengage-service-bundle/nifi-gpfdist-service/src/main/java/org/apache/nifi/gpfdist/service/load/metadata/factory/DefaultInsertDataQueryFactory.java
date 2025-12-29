@@ -29,7 +29,7 @@ public class DefaultInsertDataQueryFactory implements InsertDataQueryFactory {
     private static final String COLUMN_DELIMITER = ", ";
 
     @Override
-    public String createInsertFromExternalTableQuery(final GpfdistMetadata loadMetadata) {
+    public String create(final GpfdistMetadata loadMetadata) {
         String externalTableColumnNames = loadMetadata.getColumnDescriptions().stream()
                 .map(colDesc -> quote(colDesc.getName()))
                 .collect(Collectors.joining(COLUMN_DELIMITER));

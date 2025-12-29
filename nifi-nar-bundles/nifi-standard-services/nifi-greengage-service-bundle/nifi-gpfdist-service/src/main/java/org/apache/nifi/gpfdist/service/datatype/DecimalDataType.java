@@ -19,14 +19,26 @@ import org.apache.nifi.gpfdist.metadata.GreengageDataType;
 public class DecimalDataType
         implements ColumnDataType {
     private final String name;
+    private final int precision;
+    private final int scale;
 
     public DecimalDataType(int precision, int scale) {
         this.name = String.format("decimal(%d,%d)", precision, scale);
+        this.precision = precision;
+        this.scale = scale;
     }
 
     @Override
     public String getName() {
         return name;
+    }
+
+    public int getPrecision() {
+        return precision;
+    }
+
+    public int getScale() {
+        return scale;
     }
 
     @Override
