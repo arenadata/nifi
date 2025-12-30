@@ -93,6 +93,7 @@ public class PutGreenplumRecordIT extends NifiSystemContainerizedIT {
         put("f_text_array", "TEXT[]");
         put("f_hstore", "HSTORE");
     }};
+
     private static final String GENERATE_DATASET_SQL = "select i,\n" +
             "       25000000000 * random(),\n" +
             "       case when random() > 0.5 then 1 else 0 end::bit,\n" +
