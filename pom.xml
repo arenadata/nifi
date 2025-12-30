@@ -17,7 +17,6 @@
         <version>33</version>
         <relativePath />
     </parent>
-
     <groupId>org.apache.nifi</groupId>
     <artifactId>nifi</artifactId>
     <version>1.28.1</version>
