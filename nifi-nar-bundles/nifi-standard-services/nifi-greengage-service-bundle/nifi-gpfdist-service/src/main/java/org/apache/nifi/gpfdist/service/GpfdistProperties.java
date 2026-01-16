@@ -27,6 +27,7 @@ public final class GpfdistProperties {
 
     public static final PropertyDescriptor PORT = new PropertyDescriptor.Builder()
             .name("Listening Port")
+            .displayName("Listening Port")
             .description("The Port to listen on for incoming gpfdist requests")
             .required(true)
             .addValidator(StandardValidators.PORT_VALIDATOR)
@@ -35,6 +36,7 @@ public final class GpfdistProperties {
             .build();
     public static final PropertyDescriptor GPFDIST_SERVER_MIN_THREADS = new PropertyDescriptor.Builder()
             .name("Minimum Gpffist Server Threads")
+            .displayName("Minimum Gpffist Server Threads")
             .description("The minimum amount of threads that are used to run the Gpffist server")
             .required(false)
             .addValidator(StandardValidators.NON_NEGATIVE_INTEGER_VALIDATOR)
@@ -42,6 +44,7 @@ public final class GpfdistProperties {
             .build();
     public static final PropertyDescriptor GPFDIST_SERVER_MAX_THREADS = new PropertyDescriptor.Builder()
             .name("Maximum Gpffist Server Threads")
+            .displayName("Maximum Gpffist Server Threads")
             .description("The maximum amount of threads that are used to run the Gpffist server")
             .required(false)
             .addValidator(StandardValidators.NON_NEGATIVE_INTEGER_VALIDATOR)
@@ -49,6 +52,7 @@ public final class GpfdistProperties {
             .build();
     public static final PropertyDescriptor GPFDIST_SERVER_THREAD_IDLE_TIMEOUT_MS = new PropertyDescriptor.Builder()
             .name("The Maximum Gpffist Server Threads Idle Timeout")
+            .displayName("The Maximum Gpffist Server Threads Idle Timeout")
             .description("The maximum gpffist server threads idle timeout in milliseconds")
             .required(false)
             .addValidator(StandardValidators.INTEGER_VALIDATOR)
@@ -63,6 +67,7 @@ public final class GpfdistProperties {
             .build();
     public static final PropertyDescriptor GPFDIST_REQUEST_PROCESSOR_MAX_THREADS = new PropertyDescriptor.Builder()
             .name("Maximum Gpfdist Request Processor Threads")
+            .displayName("Maximum Gpfdist Request Processor Threads")
             .description("The maximum amount of threads that are used to process the gpfdist requests")
             .required(false)
             .addValidator(StandardValidators.NON_NEGATIVE_INTEGER_VALIDATOR)

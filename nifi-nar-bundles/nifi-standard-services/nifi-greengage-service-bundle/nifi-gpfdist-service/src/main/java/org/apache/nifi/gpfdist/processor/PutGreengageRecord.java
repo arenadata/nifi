@@ -109,14 +109,15 @@ public class PutGreengageRecord extends AbstractProcessor {
             .addValidator(StandardValidators.NON_EMPTY_VALIDATOR)
             .build();
     static final PropertyDescriptor GREENGAGE_SEGMENT_CONCURRENCY_MULTIPLIER = new PropertyDescriptor.Builder()
-            .name("Greengage Segment Concurrency Multiplier")
+            .name("greengage-segment-concurrency-multiplier")
+            .displayName("Greengage Segment Concurrency Multiplier")
             .description("Integer multiplier for Greengage segment parallelism. Typical values: 1 or 2.")
             .required(false)
             .defaultValue("1")
             .addValidator(StandardValidators.POSITIVE_INTEGER_VALIDATOR)
             .build();
     static final PropertyDescriptor RECORD_PROCESSOR_MAX_THREADS = new PropertyDescriptor.Builder()
-            .name("Maximum Record Processor Threads")
+            .name("maximum-record-processor-threads")
             .displayName("Maximum Record Processor Threads")
             .description("The maximum amount of threads that are used to process the records")
             .required(false)
@@ -124,7 +125,7 @@ public class PutGreengageRecord extends AbstractProcessor {
             .defaultValue("8")
             .build();
     static final PropertyDescriptor FLOW_FILE_BATCHING_ENABLED = new PropertyDescriptor.Builder()
-            .name("Flow File Batching Enabled")
+            .name("flow-file-batching-enabled")
             .displayName("Flow File Batching Enabled")
             .description("If enabled, processor will group multiple FlowFiles into a single INSERT load based on Batch Size.")
             .required(false)
@@ -132,7 +133,7 @@ public class PutGreengageRecord extends AbstractProcessor {
             .defaultValue("false")
             .build();
     static final PropertyDescriptor FLOW_FILE_BATCH_SIZE = new PropertyDescriptor.Builder()
-            .name("Flow Files Batch Size")
+            .name("flow-files-batch-size")
             .displayName("Flow Files Batch Size")
             .description("Maximum total size (bytes) of FlowFiles to include into one load. Soft limit: last FlowFile may exceed it.")
             .required(false)
