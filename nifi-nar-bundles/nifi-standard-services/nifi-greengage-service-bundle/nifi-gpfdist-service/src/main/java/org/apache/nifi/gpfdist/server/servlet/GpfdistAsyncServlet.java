@@ -20,12 +20,16 @@ import org.apache.hc.core5.http.ContentType;
 import org.apache.hc.core5.http.HttpHeaders;
 import org.apache.nifi.gpfdist.metadata.Context;
 import org.apache.nifi.gpfdist.metadata.ContextManager;
+import org.apache.nifi.gpfdist.metadata.GpfidstLoadConfig;
+import org.apache.nifi.gpfdist.metadata.RecordProcessorId;
 import org.apache.nifi.gpfdist.server.request.GpfdistReadableRequest;
 import org.apache.nifi.gpfdist.server.request.GpfdistWritableRequest;
 import org.apache.nifi.gpfdist.service.context.GpfdistContextId;
 import org.apache.nifi.gpfdist.service.load.context.WriteContext;
+import org.apache.nifi.gpfdist.service.load.metadata.GpfdistLoadMetadata;
 import org.apache.nifi.gpfdist.service.load.process.GpfdistPacketBuilder;
-import org.apache.nifi.gpfdist.service.load.process.GpfdistRecordProcessor;
+import org.apache.nifi.gpfdist.service.load.process.GpfdistRecordProcessorNonBlocking;
+import org.apache.nifi.gpfdist.service.load.process.GpfdistSegmentStream;
 import org.apache.nifi.gpfdist.service.load.process.RecordProcessorFactory;
 import org.apache.nifi.gpfdist.service.unload.context.ReadContext;
 import org.apache.nifi.gpfdist.service.unload.dto.GreengageChunkId;
@@ -38,13 +42,12 @@ import org.apache.nifi.logging.ComponentLog;
 
 import javax.servlet.AsyncContext;
 import javax.servlet.ServletOutputStream;
+import javax.servlet.WriteListener;
 import javax.servlet.http.HttpServlet;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import java.io.InputStream;
-import java.io.PipedInputStream;
-import java.io.PipedOutputStream;
 import java.util.Enumeration;
 import java.util.HashMap;
 import java.util.Map;
@@ -54,6 +57,7 @@ import java.util.concurrent.ExecutorService;
 import static org.apache.nifi.gpfdist.server.request.GpfdistRequestHeader.X_GP_PROTO;
 import static org.apache.nifi.gpfdist.service.util.GpfdistUtil.COMPONENT_LOG_ATTR;
 import static org.apache.nifi.gpfdist.service.util.GpfdistUtil.INPUT_DATA_PROCESSOR_FACTORY_ATTR;
+import static org.apache.nifi.gpfdist.service.util.GpfdistUtil.LOAD_CONFIG;
 import static org.apache.nifi.gpfdist.service.util.GpfdistUtil.READ_CONTEXT_MANAGER_ATTR;
 import static org.apache.nifi.gpfdist.service.util.GpfdistUtil.RECORD_PROCESSING_EXECUTOR_SERVICE_ATTR;
 import static org.apache.nifi.gpfdist.service.util.GpfdistUtil.RECORD_PROCESSOR_FACTORY_ATTR;
@@ -61,66 +65,98 @@ import static org.apache.nifi.gpfdist.service.util.GpfdistUtil.WRITE_CONTEXT_MAN
 import static org.apache.nifi.gpfdist.service.util.GpfdistUtil.createGpfdistFileName;
 
 public class GpfdistAsyncServlet extends HttpServlet {
-
     private static final int GPFDIST_FOR_WRITE_PROTOCOL_VERSION = 0;
 
     @SuppressWarnings("unchecked")
     @Override
     protected void doGet(HttpServletRequest request, HttpServletResponse response) throws IOException {
+        //process GET request for endpoint: "gpfdist://<host>:<port>/gpfdist/write/<contextId>/<sinkId>/<external_table_name>
         AsyncContext asyncCtx = request.startAsync();
-        //todo refactor for using contextId and processorTaskId
-        String tableName = getExternalTableName(request);
-        Map<String, String> headers = getHeaderMap(request);
-        GpfdistReadableRequest readableRequest = GpfdistReadableRequest.create(tableName, headers);
-        ExecutorService executorService = (ExecutorService) getServletContext().getAttribute(RECORD_PROCESSING_EXECUTOR_SERVICE_ATTR);
-        ContextManager<Context> contextManager = (ContextManager<Context>) getServletContext().getAttribute(WRITE_CONTEXT_MANAGER_ATTR);
+        GpfidstLoadConfig gpfdistLoadConfig = (GpfidstLoadConfig) getServletContext().getAttribute(LOAD_CONFIG);
         RecordProcessorFactory recordProcessorFactory = (RecordProcessorFactory) getServletContext().getAttribute(RECORD_PROCESSOR_FACTORY_ATTR);
         ComponentLog logger = (ComponentLog) getServletContext().getAttribute(COMPONENT_LOG_ATTR);
-        Optional<Context> writeContextOptional = contextManager.get(new GpfdistContextId(tableName));
-        logger.info("Input GET gpfdist request: {}", readableRequest);
+        asyncCtx.setTimeout(gpfdistLoadConfig.getAsyncContextTimeoutMs());
+        try {
+            Map<String, String> headers = getHeaderMap(request);
+            GpfdistUrlMetadata metadata = getMetadata(request.getRequestURI());
+            GpfdistReadableRequest readableRequest = GpfdistReadableRequest.create(metadata.getTableName(), headers);
+            logger.info("Input GET gpfdist request: {}", readableRequest);
+            response.setHeader(HttpHeaders.CONTENT_TYPE, ContentType.TEXT_PLAIN.getMimeType());
+            response.setHeader(HttpHeaders.CACHE_CONTROL, "no-cache");
+            response.setHeader(X_GP_PROTO, String.valueOf(readableRequest.getGpProtocol()));
+            response.setStatus(HttpServletResponse.SC_OK);
 
-        HttpServletResponse asyncResponse = (HttpServletResponse) asyncCtx.getResponse();
-        asyncResponse.setHeader(HttpHeaders.CONTENT_TYPE, ContentType.TEXT_PLAIN.getMimeType());
-        asyncResponse.setHeader(HttpHeaders.CACHE_CONTROL, "no-cache");
-        asyncResponse.setHeader(X_GP_PROTO, String.valueOf(readableRequest.getGpProtocol()));
+            ServletOutputStream outputStream = response.getOutputStream();
+            RecordProcessorId recordProcessorId = new RecordProcessorId(
+                    metadata.getTaskId(),
+                    readableRequest.getChunkId().getTransactionId(),
+                    readableRequest.getChunkId().getSegmentId());
+            GpfdistSegmentStream stream = new GpfdistSegmentStream(asyncCtx,
+                    outputStream,
+                    recordProcessorId,
+                    gpfdistLoadConfig.getGpfdistSegmentStreamBufferSize(),
+                    gpfdistLoadConfig.getGpfdistStreamBufferEnqueueTimeoutMs(),
+                    logger);
 
-        if (writeContextOptional.isPresent()) {
-            WriteContext writeContext = (WriteContext) writeContextOptional.get();
-            executorService.submit(() -> {
-                logger.info("Start handling input GET gpfdist request: {}", readableRequest);
-                try {
-                    asyncResponse.setStatus(HttpServletResponse.SC_OK);
-                    try (PipedOutputStream outputStream = new PipedOutputStream();
-                         PipedInputStream inputStream = new PipedInputStream(outputStream, writeContext.getBufferSize())) {
-                        GpfdistRecordProcessor recordProcessor = (GpfdistRecordProcessor) recordProcessorFactory.create(readableRequest,
-                                writeContext,
-                                outputStream);
-                        boolean isAdded = writeContext.getRecordProcessorProvider().register(recordProcessor);
-                        ServletOutputStream out = asyncResponse.getOutputStream();
-                        if (isAdded) {
-                            byte[] buf = new byte[writeContext.getBufferSize()];
-                            int readLen;
-                            while ((readLen = inputStream.read(buf, 0, buf.length)) != -1) {
-                                out.write(buf, 0, readLen);
-                                out.flush();
-                            }
-                        } else {
-                            out.write(new GpfdistPacketBuilder(createGpfdistFileName(tableName)).createSingleEmptyDataPacket());
-                        }
-                        logger.info("Request completed successfully: {}", readableRequest);
-                    }
-                } catch (Exception e) {
-                    asyncResponse.setStatus(HttpServletResponse.SC_INTERNAL_SERVER_ERROR);
-                    getServletContext().log("Failed to load data. Request: " + readableRequest, e);
-                } finally {
-                    asyncCtx.complete();
+            outputStream.setWriteListener(new WriteListener() {
+                @Override
+                public void onWritePossible() {
+                    stream.drain();
+                }
+
+                @Override
+                public void onError(Throwable throwable) {
+                    logger.warn("WriteListener error recordProcessorId={} err={}", recordProcessorId, throwable.getMessage());
+                    stream.complete();
                 }
             });
-        } else {
-            asyncResponse.setStatus(HttpServletResponse.SC_OK);
-            logger.info("There is no data for loading responded by request: {}", readableRequest);
-            asyncResponse.getOutputStream().write(new GpfdistPacketBuilder(createGpfdistFileName(tableName)).createSingleEmptyDataPacket());
-            asyncCtx.complete();
+            ContextManager<Context> contextManager = (ContextManager<Context>) getServletContext().getAttribute(WRITE_CONTEXT_MANAGER_ATTR);
+            Optional<Context> writeContextOpt = contextManager.get(new GpfdistContextId(metadata.getContextId()));
+
+            if (writeContextOpt.isEmpty()) {
+                logger.error("Write context not found by id {}", metadata.getContextId());
+                stream.offer(new GpfdistPacketBuilder(createGpfdistFileName(metadata.getTableName()))
+                        .createSingleEmptyDataPacket());
+                stream.complete();
+                return;
+            }
+
+            WriteContext writeContext = (WriteContext) writeContextOpt.get();
+            GpfdistLoadMetadata gpfdistMetadata = writeContext.getGpfdistMetadata(metadata.getTaskId());
+
+            if (gpfdistMetadata == null) {
+                logger.error("No metadata found for sinkId {}. Responding with empty packet. Request={}",
+                        metadata.getTaskId(), readableRequest);
+                stream.offer(new GpfdistPacketBuilder(createGpfdistFileName(metadata.getTableName()))
+                        .createSingleEmptyDataPacket());
+                stream.complete();
+                return;
+            }
+            GpfdistRecordProcessorNonBlocking proc = (GpfdistRecordProcessorNonBlocking) recordProcessorFactory.create(readableRequest,
+                    gpfdistMetadata,
+                    recordProcessorId,
+                    stream,
+                    logger);
+            boolean added = writeContext.registerRecordProcessor(proc);
+            logger.debug("Processor added={} recordProcessorId={}", added, recordProcessorId);
+
+            if (!added) {
+                stream.offer(new GpfdistPacketBuilder(createGpfdistFileName(metadata.getTableName()))
+                        .createSingleEmptyDataPacket());
+                stream.complete();
+            }
+        } catch (Exception e) {
+            logger.error("Failed to process greengage segment request", e);
+            try {
+                if (!response.isCommitted()) {
+                    response.setStatus(HttpServletResponse.SC_INTERNAL_SERVER_ERROR);
+                }
+            } catch (Exception ignore) {
+            }
+            try {
+                asyncCtx.complete();
+            } catch (Exception ignore) {
+            }
         }
     }
 
@@ -155,7 +191,7 @@ public class GpfdistAsyncServlet extends HttpServlet {
                 ReadContext readContext = (ReadContext) readContextOptional.get();
                 if (initialRequest(writableRequest)) {
                     processInitialRequest(asyncResponse,
-                            metadata.getProcessorTaskId(),
+                            metadata.getTaskId(),
                             readContext,
                             writableRequest,
                             logger,
@@ -166,7 +202,7 @@ public class GpfdistAsyncServlet extends HttpServlet {
                             asyncCtx,
                             request.getInputStream(),
                             asyncResponse,
-                            metadata.getProcessorTaskId(),
+                            metadata.getTaskId(),
                             readContext,
                             writableRequest,
                             executorService,
@@ -174,7 +210,7 @@ public class GpfdistAsyncServlet extends HttpServlet {
                 } else {
                     processTearDownRequest(asyncResponse,
                             readContext,
-                            metadata.getProcessorTaskId(),
+                            metadata.getTaskId(),
                             writableRequest,
                             logger);
                     asyncCtx.complete();
@@ -197,10 +233,6 @@ public class GpfdistAsyncServlet extends HttpServlet {
             }
         }
         return headers;
-    }
-
-    private String getExternalTableName(HttpServletRequest request) {
-        return request.getPathInfo().substring(1);
     }
 
     private GpfdistUrlMetadata getMetadata(String path) {
@@ -282,12 +314,12 @@ public class GpfdistAsyncServlet extends HttpServlet {
 
     private static class GpfdistUrlMetadata {
         private final String contextId;
-        private final String processorTaskId;
+        private final String taskId;
         private final String tableName;
 
-        public GpfdistUrlMetadata(String contextId, String processorTaskId, String tableName) {
+        public GpfdistUrlMetadata(String contextId, String taskId, String tableName) {
             this.contextId = contextId;
-            this.processorTaskId = processorTaskId;
+            this.taskId = taskId;
             this.tableName = tableName;
         }
 
@@ -295,8 +327,8 @@ public class GpfdistAsyncServlet extends HttpServlet {
             return contextId;
         }
 
-        public String getProcessorTaskId() {
-            return processorTaskId;
+        public String getTaskId() {
+            return taskId;
         }
 
         public String getTableName() {

@@ -27,16 +27,16 @@ public class DefaulGpfdistLocationFactory
     }
 
     @Override
-    public String create(ContextId contextId, String processorTaskId, final String externalTableName, final ExternalTableType externalTableType) {
+    public String create(ContextId contextId, String taskId, final String externalTableName, final ExternalTableType externalTableType) {
         String protocol = config.isSslEnabled() ? "gpfdists" : "gpfdist";
-        //gpfdist://<host>:<port>/gpfdist/<operation>/<contextId>/<processorTaskId>/<externalTable>
+        //gpfdist://<host>:<port>/gpfdist/<operation>/<contextId>/<taskId>/<externalTable>
         return String.format("%s://%s:%d/gpfdist/%s/%s/%s/%s",
                 protocol,
                 config.getHost(),
                 config.getPort(),
                 getOperationPath(externalTableType),
                 contextId.getId(),
-                processorTaskId,
+                taskId,
                 externalTableName);
     }
 

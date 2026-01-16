@@ -20,47 +20,38 @@ import org.apache.nifi.dbcp.DBCPService;
 import org.apache.nifi.gpfdist.metadata.GpfdistMetadata;
 import org.apache.nifi.gpfdist.service.query.AbstractDataQueryExecutor;
 import org.apache.nifi.gpfdist.service.query.CreateExternalTableQueryFactory;
-import org.apache.nifi.gpfdist.service.query.InsertDataQueryFactory;
 import org.apache.nifi.logging.ComponentLog;
 
 import java.sql.Connection;
 import java.sql.SQLException;
+import java.sql.Statement;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.atomic.AtomicReference;
 
-public class LoadDataQueryExecutor extends AbstractDataQueryExecutor {
+public class CreateExternalTableQueryExecutor extends AbstractDataQueryExecutor {
 
     private final CreateExternalTableQueryFactory externalTableQueryFactory;
-    private final InsertDataQueryFactory insertDataQueryFactory;
 
-    public LoadDataQueryExecutor(final ExecutorService executorService,
-                                 final DBCPService dbcpService,
-                                 final CreateExternalTableQueryFactory externalTableQueryFactory,
-                                 final InsertDataQueryFactory insertDataQueryFactory,
-                                 ComponentLog logger) {
+    public CreateExternalTableQueryExecutor(final ExecutorService executorService,
+                                            final DBCPService dbcpService,
+                                            final CreateExternalTableQueryFactory externalTableQueryFactory,
+                                            ComponentLog logger) {
         super(executorService, dbcpService, logger);
         this.externalTableQueryFactory = externalTableQueryFactory;
-        this.insertDataQueryFactory = insertDataQueryFactory;
     }
 
     @Override
-    protected void executeQueries(GpfdistMetadata metadata, Connection connection) throws SQLException {
-        createReadableExternalTable(metadata, connection);
-        insertFromExternalTable(metadata, connection);
+    protected void executeQueries(GpfdistMetadata metadata, Connection connection, AtomicReference<Statement> stmtRef) throws SQLException {
+        createReadableExternalTable(metadata, connection, stmtRef);
     }
 
-    private void createReadableExternalTable(GpfdistMetadata metadata, Connection connection)
+    private void createReadableExternalTable(GpfdistMetadata metadata, Connection connection, AtomicReference<Statement> stmtRef)
             throws SQLException {
         String sql = externalTableQueryFactory.createQuery(metadata);
-        logger.info("Executing create readable external table query: {}", sql);
-        connection.createStatement().execute(sql);
-        logger.info("Executed create readable external table query: ", sql);
-    }
-
-    private void insertFromExternalTable(GpfdistMetadata metadata, Connection connection)
-            throws SQLException {
-        String sql = insertDataQueryFactory.create(metadata);
-        logger.info("Executing insert query: {}", sql);
-        connection.createStatement().execute(sql);
-        logger.info("Executed insert into target table from external table query: {}", sql);
+        logger.debug("Executing create readable external table query: {}", sql);
+        Statement stmt = connection.createStatement();
+        stmtRef.set(stmt);
+        stmt.execute(sql);
+        logger.info("Executed create readable external table query: {}", sql);
     }
 }

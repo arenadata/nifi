@@ -46,7 +46,7 @@ public class GreengageChunkId {
 
     @Override
     public String toString() {
-        return "InputChunkId{" +
+        return "GreengageChunkId{" +
                 "transactionId='" + transactionId + '\'' +
                 ", segmentId=" + segmentId +
                 '}';
