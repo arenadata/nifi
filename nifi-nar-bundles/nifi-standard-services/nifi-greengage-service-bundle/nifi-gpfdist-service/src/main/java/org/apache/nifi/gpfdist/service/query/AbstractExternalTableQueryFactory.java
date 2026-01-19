@@ -18,7 +18,10 @@ package org.apache.nifi.gpfdist.service.query;
 
 import org.apache.nifi.gpfdist.metadata.ColumnDescription;
 import org.apache.nifi.gpfdist.metadata.GpfdistMetadata;
+import org.apache.nifi.gpfdist.metadata.GreengageDataType;
+import org.apache.nifi.gpfdist.service.datatype.EnumDataType;
 
+import java.util.Objects;
 import java.util.stream.IntStream;
 
 import static java.lang.String.format;
@@ -46,8 +49,16 @@ public abstract class AbstractExternalTableQueryFactory implements CreateExterna
                 .boxed()
                 .map(i -> {
                     ColumnDescription columnDescription = metadata.getColumnDescriptions().get(i);
-                    return quote(columnDescription.getName()) + " " + columnDescription.getDataType().getName();
+                    return quote(columnDescription.getName()) + " " + getTypeName(columnDescription);
                 })
                 .collect(joining(","));
+    }
+
+    private String getTypeName(ColumnDescription columnDescription) {
+        if (Objects.requireNonNull(columnDescription.getDataType().getType()) == GreengageDataType.ENUM) {
+            EnumDataType enumDataType = (EnumDataType) columnDescription.getDataType();
+            return enumDataType.getEnumTypeSchema() + "." + enumDataType.getEnumTypeName();
+        }
+        return columnDescription.getDataType().getName();
     }
 }
