@@ -14,19 +14,16 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.apache.nifi.gpfdist.service.load.query;
+package org.apache.nifi.gpfdist.service.query;
 
 import org.apache.nifi.dbcp.DBCPService;
 import org.apache.nifi.gpfdist.metadata.GpfdistMetadata;
-import org.apache.nifi.gpfdist.service.query.AbstractDataQueryExecutor;
-import org.apache.nifi.gpfdist.service.query.DropExternalTableQueryFactory;
 import org.apache.nifi.logging.ComponentLog;
 
 import java.sql.Connection;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.atomic.AtomicReference;
 
 public class DropExternalTableQueryExecutor extends AbstractDataQueryExecutor {
 
@@ -41,17 +38,27 @@ public class DropExternalTableQueryExecutor extends AbstractDataQueryExecutor {
     }
 
     @Override
-    protected void executeQueries(GpfdistMetadata metadata, Connection connection, AtomicReference<Statement> stmtRef) throws SQLException {
-        dropExternalTable(metadata, connection, stmtRef);
+    protected GreengageStatement createStatement(GpfdistMetadata metadata, Connection connection) throws SQLException {
+        return dropExternalTable(metadata, connection);
     }
 
-    private void dropExternalTable(GpfdistMetadata metadata, Connection connection, AtomicReference<Statement> stmtRef)
+    private GreengageStatement dropExternalTable(GpfdistMetadata metadata, Connection connection)
             throws SQLException {
         String sql = dropExternalTableQueryFactory.createQuery(metadata);
-        logger.debug("Executing drop external table query: {}", sql);
         Statement stmt = connection.createStatement();
-        stmtRef.set(stmt);
-        stmt.execute(sql);
-        logger.info("Executed drop external table query: {}", sql);
+        return new GreengageStatement() {
+            @Override
+            public void execute() throws SQLException {
+                logger.debug("Executing drop external table query: {}", sql);
+                stmt.execute(sql);
+                logger.info("Executed drop external table query: {}", sql);
+            }
+
+            @Override
+            public void cancel() throws SQLException {
+                stmt.cancel();
+                logger.info("Cancelled drop external table query: {}", sql);
+            }
+        };
     }
 }

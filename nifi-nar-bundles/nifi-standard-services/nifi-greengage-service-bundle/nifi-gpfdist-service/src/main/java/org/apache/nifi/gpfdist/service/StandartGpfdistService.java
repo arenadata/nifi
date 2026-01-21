@@ -31,30 +31,29 @@ import org.apache.nifi.controller.ConfigurationContext;
 import org.apache.nifi.dbcp.DBCPService;
 import org.apache.nifi.gpfdist.metadata.Context;
 import org.apache.nifi.gpfdist.metadata.ContextManager;
+import org.apache.nifi.gpfdist.metadata.GpfidstLoadConfig;
 import org.apache.nifi.gpfdist.server.DefaultGpfdistServer;
 import org.apache.nifi.gpfdist.server.GpfdistServer;
 import org.apache.nifi.gpfdist.server.config.GpfdistServerConfig;
 import org.apache.nifi.gpfdist.service.cluster.ClusterStateNodeIndexService;
 import org.apache.nifi.gpfdist.service.context.DefaultContextManager;
 import org.apache.nifi.gpfdist.service.greengage.DefaultGreengageService;
-import org.apache.nifi.gpfdist.metadata.GpfidstLoadConfig;
 import org.apache.nifi.gpfdist.service.load.metadata.factory.CreateReadableExternalTableQueryFactory;
 import org.apache.nifi.gpfdist.service.load.metadata.factory.DefaulGpfdistLocationFactory;
 import org.apache.nifi.gpfdist.service.load.metadata.factory.DefaultGpfdistLoadMetadataFactory;
-import org.apache.nifi.gpfdist.service.load.metadata.factory.DefaultInsertDataQueryFactory;
 import org.apache.nifi.gpfdist.service.load.metadata.factory.DropExternalTableQueryFactoryImpl;
+import org.apache.nifi.gpfdist.service.load.metadata.factory.LoadInsertDataQueryFactory;
 import org.apache.nifi.gpfdist.service.load.process.GpfdistRecordProcessorFactory;
 import org.apache.nifi.gpfdist.service.load.process.RecordProcessorFactory;
-import org.apache.nifi.gpfdist.service.load.query.CreateExternalTableQueryExecutor;
-import org.apache.nifi.gpfdist.service.load.query.DropExternalTableQueryExecutor;
-import org.apache.nifi.gpfdist.service.load.query.InsertDataIntoTargetTableQueryExecutor;
 import org.apache.nifi.gpfdist.service.metadata.CsvFormatConfig;
 import org.apache.nifi.gpfdist.service.metadata.DefaultExternalTableFormatConfigFactory;
+import org.apache.nifi.gpfdist.service.query.CreateExternalTableQueryExecutor;
+import org.apache.nifi.gpfdist.service.query.DropExternalTableQueryExecutor;
+import org.apache.nifi.gpfdist.service.query.InsertDataQueryExecutor;
 import org.apache.nifi.gpfdist.service.unload.metadata.DefaultGpfdistUnloadMetadataFactory;
 import org.apache.nifi.gpfdist.service.unload.process.GpfdistInputDataProcessorFactory;
 import org.apache.nifi.gpfdist.service.unload.process.InputDataProcessorFactory;
 import org.apache.nifi.gpfdist.service.unload.query.CreateWritableExternalTableQueryFactory;
-import org.apache.nifi.gpfdist.service.unload.query.UnloadDataQueryExecutor;
 import org.apache.nifi.gpfdist.service.unload.query.UnloadInsertDataQueryFactory;
 import org.apache.nifi.logging.ComponentLog;
 import org.apache.nifi.processor.DataUnit;
@@ -113,9 +112,10 @@ public class StandartGpfdistService extends AbstractControllerService implements
     private GpfdistServer server;
     private GreengageService greengageService;
     private TransferDataQueryExecutor createReadExternalTableQueryExecutor;
-    private TransferDataQueryExecutor insertDataQueryExecutor;
+    private TransferDataQueryExecutor createWriteExternalTableQueryExecutor;
+    private TransferDataQueryExecutor insertDataIntoTargetTableQueryExecutor;
     private TransferDataQueryExecutor dropExternalTableQueryExecutor;
-    private TransferDataQueryExecutor unloadDataQueryExecutor;
+    private TransferDataQueryExecutor insertDataFromTargetTableQueryExecutor;
     private GpfdistUnloadMetadataFactory gpfdistUnloadMetadataFactory;
     private GpfdistLoadMetadataFactory gpfdistLoadMetadataFactory;
     private ContextManager<Context> readContextManager;
@@ -187,19 +187,22 @@ public class StandartGpfdistService extends AbstractControllerService implements
                     dbcpService,
                     new CreateReadableExternalTableQueryFactory(),
                     logger);
-            insertDataQueryExecutor = new InsertDataIntoTargetTableQueryExecutor(
+            createWriteExternalTableQueryExecutor = new CreateExternalTableQueryExecutor(queryExecutorService,
+                    dbcpService,
+                    new CreateWritableExternalTableQueryFactory(),
+                    logger);
+            insertDataIntoTargetTableQueryExecutor = new InsertDataQueryExecutor(
                     queryExecutorService,
                     dbcpService,
-                    new DefaultInsertDataQueryFactory(),
+                    new LoadInsertDataQueryFactory(),
                     logger);
             dropExternalTableQueryExecutor = new DropExternalTableQueryExecutor(
                     queryExecutorService,
                     dbcpService,
                     new DropExternalTableQueryFactoryImpl(),
                     logger);
-            unloadDataQueryExecutor = new UnloadDataQueryExecutor(queryExecutorService,
+            insertDataFromTargetTableQueryExecutor = new InsertDataQueryExecutor(queryExecutorService,
                     dbcpService,
-                    new CreateWritableExternalTableQueryFactory(),
                     new UnloadInsertDataQueryFactory(readContextManager),
                     logger);
             gpfdistUnloadMetadataFactory = new DefaultGpfdistUnloadMetadataFactory(gpfdistLocationFactory,
@@ -273,8 +276,13 @@ public class StandartGpfdistService extends AbstractControllerService implements
         return createReadExternalTableQueryExecutor;
     }
 
-    public TransferDataQueryExecutor getInsertDataQueryExecutor() {
-        return insertDataQueryExecutor;
+    @Override
+    public TransferDataQueryExecutor getCreateWriteExternalTableQueryExecutor() {
+        return createWriteExternalTableQueryExecutor;
+    }
+
+    public TransferDataQueryExecutor getInsertDataIntoTargetTableQueryExecutor() {
+        return insertDataIntoTargetTableQueryExecutor;
     }
 
     @Override
@@ -283,8 +291,8 @@ public class StandartGpfdistService extends AbstractControllerService implements
     }
 
     @Override
-    public TransferDataQueryExecutor getUnloadDataQueryExecutor() {
-        return unloadDataQueryExecutor;
+    public TransferDataQueryExecutor getInsertDataFromTargetTableQueryExecutor() {
+        return insertDataFromTargetTableQueryExecutor;
     }
 
     @Override

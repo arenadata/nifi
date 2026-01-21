@@ -187,7 +187,7 @@ public class PutGreengageRecord extends AbstractProcessor {
         final int nodeCount = gpfdistService.getNodeIndexService().getNodeCount();
         final int segmentCount = gpfdistService.getGreengageMetadataService().getSegmentCount();
         final int concurrentTasksPerNode = context.getMaxConcurrentTasks();
-        final TransferDataQueryExecutor insertDataQueryExecutor = gpfdistService.getInsertDataQueryExecutor();
+        final TransferDataQueryExecutor insertDataQueryExecutor = gpfdistService.getInsertDataIntoTargetTableQueryExecutor();
         final TransferDataQueryExecutor dropExternalTableQueryExecutor = gpfdistService.getDropExternalTableQueryExecutor();
         final GpfdistContextId contextId = new GpfdistContextId(UUID.randomUUID().toString());
 

@@ -33,8 +33,9 @@ import static org.mockito.Mockito.mock;
 
 public class MockGpfdistService extends AbstractConfigurableComponent implements GpfdistService {
     private final GreengageService greengageService = mock(GreengageService.class);
-    private final TransferDataQueryExecutor unloadDataQueryExecutor = mock(TransferDataQueryExecutor.class);
-    private final TransferDataQueryExecutor transferDataQueryExecutor = mock(TransferDataQueryExecutor.class);
+    private final TransferDataQueryExecutor insertFromExtTableQueryExecutor = mock(TransferDataQueryExecutor.class);
+    private final TransferDataQueryExecutor createReadExternalTableQueryExecutor = mock(TransferDataQueryExecutor.class);
+    private final TransferDataQueryExecutor createWriteExternalTableQueryExecutor = mock(TransferDataQueryExecutor.class);
     private final TransferDataQueryExecutor insertDataQueryExecutor = mock(TransferDataQueryExecutor.class);
     private final TransferDataQueryExecutor dropExternalTableQueryExecutor = mock(TransferDataQueryExecutor.class);
     private final GpfdistUnloadMetadataFactory unloadMetadataFactory = mock(GpfdistUnloadMetadataFactory.class);
@@ -50,11 +51,11 @@ public class MockGpfdistService extends AbstractConfigurableComponent implements
 
     @Override
     public TransferDataQueryExecutor getCreateReadExternalTableQueryExecutor() {
-        return transferDataQueryExecutor;
+        return createReadExternalTableQueryExecutor;
     }
 
     @Override
-    public TransferDataQueryExecutor getInsertDataQueryExecutor() {
+    public TransferDataQueryExecutor getInsertDataIntoTargetTableQueryExecutor() {
         return insertDataQueryExecutor;
     }
 
@@ -64,8 +65,13 @@ public class MockGpfdistService extends AbstractConfigurableComponent implements
     }
 
     @Override
-    public TransferDataQueryExecutor getUnloadDataQueryExecutor() {
-        return unloadDataQueryExecutor;
+    public TransferDataQueryExecutor getCreateWriteExternalTableQueryExecutor() {
+        return createWriteExternalTableQueryExecutor;
+    }
+
+    @Override
+    public TransferDataQueryExecutor getInsertDataFromTargetTableQueryExecutor() {
+        return insertFromExtTableQueryExecutor;
     }
 
     @Override

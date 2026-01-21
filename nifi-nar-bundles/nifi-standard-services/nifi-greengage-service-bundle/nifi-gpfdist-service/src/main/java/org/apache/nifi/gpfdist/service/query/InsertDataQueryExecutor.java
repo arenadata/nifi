@@ -14,43 +14,50 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.apache.nifi.gpfdist.service.load.query;
+package org.apache.nifi.gpfdist.service.query;
 
 import org.apache.nifi.dbcp.DBCPService;
 import org.apache.nifi.gpfdist.metadata.GpfdistMetadata;
-import org.apache.nifi.gpfdist.service.query.AbstractDataQueryExecutor;
-import org.apache.nifi.gpfdist.service.query.InsertDataQueryFactory;
 import org.apache.nifi.logging.ComponentLog;
 
 import java.sql.Connection;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.atomic.AtomicReference;
 
-public class InsertDataIntoTargetTableQueryExecutor extends AbstractDataQueryExecutor {
+public class InsertDataQueryExecutor extends AbstractDataQueryExecutor {
     private final InsertDataQueryFactory insertDataQueryFactory;
 
-    public InsertDataIntoTargetTableQueryExecutor(final ExecutorService executorService,
-                                                  final DBCPService dbcpService,
-                                                  final InsertDataQueryFactory insertDataQueryFactory,
-                                                  ComponentLog logger) {
+    public InsertDataQueryExecutor(final ExecutorService executorService,
+                                   final DBCPService dbcpService,
+                                   final InsertDataQueryFactory insertDataQueryFactory,
+                                   ComponentLog logger) {
         super(executorService, dbcpService, logger);
         this.insertDataQueryFactory = insertDataQueryFactory;
     }
 
     @Override
-    protected void executeQueries(GpfdistMetadata metadata, Connection connection, AtomicReference<Statement> stmtRef) throws SQLException {
-        insertFromExternalTable(metadata, connection, stmtRef);
+    protected GreengageStatement createStatement(GpfdistMetadata metadata, Connection connection) throws SQLException {
+        return insertFromExternalTable(metadata, connection);
     }
 
-    private void insertFromExternalTable(GpfdistMetadata metadata, Connection connection, AtomicReference<Statement> stmtRef)
+    private GreengageStatement insertFromExternalTable(GpfdistMetadata metadata, Connection connection)
             throws SQLException {
         String sql = insertDataQueryFactory.create(metadata);
-        logger.debug("Executing insert query: {}", sql);
         Statement stmt = connection.createStatement();
-        stmtRef.set(stmt);
-        stmt.execute(sql);
-        logger.info("Executed insert into target table from external table query: {}", sql);
+        return new GreengageStatement() {
+            @Override
+            public void execute() throws SQLException {
+                logger.info("Executing insert query: {}", sql);
+                stmt.execute(sql);
+                logger.info("Executed insert table query: {}", sql);
+            }
+
+            @Override
+            public void cancel() throws SQLException {
+                stmt.cancel();
+                logger.info("Cancelled insert table query: {}", sql);
+            }
+        };
     }
 }

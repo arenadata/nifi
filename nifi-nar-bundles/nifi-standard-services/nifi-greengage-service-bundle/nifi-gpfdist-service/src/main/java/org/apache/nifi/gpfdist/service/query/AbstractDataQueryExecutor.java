@@ -24,7 +24,6 @@ import org.apache.nifi.logging.ComponentLog;
 
 import java.sql.Connection;
 import java.sql.SQLException;
-import java.sql.Statement;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.atomic.AtomicReference;
@@ -50,7 +49,7 @@ public abstract class AbstractDataQueryExecutor implements TransferDataQueryExec
     @Override
     public CancellableQuery executeCancellable(GpfdistMetadata metadata) {
         final AtomicReference<Connection> connRef = new AtomicReference<>();
-        final AtomicReference<Statement> stmtRef = new AtomicReference<>();
+        final AtomicReference<GreengageStatement> stmtRef = new AtomicReference<>();
         final CompletableFuture<Void> future = new CompletableFuture<>();
         executorService.submit(() -> {
             Connection connection = null;
@@ -59,7 +58,9 @@ public abstract class AbstractDataQueryExecutor implements TransferDataQueryExec
                 connRef.set(connection);
                 connection.setAutoCommit(false);
                 connection.setReadOnly(false);
-                executeQueries(metadata, connection, stmtRef);
+                GreengageStatement ggStmt = createStatement(metadata, connection);
+                stmtRef.set(ggStmt);
+                ggStmt.execute();
                 connection.commit();
                 future.complete(null);
             } catch (Throwable e) {
@@ -83,10 +84,10 @@ public abstract class AbstractDataQueryExecutor implements TransferDataQueryExec
 
             @Override
             public void cancel() {
-                Statement stmnt = stmtRef.get();
-                if (stmnt != null) {
+                GreengageStatement stmt = stmtRef.get();
+                if (stmt != null) {
                     try {
-                        stmnt.cancel();
+                        stmt.cancel();
                     } catch (Exception e) {
                         logger.warn("Failed to cancel statement", e);
                     }
@@ -104,7 +105,7 @@ public abstract class AbstractDataQueryExecutor implements TransferDataQueryExec
         };
     }
 
-    protected abstract void executeQueries(GpfdistMetadata metadata, Connection connection, AtomicReference<Statement> stmtRef)
+    protected abstract GreengageStatement createStatement(GpfdistMetadata metadata, Connection connection)
             throws SQLException;
 
     private void tryRollback(Connection conn) {

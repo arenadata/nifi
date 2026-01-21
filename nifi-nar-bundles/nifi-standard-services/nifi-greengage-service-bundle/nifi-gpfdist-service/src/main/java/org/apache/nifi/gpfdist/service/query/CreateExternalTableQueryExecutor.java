@@ -14,19 +14,16 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.apache.nifi.gpfdist.service.load.query;
+package org.apache.nifi.gpfdist.service.query;
 
 import org.apache.nifi.dbcp.DBCPService;
 import org.apache.nifi.gpfdist.metadata.GpfdistMetadata;
-import org.apache.nifi.gpfdist.service.query.AbstractDataQueryExecutor;
-import org.apache.nifi.gpfdist.service.query.CreateExternalTableQueryFactory;
 import org.apache.nifi.logging.ComponentLog;
 
 import java.sql.Connection;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.atomic.AtomicReference;
 
 public class CreateExternalTableQueryExecutor extends AbstractDataQueryExecutor {
 
@@ -41,17 +38,31 @@ public class CreateExternalTableQueryExecutor extends AbstractDataQueryExecutor 
     }
 
     @Override
-    protected void executeQueries(GpfdistMetadata metadata, Connection connection, AtomicReference<Statement> stmtRef) throws SQLException {
-        createReadableExternalTable(metadata, connection, stmtRef);
+    protected GreengageStatement createStatement(GpfdistMetadata metadata, Connection connection) throws SQLException {
+        return createExternalTable(metadata, connection);
     }
 
-    private void createReadableExternalTable(GpfdistMetadata metadata, Connection connection, AtomicReference<Statement> stmtRef)
+    private GreengageStatement createExternalTable(GpfdistMetadata metadata, Connection connection)
             throws SQLException {
         String sql = externalTableQueryFactory.createQuery(metadata);
-        logger.debug("Executing create readable external table query: {}", sql);
         Statement stmt = connection.createStatement();
-        stmtRef.set(stmt);
-        stmt.execute(sql);
-        logger.info("Executed create readable external table query: {}", sql);
+        return new GreengageStatement() {
+            @Override
+            public void execute() throws SQLException {
+                logger.info("Executing create {} external table query: {}", externalTableQueryFactory.getExternalTableType(), sql);
+                stmt.execute(sql);
+                logger.info("Executed create {} external table query: {}", externalTableQueryFactory.getExternalTableType(), sql);
+            }
+
+            @Override
+            public void cancel() {
+                try {
+                    stmt.cancel();
+                    logger.info("Cancel {} external table query: {}", externalTableQueryFactory.getExternalTableType(), sql);
+                } catch (Exception e) {
+                    logger.warn("Failed to cancel statement", e);
+                }
+            }
+        };
     }
 }

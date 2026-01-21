@@ -26,11 +26,13 @@ public interface GpfdistService extends ControllerService {
 
     TransferDataQueryExecutor getCreateReadExternalTableQueryExecutor();
 
-    TransferDataQueryExecutor getInsertDataQueryExecutor();
+    TransferDataQueryExecutor getInsertDataIntoTargetTableQueryExecutor();
 
     TransferDataQueryExecutor getDropExternalTableQueryExecutor();
 
-    TransferDataQueryExecutor getUnloadDataQueryExecutor();
+    TransferDataQueryExecutor getCreateWriteExternalTableQueryExecutor();
+
+    TransferDataQueryExecutor getInsertDataFromTargetTableQueryExecutor();
 
     GpfdistUnloadMetadataFactory getGpfdistUnloadMetadataFactory();
 

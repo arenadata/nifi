@@ -27,11 +27,10 @@ import static org.apache.nifi.gpfdist.service.util.GreengageUtil.quote;
 
 public abstract class AbstractExternalTableQueryFactory implements CreateExternalTableQueryFactory {
 
-    protected String createCommonQuery(final GpfdistMetadata metadata, boolean isTemporary) {
+    protected String createCommonQuery(final GpfdistMetadata metadata) {
         return format(
-                "CREATE %s EXTERNAL%sTABLE %s (%s) LOCATION ('%s') FORMAT '%s' (DELIMITER '%s' NULL AS '%s') ENCODING '%s'",
+                "CREATE %s EXTERNAL TABLE %s (%s) LOCATION ('%s') FORMAT '%s' (DELIMITER '%s' NULL AS '%s') ENCODING '%s'",
                 getExternalTableType().name(),
-                isTemporary ? " TEMPORARY " : " ",
                 metadata.getExternalTable(),
                 getColumnDefinition(metadata),
                 metadata.getGpfdistLocation(),

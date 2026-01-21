@@ -27,7 +27,6 @@ import org.apache.nifi.serialization.record.Record;
 import java.util.concurrent.TimeUnit;
 
 public class GpfdistRecordProcessorNonBlocking implements RecordProcessor {
-    private static final int BATCH_SIZE = 1000;
     private static final long FLUSH_INTERVAL_NANOS = TimeUnit.MILLISECONDS.toNanos(500);
 
     private final RecordProcessorId id;
@@ -56,7 +55,8 @@ public class GpfdistRecordProcessorNonBlocking implements RecordProcessor {
         serializationService.append(record);
         result.incrementRecordCount();
 
-        boolean batchReady = serializationService.getSerializedRecordsCount() >= BATCH_SIZE;
+        boolean batchReady = serializationService.getSerializedRecordsCount() >=
+                GpfdistPacketBuilder.GPFDIST_PACKET_RECORD_BATCH_SIZE;
         boolean timeReady = serializationService.getSerializedRecordsCount() > 0
                 && (System.nanoTime() - lastFlushNanos) >= FLUSH_INTERVAL_NANOS;
 

@@ -95,6 +95,7 @@ public class GpfdistAsyncServlet extends HttpServlet {
                     outputStream,
                     recordProcessorId,
                     gpfdistLoadConfig.getGpfdistSegmentStreamBufferSize(),
+                    GpfdistPacketBuilder.GPFDIST_PACKET_SIZE,
                     gpfdistLoadConfig.getGpfdistStreamBufferEnqueueTimeoutMs(),
                     logger);
 
