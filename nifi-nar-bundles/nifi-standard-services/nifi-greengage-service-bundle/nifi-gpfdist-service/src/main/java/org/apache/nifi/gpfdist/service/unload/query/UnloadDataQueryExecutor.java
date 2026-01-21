@@ -55,7 +55,7 @@ public class UnloadDataQueryExecutor extends AbstractDataQueryExecutor {
         String sql = externalTableQueryFactory.createQuery(metadata);
         logger.info("Executing create writable external table query: {}", sql);
         connection.createStatement().execute(sql);
-        logger.info("Executed create writable external table query: ", sql);
+        logger.info("Executed create writable external table query: {}", sql);
     }
 
     private void insertIntoExternalTable(GpfdistMetadata metadata, Connection connection, AtomicReference<Statement> stmtRef)
