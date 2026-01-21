@@ -31,7 +31,7 @@ public abstract class AbstractExternalTableQueryFactory implements CreateExterna
         return format(
                 "CREATE %s EXTERNAL%sTABLE %s (%s) LOCATION ('%s') FORMAT '%s' (DELIMITER '%s' NULL AS '%s') ENCODING '%s'",
                 getExternalTableType().name(),
-                isTemporary ? "TEMPORARY" : " ",
+                isTemporary ? " TEMPORARY " : " ",
                 metadata.getExternalTable(),
                 getColumnDefinition(metadata),
                 metadata.getGpfdistLocation(),

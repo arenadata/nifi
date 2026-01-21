@@ -108,11 +108,15 @@ public class GpfdistRecordProcessorNonBlocking implements RecordProcessor {
                 stream.offer(packetBuilder.createSingleEmptyDataPacket());
             }
         } finally {
-            stream.complete();
-            try {
-                serializationService.close();
-            } catch (Exception ignore) {
-            }
+            completeStreamSafely();
+        }
+    }
+
+    private void completeStreamSafely() {
+        stream.complete();
+        try {
+            serializationService.close();
+        } catch (Exception ignore) {
         }
     }
 
@@ -121,11 +125,7 @@ public class GpfdistRecordProcessorNonBlocking implements RecordProcessor {
         try {
             stream.offer(packetBuilder.createErrorPacket(error));
         } finally {
-            stream.complete();
-            try {
-                serializationService.close();
-            } catch (Exception ignore) {
-            }
+            completeStreamSafely();
         }
     }
 
