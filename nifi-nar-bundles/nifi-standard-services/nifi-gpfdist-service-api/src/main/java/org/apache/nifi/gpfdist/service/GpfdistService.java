@@ -22,25 +22,17 @@ import org.apache.nifi.gpfdist.metadata.ContextManager;
 
 public interface GpfdistService extends ControllerService {
 
+    RecordSinkProvider getRecordSinkProvider();
+
     GreengageService getGreengageMetadataService();
 
-    TransferDataQueryExecutor getCreateReadExternalTableQueryExecutor();
+    TransferDataQueryExecutor getLoadDataQueryExecutor();
 
-    TransferDataQueryExecutor getInsertDataIntoTargetTableQueryExecutor();
-
-    TransferDataQueryExecutor getDropExternalTableQueryExecutor();
-
-    TransferDataQueryExecutor getCreateWriteExternalTableQueryExecutor();
-
-    TransferDataQueryExecutor getInsertDataFromTargetTableQueryExecutor();
+    TransferDataQueryExecutor getUnloadDataQueryExecutor();
 
     GpfdistUnloadMetadataFactory getGpfdistUnloadMetadataFactory();
 
-    GpfdistLoadMetadataFactory getGpfdistLoadMetadataFactory();
-
     ContextManager<? extends Context> getReadContextManager();
-
-    ContextManager<? extends Context> getWriteContextManager();
 
     NodeIndexService getNodeIndexService();
 }

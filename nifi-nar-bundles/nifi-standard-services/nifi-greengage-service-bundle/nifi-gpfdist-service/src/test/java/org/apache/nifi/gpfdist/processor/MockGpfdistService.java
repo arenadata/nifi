@@ -21,28 +21,29 @@ import org.apache.nifi.components.PropertyDescriptor;
 import org.apache.nifi.controller.ControllerServiceInitializationContext;
 import org.apache.nifi.gpfdist.metadata.Context;
 import org.apache.nifi.gpfdist.metadata.ContextManager;
-import org.apache.nifi.gpfdist.service.GpfdistLoadMetadataFactory;
 import org.apache.nifi.gpfdist.service.GpfdistService;
 import org.apache.nifi.gpfdist.service.GpfdistUnloadMetadataFactory;
 import org.apache.nifi.gpfdist.service.GreengageService;
 import org.apache.nifi.gpfdist.service.NodeIndexService;
+import org.apache.nifi.gpfdist.service.RecordSinkProvider;
 import org.apache.nifi.gpfdist.service.TransferDataQueryExecutor;
 import org.apache.nifi.reporting.InitializationException;
 
 import static org.mockito.Mockito.mock;
 
 public class MockGpfdistService extends AbstractConfigurableComponent implements GpfdistService {
+    private final RecordSinkProvider recordSinkProvider = mock(RecordSinkProvider.class);
     private final GreengageService greengageService = mock(GreengageService.class);
-    private final TransferDataQueryExecutor insertFromExtTableQueryExecutor = mock(TransferDataQueryExecutor.class);
-    private final TransferDataQueryExecutor createReadExternalTableQueryExecutor = mock(TransferDataQueryExecutor.class);
-    private final TransferDataQueryExecutor createWriteExternalTableQueryExecutor = mock(TransferDataQueryExecutor.class);
-    private final TransferDataQueryExecutor insertDataQueryExecutor = mock(TransferDataQueryExecutor.class);
-    private final TransferDataQueryExecutor dropExternalTableQueryExecutor = mock(TransferDataQueryExecutor.class);
+    private final TransferDataQueryExecutor unloadDataQueryExecutor = mock(TransferDataQueryExecutor.class);
+    private final TransferDataQueryExecutor transferDataQueryExecutor = mock(TransferDataQueryExecutor.class);
     private final GpfdistUnloadMetadataFactory unloadMetadataFactory = mock(GpfdistUnloadMetadataFactory.class);
-    private final GpfdistLoadMetadataFactory loadMetadataFactory = mock(GpfdistLoadMetadataFactory.class);
     private final ContextManager<? extends Context> readContextManager = mock(ContextManager.class);
-    private final ContextManager<? extends Context> writeContextManager = mock(ContextManager.class);
     private final NodeIndexService nodeIndexService = mock(NodeIndexService.class);
+
+    @Override
+    public RecordSinkProvider getRecordSinkProvider() {
+        return recordSinkProvider;
+    }
 
     @Override
     public GreengageService getGreengageMetadataService() {
@@ -50,28 +51,13 @@ public class MockGpfdistService extends AbstractConfigurableComponent implements
     }
 
     @Override
-    public TransferDataQueryExecutor getCreateReadExternalTableQueryExecutor() {
-        return createReadExternalTableQueryExecutor;
+    public TransferDataQueryExecutor getLoadDataQueryExecutor() {
+        return transferDataQueryExecutor;
     }
 
     @Override
-    public TransferDataQueryExecutor getInsertDataIntoTargetTableQueryExecutor() {
-        return insertDataQueryExecutor;
-    }
-
-    @Override
-    public TransferDataQueryExecutor getDropExternalTableQueryExecutor() {
-        return dropExternalTableQueryExecutor;
-    }
-
-    @Override
-    public TransferDataQueryExecutor getCreateWriteExternalTableQueryExecutor() {
-        return createWriteExternalTableQueryExecutor;
-    }
-
-    @Override
-    public TransferDataQueryExecutor getInsertDataFromTargetTableQueryExecutor() {
-        return insertFromExtTableQueryExecutor;
+    public TransferDataQueryExecutor getUnloadDataQueryExecutor() {
+        return unloadDataQueryExecutor;
     }
 
     @Override
@@ -80,18 +66,8 @@ public class MockGpfdistService extends AbstractConfigurableComponent implements
     }
 
     @Override
-    public GpfdistLoadMetadataFactory getGpfdistLoadMetadataFactory() {
-        return loadMetadataFactory;
-    }
-
-    @Override
     public ContextManager<? extends Context> getReadContextManager() {
         return readContextManager;
-    }
-
-    @Override
-    public ContextManager<? extends Context> getWriteContextManager() {
-        return writeContextManager;
     }
 
     @Override

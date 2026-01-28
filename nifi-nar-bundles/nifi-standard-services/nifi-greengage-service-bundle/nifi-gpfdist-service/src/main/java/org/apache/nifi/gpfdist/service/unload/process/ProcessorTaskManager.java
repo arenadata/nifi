@@ -33,12 +33,11 @@ public class ProcessorTaskManager {
         for (int workerIndex = 0; workerIndex < globalParallelFactor; workerIndex++) {
             if (workerIndex % nodeCount == nodeIndex) {
                 int taskSlotId = processorTasksQueue.size();
-                ProcessorTask task = new ProcessorTask(
+                processorTasksQueue.add(new ProcessorTask(
                         UUID.randomUUID().toString(),
                         taskSlotId,
-                        workerIndex);
-                processorTasksQueue.add(task);
-                logger.info("Added task {} to queue", task);
+                        workerIndex));
+                logger.info("Added task {} to queue");
             }
         }
         if (nodeCount * nodeParallelFactor > ggSegmentCount) {

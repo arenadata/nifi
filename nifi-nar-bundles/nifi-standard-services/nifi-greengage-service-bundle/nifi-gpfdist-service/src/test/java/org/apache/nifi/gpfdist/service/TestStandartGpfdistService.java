@@ -59,6 +59,18 @@ public class TestStandartGpfdistService {
     }
 
     @Test
+    void testWriteBufferSizeInvalid() {
+        runner.setProperty(service, GpfdistProperties.WRITE_BUFFER_SIZE, "1kk");
+        runner.assertNotValid(service);
+    }
+
+    @Test
+    void testRecordProcessorMaxThreadsInvalid() {
+        runner.setProperty(service, GpfdistProperties.RECORD_PROCESSOR_MAX_THREADS, "-1");
+        runner.assertNotValid(service);
+    }
+
+    @Test
     void testGpfdistServerMaxThreadsInvalid() {
         runner.setProperty(service, GpfdistProperties.GPFDIST_SERVER_MAX_THREADS, "-1");
         runner.assertNotValid(service);
@@ -79,8 +91,9 @@ public class TestStandartGpfdistService {
     @Test
     void testServiceMethods() {
         runner.enableControllerService(service);
+        assertNotNull(service.getRecordSinkProvider());
         assertNotNull(service.getGreengageMetadataService());
-        assertNotNull(service.getCreateReadExternalTableQueryExecutor());
+        assertNotNull(service.getLoadDataQueryExecutor());
         runner.disableControllerService(service);
     }
 
