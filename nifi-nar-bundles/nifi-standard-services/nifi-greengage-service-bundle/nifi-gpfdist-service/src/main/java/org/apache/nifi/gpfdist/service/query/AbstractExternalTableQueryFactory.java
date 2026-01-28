@@ -29,7 +29,7 @@ public abstract class AbstractExternalTableQueryFactory implements CreateExterna
 
     protected String createCommonQuery(final GpfdistMetadata metadata) {
         return format(
-                "CREATE %s EXTERNAL TEMPORARY TABLE %s (%s) LOCATION ('%s') FORMAT '%s' (DELIMITER '%s' NULL AS '%s') ENCODING '%s'",
+                "CREATE %s EXTERNAL TABLE %s (%s) LOCATION ('%s') FORMAT '%s' (DELIMITER '%s' NULL AS '%s') ENCODING '%s'",
                 getExternalTableType().name(),
                 metadata.getExternalTable(),
                 getColumnDefinition(metadata),
