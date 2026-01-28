@@ -14,23 +14,10 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.apache.nifi.gpfdist.service;
+package org.apache.nifi.gpfdist.service.query;
 
-import org.apache.nifi.gpfdist.metadata.RecordProcessorLoadingResult;
+import org.apache.nifi.gpfdist.metadata.GpfdistMetadata;
 
-import java.util.Collection;
-import java.util.function.Consumer;
-
-public interface RecordProcessorProvider {
-    boolean register(RecordProcessor processor);
-
-    void useProcessor(Consumer<RecordProcessor> processor);
-
-    void stop();
-
-    void abort();
-
-    void reset();
-
-    Collection<RecordProcessorLoadingResult> getResult();
+public interface DropExternalTableQueryFactory {
+    String createQuery(GpfdistMetadata metadata);
 }

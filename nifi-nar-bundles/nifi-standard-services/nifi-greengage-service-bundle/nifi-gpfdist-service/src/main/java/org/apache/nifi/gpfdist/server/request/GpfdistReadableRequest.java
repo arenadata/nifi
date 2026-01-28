@@ -16,6 +16,8 @@
  */
 package org.apache.nifi.gpfdist.server.request;
 
+import org.apache.nifi.gpfdist.service.unload.dto.GreengageChunkId;
+
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
@@ -135,6 +137,10 @@ public class GpfdistReadableRequest extends ReadableRequest {
 
     public int getSegmentsCount() {
         return segmentsCount;
+    }
+
+    public GreengageChunkId getChunkId() {
+        return new GreengageChunkId(transactionId, segmentId);
     }
 
     @Override

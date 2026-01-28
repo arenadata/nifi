@@ -16,21 +16,19 @@
  */
 package org.apache.nifi.gpfdist.service;
 
-import org.apache.nifi.gpfdist.metadata.RecordProcessorLoadingResult;
+import org.apache.nifi.gpfdist.metadata.ColumnDescription;
+import org.apache.nifi.gpfdist.metadata.ContextId;
+import org.apache.nifi.gpfdist.metadata.GpfdistMetadata;
+import org.apache.nifi.gpfdist.metadata.TableDescription;
+import org.apache.nifi.serialization.record.RecordSchema;
 
-import java.util.Collection;
-import java.util.function.Consumer;
+import java.util.List;
 
-public interface RecordProcessorProvider {
-    boolean register(RecordProcessor processor);
+public interface GpfdistLoadMetadataFactory {
 
-    void useProcessor(Consumer<RecordProcessor> processor);
-
-    void stop();
-
-    void abort();
-
-    void reset();
-
-    Collection<RecordProcessorLoadingResult> getResult();
+    GpfdistMetadata create(ContextId contextId,
+                           String sinkId,
+                           TableDescription tableMetadata,
+                           List<ColumnDescription> columnDescriptions,
+                           RecordSchema recordSchema);
 }

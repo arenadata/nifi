@@ -25,7 +25,7 @@ import static java.lang.String.format;
 import static org.apache.nifi.gpfdist.service.util.GreengageUtil.getFullName;
 import static org.apache.nifi.gpfdist.service.util.GreengageUtil.quote;
 
-public class DefaultInsertDataQueryFactory implements InsertDataQueryFactory {
+public class LoadInsertDataQueryFactory implements InsertDataQueryFactory {
     private static final String COLUMN_DELIMITER = ", ";
 
     @Override

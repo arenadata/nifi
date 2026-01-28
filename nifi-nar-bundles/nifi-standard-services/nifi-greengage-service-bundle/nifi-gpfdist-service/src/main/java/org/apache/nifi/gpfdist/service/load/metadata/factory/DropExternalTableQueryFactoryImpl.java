@@ -14,23 +14,14 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.apache.nifi.gpfdist.service;
+package org.apache.nifi.gpfdist.service.load.metadata.factory;
 
-import org.apache.nifi.gpfdist.metadata.RecordProcessorLoadingResult;
+import org.apache.nifi.gpfdist.metadata.GpfdistMetadata;
+import org.apache.nifi.gpfdist.service.query.DropExternalTableQueryFactory;
 
-import java.util.Collection;
-import java.util.function.Consumer;
-
-public interface RecordProcessorProvider {
-    boolean register(RecordProcessor processor);
-
-    void useProcessor(Consumer<RecordProcessor> processor);
-
-    void stop();
-
-    void abort();
-
-    void reset();
-
-    Collection<RecordProcessorLoadingResult> getResult();
+public class DropExternalTableQueryFactoryImpl implements DropExternalTableQueryFactory {
+    @Override
+    public String createQuery(final GpfdistMetadata metadata) {
+        return String.format("DROP EXTERNAL TABLE IF EXISTS %s", metadata.getExternalTable());
+    }
 }

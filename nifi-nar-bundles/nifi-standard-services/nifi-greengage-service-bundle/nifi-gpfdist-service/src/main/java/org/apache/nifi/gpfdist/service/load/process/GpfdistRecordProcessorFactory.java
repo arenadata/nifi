@@ -17,16 +17,17 @@
 package org.apache.nifi.gpfdist.service.load.process;
 
 import org.apache.nifi.gpfdist.metadata.DataFormat;
-import org.apache.nifi.gpfdist.server.request.GpfdistReadableRequest;
+import org.apache.nifi.gpfdist.metadata.RecordProcessorId;
 import org.apache.nifi.gpfdist.server.request.ReadableRequest;
 import org.apache.nifi.gpfdist.service.RecordProcessor;
-import org.apache.nifi.gpfdist.service.load.context.WriteContext;
+import org.apache.nifi.gpfdist.service.load.metadata.GpfdistLoadMetadata;
 import org.apache.nifi.gpfdist.service.load.serialization.RecordSerializationService;
 import org.apache.nifi.gpfdist.service.load.serialization.csv.CsvRecordSerializationService;
 import org.apache.nifi.gpfdist.service.metadata.CsvFormatConfig;
 import org.apache.nifi.gpfdist.service.metadata.DataFormatConfig;
+import org.apache.nifi.logging.ComponentLog;
 
-import java.io.OutputStream;
+import static org.apache.nifi.gpfdist.service.util.GpfdistUtil.createGpfdistFileName;
 
 public class GpfdistRecordProcessorFactory implements RecordProcessorFactory {
     private final DataFormatConfig dataFormatConfig;
@@ -37,22 +38,25 @@ public class GpfdistRecordProcessorFactory implements RecordProcessorFactory {
 
     @Override
     public RecordProcessor create(final ReadableRequest readableRequest,
-                                  final WriteContext writeContext,
-                                  final OutputStream outputStream) {
-        return new GpfdistRecordProcessor((GpfdistReadableRequest) readableRequest,
-                writeContext,
-                outputStream,
-                createRecordSerializationService(writeContext),
-                writeContext.getLogger());
+                                  final GpfdistLoadMetadata loadMetadata,
+                                  final RecordProcessorId recordProcessorId,
+                                  final GpfdistSegmentStream stream,
+                                  ComponentLog logger) {
+        GpfdistPacketBuilder builder = new GpfdistPacketBuilder(createGpfdistFileName(loadMetadata.getExternalTable()));
+        return new GpfdistRecordProcessorNonBlocking(recordProcessorId,
+                builder,
+                createRecordSerializationService(loadMetadata, logger),
+                stream,
+                logger);
     }
 
-    private RecordSerializationService createRecordSerializationService(WriteContext writeContext) {
+    private RecordSerializationService createRecordSerializationService(GpfdistLoadMetadata loadMetadata, ComponentLog logger) {
         if (dataFormatConfig.getDataFormat() == DataFormat.CSV) {
             CsvFormatConfig csvFormatConfig = (CsvFormatConfig) dataFormatConfig;
-            return new CsvRecordSerializationService(writeContext.getMetadata().getRecordSchema(),
-                    writeContext.getMetadata().getColumnDescriptions(),
+            return new CsvRecordSerializationService(loadMetadata.getRecordSchema(),
+                    loadMetadata.getColumnDescriptions(),
                     csvFormatConfig,
-                    writeContext.getLogger());
+                    logger);
         } else {
             throw new UnsupportedOperationException("Unsupported DataFormat: " + dataFormatConfig);
         }
