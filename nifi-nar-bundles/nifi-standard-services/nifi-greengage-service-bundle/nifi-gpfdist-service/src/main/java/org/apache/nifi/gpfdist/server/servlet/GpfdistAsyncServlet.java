@@ -68,15 +68,14 @@ public class GpfdistAsyncServlet extends HttpServlet {
     @Override
     protected void doGet(HttpServletRequest request, HttpServletResponse response) throws IOException {
         AsyncContext asyncCtx = request.startAsync();
-        //todo refactor for using contextId and processorTaskId
-        String tableName = getExternalTableName(request);
+        GpfdistUrlMetadata metadata = getMetadata(request.getRequestURI());
         Map<String, String> headers = getHeaderMap(request);
-        GpfdistReadableRequest readableRequest = GpfdistReadableRequest.create(tableName, headers);
+        GpfdistReadableRequest readableRequest = GpfdistReadableRequest.create(metadata.getTableName(), headers);
         ExecutorService executorService = (ExecutorService) getServletContext().getAttribute(RECORD_PROCESSING_EXECUTOR_SERVICE_ATTR);
         ContextManager<Context> contextManager = (ContextManager<Context>) getServletContext().getAttribute(WRITE_CONTEXT_MANAGER_ATTR);
         RecordProcessorFactory recordProcessorFactory = (RecordProcessorFactory) getServletContext().getAttribute(RECORD_PROCESSOR_FACTORY_ATTR);
         ComponentLog logger = (ComponentLog) getServletContext().getAttribute(COMPONENT_LOG_ATTR);
-        Optional<Context> writeContextOptional = contextManager.get(new GpfdistContextId(tableName));
+        Optional<Context> writeContextOptional = contextManager.get(new GpfdistContextId(metadata.getContextId()));
         logger.info("Input GET gpfdist request: {}", readableRequest);
 
         HttpServletResponse asyncResponse = (HttpServletResponse) asyncCtx.getResponse();
@@ -105,7 +104,7 @@ public class GpfdistAsyncServlet extends HttpServlet {
                                 out.flush();
                             }
                         } else {
-                            out.write(new GpfdistPacketBuilder(createGpfdistFileName(tableName)).createSingleEmptyDataPacket());
+                            out.write(new GpfdistPacketBuilder(createGpfdistFileName(metadata.getTableName())).createSingleEmptyDataPacket());
                         }
                         logger.info("Request completed successfully: {}", readableRequest);
                     }
@@ -119,7 +118,7 @@ public class GpfdistAsyncServlet extends HttpServlet {
         } else {
             asyncResponse.setStatus(HttpServletResponse.SC_OK);
             logger.info("There is no data for loading responded by request: {}", readableRequest);
-            asyncResponse.getOutputStream().write(new GpfdistPacketBuilder(createGpfdistFileName(tableName)).createSingleEmptyDataPacket());
+            asyncResponse.getOutputStream().write(new GpfdistPacketBuilder(createGpfdistFileName(metadata.getTableName())).createSingleEmptyDataPacket());
             asyncCtx.complete();
         }
     }
