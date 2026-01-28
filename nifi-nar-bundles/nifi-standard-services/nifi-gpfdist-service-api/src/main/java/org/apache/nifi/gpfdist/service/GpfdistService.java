@@ -17,12 +17,22 @@
 package org.apache.nifi.gpfdist.service;
 
 import org.apache.nifi.controller.ControllerService;
+import org.apache.nifi.gpfdist.metadata.Context;
+import org.apache.nifi.gpfdist.metadata.ContextManager;
 
 public interface GpfdistService extends ControllerService {
 
     RecordSinkProvider getRecordSinkProvider();
 
-    GreenplumService getGreenplumTableService();
+    GreengageService getGreengageMetadataService();
 
-    TransferDataQueryExecutor getQueryExecutor();
+    TransferDataQueryExecutor getLoadDataQueryExecutor();
+
+    TransferDataQueryExecutor getUnloadDataQueryExecutor();
+
+    GpfdistUnloadMetadataFactory getGpfdistUnloadMetadataFactory();
+
+    ContextManager<? extends Context> getReadContextManager();
+
+    NodeIndexService getNodeIndexService();
 }

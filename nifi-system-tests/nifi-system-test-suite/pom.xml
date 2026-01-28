@@ -213,10 +213,10 @@
                             <resources>
                                 <resource>
                                     <directory>
-                                        ../../nifi-nar-bundles/nifi-standard-services/nifi-greenplum-service-bundle/nifi-greenplum-service-nar/target
+                                        ../../nifi-nar-bundles/nifi-standard-services/nifi-greengage-service-bundle/nifi-greengage-service-nar/target
                                     </directory>
                                     <includes>
-                                        <include>nifi-greenplum-service-nar-${nifi.version}.nar</include>
+                                        <include>nifi-greengage-service-nar-${nifi.version}.nar</include>
                                     </includes>
                                 </resource>
                             </resources>
@@ -402,7 +402,7 @@
         </dependency>
         <dependency>
             <groupId>org.apache.nifi</groupId>
-            <artifactId>nifi-greenplum-service-nar</artifactId>
+            <artifactId>nifi-greengage-service-nar</artifactId>
             <version>${nifi.version}</version>
             <type>nar</type>
         </dependency>

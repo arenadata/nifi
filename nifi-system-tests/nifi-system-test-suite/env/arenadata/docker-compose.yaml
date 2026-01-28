@@ -197,7 +197,7 @@ services:
         volumes:
           - "nifi_node3_data:/data"
           - "../../target/postgresql-42.6.1.jar:/opt/postgresql-42.6.1.jar"
-          - "../../target/nifi-greenplum-service-nar-1.28.1.nar:/opt/nifi/nifi-current/lib/nifi-greenplum-service-nar-1.28.1.nar"
+          - "../../target/nifi-greengage-service-nar-1.28.1.nar:/opt/nifi/nifi-current/lib/nifi-greengage-service-nar-1.28.1.nar"
           - "./nifi-cluster/conf:/opt/nifi/nifi-current/bootstrap_conf"
           - "./prepare_nifi_configs.sh:/opt/nifi/nifi-current/prepare_nifi_configs.sh"
 
@@ -224,7 +224,7 @@ services:
         volumes:
           - "nifi_node3_data:/data"
           - "../../target/postgresql-42.6.1.jar:/opt/postgresql-42.6.1.jar"
-          - "../../target/nifi-greenplum-service-nar-1.28.1.nar:/opt/nifi/nifi-current/lib/nifi-greenplum-service-nar-1.28.1.nar"
+          - "../../target/nifi-greengage-service-nar-1.28.1.nar:/opt/nifi/nifi-current/lib/nifi-greengage-service-nar-1.28.1.nar"
           - "./nifi-cluster/conf:/opt/nifi/nifi-current/bootstrap_conf"
           - "./prepare_nifi_configs.sh:/opt/nifi/nifi-current/prepare_nifi_configs.sh"
 
@@ -251,7 +251,7 @@ services:
         volumes:
           - "nifi_node3_data:/data"
           - "../../target/postgresql-42.6.1.jar:/opt/postgresql-42.6.1.jar"
-          - "../../target/nifi-greenplum-service-nar-1.28.1.nar:/opt/nifi/nifi-current/lib/nifi-greenplum-service-nar-1.28.1.nar"
+          - "../../target/nifi-greengage-service-nar-1.28.1.nar:/opt/nifi/nifi-current/lib/nifi-greengage-service-nar-1.28.1.nar"
           - "./nifi-cluster/conf:/opt/nifi/nifi-current/bootstrap_conf"
           - "./prepare_nifi_configs.sh:/opt/nifi/nifi-current/prepare_nifi_configs.sh"
 
