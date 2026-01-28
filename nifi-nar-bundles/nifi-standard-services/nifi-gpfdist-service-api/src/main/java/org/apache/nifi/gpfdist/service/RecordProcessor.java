@@ -16,19 +16,10 @@
  */
 package org.apache.nifi.gpfdist.service;
 
-import org.apache.nifi.gpfdist.metadata.RecordProcessorId;
-import org.apache.nifi.gpfdist.metadata.RecordProcessorLoadingResult;
 import org.apache.nifi.serialization.record.Record;
 
 public interface RecordProcessor {
-
-    RecordProcessorId getId();
-
     void process(Record record);
 
     void stop();
-
-    void stopExceptionally(Throwable error);
-
-    RecordProcessorLoadingResult getResult();
 }

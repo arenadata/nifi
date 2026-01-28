@@ -52,7 +52,7 @@ public class ProcessingChunkId {
 
     @Override
     public String toString() {
-        return "ProcessingChunkId{" +
+        return "DataProcessorMetadata{" +
                 "processorTaskId='" + processorTaskId + '\'' +
                 ", txId='" + txId + '\'' +
                 ", segmentId=" + segmentId +

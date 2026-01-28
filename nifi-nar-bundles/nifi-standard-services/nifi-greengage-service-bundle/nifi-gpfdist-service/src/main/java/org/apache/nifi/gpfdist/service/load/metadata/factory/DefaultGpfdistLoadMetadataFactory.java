@@ -19,9 +19,7 @@ package org.apache.nifi.gpfdist.service.load.metadata.factory;
 import org.apache.nifi.gpfdist.metadata.ColumnDescription;
 import org.apache.nifi.gpfdist.metadata.ContextId;
 import org.apache.nifi.gpfdist.metadata.ExternalTableFormat;
-import org.apache.nifi.gpfdist.metadata.GpfdistMetadata;
 import org.apache.nifi.gpfdist.metadata.TableDescription;
-import org.apache.nifi.gpfdist.service.GpfdistLoadMetadataFactory;
 import org.apache.nifi.gpfdist.service.load.metadata.GpfdistLoadMetadata;
 import org.apache.nifi.gpfdist.service.metadata.ExternalTableFormatConfigFactory;
 import org.apache.nifi.gpfdist.service.metadata.ExternalTableType;
@@ -29,10 +27,12 @@ import org.apache.nifi.gpfdist.service.metadata.GpfdistLocationFactory;
 import org.apache.nifi.serialization.record.RecordSchema;
 
 import java.util.List;
+import java.util.UUID;
 
 import static org.apache.nifi.gpfdist.service.util.GpfdistUtil.createExternalTableName;
 
-public class DefaultGpfdistLoadMetadataFactory implements GpfdistLoadMetadataFactory {
+
+public class DefaultGpfdistLoadMetadataFactory {
     private static final ExternalTableType EXTERNAL_TABLE_TYPE = ExternalTableType.READABLE;
     private final GpfdistLocationFactory gpfdistLocationFactory;
     private final ExternalTableFormatConfigFactory externalTableFormatConfigFactory;
@@ -43,18 +43,15 @@ public class DefaultGpfdistLoadMetadataFactory implements GpfdistLoadMetadataFac
         this.externalTableFormatConfigFactory = externalTableFormatConfigFactory;
     }
 
-    @Override
-    public GpfdistMetadata create(ContextId contextId,
-                                  String sinkId,
-                                  TableDescription tableMetadata,
-                                  List<ColumnDescription> columnDescriptions,
-                                  RecordSchema recordSchema) {
+    public GpfdistLoadMetadata create(ContextId contextId,
+                                      RecordSchema recordSchema,
+                                      TableDescription tableMetadata,
+                                      List<ColumnDescription> columnDescriptions) {
         ExternalTableFormat tableFormatConfig = externalTableFormatConfigFactory.create();
         String externalTable = createExternalTableName(EXTERNAL_TABLE_TYPE);
-        String gpfdistLocation = gpfdistLocationFactory.create(contextId, sinkId, externalTable, EXTERNAL_TABLE_TYPE);
-        if (recordSchema.getFieldCount() != columnDescriptions.size()) {
-            throw new IllegalArgumentException("Schema does not match target column count");
-        }
+        //todo get from PutGreengageRecord processor
+        String processorTaskId = UUID.randomUUID().toString();
+        String gpfdistLocation = gpfdistLocationFactory.create(contextId, processorTaskId, externalTable, EXTERNAL_TABLE_TYPE);
         return new GpfdistLoadMetadata(externalTable,
                 tableMetadata,
                 columnDescriptions,

@@ -18,45 +18,32 @@ package org.apache.nifi.gpfdist.service.load.context;
 
 import org.apache.nifi.gpfdist.metadata.Context;
 import org.apache.nifi.gpfdist.metadata.ContextId;
-import org.apache.nifi.gpfdist.service.RecordProcessor;
-import org.apache.nifi.gpfdist.service.RecordSink;
-import org.apache.nifi.gpfdist.service.TransferDataQueryExecutor;
+import org.apache.nifi.gpfdist.service.RecordProcessorProvider;
 import org.apache.nifi.gpfdist.service.load.metadata.GpfdistLoadMetadata;
+import org.apache.nifi.gpfdist.service.load.metadata.LoadingResult;
 import org.apache.nifi.logging.ComponentLog;
 
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Map;
 import java.util.Objects;
-import java.util.Optional;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.locks.ReentrantLock;
-import java.util.stream.Collectors;
 
 public class WriteContext implements Context {
-    private final ConcurrentHashMap<String, ReentrantLock> externalTableLocksBySink = new ConcurrentHashMap<>();
-    private final ConcurrentHashMap<String, Boolean> externalTableCreatedBySink = new ConcurrentHashMap<>();
     private final ContextId contextId;
-    private final Map<String, GpfdistLoadMetadata> metadataMap;
-    private final Map<String, RecordSink> recordSinkMap;
-    private final TransferDataQueryExecutor dropExternalTableQueryExecutor;
+    private final int bufferSize;
+    private final GpfdistLoadMetadata metadata;
+    private final RecordProcessorProvider recordProcessorProvider;
     private final ComponentLog logger;
+    private final LoadingResult result;
 
     public WriteContext(final ContextId contextId,
-                        List<RecordSink> recordSinks,
-                        TransferDataQueryExecutor dropExternalTableQueryExecutor,
+                        int bufferSize,
+                        final GpfdistLoadMetadata metadata,
+                        final RecordProcessorProvider recordProcessorProvider,
                         ComponentLog logger) {
-        this.contextId = Objects.requireNonNull(contextId, "contextId");
-        this.dropExternalTableQueryExecutor = dropExternalTableQueryExecutor;
-        this.logger = Objects.requireNonNull(logger, "logger");
-        this.metadataMap = new ConcurrentHashMap<>();
-        this.recordSinkMap = new ConcurrentHashMap<>();
-        Objects.requireNonNull(recordSinks, "recordSinks");
-
-        for (RecordSink rs : recordSinks) {
-            recordSinkMap.put(rs.getId(), rs);
-        }
+        this.contextId = contextId;
+        this.bufferSize = bufferSize;
+        this.metadata = metadata;
+        this.recordProcessorProvider = recordProcessorProvider;
+        this.logger = logger;
+        this.result = new LoadingResult();
     }
 
     @Override
@@ -64,74 +51,30 @@ public class WriteContext implements Context {
         return contextId;
     }
 
-    public GpfdistLoadMetadata addGpfdistLoadMetadata(String sinkId, final GpfdistLoadMetadata metadata) {
-        final GpfdistLoadMetadata existing = metadataMap.putIfAbsent(sinkId, metadata);
-        return existing != null ? existing : metadata;
+    public int getBufferSize() {
+        return bufferSize;
     }
 
-    public GpfdistLoadMetadata getGpfdistMetadata(String sinkId) {
-        return metadataMap.get(sinkId);
+    public GpfdistLoadMetadata getMetadata() {
+        return metadata;
     }
 
-    public boolean registerRecordProcessor(RecordProcessor recordProcessor) {
-        String sinkId = recordProcessor.getId().getSinkId();
-        return Optional.ofNullable(recordSinkMap.get(sinkId))
-                .map(rs -> rs.addRecordProcessor(recordProcessor))
-                .orElse(false);
+    public LoadingResult getResult() {
+        return result;
     }
 
-    public void ensureExternalTableCreated(final String sinkId, final ThrowingRunnable runnable) throws Exception {
-        Objects.requireNonNull(sinkId, "sinkId");
-        Objects.requireNonNull(runnable, "runnable");
-
-        if (isExternalTableCreated(sinkId)) {
-            return;
-        }
-
-        final ReentrantLock lock = externalTableLocksBySink.computeIfAbsent(sinkId, k -> new ReentrantLock());
-        lock.lock();
-        try {
-            if (isExternalTableCreated(sinkId)) {
-                return;
-            }
-            runnable.run();
-            externalTableCreatedBySink.put(sinkId, Boolean.TRUE);
-        } finally {
-            lock.unlock();
-        }
+    public RecordProcessorProvider getRecordProcessorProvider() {
+        return recordProcessorProvider;
     }
 
-    public boolean isExternalTableCreated(final String sinkId) {
-        return Optional.ofNullable(externalTableCreatedBySink.get(sinkId))
-                .orElse(false);
-    }
-
-    @FunctionalInterface
-    public interface ThrowingRunnable {
-        void run() throws Exception;
+    public ComponentLog getLogger() {
+        return logger;
     }
 
     @Override
     public void close() {
-        final List<CompletableFuture<Void>> dropExternalTableFutures = new ArrayList<>();
-        for (GpfdistLoadMetadata metadata : metadataMap.values()) {
-            try {
-                dropExternalTableFutures.add(dropExternalTableQueryExecutor.execute(metadata));
-            } catch (Exception e) {
-                logger.warn("Failed to submit drop external table task for metadata {}", metadata, e);
-            }
-        }
-        try {
-            CompletableFuture.allOf(dropExternalTableFutures.toArray(new CompletableFuture[0])).join();
-        } catch (Exception e) {
-            logger.warn("One or more external tables were not dropped successfully for context {}", contextId, e);
-        } finally {
-            metadataMap.clear();
-            recordSinkMap.clear();
-            externalTableCreatedBySink.clear();
-            externalTableLocksBySink.clear();
-            logger.info("Closed write context with id: {}", contextId);
-        }
+        recordProcessorProvider.close();
+        logger.debug("Closed write context {}", contextId);
     }
 
     @Override
@@ -143,9 +86,7 @@ public class WriteContext implements Context {
     public String toString() {
         return "WriteContext{" +
                 "contextId=" + contextId +
-                ", sinks=" + recordSinkMap.values().stream()
-                .map(Object::toString)
-                .collect(Collectors.joining(",")) +
+                ", result=" + result +
                 '}';
     }
 }

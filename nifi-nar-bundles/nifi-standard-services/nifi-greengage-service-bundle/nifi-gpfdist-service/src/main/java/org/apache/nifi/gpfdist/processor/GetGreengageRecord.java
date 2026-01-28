@@ -172,8 +172,7 @@ public class GetGreengageRecord extends AbstractProcessor {
             MAX_FLOWFILES_PER_TRIGGER);
 
     private ProcessorTaskManager processorTaskManager;
-    private TransferDataQueryExecutor insertFromExternalTableQueryExecutor;
-    private TransferDataQueryExecutor createWriteExternalTableQueryExecutor;
+    private TransferDataQueryExecutor transferDataQueryExecutor;
     private ReadContext readContext;
     private FlowFileGenerator flowFileGenerator;
     private ContextManager<Context> readContextManager;
@@ -205,9 +204,7 @@ public class GetGreengageRecord extends AbstractProcessor {
 
         readContextManager = (ContextManager<Context>) gpfdistService.getReadContextManager();
         TableDescription tableDescription = gpfdistService.getGreengageMetadataService().getTableDescription(schema, table);
-        createWriteExternalTableQueryExecutor = gpfdistService.getCreateWriteExternalTableQueryExecutor();
-        insertFromExternalTableQueryExecutor = gpfdistService.getInsertDataFromTargetTableQueryExecutor();
-        final TransferDataQueryExecutor dropExternalTableQueryExecutor = gpfdistService.getDropExternalTableQueryExecutor();
+        transferDataQueryExecutor = gpfdistService.getUnloadDataQueryExecutor();
         GpfdistUnloadMetadataFactory gpfdistUnloadMetadataFactory = gpfdistService.getGpfdistUnloadMetadataFactory();
         List<ColumnDescription> columnDescriptions = getColumnDescriptions(columns, tableDescription);
         RecordSchema recordSchema = GreengageColumnDataTypeConverter.convert(columnDescriptions);
@@ -245,7 +242,6 @@ public class GetGreengageRecord extends AbstractProcessor {
                 dataTypes,
                 metadataMap,
                 recordProcessingServiceMap,
-                dropExternalTableQueryExecutor,
                 getLogger());
         flowFileGenerator = new FlowFileGenerator(recordSetWriterFactory,
                 recordSchema,
@@ -280,8 +276,7 @@ public class GetGreengageRecord extends AbstractProcessor {
             GpfdistMetadata gpfdistMetadata = readContext.getGpfdistMetadata(processorTaskId);
             RecordProcessingService recordService = readContext.getRecordProcessingService(processorTaskId);
             CompletableFuture<Void> unloadFuture = readContext.getUnloadQueryFutureMap()
-                    .computeIfAbsent(processorTaskId, taskId -> createWriteExternalTableQueryExecutor.execute(gpfdistMetadata)
-                            .thenCompose(v -> insertFromExternalTableQueryExecutor.execute(gpfdistMetadata)));
+                    .computeIfAbsent(processorTaskId, taskId -> transferDataQueryExecutor.execute(gpfdistMetadata));
             List<FlowFile> readyFlowFiles = flowFileGenerator.createFlowFiles(session, processorTaskId, recordService);
 
             if (readyFlowFiles.isEmpty() && !unloadFuture.isDone()) {

@@ -18,7 +18,6 @@ package org.apache.nifi.gpfdist.server.servlet;
 
 import org.apache.nifi.gpfdist.metadata.Context;
 import org.apache.nifi.gpfdist.metadata.ContextManager;
-import org.apache.nifi.gpfdist.metadata.GpfidstLoadConfig;
 import org.apache.nifi.gpfdist.service.load.process.RecordProcessorFactory;
 import org.apache.nifi.gpfdist.service.unload.process.InputDataProcessorFactory;
 import org.apache.nifi.logging.ComponentLog;
@@ -30,7 +29,6 @@ import java.util.concurrent.ExecutorService;
 
 import static org.apache.nifi.gpfdist.service.util.GpfdistUtil.COMPONENT_LOG_ATTR;
 import static org.apache.nifi.gpfdist.service.util.GpfdistUtil.INPUT_DATA_PROCESSOR_FACTORY_ATTR;
-import static org.apache.nifi.gpfdist.service.util.GpfdistUtil.LOAD_CONFIG;
 import static org.apache.nifi.gpfdist.service.util.GpfdistUtil.READ_CONTEXT_MANAGER_ATTR;
 import static org.apache.nifi.gpfdist.service.util.GpfdistUtil.RECORD_PROCESSING_EXECUTOR_SERVICE_ATTR;
 import static org.apache.nifi.gpfdist.service.util.GpfdistUtil.RECORD_PROCESSOR_FACTORY_ATTR;
@@ -42,23 +40,20 @@ public class GpfdistServletContextListener implements ServletContextListener {
     private final ContextManager<Context> readContextManager;
     private final RecordProcessorFactory recordProcessorFactory;
     private final InputDataProcessorFactory inputDataProcessorFactory;
-    private final ExecutorService gpfdistRequestExecutorService;
-    private final GpfidstLoadConfig gpfidstLoadConfig;
+    private final ExecutorService executorService;
     private final ComponentLog logger;
 
     public GpfdistServletContextListener(final ContextManager<Context> writeContextManager,
                                          final ContextManager<Context> readContextManager,
                                          final RecordProcessorFactory recordProcessorFactory,
                                          final InputDataProcessorFactory inputDataProcessorFactory,
-                                         final ExecutorService gpfdistRequestExecutorService,
-                                         final GpfidstLoadConfig gpfidstLoadConfig,
+                                         final ExecutorService executorService,
                                          ComponentLog logger) {
         this.writeContextManager = writeContextManager;
         this.readContextManager = readContextManager;
         this.recordProcessorFactory = recordProcessorFactory;
         this.inputDataProcessorFactory = inputDataProcessorFactory;
-        this.gpfdistRequestExecutorService = gpfdistRequestExecutorService;
-        this.gpfidstLoadConfig = gpfidstLoadConfig;
+        this.executorService = executorService;
         this.logger = logger;
     }
 
@@ -69,8 +64,7 @@ public class GpfdistServletContextListener implements ServletContextListener {
         servletContext.setAttribute(READ_CONTEXT_MANAGER_ATTR, readContextManager);
         servletContext.setAttribute(INPUT_DATA_PROCESSOR_FACTORY_ATTR, inputDataProcessorFactory);
         servletContext.setAttribute(RECORD_PROCESSOR_FACTORY_ATTR, recordProcessorFactory);
-        servletContext.setAttribute(RECORD_PROCESSING_EXECUTOR_SERVICE_ATTR, gpfdistRequestExecutorService);
-        servletContext.setAttribute(LOAD_CONFIG, gpfidstLoadConfig);
+        servletContext.setAttribute(RECORD_PROCESSING_EXECUTOR_SERVICE_ATTR, executorService);
         servletContext.setAttribute(COMPONENT_LOG_ATTR, logger);
     }
 

@@ -17,13 +17,10 @@ import org.apache.nifi.gpfdist.metadata.ColumnDataType;
 import org.apache.nifi.gpfdist.metadata.Context;
 import org.apache.nifi.gpfdist.metadata.ContextId;
 import org.apache.nifi.gpfdist.metadata.GpfdistMetadata;
-import org.apache.nifi.gpfdist.service.TransferDataQueryExecutor;
 import org.apache.nifi.gpfdist.service.unload.process.RecordProcessingService;
 import org.apache.nifi.logging.ComponentLog;
 import org.apache.nifi.serialization.record.RecordSchema;
 
-import java.util.ArrayList;
-import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
@@ -37,7 +34,6 @@ public class ReadContext implements Context {
     private final Map<String, GpfdistMetadata> metadataMap;
     private final Map<String, RecordProcessingService> recordProcessingServiceMap;
     private final Map<String, CompletableFuture<Void>> unloadQueryFutureMap;
-    private final TransferDataQueryExecutor dropExternalTableQueryExecutor;
     private final ComponentLog logger;
 
     public ReadContext(ContextId contextId,
@@ -46,7 +42,6 @@ public class ReadContext implements Context {
                        Map<String, ColumnDataType> dataTypes,
                        Map<String, GpfdistMetadata> metadataMap,
                        Map<String, RecordProcessingService> recordProcessingServiceMap,
-                       TransferDataQueryExecutor dropExternalTableQueryExecutor,
                        ComponentLog logger) {
         this.contextId = contextId;
         this.globalParallelFactor = globalParallelFactor;
@@ -54,7 +49,6 @@ public class ReadContext implements Context {
         this.metadataMap = metadataMap;
         this.recordProcessingServiceMap = recordProcessingServiceMap;
         this.dataTypes = dataTypes;
-        this.dropExternalTableQueryExecutor = dropExternalTableQueryExecutor;
         unloadQueryFutureMap = new ConcurrentHashMap<>();
         this.logger = logger;
     }
@@ -108,36 +102,22 @@ public class ReadContext implements Context {
 
     @Override
     public void close() {
-        final List<CompletableFuture<Void>> dropExternalTableFutures = new ArrayList<>();
-        for (GpfdistMetadata metadata : metadataMap.values()) {
-            try {
-                dropExternalTableFutures.add(dropExternalTableQueryExecutor.execute(metadata));
-            } catch (Exception e) {
-                logger.warn("Failed to submit drop external table task for metadata {}", metadata, e);
-            }
-        }
-        try {
-            CompletableFuture.allOf(dropExternalTableFutures.toArray(new CompletableFuture[0])).join();
-            recordProcessingServiceMap.values().forEach(rps -> {
-                rps.stop();
-                rps.clear();
-            });
-            unloadQueryFutureMap.forEach((taskId, unloadQueryFutures) -> {
-                if (!unloadQueryFutures.isDone()) {
-                    try {
-                        unloadQueryFutures.completeExceptionally(new RuntimeException("Unloading was stopped"));
-                    } catch (Exception e) {
-                        logger.warn("Failed to stop unloading query future for taskId: {}", taskId, e);
-                    }
+        recordProcessingServiceMap.values().forEach(rps -> {
+            rps.stop();
+            rps.clear();
+        });
+        unloadQueryFutureMap.forEach((taskId, unloadQueryFutures) -> {
+            if (!unloadQueryFutures.isDone()) {
+                try {
+                    unloadQueryFutures.completeExceptionally(new RuntimeException("Unloading was stopped"));
+                } catch (Exception e) {
+                    logger.warn("Failed to stop unloading query future for taskId: {}", taskId, e);
                 }
-            });
-        } catch (Exception e) {
-            logger.warn("Context were not close successfully for id: {}", contextId, e);
-        } finally {
-            metadataMap.clear();
-            recordProcessingServiceMap.clear();
-            unloadQueryFutureMap.clear();
-            logger.info("Closed read context with id: {}", contextId);
-        }
+            }
+        });
+        metadataMap.clear();
+        recordProcessingServiceMap.clear();
+        unloadQueryFutureMap.clear();
+        logger.info("Closed read context with id: {}", contextId);
     }
 }
