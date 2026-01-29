@@ -37,7 +37,6 @@ public class DockerComposeService {
     private final List<Component> components;
     private DockerComposeContainer<?> compose;
 
-
     public DockerComposeService(List<Component> components) {
         this.components = components;
     }
