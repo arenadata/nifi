@@ -30,7 +30,6 @@ import org.apache.nifi.web.api.entity.ProcessorEntity;
 import org.junit.function.ThrowingRunnable;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
-import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 import org.testcontainers.shaded.org.awaitility.Awaitility;
 
@@ -206,9 +205,8 @@ public class PutGreengageRecordIT extends NifiSystemContainerizedIT {
     }
 
     @Test
-    @Disabled("Bug https://tracker.yandex.ru/ADS-2379")
     @SneakyThrows
-    public void testUnsupportedEnumTypeNegative() {
+    public void testWriteRecordsToAdbWithEnumType() {
         adbService.exec(CREATE_ENUM_SQL);
         postgresService.exec(CREATE_ENUM_SQL);
         Map<String, String> fieldMap = new LinkedHashMap<>();
@@ -216,8 +214,7 @@ public class PutGreengageRecordIT extends NifiSystemContainerizedIT {
         String insertQuery = String.format("INSERT INTO %s VALUES ('fri'::day), ('sat'::day), ('sun'::day)", PG_TABLE_NAME);
         initDataset(fieldMap, insertQuery);
         configureNifiFlow(fieldMap);
-        assertErrorMessage(putGpRecordProcessor, "Unsupported column type: day");
-        assertEquals(0, adbService.queryCountOfRowsInTable(GP_TABLE_NAME));
+        assertWithPooling(() -> assertEquals(3, adbService.queryCountOfRowsInTable(GP_TABLE_NAME)));
     }
 
     @Test
@@ -313,6 +310,7 @@ public class PutGreengageRecordIT extends NifiSystemContainerizedIT {
         gpfdistRecordProcessingServiceProperties.put("put-greengage-record-dcbp-service", gpDbcpService.getId());
         gpfdistRecordProcessingServiceProperties.put("Listening Port", getTestConfig().getGpfdistPort());
         gpfdistRecordProcessingServiceProperties.put("Hostname", getTestConfig().getDockerHostIp());
+        gpfdistRecordProcessingServiceProperties.put("Total Nifi Nodes", "3");
         getClientUtil().updateControllerServiceProperties(gpfdistRecordProcessingService, gpfdistRecordProcessingServiceProperties);
         enableControllerServiceAndWait(gpfdistRecordProcessingService);
         return gpfdistRecordProcessingService;
