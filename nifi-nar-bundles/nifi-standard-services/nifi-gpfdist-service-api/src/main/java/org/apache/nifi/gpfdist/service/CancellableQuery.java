@@ -16,21 +16,10 @@
  */
 package org.apache.nifi.gpfdist.service;
 
-import org.apache.nifi.gpfdist.metadata.RecordProcessorLoadingResult;
+import java.util.concurrent.CompletableFuture;
 
-import java.util.Collection;
-import java.util.function.Consumer;
+public interface CancellableQuery {
+    CompletableFuture<Void> future();
 
-public interface RecordProcessorProvider {
-    boolean register(RecordProcessor processor);
-
-    void useProcessor(Consumer<RecordProcessor> processor);
-
-    void stop();
-
-    void abort();
-
-    void reset();
-
-    Collection<RecordProcessorLoadingResult> getResult();
+    void cancel();
 }

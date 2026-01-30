@@ -18,6 +18,7 @@ package org.apache.nifi.gpfdist.server;
 
 import org.apache.nifi.gpfdist.metadata.Context;
 import org.apache.nifi.gpfdist.metadata.ContextManager;
+import org.apache.nifi.gpfdist.metadata.GpfidstLoadConfig;
 import org.apache.nifi.gpfdist.server.config.GpfdistServerConfig;
 import org.apache.nifi.gpfdist.server.servlet.GpfdistAsyncServlet;
 import org.apache.nifi.gpfdist.server.servlet.GpfdistServletContextListener;
@@ -43,7 +44,8 @@ public class DefaultGpfdistServer implements GpfdistServer {
     private final ContextManager<Context> readContextManager;
     private final InputDataProcessorFactory inputDataProcessorFactory;
     private final RecordProcessorFactory recordProcessorFactory;
-    private final ExecutorService recordProcessingExecutorService;
+    private final ExecutorService gpfdistRequestProcessingExecutorService;
+    private final GpfidstLoadConfig gpfidstLoadConfig;
     private final ComponentLog logger;
 
     public DefaultGpfdistServer(final GpfdistServerConfig serverConfig,
@@ -51,13 +53,15 @@ public class DefaultGpfdistServer implements GpfdistServer {
                                 final ContextManager<Context> readContextManager,
                                 final InputDataProcessorFactory inputDataProcessorFactory,
                                 final RecordProcessorFactory recordProcessorFactory,
-                                final ExecutorService recordProcessingExecutorService,
+                                final ExecutorService gpfdistRequestProcessingExecutorService,
+                                final GpfidstLoadConfig gpfidstLoadConfig,
                                 ComponentLog logger) {
         this.serverConfig = serverConfig;
         this.writeContextManager = writeContextManager;
         this.readContextManager = readContextManager;
         this.inputDataProcessorFactory = inputDataProcessorFactory;
-        this.recordProcessingExecutorService = recordProcessingExecutorService;
+        this.gpfdistRequestProcessingExecutorService = gpfdistRequestProcessingExecutorService;
+        this.gpfidstLoadConfig = gpfidstLoadConfig;
         this.logger = logger;
         this.recordProcessorFactory = recordProcessorFactory;
     }
@@ -70,7 +74,8 @@ public class DefaultGpfdistServer implements GpfdistServer {
                     readContextManager,
                     inputDataProcessorFactory,
                     recordProcessorFactory,
-                    recordProcessingExecutorService,
+                    gpfdistRequestProcessingExecutorService,
+                    gpfidstLoadConfig,
                     logger);
             server.start();
         } catch (Exception e) {
@@ -112,7 +117,8 @@ public class DefaultGpfdistServer implements GpfdistServer {
         private final ContextManager<Context> readContextManager;
         private final InputDataProcessorFactory inputDataProcessorFactory;
         private final RecordProcessorFactory recordProcessorFactory;
-        private final ExecutorService recordProcessingExecutorService;
+        private final ExecutorService gpfdistRequestExecutorService;
+        private final GpfidstLoadConfig gpfidstLoadConfig;
         private final ComponentLog logger;
         private ServerConnector connector;
         private Server server;
@@ -122,13 +128,15 @@ public class DefaultGpfdistServer implements GpfdistServer {
                            final ContextManager<Context> readContextManager,
                            final InputDataProcessorFactory inputDataProcessorFactory,
                            final RecordProcessorFactory recordProcessorFactory,
-                           final ExecutorService recordProcessingExecutorService,
+                           final ExecutorService gpfdistRequestExecutorService,
+                           final GpfidstLoadConfig gpfidstLoadConfig,
                            ComponentLog logger) {
             this.writeContextManager = writeContextManager;
             this.readContextManager = readContextManager;
             this.inputDataProcessorFactory = inputDataProcessorFactory;
             this.recordProcessorFactory = recordProcessorFactory;
-            this.recordProcessingExecutorService = recordProcessingExecutorService;
+            this.gpfdistRequestExecutorService = gpfdistRequestExecutorService;
+            this.gpfidstLoadConfig = gpfidstLoadConfig;
             this.logger = logger;
             this.serverConfig = serverConfig;
         }
@@ -155,7 +163,8 @@ public class DefaultGpfdistServer implements GpfdistServer {
                     readContextManager,
                     recordProcessorFactory,
                     inputDataProcessorFactory,
-                    recordProcessingExecutorService,
+                    gpfdistRequestExecutorService,
+                    gpfidstLoadConfig,
                     logger));
             context.addServlet(GpfdistAsyncServlet.class, GPFDIST_READ_ENDPOINT);
             context.addServlet(GpfdistAsyncServlet.class, GPFDIST_WRITE_ENDPOINT);

@@ -23,6 +23,7 @@ public final class GpfdistUtil {
     public static final String INPUT_DATA_PROCESSOR_FACTORY_ATTR = "inputDataProcessorFactory";
     public static final String RECORD_PROCESSOR_FACTORY_ATTR = "recordProcessorFactory";
     public static final String RECORD_PROCESSING_EXECUTOR_SERVICE_ATTR = "recordProcessingExecutorService";
+    public static final String LOAD_CONFIG = "loadConfig";
     public static final String COMPONENT_LOG_ATTR = "componentLog";
 
     private GpfdistUtil() {

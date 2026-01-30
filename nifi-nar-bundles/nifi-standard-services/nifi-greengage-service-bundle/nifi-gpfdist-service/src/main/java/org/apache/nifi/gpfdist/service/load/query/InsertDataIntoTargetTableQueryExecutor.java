@@ -14,12 +14,11 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.apache.nifi.gpfdist.service.unload.query;
+package org.apache.nifi.gpfdist.service.load.query;
 
 import org.apache.nifi.dbcp.DBCPService;
 import org.apache.nifi.gpfdist.metadata.GpfdistMetadata;
 import org.apache.nifi.gpfdist.service.query.AbstractDataQueryExecutor;
-import org.apache.nifi.gpfdist.service.query.CreateExternalTableQueryFactory;
 import org.apache.nifi.gpfdist.service.query.InsertDataQueryFactory;
 import org.apache.nifi.logging.ComponentLog;
 
@@ -29,42 +28,29 @@ import java.sql.Statement;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.atomic.AtomicReference;
 
-public class UnloadDataQueryExecutor extends AbstractDataQueryExecutor {
-
-    private final CreateExternalTableQueryFactory externalTableQueryFactory;
+public class InsertDataIntoTargetTableQueryExecutor extends AbstractDataQueryExecutor {
     private final InsertDataQueryFactory insertDataQueryFactory;
 
-    public UnloadDataQueryExecutor(final ExecutorService executorService,
-                                   final DBCPService dbcpService,
-                                   final CreateExternalTableQueryFactory externalTableQueryFactory,
-                                   final InsertDataQueryFactory insertDataQueryFactory,
-                                   ComponentLog logger) {
+    public InsertDataIntoTargetTableQueryExecutor(final ExecutorService executorService,
+                                                  final DBCPService dbcpService,
+                                                  final InsertDataQueryFactory insertDataQueryFactory,
+                                                  ComponentLog logger) {
         super(executorService, dbcpService, logger);
-        this.externalTableQueryFactory = externalTableQueryFactory;
         this.insertDataQueryFactory = insertDataQueryFactory;
     }
 
     @Override
     protected void executeQueries(GpfdistMetadata metadata, Connection connection, AtomicReference<Statement> stmtRef) throws SQLException {
-        createWritableExternalTable(metadata, connection);
-        insertIntoExternalTable(metadata, connection, stmtRef);
+        insertFromExternalTable(metadata, connection, stmtRef);
     }
 
-    private void createWritableExternalTable(GpfdistMetadata metadata, Connection connection)
-            throws SQLException {
-        String sql = externalTableQueryFactory.createQuery(metadata);
-        logger.info("Executing create writable external table query: {}", sql);
-        connection.createStatement().execute(sql);
-        logger.info("Executed create writable external table query: ", sql);
-    }
-
-    private void insertIntoExternalTable(GpfdistMetadata metadata, Connection connection, AtomicReference<Statement> stmtRef)
+    private void insertFromExternalTable(GpfdistMetadata metadata, Connection connection, AtomicReference<Statement> stmtRef)
             throws SQLException {
         String sql = insertDataQueryFactory.create(metadata);
         logger.debug("Executing insert query: {}", sql);
         Statement stmt = connection.createStatement();
         stmtRef.set(stmt);
         stmt.execute(sql);
-        logger.info("Executed insert into external table from source table query: {}", sql);
+        logger.info("Executed insert into target table from external table query: {}", sql);
     }
 }

@@ -18,7 +18,10 @@ package org.apache.nifi.gpfdist.service.query;
 
 import org.apache.nifi.gpfdist.metadata.ColumnDescription;
 import org.apache.nifi.gpfdist.metadata.GpfdistMetadata;
+import org.apache.nifi.gpfdist.metadata.GreengageDataType;
+import org.apache.nifi.gpfdist.service.datatype.EnumDataType;
 
+import java.util.Objects;
 import java.util.stream.IntStream;
 
 import static java.lang.String.format;
@@ -27,10 +30,11 @@ import static org.apache.nifi.gpfdist.service.util.GreengageUtil.quote;
 
 public abstract class AbstractExternalTableQueryFactory implements CreateExternalTableQueryFactory {
 
-    protected String createCommonQuery(final GpfdistMetadata metadata) {
+    protected String createCommonQuery(final GpfdistMetadata metadata, boolean isTemporary) {
         return format(
-                "CREATE %s EXTERNAL TEMPORARY TABLE %s (%s) LOCATION ('%s') FORMAT '%s' (DELIMITER '%s' NULL AS '%s') ENCODING '%s'",
+                "CREATE %s EXTERNAL%sTABLE %s (%s) LOCATION ('%s') FORMAT '%s' (DELIMITER '%s' NULL AS '%s') ENCODING '%s'",
                 getExternalTableType().name(),
+                isTemporary ? "TEMPORARY" : " ",
                 metadata.getExternalTable(),
                 getColumnDefinition(metadata),
                 metadata.getGpfdistLocation(),
@@ -45,8 +49,16 @@ public abstract class AbstractExternalTableQueryFactory implements CreateExterna
                 .boxed()
                 .map(i -> {
                     ColumnDescription columnDescription = metadata.getColumnDescriptions().get(i);
-                    return quote(columnDescription.getName()) + " " + columnDescription.getDataType().getName();
+                    return quote(columnDescription.getName()) + " " + getTypeName(columnDescription);
                 })
                 .collect(joining(","));
+    }
+
+    private String getTypeName(ColumnDescription columnDescription) {
+        if (Objects.requireNonNull(columnDescription.getDataType().getType()) == GreengageDataType.ENUM) {
+            EnumDataType enumDataType = (EnumDataType) columnDescription.getDataType();
+            return enumDataType.getEnumTypeSchema() + "." + enumDataType.getEnumTypeName();
+        }
+        return columnDescription.getDataType().getName();
     }
 }

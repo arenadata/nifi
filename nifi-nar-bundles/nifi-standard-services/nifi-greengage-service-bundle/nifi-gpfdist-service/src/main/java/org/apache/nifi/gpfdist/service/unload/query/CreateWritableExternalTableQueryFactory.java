@@ -23,7 +23,7 @@ import org.apache.nifi.gpfdist.service.query.AbstractExternalTableQueryFactory;
 public class CreateWritableExternalTableQueryFactory extends AbstractExternalTableQueryFactory {
     @Override
     public String createQuery(final GpfdistMetadata metadata) {
-        return createCommonQuery(metadata);
+        return createCommonQuery(metadata, true);
     }
 
     @Override

@@ -162,6 +162,7 @@ public class CsvRecordSetWriter extends AbstractRecordSetWriter implements Recor
             case UUID:
             case CHAR:
             case VARCHAR:
+            case ENUM:
                 return record.getAsString(recordField, fieldDataType.getFormat());
             case BIGINT:
             case DECIMAL:

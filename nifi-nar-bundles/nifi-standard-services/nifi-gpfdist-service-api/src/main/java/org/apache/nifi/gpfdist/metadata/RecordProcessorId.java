@@ -11,23 +11,23 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.apache.nifi.gpfdist.service.unload.dto;
+package org.apache.nifi.gpfdist.metadata;
 
 import java.util.Objects;
 
-public class ProcessingChunkId {
-    private final String processorTaskId;
+public class RecordProcessorId {
+    private final String sinkId;
     private final String txId;
     private final int segmentId;
 
-    public ProcessingChunkId(String processorTaskId, String txId, int segmentId) {
-        this.processorTaskId = processorTaskId;
+    public RecordProcessorId(String sinkId, String txId, int segmentId) {
+        this.sinkId = sinkId;
         this.txId = txId;
         this.segmentId = segmentId;
     }
 
-    public String getProcessorTaskId() {
-        return processorTaskId;
+    public String getSinkId() {
+        return sinkId;
     }
 
     public String getTxId() {
@@ -41,19 +41,19 @@ public class ProcessingChunkId {
     @Override
     public boolean equals(Object o) {
         if (o == null || getClass() != o.getClass()) return false;
-        ProcessingChunkId that = (ProcessingChunkId) o;
-        return segmentId == that.segmentId && Objects.equals(processorTaskId, that.processorTaskId) && Objects.equals(txId, that.txId);
+        RecordProcessorId that = (RecordProcessorId) o;
+        return segmentId == that.segmentId && Objects.equals(sinkId, that.sinkId) && Objects.equals(txId, that.txId);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(processorTaskId, txId, segmentId);
+        return Objects.hash(sinkId, txId, segmentId);
     }
 
     @Override
     public String toString() {
-        return "ProcessingChunkId{" +
-                "processorTaskId='" + processorTaskId + '\'' +
+        return "RecordProcessorId{" +
+                "sinkId='" + sinkId + '\'' +
                 ", txId='" + txId + '\'' +
                 ", segmentId=" + segmentId +
                 '}';

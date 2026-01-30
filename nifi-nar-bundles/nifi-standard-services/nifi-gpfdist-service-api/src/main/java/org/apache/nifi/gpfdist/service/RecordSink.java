@@ -16,17 +16,27 @@
  */
 package org.apache.nifi.gpfdist.service;
 
-import org.apache.nifi.gpfdist.metadata.Context;
+import org.apache.nifi.gpfdist.metadata.GpfdistMetadata;
 import org.apache.nifi.serialization.record.Record;
 
 import java.util.concurrent.CompletableFuture;
 
 public interface RecordSink {
+    String getId();
+
+    void beginLoad(GpfdistMetadata loadMetadata);
+
     void load(Record record);
 
-    CompletableFuture<Void> finish();
+    boolean addRecordProcessor(RecordProcessor recordProcessor);
+
+    CompletableFuture<LoadResult> finishLoad();
 
     void abort();
 
-    Context getContext();
+    void resetForReuse();
+
+    void markAcquiredOrThrow();
+
+    void markReleasedOrThrow();
 }

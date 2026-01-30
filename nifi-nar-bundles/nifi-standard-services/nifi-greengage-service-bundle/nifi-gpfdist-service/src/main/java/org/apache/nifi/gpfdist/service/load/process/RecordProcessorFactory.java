@@ -16,12 +16,16 @@
  */
 package org.apache.nifi.gpfdist.service.load.process;
 
+import org.apache.nifi.gpfdist.metadata.RecordProcessorId;
 import org.apache.nifi.gpfdist.server.request.ReadableRequest;
 import org.apache.nifi.gpfdist.service.RecordProcessor;
-import org.apache.nifi.gpfdist.service.load.context.WriteContext;
-
-import java.io.OutputStream;
+import org.apache.nifi.gpfdist.service.load.metadata.GpfdistLoadMetadata;
+import org.apache.nifi.logging.ComponentLog;
 
 public interface RecordProcessorFactory {
-    RecordProcessor create(ReadableRequest readableRequest, WriteContext writeContext, OutputStream outputStream);
+    RecordProcessor create(final ReadableRequest readableRequest,
+                           final GpfdistLoadMetadata loadMetadata,
+                           final RecordProcessorId recordProcessorId,
+                           final GpfdistSegmentStream stream,
+                           ComponentLog logger);
 }
