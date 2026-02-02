@@ -16,7 +16,6 @@
  */
 package org.apache.nifi.gpfdist.processor;
 
-import java.util.HashSet;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.CompletionException;
@@ -112,24 +111,14 @@ public class PutGreengageRecord extends AbstractProcessor {
             .description("A FlowFile is routed to this relationship if records cannot be loaded into Greengage.")
             .build();
 
-    private static final Set<Relationship> RELATIONSHIPS;
-
-    static {
-        RELATIONSHIPS = new HashSet<>();
-        RELATIONSHIPS.add(REL_SUCCESS);
-        RELATIONSHIPS.add(REL_FAILURE);
-    }
-
-    private static final List<PropertyDescriptor> PROPERTY_DESCRIPTORS;
-
-    static {
-        PROPERTY_DESCRIPTORS = new ArrayList<>();
-        PROPERTY_DESCRIPTORS.add(RECORD_READER_FACTORY);
-        PROPERTY_DESCRIPTORS.add(GPFDIST_SERVICE);
-        PROPERTY_DESCRIPTORS.add(SCHEMA_NAME);
-        PROPERTY_DESCRIPTORS.add(TABLE_NAME);
-        PROPERTY_DESCRIPTORS.add(TABLE_COLUMNS);
-    }
+    private static final Set<Relationship> RELATIONSHIPS = Set.of(REL_SUCCESS, REL_FAILURE);
+    private static final List<PropertyDescriptor> PROPERTY_DESCRIPTORS = List.of(
+        RECORD_READER_FACTORY,
+        GPFDIST_SERVICE,
+        SCHEMA_NAME,
+        TABLE_NAME,
+        TABLE_COLUMNS
+    );
 
     private final Set<RecordSink> recordSinks = ConcurrentHashMap.newKeySet();
 
