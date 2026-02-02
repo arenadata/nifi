@@ -19,6 +19,7 @@ package org.apache.nifi.gpfdist.service.util;
 import org.postgresql.core.Oid;
 
 import java.sql.Types;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
 
@@ -27,30 +28,34 @@ import static java.lang.String.format;
 public final class GreengageUtil {
     public static final String QUOTE = "\"";
     public static final String IDENTIFIER_DELIMITER = ".";
-    private final static Map<Integer, Integer> TYPE_OID_TO_JDBC_TYPE_MAP = Map.ofEntries(
-            Map.entry(Oid.INT2, Types.SMALLINT),
-            Map.entry(Oid.INT4, Types.INTEGER),
-            Map.entry(Oid.OID, Types.BIGINT),
-            Map.entry(Oid.INT8, Types.BIGINT),
-            Map.entry(Oid.MONEY, Types.DOUBLE),
-            Map.entry(Oid.NUMERIC, Types.NUMERIC),
-            Map.entry(Oid.FLOAT4, Types.REAL),
-            Map.entry(Oid.FLOAT8, Types.DOUBLE),
-            Map.entry(Oid.CHAR, Types.CHAR),
-            Map.entry(Oid.BPCHAR, Types.CHAR),
-            Map.entry(Oid.VARCHAR, Types.VARCHAR),
-            Map.entry(Oid.TEXT, Types.VARCHAR),
-            Map.entry(Oid.NAME, Types.VARCHAR),
-            Map.entry(Oid.BYTEA, Types.BINARY),
-            Map.entry(Oid.BOOL, Types.BIT),
-            Map.entry(Oid.BIT, Types.BIT),
-            Map.entry(Oid.DATE, Types.DATE),
-            Map.entry(Oid.TIME, Types.TIME),
-            Map.entry(Oid.TIMETZ, Types.TIME),
-            Map.entry(Oid.TIMESTAMP, Types.TIMESTAMP),
-            Map.entry(Oid.TIMESTAMPTZ, Types.TIMESTAMP),
-            Map.entry(Oid.UUID, Types.OTHER),
-            Map.entry(Oid.JSON, Types.OTHER));
+    private final static Map<Integer, Integer> TYPE_OID_TO_JDBC_TYPE_MAP;
+
+    static {
+        TYPE_OID_TO_JDBC_TYPE_MAP = new HashMap<>();
+        TYPE_OID_TO_JDBC_TYPE_MAP.put(Oid.INT2, Types.SMALLINT);
+        TYPE_OID_TO_JDBC_TYPE_MAP.put(Oid.INT4, Types.INTEGER);
+        TYPE_OID_TO_JDBC_TYPE_MAP.put(Oid.OID, Types.BIGINT);
+        TYPE_OID_TO_JDBC_TYPE_MAP.put(Oid.INT8, Types.BIGINT);
+        TYPE_OID_TO_JDBC_TYPE_MAP.put(Oid.MONEY, Types.DOUBLE);
+        TYPE_OID_TO_JDBC_TYPE_MAP.put(Oid.NUMERIC, Types.NUMERIC);
+        TYPE_OID_TO_JDBC_TYPE_MAP.put(Oid.FLOAT4, Types.REAL);
+        TYPE_OID_TO_JDBC_TYPE_MAP.put(Oid.FLOAT8, Types.DOUBLE);
+        TYPE_OID_TO_JDBC_TYPE_MAP.put(Oid.CHAR, Types.CHAR);
+        TYPE_OID_TO_JDBC_TYPE_MAP.put(Oid.BPCHAR, Types.CHAR);
+        TYPE_OID_TO_JDBC_TYPE_MAP.put(Oid.VARCHAR, Types.VARCHAR);
+        TYPE_OID_TO_JDBC_TYPE_MAP.put(Oid.TEXT, Types.VARCHAR);
+        TYPE_OID_TO_JDBC_TYPE_MAP.put(Oid.NAME, Types.VARCHAR);
+        TYPE_OID_TO_JDBC_TYPE_MAP.put(Oid.BYTEA, Types.BINARY);
+        TYPE_OID_TO_JDBC_TYPE_MAP.put(Oid.BOOL, Types.BIT);
+        TYPE_OID_TO_JDBC_TYPE_MAP.put(Oid.BIT, Types.BIT);
+        TYPE_OID_TO_JDBC_TYPE_MAP.put(Oid.DATE, Types.DATE);
+        TYPE_OID_TO_JDBC_TYPE_MAP.put(Oid.TIME, Types.TIME);
+        TYPE_OID_TO_JDBC_TYPE_MAP.put(Oid.TIMETZ, Types.TIME);
+        TYPE_OID_TO_JDBC_TYPE_MAP.put(Oid.TIMESTAMP, Types.TIMESTAMP);
+        TYPE_OID_TO_JDBC_TYPE_MAP.put(Oid.TIMESTAMPTZ, Types.TIMESTAMP);
+        TYPE_OID_TO_JDBC_TYPE_MAP.put(Oid.UUID, Types.OTHER);
+        TYPE_OID_TO_JDBC_TYPE_MAP.put(Oid.JSON, Types.OTHER);
+    }
 
     private GreengageUtil() {
     }
