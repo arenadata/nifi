@@ -14,10 +14,26 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.apache.nifi.gpfdist.metadata;
+package org.apache.nifi.processors.standard.type;
 
-public interface ColumnDataType {
-    String getName();
+import org.apache.calcite.rel.type.RelDataTypeSystemImpl;
 
-    GreengageDataType getType();
+public class DecimalTypeSystem extends RelDataTypeSystemImpl {
+    private static final int MAX_PRECISION = 38;
+    private static final int MAX_SCALE = 38;
+
+    @Override
+    public int getMaxNumericPrecision() {
+        return MAX_PRECISION;
+    }
+
+    @Override
+    public int getMaxNumericScale() {
+        return MAX_SCALE;
+    }
+
+    @Override
+    public boolean shouldConvertRaggedUnionTypesToVarying() {
+        return true;
+    }
 }
