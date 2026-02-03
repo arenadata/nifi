@@ -863,7 +863,7 @@ language governing permissions and limitations under the License. -->
         </dependency>
         <dependency>
             <groupId>org.apache.nifi</groupId>
-            <artifactId>nifi-greenplum-service-nar</artifactId>
+            <artifactId>nifi-greengage-service-nar</artifactId>
             <version>2.5.0</version>
             <type>nar</type>
         </dependency>

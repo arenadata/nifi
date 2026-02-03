@@ -14,10 +14,15 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.apache.nifi.gpfdist.metadata;
+package org.apache.nifi.gpfdist.service;
 
-public interface ColumnDataType {
-    String getName();
+import org.apache.nifi.gpfdist.metadata.TableDescription;
 
-    GreengageDataType getType();
+import java.sql.DatabaseMetaData;
+
+public interface GreengageService {
+
+    DatabaseMetaData getDatabaseMetadata();
+
+    TableDescription getTableDescription(String schemaName, String tableName);
 }
