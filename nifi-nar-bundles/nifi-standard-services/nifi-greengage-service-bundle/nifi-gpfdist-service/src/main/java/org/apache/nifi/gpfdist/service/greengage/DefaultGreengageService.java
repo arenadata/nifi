@@ -29,6 +29,7 @@ import org.apache.nifi.gpfdist.service.datatype.CharDataType;
 import org.apache.nifi.gpfdist.service.datatype.DateDataType;
 import org.apache.nifi.gpfdist.service.datatype.DecimalDataType;
 import org.apache.nifi.gpfdist.service.datatype.DoubleDataType;
+import org.apache.nifi.gpfdist.service.datatype.EnumDataType;
 import org.apache.nifi.gpfdist.service.datatype.IntegerDataType;
 import org.apache.nifi.gpfdist.service.datatype.JsonbDataType;
 import org.apache.nifi.gpfdist.service.datatype.MapDataType;
@@ -245,6 +246,12 @@ public class DefaultGreengageService implements GreengageService {
         if (jdbcTypeName == null) {
             throw new IllegalArgumentException("jdbcTypeName cannot be null");
         }
+        if (conn != null) {
+            EnumTypeMetadata enumMeta = getEnumTypeMetadata(conn, schema, tableName, columnName);
+            if (enumMeta != null) {
+                return new EnumDataType(enumMeta.typeSchema, enumMeta.typeName);
+            }
+        }
         switch (jdbcTypeName) {
             case "bool":
                 return new BooleanDataType();
@@ -311,6 +318,47 @@ public class DefaultGreengageService implements GreengageService {
                 return new ArrayDataType(elementDataType);
             default:
                 throw new IllegalArgumentException("Unsupported column type: " + jdbcTypeName);
+        }
+    }
+
+    private EnumTypeMetadata getEnumTypeMetadata(Connection conn, String schema, String table, String column) {
+        final String sql =
+                "SELECT ns_t.nspname AS type_schema, t.typname AS type_name\n" +
+                        "FROM pg_catalog.pg_attribute a\n" +
+                        "JOIN pg_catalog.pg_class c ON c.oid = a.attrelid\n" +
+                        "JOIN pg_catalog.pg_namespace ns_c ON ns_c.oid = c.relnamespace\n" +
+                        "JOIN pg_catalog.pg_type t ON t.oid = a.atttypid\n" +
+                        "JOIN pg_catalog.pg_namespace ns_t ON ns_t.oid = t.typnamespace\n" +
+                        "WHERE c.relname = ?\n" +
+                        "  AND ns_c.nspname = ?\n" +
+                        "  AND a.attname = ?\n" +
+                        "  AND t.typtype = 'e'\n" +
+                        "  AND a.attnum > 0\n" +
+                        "  AND NOT a.attisdropped";
+
+        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, table);
+            ps.setString(2, schema == null ? "public" : schema);
+            ps.setString(3, column);
+
+            try (ResultSet rs = ps.executeQuery()) {
+                if (rs.next()) {
+                    return new EnumTypeMetadata(rs.getString("type_schema"), rs.getString("type_name"));
+                }
+                return null;
+            }
+        } catch (SQLException e) {
+            throw new RuntimeException("Failed to get enum type metadata for column " + column, e);
+        }
+    }
+
+    private static final class EnumTypeMetadata {
+        private final String typeSchema;
+        private final String typeName;
+
+        private EnumTypeMetadata(String typeSchema, String typeName) {
+            this.typeSchema = typeSchema;
+            this.typeName = typeName;
         }
     }
 
