@@ -16,11 +16,25 @@
  */
 package org.apache.nifi.tests.system.arenadata;
 
+import io.qameta.allure.Step;
+import lombok.SneakyThrows;
+import lombok.val;
 import org.apache.nifi.tests.system.NiFiSystemIT;
+import org.apache.nifi.web.api.entity.ControllerServiceEntity;
+import org.apache.nifi.web.api.entity.ProcessorEntity;
+import org.junit.function.ThrowingRunnable;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.TestInfo;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.testcontainers.shaded.org.awaitility.Awaitility;
+
+import java.time.Duration;
+import java.util.Map;
+import java.util.stream.Collectors;
+
+import static org.apache.nifi.tests.system.arenadata.util.ConfigUtil.getTestConfig;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 
 public class NifiSystemContainerizedIT extends NiFiSystemIT {
     private static final Logger logger = LoggerFactory.getLogger(NifiSystemContainerizedIT.class);
@@ -35,5 +49,45 @@ public class NifiSystemContainerizedIT extends NiFiSystemIT {
 
         Thread.currentThread().setContextClassLoader(ClassLoader.getSystemClassLoader());
         setupClient(6980);
+    }
+
+    @SneakyThrows
+    protected void enableControllerServiceAndWait(ControllerServiceEntity controllerServiceEntity) {
+        getClientUtil().enableControllerService(controllerServiceEntity);
+        getClientUtil().waitForControllerSerivcesEnabled(controllerServiceEntity.getParentGroupId(), controllerServiceEntity.getId());
+    }
+
+    @Step("Assert with polling")
+    protected void assertWithPooling(ThrowingRunnable assertion) {
+        Awaitility.waitAtMost(Duration.ofSeconds(getTestConfig().getGeneralTimeout()))
+                .pollInterval(Duration.ofSeconds(getTestConfig().getPollInterval()))
+                .untilAsserted(assertion::run);
+    }
+
+    @Step("Assert error message")
+    protected void assertErrorMessage(ProcessorEntity processor, String expected) {
+        assertWithPooling(() -> {
+            val processorInfo = getNifiClient().getProcessorClient().getProcessor(processor.getId());
+            assertEquals(processorInfo
+                            .getBulletins().stream().filter(b -> b.getBulletin().getLevel().equals("ERROR")).findFirst().orElseThrow()
+                            .getBulletin().getMessage().contains(expected),
+                    true,
+                    () -> String.format("Processor bulletins {%s} don`t contains ERROR with text '%s'",
+                            processorInfo.getBulletins().stream()
+                                    .map(bulletin -> bulletin.getBulletin().getMessage()).collect(Collectors.joining()),
+                            expected));
+        });
+    }
+
+    protected String getFieldsString(Map<String, String> fieldMap) {
+        return fieldMap.entrySet().stream()
+                .map(entry -> String.format("%s %s", entry.getKey(), entry.getValue()))
+                .collect(Collectors.joining(", "));
+    }
+
+    protected String getFieldNamesString(Map<String, String> fieldMap) {
+        return fieldMap.entrySet().stream()
+                .map(Map.Entry::getKey)
+                .collect(Collectors.joining(", "));
     }
 }
