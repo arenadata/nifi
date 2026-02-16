@@ -61,7 +61,6 @@ public class PutGreengageRecordIT extends NifiSystemContainerizedIT {
     private static final String GG_SCHEMA_NAME = "public";
     private static final String CREATE_EXTENSION_HSTORE_SQL = "CREATE EXTENSION IF NOT EXISTS hstore";
     private static final String CREATE_EXTENSION_UUID_SQL = "CREATE EXTENSION IF NOT EXISTS \"uuid-ossp\"";
-    private static final String CREATE_ENUM_SQL = "CREATE TYPE day AS ENUM ('sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat')";
     private static final String CREATE_TABLE_TEMPLATE_SQL = "CREATE TABLE %s (%s)";
     private static final Map<String, String> TABLE_COLUMNS = new LinkedHashMap<>() {{
         put("id", "INT");
@@ -115,19 +114,8 @@ public class PutGreengageRecordIT extends NifiSystemContainerizedIT {
             "       \"weight\"    => \"11.2 ounces\"'::hstore\n" +
             "from generate_series(1, 100) s(i)";
 
-    private static JdbcService adbService;
-    private static JdbcService postgresService;
     private ProcessorEntity queryDbTableProcessor;
     private ProcessorEntity putGgRecordProcessor;
-
-    @BeforeAll
-    public static void setup() {
-        DockerComposeService composeService = new DockerComposeService(List.of(Component.values()));
-        composeService.init();
-        JdbcServiceFactory jdbcServiceFactory = new JdbcServiceFactory();
-        adbService = jdbcServiceFactory.adbService();
-        postgresService = jdbcServiceFactory.postgresService();
-    }
 
     @AfterEach
     public void cleanupTables() {
