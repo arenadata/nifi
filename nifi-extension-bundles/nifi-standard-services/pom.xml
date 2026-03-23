@@ -30,6 +30,8 @@
         <module>nifi-oauth2-provider-bundle</module>
         <module>nifi-distributed-cache-client-service-api</module>
         <module>nifi-distributed-cache-services-bundle</module>
+        <module>nifi-greengage-service-bundle</module>
+        <module>nifi-gpfdist-service-api</module>
         <module>nifi-http-context-map-api</module>
         <module>nifi-lookup-service-api</module>
         <module>nifi-lookup-services-bundle</module>

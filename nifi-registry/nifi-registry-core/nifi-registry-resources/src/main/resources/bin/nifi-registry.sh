@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 #
 #    Licensed to the Apache Software Foundation (ASF) under one or more
 #    contributor license agreements.  See the NOTICE file distributed with
@@ -45,6 +45,7 @@ PROGNAME=$(basename "$0")
 
 . "${SCRIPT_DIR}/nifi-registry-env.sh"
 
+. /usr/lib/bigtop-utils/bigtop-detect-javahome "21"
 
 
 warn() {
