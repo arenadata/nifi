@@ -56,6 +56,7 @@ public class DefaultGpfdistUnloadMetadataFactory implements GpfdistUnloadMetadat
                 tableFormatConfig,
                 gpfdistLocation,
                 contextId,
+                processorTaskId,
                 globalWorkerIndex);
     }
 }

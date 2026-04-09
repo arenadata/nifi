@@ -19,6 +19,8 @@ package org.apache.nifi.gpfdist.service;
 import org.apache.nifi.gpfdist.metadata.TableDescription;
 
 import java.sql.DatabaseMetaData;
+import java.util.List;
+import java.util.Map;
 
 public interface GreengageService {
 
@@ -27,4 +29,10 @@ public interface GreengageService {
     TableDescription getTableDescription(String schemaName, String tableName);
 
     int getSegmentCount();
+
+    Map<String, String> getTableColumnsUpperBoundTuples(String schemaName,
+                                                        String tableName,
+                                                        List<String> columnNames,
+                                                        int globalParallelFactor,
+                                                        int workerIndex);
 }

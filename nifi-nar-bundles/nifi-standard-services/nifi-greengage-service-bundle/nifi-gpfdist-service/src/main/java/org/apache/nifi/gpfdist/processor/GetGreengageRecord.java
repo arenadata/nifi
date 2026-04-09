@@ -18,25 +18,32 @@ package org.apache.nifi.gpfdist.processor;
 
 import org.apache.nifi.annotation.behavior.EventDriven;
 import org.apache.nifi.annotation.behavior.InputRequirement;
+import org.apache.nifi.annotation.behavior.Stateful;
 import org.apache.nifi.annotation.documentation.CapabilityDescription;
 import org.apache.nifi.annotation.documentation.Tags;
 import org.apache.nifi.annotation.lifecycle.OnScheduled;
 import org.apache.nifi.annotation.lifecycle.OnUnscheduled;
 import org.apache.nifi.components.PropertyDescriptor;
+import org.apache.nifi.components.state.Scope;
+import org.apache.nifi.components.state.StateMap;
+import org.apache.nifi.components.state.StateManager;
 import org.apache.nifi.flowfile.FlowFile;
 import org.apache.nifi.gpfdist.metadata.ColumnDataType;
 import org.apache.nifi.gpfdist.metadata.ColumnDescription;
 import org.apache.nifi.gpfdist.metadata.Context;
 import org.apache.nifi.gpfdist.metadata.ContextManager;
 import org.apache.nifi.gpfdist.metadata.GpfdistMetadata;
+import org.apache.nifi.gpfdist.metadata.GreengageDataType;
 import org.apache.nifi.gpfdist.metadata.TableDescription;
 import org.apache.nifi.gpfdist.service.GpfdistService;
 import org.apache.nifi.gpfdist.service.GpfdistUnloadMetadataFactory;
 import org.apache.nifi.gpfdist.service.TransferDataQueryExecutor;
 import org.apache.nifi.gpfdist.service.context.GpfdistContextId;
+import org.apache.nifi.gpfdist.service.unload.context.GreengageTableColumnsMaxValueContext;
 import org.apache.nifi.gpfdist.service.unload.context.ReadContext;
 import org.apache.nifi.gpfdist.service.unload.dto.ProcessorTaskResult;
 import org.apache.nifi.gpfdist.service.unload.dto.UnloadingResult;
+import org.apache.nifi.gpfdist.service.unload.metadata.GpfdistUnloadMetadata;
 import org.apache.nifi.gpfdist.service.unload.process.FlowFileGenerator;
 import org.apache.nifi.gpfdist.service.unload.process.GpfdistRecordProcessingService;
 import org.apache.nifi.gpfdist.service.unload.process.ProcessorTaskManager;
@@ -51,8 +58,12 @@ import org.apache.nifi.processor.util.StandardValidators;
 import org.apache.nifi.serialization.RecordSetWriterFactory;
 import org.apache.nifi.serialization.record.RecordSchema;
 
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -60,13 +71,20 @@ import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
+import java.util.function.BiFunction;
 import java.util.stream.Collectors;
 
 import static org.apache.nifi.expression.ExpressionLanguageScope.FLOWFILE_ATTRIBUTES;
 import static org.apache.nifi.gpfdist.service.util.GreengageUtil.QUOTE;
+import static org.apache.nifi.gpfdist.service.util.GreengageUtil.compareByType;
+import static org.apache.nifi.gpfdist.service.util.GreengageUtil.getStateKey;
+import static org.apache.nifi.gpfdist.service.util.GreengageUtil.getQualifiedName;
+import static org.apache.nifi.gpfdist.service.util.GreengageUtil.SUPPORTED_MAX_VALUE_TYPES;
+import static org.apache.nifi.gpfdist.service.util.GreengageUtil.SUPPORTED_MAX_VALUE_TYPES_DESCRIPTION;
 
 @EventDriven
 @InputRequirement(InputRequirement.Requirement.INPUT_FORBIDDEN)
+@Stateful(scopes = Scope.CLUSTER, description = "Stores maximum observed values per worker and column for incremental unloading from Greengage.")
 @Tags({"record", "get", "greengage"})
 @CapabilityDescription("Read records from Greengage to FlowFiles")
 public class GetGreengageRecord extends AbstractProcessor {
@@ -148,6 +166,19 @@ public class GetGreengageRecord extends AbstractProcessor {
             .defaultValue("10")
             .addValidator(StandardValidators.POSITIVE_INTEGER_VALIDATOR)
             .build();
+    static final PropertyDescriptor MAX_VALUE_COLUMN_NAMES = new PropertyDescriptor.Builder()
+            .name("Maximum-value Columns")
+            .displayName("Maximum-value Columns Names")
+            .description("Optional. A comma-separated list of column names. When configured, the processor will keep track of the maximum value "
+                    + "for each column that has been returned since the processor started running. Using multiple columns implies an order "
+                    + "to the column list; column tuples are compared lexicographically in that order. This processor "
+                    + "can be used to retrieve only those rows that have been added/updated since the last retrieval. Columns listed in this property "
+                    + "must be NOT NULL. Supported types: " + SUPPORTED_MAX_VALUE_TYPES_DESCRIPTION + ". If no columns "
+                    + "are provided, the processor performs full table unloading once for each worker task, and then skips further unload cycles until processor state is cleared. NOTE: It is important "
+                    + "to use consistent max-value column names for a given table for incremental fetch to work properly.")
+            .required(false)
+            .addValidator(StandardValidators.NON_EMPTY_VALIDATOR)
+            .build();
 
     public static final Relationship REL_SUCCESS = new Relationship.Builder()
             .name("success")
@@ -159,6 +190,9 @@ public class GetGreengageRecord extends AbstractProcessor {
             .build();
 
     private static final Set<Relationship> RELATIONSHIPS = Set.of(REL_SUCCESS, REL_FAILURE);
+    private static final int MAX_STATE_UPDATE_ATTEMPTS = 10;
+    private static final String FULL_LOAD_DONE_STATE_KEY_SUFFIX = "full_load_done";
+    private static final String FULL_LOAD_DONE_STATE_VALUE = "true";
     private static final List<PropertyDescriptor> PROPERTY_DESCRIPTORS = List.of(
             GPFDIST_SERVICE,
             SCHEMA_NAME,
@@ -169,7 +203,8 @@ public class GetGreengageRecord extends AbstractProcessor {
             READ_BATCH_RECORD_COUNT,
             RECORD_BUFFER_SIZE,
             PULL_BUFFERED_RECORDS_TIMEOUT_MS,
-            MAX_FLOWFILES_PER_TRIGGER);
+            MAX_FLOWFILES_PER_TRIGGER,
+            MAX_VALUE_COLUMN_NAMES);
 
     private ProcessorTaskManager processorTaskManager;
     private TransferDataQueryExecutor insertFromExternalTableQueryExecutor;
@@ -177,6 +212,13 @@ public class GetGreengageRecord extends AbstractProcessor {
     private ReadContext readContext;
     private FlowFileGenerator flowFileGenerator;
     private ContextManager<Context> readContextManager;
+    private GpfdistService gpfdistService;
+    private GpfdistUnloadMetadataFactory gpfdistUnloadMetadataFactory;
+    private TableDescription tableDescription;
+    private List<ColumnDescription> selectedColumns;
+    private List<String> maxValueColumnNamesList = Collections.emptyList();
+    private Map<String, ColumnDataType> maxValueColumnTypes = Collections.emptyMap();
+    private String stateTablePrefix;
 
     @Override
     public Set<Relationship> getRelationships() {
@@ -196,22 +238,26 @@ public class GetGreengageRecord extends AbstractProcessor {
         int maxRecordsBufferSize = context.getProperty(RECORD_BUFFER_SIZE).evaluateAttributeExpressions().asInteger();
         int pullBufferedRecordsTimeoutMs = context.getProperty(PULL_BUFFERED_RECORDS_TIMEOUT_MS).evaluateAttributeExpressions().asInteger();
         int maxFlowFilesPerTrigger = context.getProperty(MAX_FLOWFILES_PER_TRIGGER).asInteger();
+        String maxValueColumnNames = context.getProperty(MAX_VALUE_COLUMN_NAMES).evaluateAttributeExpressions().getValue();
 
-        GpfdistService gpfdistService = context.getProperty(GPFDIST_SERVICE).asControllerService(GpfdistService.class);
+        gpfdistService = context.getProperty(GPFDIST_SERVICE).asControllerService(GpfdistService.class);
         String schema = context.getProperty(SCHEMA_NAME).evaluateAttributeExpressions().getValue();
         String table = context.getProperty(TABLE_NAME).evaluateAttributeExpressions().getValue();
         String columns = context.getProperty(TABLE_COLUMNS).evaluateAttributeExpressions().getValue();
         RecordSetWriterFactory recordSetWriterFactory = context.getProperty(RECORD_WRITER).asControllerService(RecordSetWriterFactory.class);
 
         readContextManager = (ContextManager<Context>) gpfdistService.getReadContextManager();
-        TableDescription tableDescription = gpfdistService.getGreengageMetadataService().getTableDescription(schema, table);
+        tableDescription = gpfdistService.getGreengageMetadataService().getTableDescription(schema, table);
+        stateTablePrefix = getQualifiedName(schema, table);
         createWriteExternalTableQueryExecutor = gpfdistService.getCreateWriteExternalTableQueryExecutor();
         insertFromExternalTableQueryExecutor = gpfdistService.getInsertDataFromTargetTableQueryExecutor();
         final TransferDataQueryExecutor dropExternalTableQueryExecutor = gpfdistService.getDropExternalTableQueryExecutor();
-        GpfdistUnloadMetadataFactory gpfdistUnloadMetadataFactory = gpfdistService.getGpfdistUnloadMetadataFactory();
-        List<ColumnDescription> columnDescriptions = getColumnDescriptions(columns, tableDescription);
-        RecordSchema recordSchema = GreengageColumnDataTypeConverter.convert(columnDescriptions);
-        Map<String, ColumnDataType> dataTypes = columnDescriptions.stream()
+        gpfdistUnloadMetadataFactory = gpfdistService.getGpfdistUnloadMetadataFactory();
+        selectedColumns = getColumnDescriptions(columns, tableDescription);
+        maxValueColumnNamesList = parseColumnNames(maxValueColumnNames);
+        maxValueColumnTypes = getMaxValueColumnTypes(maxValueColumnNamesList, tableDescription);
+        RecordSchema recordSchema = GreengageColumnDataTypeConverter.convert(selectedColumns);
+        Map<String, ColumnDataType> dataTypes = selectedColumns.stream()
                 .collect(Collectors.toMap(ColumnDescription::getName, ColumnDescription::getDataType));
 
         int segmentCount = gpfdistService.getGreengageMetadataService().getSegmentCount();
@@ -232,7 +278,7 @@ public class GetGreengageRecord extends AbstractProcessor {
 
         processorTaskManager.getProcessorTask().forEach(processorTask -> {
             metadataMap.put(processorTask.getId(), gpfdistUnloadMetadataFactory.create(tableDescription,
-                    columnDescriptions,
+                    selectedColumns,
                     contextId,
                     processorTask.getId(),
                     processorTask.getGlobalWorkerIndex()));
@@ -277,11 +323,24 @@ public class GetGreengageRecord extends AbstractProcessor {
         getLogger().debug("Acquired task: {}", processorTask);
         final String processorTaskId = processorTask.getId();
         try {
-            GpfdistMetadata gpfdistMetadata = readContext.getGpfdistMetadata(processorTaskId);
+            GpfdistUnloadMetadata gpfdistMetadata = (GpfdistUnloadMetadata) readContext.getGpfdistMetadata(processorTaskId);
             RecordProcessingService recordService = readContext.getRecordProcessingService(processorTaskId);
-            CompletableFuture<Void> unloadFuture = readContext.getUnloadQueryFutureMap()
-                    .computeIfAbsent(processorTaskId, taskId -> createWriteExternalTableQueryExecutor.execute(gpfdistMetadata)
-                            .thenCompose(v -> insertFromExternalTableQueryExecutor.execute(gpfdistMetadata)));
+            if (readContext.isTaskInRetryDelay(processorTaskId)) {
+                getLogger().debug("Task {} is in retryDelay for {} ms", processorTaskId, readContext.getRetryDelayLeftMillis(processorTaskId));
+                processorTaskManager.release(processorTask);
+                context.yield();
+                return;
+            }
+
+            CompletableFuture<Void> unloadFuture = readContext.getUnloadQueryFutureMap().get(processorTaskId);
+            if (unloadFuture == null) {
+                unloadFuture = createUnloadFuture(session, processorTask, gpfdistMetadata);
+                if (unloadFuture == null) {
+                    processorTaskManager.release(processorTask);
+                    context.yield();
+                    return;
+                }
+            }
             List<FlowFile> readyFlowFiles = flowFileGenerator.createFlowFiles(session, processorTaskId, recordService);
 
             if (readyFlowFiles.isEmpty() && !unloadFuture.isDone()) {
@@ -310,26 +369,34 @@ public class GetGreengageRecord extends AbstractProcessor {
                         errorMsg = cause.getMessage();
                     }
                     session.rollback();
+                    readContext.registerTaskFailure(processorTaskId);
+                    cleanupTaskCycle(processorTask, gpfdistMetadata, recordService, false);
                     context.yield();
-                    processorTaskManager.remove(processorTask);
                     getLogger().error("Unloading query failed for task: {}; Error: {}", processorTaskId, errorMsg);
+                    processorTaskManager.release(processorTask);
                     return;
                 } catch (InterruptedException ie) {
                     Thread.currentThread().interrupt();
                     session.rollback();
+                    readContext.registerTaskFailure(processorTaskId);
+                    cleanupTaskCycle(processorTask, gpfdistMetadata, recordService, false);
                     context.yield();
-                    processorTaskManager.remove(processorTask);
                     getLogger().error("Unloading failed for task: {}; Error: {}", processorTaskId, ie.getMessage());
+                    processorTaskManager.release(processorTask);
                     return;
                 }
                 List<FlowFile> last = flowFileGenerator.createFlowFiles(session, processorTaskId, recordService);
                 transferFlowFiles(session, last);
 
                 if (recordService.isFinished()) {
-                    processorTaskManager.remove(processorTask);
-                    ProcessorTaskResult result = ProcessorTaskResult.aggregate(processorTaskId, recordService.getResult());
-                    getLogger().info("Unloading data for task: {} is fully completed. Result: {}. Task is removed from queue",
+                    final ProcessorTaskResult result = ProcessorTaskResult.aggregate(
+                            processorTaskId,
+                            new ArrayList<>(recordService.getResult()));
+                    updateState(context, processorTask);
+                    cleanupTaskCycle(processorTask, gpfdistMetadata, recordService, true);
+                    getLogger().info("Unloading data for task: {} is fully completed. Result: {}. Task is released for next cycle",
                             processorTaskId, result);
+                    processorTaskManager.release(processorTask);
                 } else {
                     processorTaskManager.release(processorTask);
                     getLogger().debug("Task: {} still has active segments or records; task slot released", processorTaskId);
@@ -340,9 +407,219 @@ public class GetGreengageRecord extends AbstractProcessor {
             }
         } catch (Exception e) {
             session.rollback();
+            readContext.registerTaskFailure(processorTaskId);
+            try {
+                final GpfdistUnloadMetadata metadata = (GpfdistUnloadMetadata) readContext.getGpfdistMetadata(processorTaskId);
+                final RecordProcessingService recordService = readContext.getRecordProcessingService(processorTaskId);
+                cleanupTaskCycle(processorTask, metadata, recordService, false);
+            } catch (Exception cleanupEx) {
+                getLogger().warn("Failed to cleanup task {} after error", processorTaskId, cleanupEx);
+            }
             context.yield();
-            processorTaskManager.remove(processorTask);
             getLogger().error("Unexpected error in processor for task: {}; Error: {}", processorTaskId, e.getMessage(), e);
+            processorTaskManager.release(processorTask);
+        }
+    }
+
+    private CompletableFuture<Void> createUnloadFuture(final ProcessSession session,
+                                                       final ProcessorTaskManager.ProcessorTask processorTask,
+                                                       final GpfdistUnloadMetadata metadata) throws IOException {
+        if (maxValueColumnNamesList.isEmpty() && isFullLoadDone(session, processorTask.getGlobalWorkerIndex())) {
+            getLogger().debug("Skipping unload for task: {} as full load is already done", processorTask.getId());
+            return null;
+        }
+
+        final Map<String, String> lowerValues = getCurrentStateWorkerValues(session, processorTask.getGlobalWorkerIndex());
+        final Map<String, String> upperValues = getWorkerMaxValues(processorTask.getGlobalWorkerIndex());
+        if (!hasNewData(lowerValues, upperValues)) {
+            return null;
+        }
+        if (!maxValueColumnNamesList.isEmpty()) {
+            readContext.setTableColumnsMaxValueContext(processorTask.getId(), new GreengageTableColumnsMaxValueContext(
+                    maxValueColumnNamesList,
+                    maxValueColumnTypes,
+                    lowerValues,
+                    upperValues));
+        }
+        final CompletableFuture<Void> unloadFuture = createWriteExternalTableQueryExecutor.execute(metadata)
+                .thenCompose(v -> insertFromExternalTableQueryExecutor.execute(metadata));
+        readContext.getUnloadQueryFutureMap().put(processorTask.getId(), unloadFuture);
+        return unloadFuture;
+    }
+
+    private Map<String, String> getCurrentStateWorkerValues(final ProcessSession session, final int workerIndex) throws IOException {
+        return getCurrentStateWorkerValues(session.getState(Scope.CLUSTER), workerIndex);
+    }
+
+    private Map<String, String> getCurrentStateWorkerValues(final StateMap stateMap, final int workerIndex) {
+        final Map<String, String> values = new LinkedHashMap<>();
+        for (String column : maxValueColumnNamesList) {
+            final String stateKey = getStateKey(stateTablePrefix, workerIndex, column);
+            final String value = stateMap.get(stateKey);
+            if (value != null) {
+                values.put(column, value);
+            }
+        }
+        return values;
+    }
+
+    private Map<String, String> getWorkerMaxValues(final int workerIndex) {
+        if (maxValueColumnNamesList.isEmpty()) {
+            return Collections.emptyMap();
+        }
+        return gpfdistService.getGreengageMetadataService()
+                .getTableColumnsUpperBoundTuples(tableDescription.getSchemaName(),
+                        tableDescription.getTableName(),
+                        maxValueColumnNamesList,
+                        readContext.getGlobalParallelFactor(),
+                        workerIndex);
+    }
+
+    private boolean hasNewData(final Map<String, String> lowerValues, final Map<String, String> upperValues) {
+        if (maxValueColumnNamesList.isEmpty()) {
+            return true;
+        }
+        if (!hasAllValues(upperValues)) {
+            return false;
+        }
+        if (!hasAllValues(lowerValues)) {
+            return true;
+        }
+        return compareTuples(lowerValues, upperValues) < 0;
+    }
+
+    private boolean hasAllValues(final Map<String, String> values) {
+        return maxValueColumnNamesList.stream().allMatch(column -> values.get(column) != null);
+    }
+
+    private int compareTuples(final Map<String, String> leftValues, final Map<String, String> rightValues) {
+        for (String column : maxValueColumnNamesList) {
+            final int compared = compareByType(maxValueColumnTypes, column, leftValues.get(column), rightValues.get(column));
+            if (compared != 0) {
+                return compared;
+            }
+        }
+        return 0;
+    }
+
+    private boolean isFullLoadDone(final ProcessSession session, final int workerIndex) throws IOException {
+        final String stateKey = getStateKey(stateTablePrefix, workerIndex, FULL_LOAD_DONE_STATE_KEY_SUFFIX);
+        return FULL_LOAD_DONE_STATE_VALUE.equalsIgnoreCase(session.getState(Scope.CLUSTER).get(stateKey));
+    }
+
+    private void updateState(final ProcessContext context, final ProcessorTaskManager.ProcessorTask processorTask) throws IOException {
+        if (maxValueColumnNamesList.isEmpty()) {
+            markFullLoadDone(context, processorTask.getGlobalWorkerIndex());
+            return;
+        }
+
+        final Map<String, String> upperValues = readContext.getTableColumnsMaxValueContext(processorTask.getId())
+                .map(GreengageTableColumnsMaxValueContext::getUpperValues)
+                .orElse(Collections.emptyMap());
+        if (upperValues.isEmpty()) {
+            return;
+        }
+        updateClusterStateWithRetry(
+                context,
+                processorTask.getGlobalWorkerIndex(),
+                "Failed to update max values state after %d attempts for worker %d",
+                "Failed to update max values state for worker {}",
+                (stateMap, updatedState) -> {
+                    final Map<String, String> currentValues = getCurrentStateWorkerValues(stateMap, processorTask.getGlobalWorkerIndex());
+                    if (hasAllValues(currentValues) && hasAllValues(upperValues)
+                            && compareTuples(currentValues, upperValues) >= 0) {
+                        return false;
+                    }
+                    upperValues.forEach((columnName, value) -> {
+                        if (value != null) {
+                            updatedState.put(getStateKey(stateTablePrefix, processorTask.getGlobalWorkerIndex(), columnName), value);
+                        }
+                    });
+                    return true;
+                });
+    }
+
+    private void markFullLoadDone(final ProcessContext context, final int workerIndex) throws IOException {
+        final String stateKey = getStateKey(stateTablePrefix, workerIndex, FULL_LOAD_DONE_STATE_KEY_SUFFIX);
+        updateClusterStateWithRetry(
+                context,
+                workerIndex,
+                "Failed to update full load state after %d attempts for worker %d",
+                "Failed to mark full load done state for worker {}",
+                (stateMap, updatedState) -> {
+                    if (FULL_LOAD_DONE_STATE_VALUE.equalsIgnoreCase(stateMap.get(stateKey))) {
+                        return false;
+                    }
+                    updatedState.put(stateKey, FULL_LOAD_DONE_STATE_VALUE);
+                    return true;
+                });
+    }
+
+    private void updateClusterStateWithRetry(final ProcessContext context,
+                                             final int workerIndex,
+                                             final String exhaustedAttemptsMessage,
+                                             final String errorMessage,
+                                             final BiFunction<StateMap, Map<String, String>, Boolean> stateUpdater) throws IOException {
+        final StateManager stateManager = context.getStateManager();
+        try {
+            for (int attempt = 1; attempt <= MAX_STATE_UPDATE_ATTEMPTS; attempt++) {
+                final StateMap stateMap = stateManager.getState(Scope.CLUSTER);
+                final Map<String, String> updatedState = new HashMap<>(stateMap.toMap());
+                final boolean updateRequired = stateUpdater.apply(stateMap, updatedState);
+                if (!updateRequired) {
+                    return;
+                }
+
+                if (stateManager.replace(stateMap, updatedState, Scope.CLUSTER)) {
+                    return;
+                }
+            }
+
+            throw new IllegalStateException(String.format(exhaustedAttemptsMessage, MAX_STATE_UPDATE_ATTEMPTS, workerIndex));
+        } catch (IOException e) {
+            getLogger().error(errorMessage, workerIndex, e);
+            throw e;
+        }
+    }
+
+    private void cleanupTaskCycle(final ProcessorTaskManager.ProcessorTask processorTask,
+                                  final GpfdistUnloadMetadata gpfdistMetadata,
+                                  final RecordProcessingService recordService,
+                                  final boolean resetRetryDelay) {
+        clearTaskState(processorTask);
+        dropExternalTable(gpfdistMetadata);
+        resetRecordProcessingService(processorTask, recordService);
+        readContext.updateGpfdistMetadata(processorTask.getId(), gpfdistUnloadMetadataFactory.create(tableDescription,
+                selectedColumns,
+                readContext.getContextId(),
+                processorTask.getId(),
+                processorTask.getGlobalWorkerIndex()));
+        if (resetRetryDelay) {
+            readContext.resetRetryDelay(processorTask.getId());
+        }
+    }
+
+    private void clearTaskState(ProcessorTaskManager.ProcessorTask processorTask) {
+        try {
+            readContext.clearTaskState(processorTask.getId());
+        } catch (Exception e) {
+            getLogger().warn("Failed to clear runtime state for task {}", processorTask.getId(), e);
+        }
+    }
+
+    private void dropExternalTable(GpfdistUnloadMetadata gpfdistMetadata) {
+        try {
+            gpfdistService.getDropExternalTableQueryExecutor().execute(gpfdistMetadata).get();
+        } catch (Exception e) {
+            getLogger().warn("Failed to drop external table for task {}", gpfdistMetadata.getProcessorTaskId(), e);
+        }
+    }
+
+    private void resetRecordProcessingService(ProcessorTaskManager.ProcessorTask processorTask, RecordProcessingService recordService) {
+        try {
+            recordService.resetForNextCycle();
+        } catch (Exception e) {
+            getLogger().warn("Failed to reset record processing service for task {}", processorTask.getId(), e);
         }
     }
 
@@ -378,5 +655,36 @@ public class GetGreengageRecord extends AbstractProcessor {
             columnDescriptions.add(columnDescription);
         }
         return columnDescriptions;
+    }
+
+    private List<String> parseColumnNames(final String columnsProperty) {
+        if (columnsProperty == null || columnsProperty.isBlank()) {
+            return Collections.emptyList();
+        }
+        return Arrays.stream(columnsProperty.split(","))
+                .map(col -> col.replace(QUOTE, "").trim())
+                .filter(col -> !col.isEmpty())
+                .collect(Collectors.toList());
+    }
+
+    private Map<String, ColumnDataType> getMaxValueColumnTypes(final List<String> maxColumns,
+                                                               final TableDescription tableDescription) {
+        final Map<String, ColumnDataType> result = new LinkedHashMap<>();
+        for (String maxColumn : maxColumns) {
+            final ColumnDescription columnDescription = tableDescription.getColumns().get(maxColumn);
+            if (columnDescription == null) {
+                throw new IllegalStateException("Column " + maxColumn + " not found in table " + tableDescription.getTableName());
+            }
+            if (columnDescription.isNullable()) {
+                throw new IllegalStateException("Column " + maxColumn + " must be NOT NULL for max value tracking");
+            }
+            final GreengageDataType type = columnDescription.getDataType().getType();
+            if (!SUPPORTED_MAX_VALUE_TYPES.contains(type)) {
+                throw new IllegalStateException("Column " + maxColumn + " has unsupported type for max value tracking: " + type
+                        + ". Supported types: " + SUPPORTED_MAX_VALUE_TYPES_DESCRIPTION);
+            }
+            result.put(maxColumn, columnDescription.getDataType());
+        }
+        return result;
     }
 }

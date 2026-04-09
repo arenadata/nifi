@@ -25,11 +25,16 @@ import org.apache.nifi.serialization.record.RecordSchema;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 
 public class ReadContext implements Context {
+    private static final long RETRY_DELAY_BASE_MILLIS = 1_000L;
+    private static final int RETRY_DELAY_MAX_EXPONENT = 5;
+    private static final long RETRY_DELAY_MAX_MILLIS = 30_000L;
+
     private final ContextId contextId;
     private final int globalParallelFactor;
     private final RecordSchema recordSchema;
@@ -37,6 +42,9 @@ public class ReadContext implements Context {
     private final Map<String, GpfdistMetadata> metadataMap;
     private final Map<String, RecordProcessingService> recordProcessingServiceMap;
     private final Map<String, CompletableFuture<Void>> unloadQueryFutureMap;
+    private final Map<String, GreengageTableColumnsMaxValueContext> maxValueTrackingContextMap;
+    private final Map<String, Long> retryAfterMap;
+    private final Map<String, Integer> failureCountMap;
     private final TransferDataQueryExecutor dropExternalTableQueryExecutor;
     private final ComponentLog logger;
 
@@ -56,6 +64,9 @@ public class ReadContext implements Context {
         this.dataTypes = dataTypes;
         this.dropExternalTableQueryExecutor = dropExternalTableQueryExecutor;
         unloadQueryFutureMap = new ConcurrentHashMap<>();
+        maxValueTrackingContextMap = new ConcurrentHashMap<>();
+        retryAfterMap = new ConcurrentHashMap<>();
+        failureCountMap = new ConcurrentHashMap<>();
         this.logger = logger;
     }
 
@@ -80,6 +91,53 @@ public class ReadContext implements Context {
 
     public Map<String, CompletableFuture<Void>> getUnloadQueryFutureMap() {
         return unloadQueryFutureMap;
+    }
+
+    public void setTableColumnsMaxValueContext(final String taskId, final GreengageTableColumnsMaxValueContext context) {
+        maxValueTrackingContextMap.put(taskId, Objects.requireNonNull(context, "greengageTableColumnsMaxValueContext cannot be null"));
+    }
+
+    public Optional<GreengageTableColumnsMaxValueContext> getTableColumnsMaxValueContext(final String taskId) {
+        return Optional.ofNullable(maxValueTrackingContextMap.get(taskId));
+    }
+
+    public void updateGpfdistMetadata(final String taskId, final GpfdistMetadata metadata) {
+        metadataMap.put(taskId, metadata);
+    }
+
+    public boolean isTaskInRetryDelay(final String taskId) {
+        final Long retryAfter = retryAfterMap.get(taskId);
+        return retryAfter != null && retryAfter > System.currentTimeMillis();
+    }
+
+    public long getRetryDelayLeftMillis(final String taskId) {
+        final Long retryAfter = retryAfterMap.get(taskId);
+        if (retryAfter == null) {
+            return 0L;
+        }
+        return Math.max(0L, retryAfter - System.currentTimeMillis());
+    }
+
+    public void resetRetryDelay(final String taskId) {
+        retryAfterMap.remove(taskId);
+        failureCountMap.remove(taskId);
+    }
+
+    public void registerTaskFailure(final String taskId) {
+        final int failures = failureCountMap.merge(taskId, 1, Integer::sum);
+        // exponential backoff with cap:
+        // delay = min(RETRY_DELAY_MAX_MILLIS, RETRY_DELAY_BASE_MILLIS * 2^min(RETRY_DELAY_MAX_EXPONENT, failures)).
+        // the "retry after" moment is current time plus the computed delay.
+        final long retryDelayMillis = Math.min(
+                RETRY_DELAY_MAX_MILLIS,
+                RETRY_DELAY_BASE_MILLIS * (1L << Math.min(RETRY_DELAY_MAX_EXPONENT, failures))
+        );
+        retryAfterMap.put(taskId, System.currentTimeMillis() + retryDelayMillis);
+    }
+
+    public void clearTaskState(final String taskId) {
+        unloadQueryFutureMap.remove(taskId);
+        maxValueTrackingContextMap.remove(taskId);
     }
 
     public RecordSchema getRecordSchema() {
@@ -137,6 +195,9 @@ public class ReadContext implements Context {
             metadataMap.clear();
             recordProcessingServiceMap.clear();
             unloadQueryFutureMap.clear();
+            maxValueTrackingContextMap.clear();
+            retryAfterMap.clear();
+            failureCountMap.clear();
             logger.info("Closed read context with id: {}", contextId);
         }
     }
