@@ -174,7 +174,8 @@ public class GetGreengageRecord extends AbstractProcessor {
                     + "to the column list; column tuples are compared lexicographically in that order. This processor "
                     + "can be used to retrieve only those rows that have been added/updated since the last retrieval. Columns listed in this property "
                     + "must be NOT NULL. Supported types: " + SUPPORTED_MAX_VALUE_TYPES_DESCRIPTION + ". If no columns "
-                    + "are provided, the processor performs full table unloading once for each worker task, and then skips further unload cycles until processor state is cleared. NOTE: It is important "
+                    + "are provided, the processor performs full table unloading once for each worker task, "
+                    + "and then skips further unload cycles until processor state is cleared. NOTE: It is important "
                     + "to use consistent max-value column names for a given table for incremental fetch to work properly.")
             .required(false)
             .addValidator(StandardValidators.NON_EMPTY_VALIDATOR)
