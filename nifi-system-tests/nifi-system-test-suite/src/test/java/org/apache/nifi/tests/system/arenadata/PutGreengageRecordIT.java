@@ -19,21 +19,15 @@ package org.apache.nifi.tests.system.arenadata;
 import io.qameta.allure.Feature;
 import io.qameta.allure.Step;
 import lombok.SneakyThrows;
-import org.apache.nifi.tests.system.arenadata.model.Component;
 import org.apache.nifi.tests.system.arenadata.model.DataSourceProperties;
-import org.apache.nifi.tests.system.arenadata.service.DockerComposeService;
-import org.apache.nifi.tests.system.arenadata.service.JdbcService;
-import org.apache.nifi.tests.system.arenadata.service.JdbcServiceFactory;
 import org.apache.nifi.web.api.entity.ConnectionEntity;
 import org.apache.nifi.web.api.entity.ControllerServiceEntity;
 import org.apache.nifi.web.api.entity.ProcessorEntity;
 import org.junit.jupiter.api.AfterEach;
-import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
 import java.util.HashMap;
 import java.util.LinkedHashMap;
-import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
