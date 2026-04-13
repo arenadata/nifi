@@ -26,7 +26,6 @@ import org.apache.nifi.annotation.lifecycle.OnUnscheduled;
 import org.apache.nifi.components.PropertyDescriptor;
 import org.apache.nifi.components.state.Scope;
 import org.apache.nifi.components.state.StateMap;
-import org.apache.nifi.components.state.StateManager;
 import org.apache.nifi.flowfile.FlowFile;
 import org.apache.nifi.gpfdist.metadata.ColumnDataType;
 import org.apache.nifi.gpfdist.metadata.ColumnDescription;
@@ -35,6 +34,7 @@ import org.apache.nifi.gpfdist.metadata.ContextManager;
 import org.apache.nifi.gpfdist.metadata.GpfdistMetadata;
 import org.apache.nifi.gpfdist.metadata.GreengageDataType;
 import org.apache.nifi.gpfdist.metadata.TableDescription;
+import org.apache.nifi.gpfdist.service.CancellableQuery;
 import org.apache.nifi.gpfdist.service.GpfdistService;
 import org.apache.nifi.gpfdist.service.GpfdistUnloadMetadataFactory;
 import org.apache.nifi.gpfdist.service.TransferDataQueryExecutor;
@@ -71,6 +71,8 @@ import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BiFunction;
 import java.util.stream.Collectors;
 
@@ -333,7 +335,7 @@ public class GetGreengageRecord extends AbstractProcessor {
                 return;
             }
 
-            CompletableFuture<Void> unloadFuture = readContext.getUnloadQueryFutureMap().get(processorTaskId);
+            CompletableFuture<Void> unloadFuture = readContext.getUnloadQueryFuture(processorTaskId);
             if (unloadFuture == null) {
                 unloadFuture = createUnloadFuture(session, processorTask, gpfdistMetadata);
                 if (unloadFuture == null) {
@@ -393,7 +395,7 @@ public class GetGreengageRecord extends AbstractProcessor {
                     final ProcessorTaskResult result = ProcessorTaskResult.aggregate(
                             processorTaskId,
                             new ArrayList<>(recordService.getResult()));
-                    updateState(context, processorTask);
+                    updateState(session, processorTask);
                     cleanupTaskCycle(processorTask, gpfdistMetadata, recordService, true);
                     getLogger().info("Unloading data for task: {} is fully completed. Result: {}. Task is released for next cycle",
                             processorTaskId, result);
@@ -442,9 +444,9 @@ public class GetGreengageRecord extends AbstractProcessor {
                     lowerValues,
                     upperValues));
         }
-        final CompletableFuture<Void> unloadFuture = createWriteExternalTableQueryExecutor.execute(metadata)
-                .thenCompose(v -> insertFromExternalTableQueryExecutor.execute(metadata));
-        readContext.getUnloadQueryFutureMap().put(processorTask.getId(), unloadFuture);
+        final CancellableQuery unloadQuery = executeUnloadQuery(metadata);
+        final CompletableFuture<Void> unloadFuture = unloadQuery.future();
+        readContext.setUnloadQuery(processorTask.getId(), unloadQuery);
         return unloadFuture;
     }
 
@@ -508,9 +510,9 @@ public class GetGreengageRecord extends AbstractProcessor {
         return FULL_LOAD_DONE_STATE_VALUE.equalsIgnoreCase(session.getState(Scope.CLUSTER).get(stateKey));
     }
 
-    private void updateState(final ProcessContext context, final ProcessorTaskManager.ProcessorTask processorTask) throws IOException {
+    private void updateState(final ProcessSession session, final ProcessorTaskManager.ProcessorTask processorTask) throws IOException {
         if (maxValueColumnNamesList.isEmpty()) {
-            markFullLoadDone(context, processorTask.getGlobalWorkerIndex());
+            markFullLoadDone(session, processorTask.getGlobalWorkerIndex());
             return;
         }
 
@@ -521,7 +523,7 @@ public class GetGreengageRecord extends AbstractProcessor {
             return;
         }
         updateClusterStateWithRetry(
-                context,
+                session,
                 processorTask.getGlobalWorkerIndex(),
                 "Failed to update max values state after %d attempts for worker %d",
                 "Failed to update max values state for worker {}",
@@ -540,10 +542,10 @@ public class GetGreengageRecord extends AbstractProcessor {
                 });
     }
 
-    private void markFullLoadDone(final ProcessContext context, final int workerIndex) throws IOException {
+    private void markFullLoadDone(final ProcessSession session, final int workerIndex) throws IOException {
         final String stateKey = getStateKey(stateTablePrefix, workerIndex, FULL_LOAD_DONE_STATE_KEY_SUFFIX);
         updateClusterStateWithRetry(
-                context,
+                session,
                 workerIndex,
                 "Failed to update full load state after %d attempts for worker %d",
                 "Failed to mark full load done state for worker {}",
@@ -556,22 +558,21 @@ public class GetGreengageRecord extends AbstractProcessor {
                 });
     }
 
-    private void updateClusterStateWithRetry(final ProcessContext context,
+    private void updateClusterStateWithRetry(final ProcessSession session,
                                              final int workerIndex,
                                              final String exhaustedAttemptsMessage,
                                              final String errorMessage,
                                              final BiFunction<StateMap, Map<String, String>, Boolean> stateUpdater) throws IOException {
-        final StateManager stateManager = context.getStateManager();
         try {
             for (int attempt = 1; attempt <= MAX_STATE_UPDATE_ATTEMPTS; attempt++) {
-                final StateMap stateMap = stateManager.getState(Scope.CLUSTER);
+                final StateMap stateMap = session.getState(Scope.CLUSTER);
                 final Map<String, String> updatedState = new HashMap<>(stateMap.toMap());
                 final boolean updateRequired = stateUpdater.apply(stateMap, updatedState);
                 if (!updateRequired) {
                     return;
                 }
 
-                if (stateManager.replace(stateMap, updatedState, Scope.CLUSTER)) {
+                if (session.replaceState(stateMap, updatedState, Scope.CLUSTER)) {
                     return;
                 }
             }
@@ -581,6 +582,58 @@ public class GetGreengageRecord extends AbstractProcessor {
             getLogger().error(errorMessage, workerIndex, e);
             throw e;
         }
+    }
+
+    private CancellableQuery executeUnloadQuery(final GpfdistUnloadMetadata metadata) {
+        final AtomicReference<CancellableQuery> activeQueryRef = new AtomicReference<>();
+        final AtomicBoolean canceled = new AtomicBoolean(false);
+        final CompletableFuture<Void> unloadFuture = new CompletableFuture<>();
+
+        final CancellableQuery createExternalTableQuery = createWriteExternalTableQueryExecutor.executeCancellable(metadata);
+        activeQueryRef.set(createExternalTableQuery);
+        createExternalTableQuery.future().whenComplete((v, createError) -> {
+            if (createError != null) {
+                unloadFuture.completeExceptionally(createError);
+                return;
+            }
+            if (canceled.get()) {
+                unloadFuture.cancel(true);
+                return;
+            }
+
+            final CancellableQuery insertFromExternalTableQuery = insertFromExternalTableQueryExecutor.executeCancellable(metadata);
+            activeQueryRef.set(insertFromExternalTableQuery);
+            if (canceled.get()) {
+                insertFromExternalTableQuery.cancel();
+                unloadFuture.cancel(true);
+                return;
+            }
+
+            insertFromExternalTableQuery.future().whenComplete((insertV, insertError) -> {
+                if (insertError != null) {
+                    unloadFuture.completeExceptionally(insertError);
+                } else {
+                    unloadFuture.complete(null);
+                }
+            });
+        });
+
+        return new CancellableQuery() {
+            @Override
+            public CompletableFuture<Void> future() {
+                return unloadFuture;
+            }
+
+            @Override
+            public void cancel() {
+                canceled.set(true);
+                final CancellableQuery activeQuery = activeQueryRef.get();
+                if (activeQuery != null) {
+                    activeQuery.cancel();
+                }
+                unloadFuture.cancel(true);
+            }
+        };
     }
 
     private void cleanupTaskCycle(final ProcessorTaskManager.ProcessorTask processorTask,

@@ -17,6 +17,7 @@ import org.apache.nifi.gpfdist.metadata.ColumnDataType;
 import org.apache.nifi.gpfdist.metadata.Context;
 import org.apache.nifi.gpfdist.metadata.ContextId;
 import org.apache.nifi.gpfdist.metadata.GpfdistMetadata;
+import org.apache.nifi.gpfdist.service.CancellableQuery;
 import org.apache.nifi.gpfdist.service.TransferDataQueryExecutor;
 import org.apache.nifi.gpfdist.service.unload.process.RecordProcessingService;
 import org.apache.nifi.logging.ComponentLog;
@@ -41,7 +42,7 @@ public class ReadContext implements Context {
     private final Map<String, ColumnDataType> dataTypes;
     private final Map<String, GpfdistMetadata> metadataMap;
     private final Map<String, RecordProcessingService> recordProcessingServiceMap;
-    private final Map<String, CompletableFuture<Void>> unloadQueryFutureMap;
+    private final Map<String, CancellableQuery> unloadQueryMap;
     private final Map<String, GreengageTableColumnsMaxValueContext> maxValueTrackingContextMap;
     private final Map<String, Long> retryAfterMap;
     private final Map<String, Integer> failureCountMap;
@@ -63,7 +64,7 @@ public class ReadContext implements Context {
         this.recordProcessingServiceMap = recordProcessingServiceMap;
         this.dataTypes = dataTypes;
         this.dropExternalTableQueryExecutor = dropExternalTableQueryExecutor;
-        unloadQueryFutureMap = new ConcurrentHashMap<>();
+        unloadQueryMap = new ConcurrentHashMap<>();
         maxValueTrackingContextMap = new ConcurrentHashMap<>();
         retryAfterMap = new ConcurrentHashMap<>();
         failureCountMap = new ConcurrentHashMap<>();
@@ -89,8 +90,13 @@ public class ReadContext implements Context {
                 .orElseThrow(() -> new IllegalArgumentException("No record processing service for processor task id " + processorTaskId));
     }
 
-    public Map<String, CompletableFuture<Void>> getUnloadQueryFutureMap() {
-        return unloadQueryFutureMap;
+    public CompletableFuture<Void> getUnloadQueryFuture(final String taskId) {
+        final CancellableQuery unloadQuery = unloadQueryMap.get(taskId);
+        return unloadQuery == null ? null : unloadQuery.future();
+    }
+
+    public void setUnloadQuery(final String taskId, final CancellableQuery unloadQuery) {
+        unloadQueryMap.put(taskId, Objects.requireNonNull(unloadQuery, "unloadQuery cannot be null"));
     }
 
     public void setTableColumnsMaxValueContext(final String taskId, final GreengageTableColumnsMaxValueContext context) {
@@ -136,7 +142,14 @@ public class ReadContext implements Context {
     }
 
     public void clearTaskState(final String taskId) {
-        unloadQueryFutureMap.remove(taskId);
+        final CancellableQuery unloadQuery = unloadQueryMap.remove(taskId);
+        if (unloadQuery != null) {
+            try {
+                unloadQuery.cancel();
+            } catch (Exception e) {
+                logger.warn("Failed to cancel unloading query for taskId: {}", taskId, e);
+            }
+        }
         maxValueTrackingContextMap.remove(taskId);
     }
 
@@ -180,13 +193,11 @@ public class ReadContext implements Context {
                 rps.stop();
                 rps.clear();
             });
-            unloadQueryFutureMap.forEach((taskId, unloadQueryFutures) -> {
-                if (!unloadQueryFutures.isDone()) {
-                    try {
-                        unloadQueryFutures.completeExceptionally(new RuntimeException("Unloading was stopped"));
-                    } catch (Exception e) {
-                        logger.warn("Failed to stop unloading query future for taskId: {}", taskId, e);
-                    }
+            unloadQueryMap.forEach((taskId, unloadQuery) -> {
+                try {
+                    unloadQuery.cancel();
+                } catch (Exception e) {
+                    logger.warn("Failed to stop unloading query for taskId: {}", taskId, e);
                 }
             });
         } catch (Exception e) {
@@ -194,7 +205,7 @@ public class ReadContext implements Context {
         } finally {
             metadataMap.clear();
             recordProcessingServiceMap.clear();
-            unloadQueryFutureMap.clear();
+            unloadQueryMap.clear();
             maxValueTrackingContextMap.clear();
             retryAfterMap.clear();
             failureCountMap.clear();
