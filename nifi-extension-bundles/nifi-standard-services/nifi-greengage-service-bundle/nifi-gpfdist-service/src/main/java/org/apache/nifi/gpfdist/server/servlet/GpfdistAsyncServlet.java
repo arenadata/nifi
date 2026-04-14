@@ -16,6 +16,12 @@
  */
 package org.apache.nifi.gpfdist.server.servlet;
 
+import jakarta.servlet.AsyncContext;
+import jakarta.servlet.ServletOutputStream;
+import jakarta.servlet.WriteListener;
+import jakarta.servlet.http.HttpServlet;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 import org.apache.hc.core5.http.ContentType;
 import org.apache.hc.core5.http.HttpHeaders;
 import org.apache.nifi.gpfdist.metadata.Context;
@@ -40,12 +46,6 @@ import org.apache.nifi.gpfdist.service.unload.process.InputDataProcessorFactory;
 import org.apache.nifi.gpfdist.service.unload.process.RecordProcessingService;
 import org.apache.nifi.logging.ComponentLog;
 
-import jakarta.servlet.AsyncContext;
-import jakarta.servlet.ServletOutputStream;
-import jakarta.servlet.WriteListener;
-import jakarta.servlet.http.HttpServlet;
-import jakarta.servlet.http.HttpServletRequest;
-import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.Enumeration;

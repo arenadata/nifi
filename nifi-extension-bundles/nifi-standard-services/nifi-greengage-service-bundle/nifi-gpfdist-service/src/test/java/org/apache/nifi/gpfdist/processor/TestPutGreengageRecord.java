@@ -17,8 +17,8 @@
 package org.apache.nifi.gpfdist.processor;
 
 import org.apache.nifi.gpfdist.service.CancellableQuery;
-import org.apache.nifi.gpfdist.service.GreengageService;
 import org.apache.nifi.gpfdist.service.GpfdistLoadMetadataFactory;
+import org.apache.nifi.gpfdist.service.GreengageService;
 import org.apache.nifi.gpfdist.service.TransferDataQueryExecutor;
 import org.apache.nifi.gpfdist.service.datatype.IntegerDataType;
 import org.apache.nifi.gpfdist.service.datatype.VarcharDataType;

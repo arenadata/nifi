@@ -46,7 +46,7 @@ public class GpfdistRecordProcessorProvider implements RecordProcessorProvider {
     private boolean isReadyForProcessing;
     private ProviderState state = ProviderState.OPEN;
 
-    enum ProviderState {OPEN, CLOSED, ABORTED}
+    enum ProviderState { OPEN, CLOSED, ABORTED }
 
     public GpfdistRecordProcessorProvider(String sinkId, ComponentLog logger) {
         this.sinkId = sinkId;
