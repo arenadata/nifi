@@ -222,6 +222,7 @@ public class GetGreengageRecord extends AbstractProcessor {
     private List<String> maxValueColumnNamesList = Collections.emptyList();
     private Map<String, ColumnDataType> maxValueColumnTypes = Collections.emptyMap();
     private String stateTablePrefix;
+    private final Map<Integer, Map<String, String>> pendingLowerValuesByWorker = new ConcurrentHashMap<>();
 
     @Override
     public Set<Relationship> getRelationships() {
@@ -236,6 +237,7 @@ public class GetGreengageRecord extends AbstractProcessor {
     @SuppressWarnings("unchecked")
     @OnScheduled
     public void onScheduled(final ProcessContext context) {
+        pendingLowerValuesByWorker.clear();
         int parallelFactor = context.getProperty(NODE_PARALLEL_FACTOR).asInteger();
         int batchRecordCount = context.getProperty(READ_BATCH_RECORD_COUNT).evaluateAttributeExpressions().asInteger();
         int maxRecordsBufferSize = context.getProperty(RECORD_BUFFER_SIZE).evaluateAttributeExpressions().asInteger();
@@ -432,7 +434,8 @@ public class GetGreengageRecord extends AbstractProcessor {
             return null;
         }
 
-        final Map<String, String> lowerValues = getCurrentStateWorkerValues(session, processorTask.getGlobalWorkerIndex());
+        final int workerIndex = processorTask.getGlobalWorkerIndex();
+        final Map<String, String> lowerValues = getEffectiveLowerValues(session, workerIndex);
         final Map<String, String> upperValues = getWorkerMaxValues(processorTask.getGlobalWorkerIndex());
         if (!hasNewData(lowerValues, upperValues)) {
             return null;
@@ -540,6 +543,14 @@ public class GetGreengageRecord extends AbstractProcessor {
                     });
                     return true;
                 });
+        if (hasAllValues(upperValues)) {
+            pendingLowerValuesByWorker.compute(processorTask.getGlobalWorkerIndex(), (worker, pendingValues) -> {
+                if (pendingValues == null || !hasAllValues(pendingValues) || compareTuples(pendingValues, upperValues) < 0) {
+                    return new LinkedHashMap<>(upperValues);
+                }
+                return pendingValues;
+            });
+        }
     }
 
     private void markFullLoadDone(final ProcessSession session, final int workerIndex) throws IOException {
@@ -693,6 +704,7 @@ public class GetGreengageRecord extends AbstractProcessor {
         } catch (Exception e) {
             getLogger().warn("Failed to close read context {}", readContext.getContextId(), e);
         }
+        pendingLowerValuesByWorker.clear();
     }
 
     private List<ColumnDescription> getColumnDescriptions(String columnsProperty,
@@ -740,5 +752,29 @@ public class GetGreengageRecord extends AbstractProcessor {
             result.put(maxColumn, columnDescription.getDataType());
         }
         return result;
+    }
+
+    private Map<String, String> getEffectiveLowerValues(final ProcessSession session, final int workerIndex) throws IOException {
+        final Map<String, String> stateLowerValues = getCurrentStateWorkerValues(session, workerIndex);
+        if (maxValueColumnNamesList.isEmpty()) {
+            return stateLowerValues;
+        }
+
+        final Map<String, String> pendingLowerValues = pendingLowerValuesByWorker.get(workerIndex);
+        if (pendingLowerValues == null || !hasAllValues(pendingLowerValues)) {
+            return stateLowerValues;
+        }
+
+        if (hasAllValues(stateLowerValues)) {
+            if (compareTuples(stateLowerValues, pendingLowerValues) >= 0) {
+                pendingLowerValuesByWorker.remove(workerIndex);
+                return stateLowerValues;
+            }
+            getLogger().debug("Using pending lower values for worker {} while cluster state is behind: {}", workerIndex, pendingLowerValues);
+            return pendingLowerValues;
+        }
+
+        getLogger().debug("Using pending lower values for worker {} before cluster state is visible: {}", workerIndex, pendingLowerValues);
+        return pendingLowerValues;
     }
 }
