@@ -34,4 +34,5 @@ public enum GreengageDataType {
     TIMESTAMP_WITHOUT_TIME_ZONE,
     ARRAY,
     MAP,
+    ENUM
 }

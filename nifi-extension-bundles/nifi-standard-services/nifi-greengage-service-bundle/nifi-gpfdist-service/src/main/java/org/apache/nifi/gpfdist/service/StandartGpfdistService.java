@@ -16,72 +16,111 @@
  */
 package org.apache.nifi.gpfdist.service;
 
+import org.apache.nifi.annotation.behavior.Stateful;
 import org.apache.nifi.annotation.documentation.CapabilityDescription;
 import org.apache.nifi.annotation.documentation.Tags;
 import org.apache.nifi.annotation.lifecycle.OnDisabled;
 import org.apache.nifi.annotation.lifecycle.OnEnabled;
 import org.apache.nifi.annotation.lifecycle.OnShutdown;
 import org.apache.nifi.components.PropertyDescriptor;
+import org.apache.nifi.components.state.Scope;
+import org.apache.nifi.components.state.StateManager;
+import org.apache.nifi.components.state.StateMap;
 import org.apache.nifi.controller.AbstractControllerService;
 import org.apache.nifi.controller.ConfigurationContext;
 import org.apache.nifi.dbcp.DBCPService;
+import org.apache.nifi.gpfdist.metadata.Context;
+import org.apache.nifi.gpfdist.metadata.ContextManager;
+import org.apache.nifi.gpfdist.metadata.GpfidstLoadConfig;
 import org.apache.nifi.gpfdist.server.DefaultGpfdistServer;
 import org.apache.nifi.gpfdist.server.GpfdistServer;
 import org.apache.nifi.gpfdist.server.config.GpfdistServerConfig;
+import org.apache.nifi.gpfdist.service.cluster.ClusterStateNodeIndexService;
+import org.apache.nifi.gpfdist.service.context.DefaultContextManager;
 import org.apache.nifi.gpfdist.service.greengage.DefaultGreengageService;
-import org.apache.nifi.gpfdist.service.load.context.WriteContextManager;
 import org.apache.nifi.gpfdist.service.load.metadata.factory.CreateReadableExternalTableQueryFactory;
 import org.apache.nifi.gpfdist.service.load.metadata.factory.DefaulGpfdistLocationFactory;
 import org.apache.nifi.gpfdist.service.load.metadata.factory.DefaultGpfdistLoadMetadataFactory;
-import org.apache.nifi.gpfdist.service.load.metadata.factory.DefaultInsertDataQueryFactory;
+import org.apache.nifi.gpfdist.service.load.metadata.factory.DropExternalTableQueryFactoryImpl;
+import org.apache.nifi.gpfdist.service.load.metadata.factory.LoadInsertDataQueryFactory;
 import org.apache.nifi.gpfdist.service.load.process.GpfdistRecordProcessorFactory;
-import org.apache.nifi.gpfdist.service.load.process.GpfdistRecordSinkProvider;
 import org.apache.nifi.gpfdist.service.load.process.RecordProcessorFactory;
-import org.apache.nifi.gpfdist.service.load.query.LoadDataQueryExecutor;
 import org.apache.nifi.gpfdist.service.metadata.CsvFormatConfig;
 import org.apache.nifi.gpfdist.service.metadata.DefaultExternalTableFormatConfigFactory;
+import org.apache.nifi.gpfdist.service.query.CreateExternalTableQueryExecutor;
+import org.apache.nifi.gpfdist.service.query.DropExternalTableQueryExecutor;
+import org.apache.nifi.gpfdist.service.query.InsertDataQueryExecutor;
+import org.apache.nifi.gpfdist.service.unload.metadata.DefaultGpfdistUnloadMetadataFactory;
+import org.apache.nifi.gpfdist.service.unload.process.GpfdistInputDataProcessorFactory;
+import org.apache.nifi.gpfdist.service.unload.process.InputDataProcessorFactory;
+import org.apache.nifi.gpfdist.service.unload.query.CreateWritableExternalTableQueryFactory;
+import org.apache.nifi.gpfdist.service.unload.query.UnloadInsertDataQueryFactory;
 import org.apache.nifi.logging.ComponentLog;
 import org.apache.nifi.processor.DataUnit;
+import org.apache.nifi.processor.util.StandardValidators;
 
 import java.net.InetAddress;
 import java.net.UnknownHostException;
-import java.util.ArrayList;
-import java.util.Collections;
+import java.util.HashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 
 import static org.apache.nifi.gpfdist.service.GpfdistProperties.DBCP_SERVICE;
+import static org.apache.nifi.gpfdist.service.GpfdistProperties.GPFDIST_PER_GREENGAGE_SEGMENT_STREAM_BUFFER_ENQUEUE_TIMEOUT;
+import static org.apache.nifi.gpfdist.service.GpfdistProperties.GPFDIST_PER_GREENGAGE_SEGMENT_STREAM_MAX_BUFFER_SIZE;
 import static org.apache.nifi.gpfdist.service.GpfdistProperties.GPFDIST_REQUEST_PROCESSOR_MAX_THREADS;
 import static org.apache.nifi.gpfdist.service.GpfdistProperties.GPFDIST_SERVER_MAX_THREADS;
 import static org.apache.nifi.gpfdist.service.GpfdistProperties.GPFDIST_SERVER_MIN_THREADS;
 import static org.apache.nifi.gpfdist.service.GpfdistProperties.GPFDIST_SERVER_THREAD_IDLE_TIMEOUT_MS;
 import static org.apache.nifi.gpfdist.service.GpfdistProperties.PORT;
-import static org.apache.nifi.gpfdist.service.GpfdistProperties.RECORD_PROCESSOR_MAX_THREADS;
-import static org.apache.nifi.gpfdist.service.GpfdistProperties.WRITE_BUFFER_SIZE;
+import static org.apache.nifi.gpfdist.service.util.ClusterNodeUtil.getNodesHostnames;
 
+@Stateful(description = "Store information about cluster nodes hostnames", scopes = {Scope.CLUSTER})
 @Tags({"gpfdist"})
 @CapabilityDescription("Provides the ability to load data to Greengage segments directly")
 public class StandartGpfdistService extends AbstractControllerService implements GpfdistService {
+    private static final String KEY_HOSTS = "hosts";
+    private static final int MAX_REGISTER_ATTEMPTS = 10;
+    private static final long LOAD_ASYNC_TIMEOUT_MS = 120_000;
     private static final List<PropertyDescriptor> PROPERTIES;
 
+    static final PropertyDescriptor NODE_COUNT = new PropertyDescriptor.Builder()
+            .name("Total Nifi Nodes")
+            .description("Total nifi cluster nodes count")
+            .required(true)
+            .addValidator(StandardValidators.INTEGER_VALIDATOR)
+            .defaultValue("1")
+            .build();
+
     static {
-        final List<PropertyDescriptor> props = new ArrayList<>();
-        props.add(PORT);
-        props.add(DBCP_SERVICE);
-        props.add(WRITE_BUFFER_SIZE);
-        props.add(RECORD_PROCESSOR_MAX_THREADS);
-        props.add(GPFDIST_REQUEST_PROCESSOR_MAX_THREADS);
-        props.add(GPFDIST_SERVER_MIN_THREADS);
-        props.add(GPFDIST_SERVER_MAX_THREADS);
-        props.add(GPFDIST_SERVER_THREAD_IDLE_TIMEOUT_MS);
-        PROPERTIES = Collections.unmodifiableList(props);
+        PROPERTIES = List.of(PORT,
+                DBCP_SERVICE,
+                GPFDIST_REQUEST_PROCESSOR_MAX_THREADS,
+                GPFDIST_SERVER_MIN_THREADS,
+                GPFDIST_SERVER_MAX_THREADS,
+                GPFDIST_SERVER_THREAD_IDLE_TIMEOUT_MS,
+                NODE_COUNT,
+                GPFDIST_PER_GREENGAGE_SEGMENT_STREAM_MAX_BUFFER_SIZE,
+                GPFDIST_PER_GREENGAGE_SEGMENT_STREAM_BUFFER_ENQUEUE_TIMEOUT);
     }
 
     private GpfdistServer server;
-    private RecordSinkProvider recordSinkProvider;
     private GreengageService greengageService;
-    private TransferDataQueryExecutor queryExecutor;
+    private TransferDataQueryExecutor createReadExternalTableQueryExecutor;
+    private TransferDataQueryExecutor createWriteExternalTableQueryExecutor;
+    private TransferDataQueryExecutor insertDataIntoTargetTableQueryExecutor;
+    private TransferDataQueryExecutor dropExternalTableQueryExecutor;
+    private TransferDataQueryExecutor insertDataFromTargetTableQueryExecutor;
+    private GpfdistUnloadMetadataFactory gpfdistUnloadMetadataFactory;
+    private GpfdistLoadMetadataFactory gpfdistLoadMetadataFactory;
+    private ContextManager<Context> readContextManager;
+    private ContextManager<Context> writeContextManager;
+    private NodeIndexService nodeIndexService;
 
     @Override
     protected List<PropertyDescriptor> getSupportedPropertyDescriptors() {
@@ -96,21 +135,26 @@ public class StandartGpfdistService extends AbstractControllerService implements
                 logger.info("A Gpfdist server is already running. {}", server);
                 return;
             }
+            final String host = getLocalCanonicalHostname();
             final DBCPService dbcpService = context.getProperty(DBCP_SERVICE).asControllerService(DBCPService.class);
             int port = context.getProperty(PORT).evaluateAttributeExpressions().asInteger();
-            final String host = getLocalCanonicalHostname();
-            int writeBufferSize = context.getProperty(WRITE_BUFFER_SIZE).asDataSize(DataUnit.B).intValue();
             int minServerThreads = context.getProperty(GPFDIST_SERVER_MIN_THREADS).asInteger();
             int maxServerThreads = context.getProperty(GPFDIST_SERVER_MAX_THREADS).asInteger();
             int threadsIdleTimeout = context.getProperty(GPFDIST_SERVER_THREAD_IDLE_TIMEOUT_MS).asInteger();
-            int recordProcessorMaxThreads = context.getProperty(RECORD_PROCESSOR_MAX_THREADS).asInteger();
             int gpfdistRequestMaxThreads = context.getProperty(GPFDIST_REQUEST_PROCESSOR_MAX_THREADS).asInteger();
+            int nodeCount = context.getProperty(NODE_COUNT).asInteger();
+            long gpfdistSegmentStreamBufferSize = context.getProperty(GPFDIST_PER_GREENGAGE_SEGMENT_STREAM_MAX_BUFFER_SIZE)
+                    .asDataSize(DataUnit.B)
+                    .longValue();
+            long gpfdistStreamBufferEnqueueTimeoutMs = context
+                    .getProperty(GPFDIST_PER_GREENGAGE_SEGMENT_STREAM_BUFFER_ENQUEUE_TIMEOUT)
+                    .asTimePeriod(TimeUnit.MILLISECONDS);
 
-            final ExecutorService recordProcessingExecutorService = Executors.newFixedThreadPool(recordProcessorMaxThreads);
-            final ExecutorService queryExecutorService = Executors.newSingleThreadExecutor();
-            final ExecutorService requestExecutorService = Executors.newFixedThreadPool(gpfdistRequestMaxThreads);
+            final ExecutorService queryExecutorService = Executors.newCachedThreadPool();
+            final ExecutorService gpfdistRequestExecutorService = Executors.newFixedThreadPool(gpfdistRequestMaxThreads);
 
-            final WriteContextManager writeContextManager = new WriteContextManager(logger);
+            readContextManager = new DefaultContextManager(logger);
+            writeContextManager = new DefaultContextManager(logger);
             final CsvFormatConfig dataFormatConfig = new CsvFormatConfig();
             final RecordProcessorFactory recordProcessorFactory = new GpfdistRecordProcessorFactory(dataFormatConfig);
             final GpfdistServerConfig gpfdistServerConfig = new GpfdistServerConfig(port,
@@ -119,36 +163,90 @@ public class StandartGpfdistService extends AbstractControllerService implements
                     maxServerThreads,
                     threadsIdleTimeout,
                     false);
+            InputDataProcessorFactory inputDataProcessorFactory = new GpfdistInputDataProcessorFactory(dataFormatConfig, logger);
             server = new DefaultGpfdistServer(gpfdistServerConfig,
                     writeContextManager,
+                    readContextManager,
+                    inputDataProcessorFactory,
                     recordProcessorFactory,
-                    requestExecutorService,
+                    gpfdistRequestExecutorService,
+                    new GpfidstLoadConfig(LOAD_ASYNC_TIMEOUT_MS,
+                            gpfdistSegmentStreamBufferSize,
+                            gpfdistStreamBufferEnqueueTimeoutMs),
                     logger);
             server.start();
             greengageService = new DefaultGreengageService(dbcpService, logger);
-            final DefaultGpfdistLoadMetadataFactory loadMetadataFactory =
-                    new DefaultGpfdistLoadMetadataFactory(new DefaulGpfdistLocationFactory(new GpfdistServerConfig(server.getPort(),
-                            server.getHost(),
-                            gpfdistServerConfig.getMinThreads(),
-                            gpfdistServerConfig.getMaxThreads(),
-                            gpfdistServerConfig.getIdleTimeoutMs(),
-                            gpfdistServerConfig.isSslEnabled())),
-                            new DefaultExternalTableFormatConfigFactory(dataFormatConfig));
-            queryExecutor = new LoadDataQueryExecutor(queryExecutorService,
+            DefaulGpfdistLocationFactory gpfdistLocationFactory = new DefaulGpfdistLocationFactory(new GpfdistServerConfig(server.getPort(),
+                    server.getHost(),
+                    gpfdistServerConfig.getMinThreads(),
+                    gpfdistServerConfig.getMaxThreads(),
+                    gpfdistServerConfig.getIdleTimeoutMs(),
+                    gpfdistServerConfig.isSslEnabled()));
+            DefaultExternalTableFormatConfigFactory externalTableFormatConfigFactory = new DefaultExternalTableFormatConfigFactory(dataFormatConfig);
+            createReadExternalTableQueryExecutor = new CreateExternalTableQueryExecutor(queryExecutorService,
                     dbcpService,
                     new CreateReadableExternalTableQueryFactory(),
-                    new DefaultInsertDataQueryFactory(),
                     logger);
-            recordSinkProvider = new GpfdistRecordSinkProvider(recordProcessingExecutorService,
-                    writeContextManager,
-                    loadMetadataFactory,
-                    writeBufferSize,
+            createWriteExternalTableQueryExecutor = new CreateExternalTableQueryExecutor(queryExecutorService,
+                    dbcpService,
+                    new CreateWritableExternalTableQueryFactory(),
                     logger);
+            insertDataIntoTargetTableQueryExecutor = new InsertDataQueryExecutor(
+                    queryExecutorService,
+                    dbcpService,
+                    new LoadInsertDataQueryFactory(),
+                    logger);
+            dropExternalTableQueryExecutor = new DropExternalTableQueryExecutor(
+                    queryExecutorService,
+                    dbcpService,
+                    new DropExternalTableQueryFactoryImpl(),
+                    logger);
+            insertDataFromTargetTableQueryExecutor = new InsertDataQueryExecutor(queryExecutorService,
+                    dbcpService,
+                    new UnloadInsertDataQueryFactory(readContextManager),
+                    logger);
+            gpfdistUnloadMetadataFactory = new DefaultGpfdistUnloadMetadataFactory(gpfdistLocationFactory,
+                    externalTableFormatConfigFactory);
+            gpfdistLoadMetadataFactory = new DefaultGpfdistLoadMetadataFactory(gpfdistLocationFactory,
+                    externalTableFormatConfigFactory);
+            StateManager stateManager = getStateManager();
+            nodeIndexService = new ClusterStateNodeIndexService(nodeCount, host, stateManager, getLogger());
+            registerNode(stateManager, host);
         } catch (Exception e) {
             String errMsg = "Failed to configure gpfdist service: " + e.getMessage();
             getLogger().error(errMsg, e);
             throw new RuntimeException(errMsg, e);
         }
+    }
+
+    private void registerNode(final StateManager stateManager, final String hostname) throws Exception {
+        for (int attempt = 0; attempt < MAX_REGISTER_ATTEMPTS; attempt++) {
+            final StateMap state = stateManager.getState(Scope.CLUSTER);
+            final Map<String, String> newState = new HashMap<>(state.toMap());
+            final String currentHostsStr = newState.getOrDefault(KEY_HOSTS, "");
+            final Set<String> hosts = new LinkedHashSet<>();
+            if (!currentHostsStr.isEmpty()) {
+                hosts.addAll(getNodesHostnames(currentHostsStr));
+            }
+            if (hosts.contains(hostname)) {
+                getLogger().info("Node {} is already registered in cluster state", hostname);
+                return;
+            }
+            hosts.add(hostname);
+            final String updatedHostsStr = String.join(",", hosts);
+            newState.put(KEY_HOSTS, updatedHostsStr);
+
+            final boolean success = stateManager.replace(state, newState, Scope.CLUSTER);
+            if (success) {
+                getLogger().info("Registered node {}. Current hosts: {}", hostname, updatedHostsStr);
+                return;
+            } else {
+                getLogger().debug("Failed to register node {} on attempt {} due to concurrent update, retrying",
+                        hostname, attempt + 1);
+            }
+        }
+        throw new IllegalStateException("Failed to register node " + hostname + " in cluster state after "
+                + MAX_REGISTER_ATTEMPTS + " attempts");
     }
 
     @OnShutdown
@@ -169,17 +267,56 @@ public class StandartGpfdistService extends AbstractControllerService implements
     }
 
     @Override
-    public RecordSinkProvider getRecordSinkProvider() {
-        return recordSinkProvider;
-    }
-
-    @Override
-    public GreengageService getGreengageTableService() {
+    public GreengageService getGreengageMetadataService() {
         return greengageService;
     }
 
     @Override
-    public TransferDataQueryExecutor getQueryExecutor() {
-        return queryExecutor;
+    public TransferDataQueryExecutor getCreateReadExternalTableQueryExecutor() {
+        return createReadExternalTableQueryExecutor;
+    }
+
+    @Override
+    public TransferDataQueryExecutor getCreateWriteExternalTableQueryExecutor() {
+        return createWriteExternalTableQueryExecutor;
+    }
+
+    public TransferDataQueryExecutor getInsertDataIntoTargetTableQueryExecutor() {
+        return insertDataIntoTargetTableQueryExecutor;
+    }
+
+    @Override
+    public TransferDataQueryExecutor getDropExternalTableQueryExecutor() {
+        return dropExternalTableQueryExecutor;
+    }
+
+    @Override
+    public TransferDataQueryExecutor getInsertDataFromTargetTableQueryExecutor() {
+        return insertDataFromTargetTableQueryExecutor;
+    }
+
+    @Override
+    public GpfdistUnloadMetadataFactory getGpfdistUnloadMetadataFactory() {
+        return gpfdistUnloadMetadataFactory;
+    }
+
+    @Override
+    public GpfdistLoadMetadataFactory getGpfdistLoadMetadataFactory() {
+        return gpfdistLoadMetadataFactory;
+    }
+
+    @Override
+    public ContextManager<? extends Context> getReadContextManager() {
+        return readContextManager;
+    }
+
+    @Override
+    public ContextManager<? extends Context> getWriteContextManager() {
+        return writeContextManager;
+    }
+
+    @Override
+    public NodeIndexService getNodeIndexService() {
+        return nodeIndexService;
     }
 }

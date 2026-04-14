@@ -27,6 +27,7 @@ public final class GpfdistProperties {
 
     public static final PropertyDescriptor PORT = new PropertyDescriptor.Builder()
             .name("Listening Port")
+            .displayName("Listening Port")
             .description("The Port to listen on for incoming gpfdist requests")
             .required(true)
             .addValidator(StandardValidators.PORT_VALIDATOR)
@@ -35,6 +36,7 @@ public final class GpfdistProperties {
             .build();
     public static final PropertyDescriptor GPFDIST_SERVER_MIN_THREADS = new PropertyDescriptor.Builder()
             .name("Minimum Gpffist Server Threads")
+            .displayName("Minimum Gpffist Server Threads")
             .description("The minimum amount of threads that are used to run the Gpffist server")
             .required(false)
             .addValidator(StandardValidators.NON_NEGATIVE_INTEGER_VALIDATOR)
@@ -42,6 +44,7 @@ public final class GpfdistProperties {
             .build();
     public static final PropertyDescriptor GPFDIST_SERVER_MAX_THREADS = new PropertyDescriptor.Builder()
             .name("Maximum Gpffist Server Threads")
+            .displayName("Maximum Gpffist Server Threads")
             .description("The maximum amount of threads that are used to run the Gpffist server")
             .required(false)
             .addValidator(StandardValidators.NON_NEGATIVE_INTEGER_VALIDATOR)
@@ -49,6 +52,7 @@ public final class GpfdistProperties {
             .build();
     public static final PropertyDescriptor GPFDIST_SERVER_THREAD_IDLE_TIMEOUT_MS = new PropertyDescriptor.Builder()
             .name("The Maximum Gpffist Server Threads Idle Timeout")
+            .displayName("The Maximum Gpffist Server Threads Idle Timeout")
             .description("The maximum gpffist server threads idle timeout in milliseconds")
             .required(false)
             .addValidator(StandardValidators.INTEGER_VALIDATOR)
@@ -61,26 +65,38 @@ public final class GpfdistProperties {
             .required(true)
             .identifiesControllerService(DBCPService.class)
             .build();
-    public static final PropertyDescriptor WRITE_BUFFER_SIZE = new PropertyDescriptor.Builder()
-            .name("put-greengage-record-write-buffer-size")
-            .displayName("Write buffer size in bytes")
-            .description("Write byte buffer size for serialized records.")
-            .addValidator(StandardValidators.DATA_SIZE_VALIDATOR)
-            .required(false)
-            .defaultValue("1 MB")
-            .build();
-    public static final PropertyDescriptor RECORD_PROCESSOR_MAX_THREADS = new PropertyDescriptor.Builder()
-            .name("Maximum Record Processor Threads")
-            .description("The maximum amount of threads that are used to process the records")
-            .required(false)
-            .addValidator(StandardValidators.NON_NEGATIVE_INTEGER_VALIDATOR)
-            .defaultValue("8")
-            .build();
     public static final PropertyDescriptor GPFDIST_REQUEST_PROCESSOR_MAX_THREADS = new PropertyDescriptor.Builder()
             .name("Maximum Gpfdist Request Processor Threads")
+            .displayName("Maximum Gpfdist Request Processor Threads")
             .description("The maximum amount of threads that are used to process the gpfdist requests")
             .required(false)
             .addValidator(StandardValidators.NON_NEGATIVE_INTEGER_VALIDATOR)
             .defaultValue("8")
             .build();
+    public static final PropertyDescriptor GPFDIST_PER_GREENGAGE_SEGMENT_STREAM_MAX_BUFFER_SIZE =
+            new PropertyDescriptor.Builder()
+                    .name("gpfdist-per-greengage-segment-stream-max-buffer-size")
+                    .displayName("Gpfdist Per Greengage Segment Stream Max Buffer Size")
+                    .description(
+                            "Maximum amount of data that may be buffered in memory for a single gpfdist " +
+                                    "write stream per Greengage segment before backpressure is applied. " +
+                                    "This limits in-flight data when writing records to Greengage via gpfdist.")
+                    .required(false)
+                    .defaultValue("32 MB")
+                    .addValidator(StandardValidators.DATA_SIZE_VALIDATOR)
+                    .expressionLanguageSupported(ExpressionLanguageScope.NONE)
+                    .build();
+    public static final PropertyDescriptor GPFDIST_PER_GREENGAGE_SEGMENT_STREAM_BUFFER_ENQUEUE_TIMEOUT =
+            new PropertyDescriptor.Builder()
+                    .name("gpfdist-per-greengage-segment-stream-enqueue-timeout")
+                    .displayName("Gpfdist Per Greengage Segment Stream Enqueue Timeout")
+                    .description(
+                            "Maximum time to wait when attempting to enqueue data into a gpfdist " +
+                                    "write stream buffer for a Greengage segment. If the timeout is exceeded, " +
+                                    "the operation fails fast to prevent unbounded blocking under backpressure.")
+                    .required(false)
+                    .defaultValue("200 ms")
+                    .addValidator(StandardValidators.TIME_PERIOD_VALIDATOR)
+                    .expressionLanguageSupported(ExpressionLanguageScope.NONE)
+                    .build();
 }

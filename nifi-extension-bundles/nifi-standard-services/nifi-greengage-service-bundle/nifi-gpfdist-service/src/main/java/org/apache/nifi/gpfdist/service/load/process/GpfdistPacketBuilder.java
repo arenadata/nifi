@@ -32,6 +32,8 @@ import java.nio.charset.StandardCharsets;
  * E + error data length + error data
  */
 public class GpfdistPacketBuilder {
+    public static final int GPFDIST_PACKET_RECORD_BATCH_SIZE = 1000;
+    public static final int GPFDIST_PACKET_SIZE = 512 * 1024;
     private static final byte GPFDIST_PACKAGE_FILE_NAME_MSG_TYPE = (byte) 70;
     private static final byte GPFDIST_PACKAGE_OFFSET_MSG_TYPE = (byte) 79;
     private static final byte GPFDIST_PACKAGE_LINE_NUMBER_MSG_TYPE = (byte) 76;

@@ -29,6 +29,7 @@ import org.apache.nifi.gpfdist.service.datatype.CharDataType;
 import org.apache.nifi.gpfdist.service.datatype.DateDataType;
 import org.apache.nifi.gpfdist.service.datatype.DecimalDataType;
 import org.apache.nifi.gpfdist.service.datatype.DoubleDataType;
+import org.apache.nifi.gpfdist.service.datatype.EnumDataType;
 import org.apache.nifi.gpfdist.service.datatype.IntegerDataType;
 import org.apache.nifi.gpfdist.service.datatype.JsonbDataType;
 import org.apache.nifi.gpfdist.service.datatype.MapDataType;
@@ -52,15 +53,20 @@ import java.sql.ResultSetMetaData;
 import java.sql.SQLException;
 import java.sql.Types;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.function.Function;
+import java.util.stream.Collectors;
 
 import static java.lang.Math.max;
 import static java.util.stream.Collectors.toMap;
+import static org.apache.nifi.gpfdist.service.util.GreengageUtil.getFullName;
 import static org.apache.nifi.gpfdist.service.util.GreengageUtil.getJdbcTypeFromOid;
+import static org.apache.nifi.gpfdist.service.util.GreengageUtil.quote;
 
 public class DefaultGreengageService implements GreengageService {
     private static final int VARCHAR_MAXIMUM_SIZE = 65535;
@@ -101,6 +107,79 @@ public class DefaultGreengageService implements GreengageService {
         } catch (Exception e) {
             String errMsg =
                     "Failed to get table schema: " + String.join("; ", e.getMessage().split("\n"));
+            logger.error(errMsg, e);
+            throw new RuntimeException(errMsg, e);
+        } finally {
+            closeConnection(connection);
+        }
+    }
+
+    @Override
+    public int getSegmentCount() {
+        Connection connection = null;
+        try {
+            connection = dbcpService.getConnection();
+            final String sql = "SELECT COUNT(*) " +
+                    "FROM gp_segment_configuration " +
+                    "WHERE role = 'p' AND content >= 0 AND status = 'u'";
+            try (PreparedStatement st = connection.prepareStatement(sql);
+                 ResultSet rs = st.executeQuery()) {
+                if (rs.next()) {
+                    return rs.getInt(1);
+                } else {
+                    throw new RuntimeException("Failed to read segment count from gp_segment_configuration");
+                }
+            }
+        } catch (Exception e) {
+            String errMsg = "Failed to get Greenplum segment count";
+            logger.error(errMsg, e);
+            throw new RuntimeException(errMsg, e);
+        } finally {
+            closeConnection(connection);
+        }
+    }
+
+    @Override
+    public Map<String, String> getTableColumnsUpperBoundTuples(final String schemaName,
+                                                               final String tableName,
+                                                               final List<String> columnNames,
+                                                               final int globalParallelFactor,
+                                                               final int workerIndex) {
+        if (columnNames == null || columnNames.isEmpty()) {
+            return Map.of();
+        }
+        final String selectedColumns = columnNames.stream()
+                .map(column -> quote(column))
+                .collect(Collectors.joining(", "));
+        final String orderBy = columnNames.stream()
+                .map(column -> quote(column) + " DESC")
+                .collect(Collectors.joining(", "));
+        final String tablePath = getFullName(schemaName, tableName);
+        final String sql = "SELECT " + selectedColumns
+                + " FROM " + tablePath
+                + " WHERE gp_segment_id % " + globalParallelFactor + " = " + workerIndex
+                + " ORDER BY " + orderBy
+                + " LIMIT 1";
+
+        Connection connection = null;
+        try {
+            connection = dbcpService.getConnection();
+            try (PreparedStatement st = connection.prepareStatement(sql);
+                 ResultSet rs = st.executeQuery()) {
+                if (!rs.next()) {
+                    return Map.of();
+                }
+                final Map<String, String> result = new LinkedHashMap<>();
+                for (String columnName : columnNames) {
+                    final Object value = rs.getObject(columnName);
+                    if (value != null) {
+                        result.put(columnName, String.valueOf(value));
+                    }
+                }
+                return result;
+            }
+        } catch (Exception e) {
+            String errMsg = "Failed to get upper bound tuple for table " + tableName;
             logger.error(errMsg, e);
             throw new RuntimeException(errMsg, e);
         } finally {
@@ -206,7 +285,7 @@ public class DefaultGreengageService implements GreengageService {
                 jdbcDataType,
                 colSize,
                 decimalDigits);
-        return new GreengageColumnDescription(columnName, columnDataType, required);
+        return new GreengageColumnDescription(columnName, columnDataType, required, isNullable);
     }
 
     private ColumnDataType getColumnDataType(Connection conn,
@@ -219,6 +298,12 @@ public class DefaultGreengageService implements GreengageService {
                                              Integer decimalDigits) {
         if (jdbcTypeName == null) {
             throw new IllegalArgumentException("jdbcTypeName cannot be null");
+        }
+        if (conn != null) {
+            EnumTypeMetadata enumMeta = getEnumTypeMetadata(conn, schema, tableName, columnName);
+            if (enumMeta != null) {
+                return new EnumDataType(enumMeta.typeSchema, enumMeta.typeName);
+            }
         }
         switch (jdbcTypeName) {
             case "bool":
@@ -286,6 +371,47 @@ public class DefaultGreengageService implements GreengageService {
                 return new ArrayDataType(elementDataType);
             default:
                 throw new IllegalArgumentException("Unsupported column type: " + jdbcTypeName);
+        }
+    }
+
+    private EnumTypeMetadata getEnumTypeMetadata(Connection conn, String schema, String table, String column) {
+        final String sql =
+                "SELECT ns_t.nspname AS type_schema, t.typname AS type_name\n" +
+                        "FROM pg_catalog.pg_attribute a\n" +
+                        "JOIN pg_catalog.pg_class c ON c.oid = a.attrelid\n" +
+                        "JOIN pg_catalog.pg_namespace ns_c ON ns_c.oid = c.relnamespace\n" +
+                        "JOIN pg_catalog.pg_type t ON t.oid = a.atttypid\n" +
+                        "JOIN pg_catalog.pg_namespace ns_t ON ns_t.oid = t.typnamespace\n" +
+                        "WHERE c.relname = ?\n" +
+                        "  AND ns_c.nspname = ?\n" +
+                        "  AND a.attname = ?\n" +
+                        "  AND t.typtype = 'e'\n" +
+                        "  AND a.attnum > 0\n" +
+                        "  AND NOT a.attisdropped";
+
+        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, table);
+            ps.setString(2, schema == null ? "public" : schema);
+            ps.setString(3, column);
+
+            try (ResultSet rs = ps.executeQuery()) {
+                if (rs.next()) {
+                    return new EnumTypeMetadata(rs.getString("type_schema"), rs.getString("type_name"));
+                }
+                return null;
+            }
+        } catch (SQLException e) {
+            throw new RuntimeException("Failed to get enum type metadata for column " + column, e);
+        }
+    }
+
+    private static final class EnumTypeMetadata {
+        private final String typeSchema;
+        private final String typeName;
+
+        private EnumTypeMetadata(String typeSchema, String typeName) {
+            this.typeSchema = typeSchema;
+            this.typeName = typeName;
         }
     }
 
