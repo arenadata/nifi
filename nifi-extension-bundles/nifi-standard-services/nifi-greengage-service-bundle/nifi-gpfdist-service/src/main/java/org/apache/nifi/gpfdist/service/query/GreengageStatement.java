@@ -14,14 +14,13 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.apache.nifi.gpfdist.service.load.context;
+package org.apache.nifi.gpfdist.service.query;
 
-import org.apache.nifi.gpfdist.service.context.AbstractContextManager;
-import org.apache.nifi.logging.ComponentLog;
+import java.sql.SQLException;
 
-public class WriteContextManager extends AbstractContextManager<WriteContext> {
+public interface GreengageStatement {
 
-    public WriteContextManager(ComponentLog logger) {
-        super(logger);
-    }
+    void execute() throws SQLException;
+
+    void cancel() throws SQLException;
 }

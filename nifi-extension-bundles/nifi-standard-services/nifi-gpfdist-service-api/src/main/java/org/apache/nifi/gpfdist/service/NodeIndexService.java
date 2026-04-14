@@ -11,17 +11,9 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.apache.nifi.gpfdist.service.context;
+package org.apache.nifi.gpfdist.service;
 
-import org.apache.nifi.gpfdist.metadata.Context;
-import org.apache.nifi.gpfdist.metadata.ContextId;
-
-import java.util.Optional;
-
-public interface ContextManager<T extends Context> {
-    Optional<T> get(ContextId contextId);
-
-    void add(T context);
-
-    void remove(ContextId contextId);
+public interface NodeIndexService {
+    int getNodeIndex() throws Exception;
+    int getNodeCount();
 }

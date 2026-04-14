@@ -15,6 +15,7 @@ package org.apache.nifi.gpfdist.service.context;
 
 import org.apache.nifi.gpfdist.metadata.Context;
 import org.apache.nifi.gpfdist.metadata.ContextId;
+import org.apache.nifi.gpfdist.metadata.ContextManager;
 import org.apache.nifi.logging.ComponentLog;
 
 import java.util.Map;
