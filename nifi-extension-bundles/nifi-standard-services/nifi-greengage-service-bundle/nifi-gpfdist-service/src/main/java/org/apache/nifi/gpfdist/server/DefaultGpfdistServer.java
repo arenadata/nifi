@@ -26,10 +26,10 @@ import org.apache.nifi.gpfdist.service.load.process.RecordProcessorFactory;
 import org.apache.nifi.gpfdist.service.unload.process.InputDataProcessorFactory;
 import org.apache.nifi.logging.ComponentLog;
 import org.apache.nifi.util.StringUtils;
+import org.eclipse.jetty.ee10.servlet.ServletContextHandler;
 import org.eclipse.jetty.server.Connector;
 import org.eclipse.jetty.server.Server;
 import org.eclipse.jetty.server.ServerConnector;
-import org.eclipse.jetty.ee10.servlet.ServletContextHandler;
 import org.eclipse.jetty.util.thread.QueuedThreadPool;
 
 import java.util.concurrent.ExecutorService;

@@ -16,6 +16,9 @@
  */
 package org.apache.nifi.gpfdist.server.servlet;
 
+import jakarta.servlet.ServletContext;
+import jakarta.servlet.ServletContextEvent;
+import jakarta.servlet.ServletContextListener;
 import org.apache.nifi.gpfdist.metadata.Context;
 import org.apache.nifi.gpfdist.metadata.ContextManager;
 import org.apache.nifi.gpfdist.metadata.GpfidstLoadConfig;
@@ -23,9 +26,6 @@ import org.apache.nifi.gpfdist.service.load.process.RecordProcessorFactory;
 import org.apache.nifi.gpfdist.service.unload.process.InputDataProcessorFactory;
 import org.apache.nifi.logging.ComponentLog;
 
-import jakarta.servlet.ServletContext;
-import jakarta.servlet.ServletContextEvent;
-import jakarta.servlet.ServletContextListener;
 import java.util.concurrent.ExecutorService;
 
 import static org.apache.nifi.gpfdist.service.util.GpfdistUtil.COMPONENT_LOG_ATTR;

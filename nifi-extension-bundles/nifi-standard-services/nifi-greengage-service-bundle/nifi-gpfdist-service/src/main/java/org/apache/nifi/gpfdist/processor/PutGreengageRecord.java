@@ -69,44 +69,44 @@ import static org.apache.nifi.gpfdist.service.util.GreengageUtil.QUOTE;
 @CapabilityDescription("Writes the contents of a FlowFile to Greengage")
 public class PutGreengageRecord extends AbstractProcessor {
     static final PropertyDescriptor GPFDIST_SERVICE = new PropertyDescriptor.Builder()
-        .name("gpfdist-record-processing-service")
-        .displayName("Gpfdist Service")
-        .description("The Controller Service that is used to load records into greengage.")
-        .required(true)
-        .identifiesControllerService(GpfdistService.class)
-        .build();
+            .name("gpfdist-record-processing-service")
+            .displayName("Gpfdist Service")
+            .description("The Controller Service that is used to load records into greengage.")
+            .required(true)
+            .identifiesControllerService(GpfdistService.class)
+            .build();
     static final PropertyDescriptor RECORD_READER_FACTORY = new PropertyDescriptor.Builder()
-        .name("put-greengage-record-record-reader")
-        .displayName("Record Reader")
-        .description(
-            "Specifies the Controller Service to use for parsing incoming data and determining the data's schema.")
-        .identifiesControllerService(RecordReaderFactory.class)
-        .required(true)
-        .build();
+            .name("put-greengage-record-record-reader")
+            .displayName("Record Reader")
+            .description(
+                    "Specifies the Controller Service to use for parsing incoming data and determining the data's schema.")
+            .identifiesControllerService(RecordReaderFactory.class)
+            .required(true)
+            .build();
     static final PropertyDescriptor SCHEMA_NAME = new PropertyDescriptor.Builder()
-        .name("put-greengage-record-schema-name")
-        .displayName("Schema Name")
-        .description("The name of the schema where the data will be loaded.")
-        .required(false)
-        .expressionLanguageSupported(FLOWFILE_ATTRIBUTES)
-        .addValidator(StandardValidators.NON_EMPTY_VALIDATOR)
-        .build();
+            .name("put-greengage-record-schema-name")
+            .displayName("Schema Name")
+            .description("The name of the schema where the data will be loaded.")
+            .required(false)
+            .expressionLanguageSupported(FLOWFILE_ATTRIBUTES)
+            .addValidator(StandardValidators.NON_EMPTY_VALIDATOR)
+            .build();
     static final PropertyDescriptor TABLE_NAME = new PropertyDescriptor.Builder()
-        .name("put-greengage-record-table-name")
-        .displayName("Table Name")
-        .description("Name of the table where the data will be loaded.")
-        .required(true)
-        .expressionLanguageSupported(FLOWFILE_ATTRIBUTES)
-        .addValidator(StandardValidators.NON_EMPTY_VALIDATOR)
-        .build();
+            .name("put-greengage-record-table-name")
+            .displayName("Table Name")
+            .description("Name of the table where the data will be loaded.")
+            .required(true)
+            .expressionLanguageSupported(FLOWFILE_ATTRIBUTES)
+            .addValidator(StandardValidators.NON_EMPTY_VALIDATOR)
+            .build();
     static final PropertyDescriptor TABLE_COLUMNS = new PropertyDescriptor.Builder()
-        .name("put-greengage-table-columns")
-        .displayName("Table Columns")
-        .description("Columns of the table where the data will be loaded.")
-        .required(true)
-        .expressionLanguageSupported(FLOWFILE_ATTRIBUTES)
-        .addValidator(StandardValidators.NON_EMPTY_VALIDATOR)
-        .build();
+            .name("put-greengage-table-columns")
+            .displayName("Table Columns")
+            .description("Columns of the table where the data will be loaded.")
+            .required(true)
+            .expressionLanguageSupported(FLOWFILE_ATTRIBUTES)
+            .addValidator(StandardValidators.NON_EMPTY_VALIDATOR)
+            .build();
     static final PropertyDescriptor GREENGAGE_SEGMENT_CONCURRENCY_MULTIPLIER = new PropertyDescriptor.Builder()
             .name("greengage-segment-concurrency-multiplier")
             .displayName("Greengage Segment Concurrency Multiplier")
@@ -140,13 +140,13 @@ public class PutGreengageRecord extends AbstractProcessor {
             .addValidator(StandardValidators.DATA_SIZE_VALIDATOR)
             .build();
     public static final Relationship REL_SUCCESS = new Relationship.Builder()
-        .name("success")
-        .description("Successfully created FlowFile from input records.")
-        .build();
+            .name("success")
+            .description("Successfully created FlowFile from input records.")
+            .build();
     public static final Relationship REL_FAILURE = new Relationship.Builder()
-        .name("failure")
-        .description("A FlowFile is routed to this relationship if records cannot be loaded into Greengage.")
-        .build();
+            .name("failure")
+            .description("A FlowFile is routed to this relationship if records cannot be loaded into Greengage.")
+            .build();
 
     private static final Set<Relationship> RELATIONSHIPS = Set.of(REL_SUCCESS, REL_FAILURE);
     private static final List<PropertyDescriptor> PROPERTY_DESCRIPTORS = List.of(
@@ -220,10 +220,10 @@ public class PutGreengageRecord extends AbstractProcessor {
         batch.add(firstFlowFile);
 
         long totalBytes = firstFlowFile.getSize();
-            if (batchingEnabled) {
+        if (batchingEnabled) {
             while (totalBytes < batchSizeBytes) {
                 final FlowFile next = session.get();
-            if (next == null) {
+                if (next == null) {
                     break;
                 }
                 batch.add(next);
@@ -312,18 +312,18 @@ public class PutGreengageRecord extends AbstractProcessor {
             if (result.isSuccess()) {
                 final long elapsedMs = stopWatch.getElapsed(TimeUnit.MILLISECONDS);
                 for (FlowFile flowFile : batch) {
-                session.getProvenanceReporter().send(flowFile,
-                    destinationUrl,
-                    "result=" + result,
-                    elapsedMs
+                    session.getProvenanceReporter().send(flowFile,
+                            destinationUrl,
+                            "result=" + result,
+                            elapsedMs
                     );
                     session.transfer(flowFile, REL_SUCCESS);
                 }
                 getLogger().info("Successfully loaded flow files: batchSize={}, result: {}", batch.size(), result);
             } else {
                 final String errMsg = result.getErrors().stream()
-                    .map(t -> t.getClass().getSimpleName() + ": " + t.getMessage())
-                    .collect(Collectors.joining("; "));
+                        .map(t -> t.getClass().getSimpleName() + ": " + t.getMessage())
+                        .collect(Collectors.joining("; "));
                 for (FlowFile ff : batch) {
                     session.penalize(ff);
                     session.transfer(ff, REL_FAILURE);
@@ -390,8 +390,8 @@ public class PutGreengageRecord extends AbstractProcessor {
                                                           FlowFile flowFile,
                                                           TableDescription tableDescription) {
         String rawColumns = context.getProperty(TABLE_COLUMNS)
-            .evaluateAttributeExpressions(flowFile)
-            .getValue();
+                .evaluateAttributeExpressions(flowFile)
+                .getValue();
 
         List<String> columns = Arrays.stream(rawColumns.split(","))
                 .map(col -> col.replace(QUOTE, "").trim())
@@ -401,7 +401,7 @@ public class PutGreengageRecord extends AbstractProcessor {
             ColumnDescription columnDescription = tableDescription.getColumns().get(s);
             if (columnDescription == null) {
                 throw new IllegalStateException(
-                    "Column " + s + " not found in table " + tableDescription.getTableName());
+                        "Column " + s + " not found in table " + tableDescription.getTableName());
             }
             columnDescriptions.add(columnDescription);
         }

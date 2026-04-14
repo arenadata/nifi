@@ -31,8 +31,7 @@ import static org.apache.nifi.gpfdist.server.request.GpfdistRequestHeader.X_GP_S
 import static org.apache.nifi.gpfdist.server.request.GpfdistRequestHeader.X_GP_SN;
 import static org.apache.nifi.gpfdist.server.request.GpfdistRequestHeader.X_GP_XID;
 
-public class GpfdistWritableRequest
-{
+public class GpfdistWritableRequest {
     private String requestId;
     private String transactionId;
     private String commandId;
@@ -58,8 +57,7 @@ public class GpfdistWritableRequest
             Optional<String> gpProtocolVersion,
             int gpSequence,
             Optional<Boolean> isLastChunk,
-            Optional<String> gpDatabase)
-    {
+            Optional<String> gpDatabase) {
         this.requestId = requestId;
         this.transactionId = transactionId;
         this.commandId = commandId;
@@ -74,8 +72,7 @@ public class GpfdistWritableRequest
         this.gpDatabase = gpDatabase;
     }
 
-    public static GpfdistWritableRequest create(String tableName, Map<String, String> values)
-    {
+    public static GpfdistWritableRequest create(String tableName, Map<String, String> values) {
         return new GpfdistWritableRequest(
                 createRequestId(tableName),
                 values.get(X_GP_XID),
@@ -97,23 +94,19 @@ public class GpfdistWritableRequest
                 Optional.ofNullable(values.get(X_GP_DATABASE)));
     }
 
-    private static String createRequestId(String tableName)
-    {
+    private static String createRequestId(String tableName) {
         return tableName + "_" + UUID.randomUUID();
     }
 
-    public short getGpProtocol()
-    {
+    public short getGpProtocol() {
         return gpProtocol;
     }
 
-    public int getGpSequence()
-    {
+    public int getGpSequence() {
         return gpSequence;
     }
 
-    public Optional<Boolean> isLastChunk()
-    {
+    public Optional<Boolean> isLastChunk() {
         return isLastChunk;
     }
 
@@ -122,8 +115,7 @@ public class GpfdistWritableRequest
     }
 
     @Override
-    public String toString()
-    {
+    public String toString() {
         return "GpfdistWritableRequest{" +
                 "requestId='" + requestId + '\'' +
                 ", transactionId='" + transactionId + '\'' +

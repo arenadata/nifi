@@ -77,11 +77,11 @@ import java.util.stream.Collectors;
 
 import static org.apache.nifi.expression.ExpressionLanguageScope.FLOWFILE_ATTRIBUTES;
 import static org.apache.nifi.gpfdist.service.util.GreengageUtil.QUOTE;
-import static org.apache.nifi.gpfdist.service.util.GreengageUtil.compareByType;
-import static org.apache.nifi.gpfdist.service.util.GreengageUtil.getStateKey;
-import static org.apache.nifi.gpfdist.service.util.GreengageUtil.getQualifiedName;
 import static org.apache.nifi.gpfdist.service.util.GreengageUtil.SUPPORTED_MAX_VALUE_TYPES;
 import static org.apache.nifi.gpfdist.service.util.GreengageUtil.SUPPORTED_MAX_VALUE_TYPES_DESCRIPTION;
+import static org.apache.nifi.gpfdist.service.util.GreengageUtil.compareByType;
+import static org.apache.nifi.gpfdist.service.util.GreengageUtil.getQualifiedName;
+import static org.apache.nifi.gpfdist.service.util.GreengageUtil.getStateKey;
 
 @InputRequirement(InputRequirement.Requirement.INPUT_FORBIDDEN)
 @Stateful(scopes = Scope.CLUSTER, description = "Stores maximum observed values per worker and column for incremental unloading from Greengage.")
@@ -540,8 +540,15 @@ public class GetGreengageRecord extends AbstractProcessor {
                         }
                     });
                     return true;
-                    });
-        pendingLowerValuesByWorker.put(processorTask.getGlobalWorkerIndex(), new LinkedHashMap<>(upperValues));
+                });
+        if (hasAllValues(upperValues)) {
+            pendingLowerValuesByWorker.compute(processorTask.getGlobalWorkerIndex(), (worker, pendingValues) -> {
+                if (pendingValues == null || !hasAllValues(pendingValues) || compareTuples(pendingValues, upperValues) < 0) {
+                    return new LinkedHashMap<>(upperValues);
+                }
+                return pendingValues;
+            });
+        }
     }
 
     private void markFullLoadDone(final ProcessSession session, final int workerIndex) throws IOException {
@@ -698,20 +705,6 @@ public class GetGreengageRecord extends AbstractProcessor {
         pendingLowerValuesByWorker.clear();
     }
 
-    private Map<String, String> getEffectiveLowerValues(final ProcessSession session, final int workerIndex) throws IOException {
-        final Map<String, String> stateLowerValues = getCurrentStateWorkerValues(session, workerIndex);
-        if (maxValueColumnNamesList.isEmpty() || hasAllValues(stateLowerValues)) {
-            pendingLowerValuesByWorker.remove(workerIndex);
-            return stateLowerValues;
-        }
-        final Map<String, String> pendingLowerValues = pendingLowerValuesByWorker.remove(workerIndex);
-        if (pendingLowerValues != null && hasAllValues(pendingLowerValues)) {
-            getLogger().debug("Using pending lower values for worker {} before cluster state is visible: {}", workerIndex, pendingLowerValues);
-            return pendingLowerValues;
-        }
-        return stateLowerValues;
-    }
-
     private List<ColumnDescription> getColumnDescriptions(String columnsProperty,
                                                           TableDescription tableDescription) {
         List<String> columns = Arrays.stream(columnsProperty.split(","))
@@ -757,5 +750,29 @@ public class GetGreengageRecord extends AbstractProcessor {
             result.put(maxColumn, columnDescription.getDataType());
         }
         return result;
+    }
+
+    private Map<String, String> getEffectiveLowerValues(final ProcessSession session, final int workerIndex) throws IOException {
+        final Map<String, String> stateLowerValues = getCurrentStateWorkerValues(session, workerIndex);
+        if (maxValueColumnNamesList.isEmpty()) {
+            return stateLowerValues;
+        }
+
+        final Map<String, String> pendingLowerValues = pendingLowerValuesByWorker.get(workerIndex);
+        if (pendingLowerValues == null || !hasAllValues(pendingLowerValues)) {
+            return stateLowerValues;
+        }
+
+        if (hasAllValues(stateLowerValues)) {
+            if (compareTuples(stateLowerValues, pendingLowerValues) >= 0) {
+                pendingLowerValuesByWorker.remove(workerIndex);
+                return stateLowerValues;
+            }
+            getLogger().debug("Using pending lower values for worker {} while cluster state is behind: {}", workerIndex, pendingLowerValues);
+            return pendingLowerValues;
+        }
+
+        getLogger().debug("Using pending lower values for worker {} before cluster state is visible: {}", workerIndex, pendingLowerValues);
+        return pendingLowerValues;
     }
 }

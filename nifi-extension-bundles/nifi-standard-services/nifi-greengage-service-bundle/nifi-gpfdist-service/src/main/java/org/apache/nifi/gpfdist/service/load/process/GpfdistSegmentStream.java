@@ -13,11 +13,11 @@
  */
 package org.apache.nifi.gpfdist.service.load.process;
 
+import jakarta.servlet.AsyncContext;
+import jakarta.servlet.ServletOutputStream;
 import org.apache.nifi.gpfdist.metadata.RecordProcessorId;
 import org.apache.nifi.logging.ComponentLog;
 
-import jakarta.servlet.AsyncContext;
-import jakarta.servlet.ServletOutputStream;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
