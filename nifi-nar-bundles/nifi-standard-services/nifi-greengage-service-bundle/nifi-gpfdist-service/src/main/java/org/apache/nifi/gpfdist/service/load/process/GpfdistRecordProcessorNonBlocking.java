@@ -55,8 +55,8 @@ public class GpfdistRecordProcessorNonBlocking implements RecordProcessor {
         serializationService.append(record);
         result.incrementRecordCount();
 
-        boolean batchReady = serializationService.getSerializedRecordsCount() >=
-                GpfdistPacketBuilder.GPFDIST_PACKET_RECORD_BATCH_SIZE;
+        boolean batchReady = serializationService.getSerializedRecordsCount()
+                >= GpfdistPacketBuilder.GPFDIST_PACKET_RECORD_BATCH_SIZE;
         boolean timeReady = serializationService.getSerializedRecordsCount() > 0
                 && (System.nanoTime() - lastFlushNanos) >= FLUSH_INTERVAL_NANOS;
 

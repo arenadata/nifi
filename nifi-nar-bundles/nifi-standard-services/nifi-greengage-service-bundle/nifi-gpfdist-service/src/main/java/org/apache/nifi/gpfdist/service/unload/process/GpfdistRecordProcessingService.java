@@ -101,6 +101,14 @@ public class GpfdistRecordProcessingService
     }
 
     @Override
+    public void resetForNextCycle() {
+        clear();
+        segmentDataProcessors.clear();
+        isStopped.set(false);
+        logger.info("Reset gpfdist record processing service for next cycle, taskId {}", processorTaskId);
+    }
+
+    @Override
     public void addChunkRequestProcessor(GpfdistChunkRequestProcessor requestProcessor) {
         segmentDataProcessors.putIfAbsent(requestProcessor.getChunkId(), requestProcessor);
     }

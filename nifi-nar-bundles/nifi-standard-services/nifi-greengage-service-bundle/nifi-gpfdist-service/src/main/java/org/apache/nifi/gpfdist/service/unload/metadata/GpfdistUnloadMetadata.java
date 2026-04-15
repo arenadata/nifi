@@ -26,6 +26,7 @@ import java.util.List;
 
 public class GpfdistUnloadMetadata extends BaseGpfdistMetadata {
     private final ContextId contextId;
+    private final String processorTaskId;
     private final int globalWorkerIndex;
 
     public GpfdistUnloadMetadata(final String externalTable,
@@ -34,9 +35,11 @@ public class GpfdistUnloadMetadata extends BaseGpfdistMetadata {
                                  final ExternalTableFormat externalTableFormatConfig,
                                  final String gpfdistLocation,
                                  final ContextId contextId,
+                                 final String processorTaskId,
                                  int globalWorkerIndex) {
         super(tableMetadata, columns, externalTable, externalTableFormatConfig, gpfdistLocation);
         this.contextId = contextId;
+        this.processorTaskId = processorTaskId;
         this.globalWorkerIndex = globalWorkerIndex;
     }
 
@@ -48,10 +51,15 @@ public class GpfdistUnloadMetadata extends BaseGpfdistMetadata {
         return globalWorkerIndex;
     }
 
+    public String getProcessorTaskId() {
+        return processorTaskId;
+    }
+
     @Override
     public String toString() {
         return "GpfdistUnloadMetadata{" +
                 "contextId=" + contextId +
+                ", processorTaskId='" + processorTaskId + '\'' +
                 ", globalWorkerIndex=" + globalWorkerIndex +
                 ", tableMetadata=" + tableMetadata +
                 ", columnDescriptions=" + columnDescriptions +

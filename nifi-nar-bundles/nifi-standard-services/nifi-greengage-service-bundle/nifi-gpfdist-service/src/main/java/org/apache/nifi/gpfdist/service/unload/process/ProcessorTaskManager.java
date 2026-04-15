@@ -62,13 +62,8 @@ public class ProcessorTaskManager {
     public void release(ProcessorTask task) {
         if (task != null) {
             processorTasksQueue.add(task);
-            logger.info("Released task slot: {}", task);
+            logger.debug("Released task slot: {}", task);
         }
-    }
-
-    public void remove(ProcessorTask task) {
-        processorTasksQueue.remove(task);
-        logger.info("Removed task slot: {}", task);
     }
 
     public ConcurrentLinkedQueue<ProcessorTask> getProcessorTask() {

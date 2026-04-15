@@ -53,15 +53,20 @@ import java.sql.ResultSetMetaData;
 import java.sql.SQLException;
 import java.sql.Types;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.function.Function;
+import java.util.stream.Collectors;
 
 import static java.lang.Math.max;
 import static java.util.stream.Collectors.toMap;
+import static org.apache.nifi.gpfdist.service.util.GreengageUtil.getFullName;
 import static org.apache.nifi.gpfdist.service.util.GreengageUtil.getJdbcTypeFromOid;
+import static org.apache.nifi.gpfdist.service.util.GreengageUtil.quote;
 
 public class DefaultGreengageService implements GreengageService {
     private static final int VARCHAR_MAXIMUM_SIZE = 65535;
@@ -127,6 +132,54 @@ public class DefaultGreengageService implements GreengageService {
             }
         } catch (Exception e) {
             String errMsg = "Failed to get Greenplum segment count";
+            logger.error(errMsg, e);
+            throw new RuntimeException(errMsg, e);
+        } finally {
+            closeConnection(connection);
+        }
+    }
+
+    @Override
+    public Map<String, String> getTableColumnsUpperBoundTuples(final String schemaName,
+                                                               final String tableName,
+                                                               final List<String> columnNames,
+                                                               final int globalParallelFactor,
+                                                               final int workerIndex) {
+        if (columnNames == null || columnNames.isEmpty()) {
+            return Map.of();
+        }
+        final String selectedColumns = columnNames.stream()
+                .map(column -> quote(column))
+                .collect(Collectors.joining(", "));
+        final String orderBy = columnNames.stream()
+                .map(column -> quote(column) + " DESC")
+                .collect(Collectors.joining(", "));
+        final String tablePath = getFullName(schemaName, tableName);
+        final String sql = "SELECT " + selectedColumns
+                + " FROM " + tablePath
+                + " WHERE gp_segment_id % " + globalParallelFactor + " = " + workerIndex
+                + " ORDER BY " + orderBy
+                + " LIMIT 1";
+
+        Connection connection = null;
+        try {
+            connection = dbcpService.getConnection();
+            try (PreparedStatement st = connection.prepareStatement(sql);
+                 ResultSet rs = st.executeQuery()) {
+                if (!rs.next()) {
+                    return Map.of();
+                }
+                final Map<String, String> result = new LinkedHashMap<>();
+                for (String columnName : columnNames) {
+                    final Object value = rs.getObject(columnName);
+                    if (value != null) {
+                        result.put(columnName, String.valueOf(value));
+                    }
+                }
+                return result;
+            }
+        } catch (Exception e) {
+            String errMsg = "Failed to get upper bound tuple for table " + tableName;
             logger.error(errMsg, e);
             throw new RuntimeException(errMsg, e);
         } finally {

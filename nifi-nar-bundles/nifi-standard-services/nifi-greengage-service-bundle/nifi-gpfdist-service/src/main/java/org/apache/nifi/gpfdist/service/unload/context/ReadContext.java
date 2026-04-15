@@ -17,6 +17,7 @@ import org.apache.nifi.gpfdist.metadata.ColumnDataType;
 import org.apache.nifi.gpfdist.metadata.Context;
 import org.apache.nifi.gpfdist.metadata.ContextId;
 import org.apache.nifi.gpfdist.metadata.GpfdistMetadata;
+import org.apache.nifi.gpfdist.service.CancellableQuery;
 import org.apache.nifi.gpfdist.service.TransferDataQueryExecutor;
 import org.apache.nifi.gpfdist.service.unload.process.RecordProcessingService;
 import org.apache.nifi.logging.ComponentLog;
@@ -25,18 +26,26 @@ import org.apache.nifi.serialization.record.RecordSchema;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 
 public class ReadContext implements Context {
+    private static final long RETRY_DELAY_BASE_MILLIS = 1_000L;
+    private static final int RETRY_DELAY_MAX_EXPONENT = 5;
+    private static final long RETRY_DELAY_MAX_MILLIS = 30_000L;
+
     private final ContextId contextId;
     private final int globalParallelFactor;
     private final RecordSchema recordSchema;
     private final Map<String, ColumnDataType> dataTypes;
     private final Map<String, GpfdistMetadata> metadataMap;
     private final Map<String, RecordProcessingService> recordProcessingServiceMap;
-    private final Map<String, CompletableFuture<Void>> unloadQueryFutureMap;
+    private final Map<String, CancellableQuery> unloadQueryMap;
+    private final Map<String, GreengageTableColumnsMaxValueContext> maxValueTrackingContextMap;
+    private final Map<String, Long> retryAfterMap;
+    private final Map<String, Integer> failureCountMap;
     private final TransferDataQueryExecutor dropExternalTableQueryExecutor;
     private final ComponentLog logger;
 
@@ -55,7 +64,10 @@ public class ReadContext implements Context {
         this.recordProcessingServiceMap = recordProcessingServiceMap;
         this.dataTypes = dataTypes;
         this.dropExternalTableQueryExecutor = dropExternalTableQueryExecutor;
-        unloadQueryFutureMap = new ConcurrentHashMap<>();
+        unloadQueryMap = new ConcurrentHashMap<>();
+        maxValueTrackingContextMap = new ConcurrentHashMap<>();
+        retryAfterMap = new ConcurrentHashMap<>();
+        failureCountMap = new ConcurrentHashMap<>();
         this.logger = logger;
     }
 
@@ -78,8 +90,67 @@ public class ReadContext implements Context {
                 .orElseThrow(() -> new IllegalArgumentException("No record processing service for processor task id " + processorTaskId));
     }
 
-    public Map<String, CompletableFuture<Void>> getUnloadQueryFutureMap() {
-        return unloadQueryFutureMap;
+    public CompletableFuture<Void> getUnloadQueryFuture(final String taskId) {
+        final CancellableQuery unloadQuery = unloadQueryMap.get(taskId);
+        return unloadQuery == null ? null : unloadQuery.future();
+    }
+
+    public void setUnloadQuery(final String taskId, final CancellableQuery unloadQuery) {
+        unloadQueryMap.put(taskId, Objects.requireNonNull(unloadQuery, "unloadQuery cannot be null"));
+    }
+
+    public void setTableColumnsMaxValueContext(final String taskId, final GreengageTableColumnsMaxValueContext context) {
+        maxValueTrackingContextMap.put(taskId, Objects.requireNonNull(context, "greengageTableColumnsMaxValueContext cannot be null"));
+    }
+
+    public Optional<GreengageTableColumnsMaxValueContext> getTableColumnsMaxValueContext(final String taskId) {
+        return Optional.ofNullable(maxValueTrackingContextMap.get(taskId));
+    }
+
+    public void updateGpfdistMetadata(final String taskId, final GpfdistMetadata metadata) {
+        metadataMap.put(taskId, metadata);
+    }
+
+    public boolean isTaskInRetryDelay(final String taskId) {
+        final Long retryAfter = retryAfterMap.get(taskId);
+        return retryAfter != null && retryAfter > System.currentTimeMillis();
+    }
+
+    public long getRetryDelayLeftMillis(final String taskId) {
+        final Long retryAfter = retryAfterMap.get(taskId);
+        if (retryAfter == null) {
+            return 0L;
+        }
+        return Math.max(0L, retryAfter - System.currentTimeMillis());
+    }
+
+    public void resetRetryDelay(final String taskId) {
+        retryAfterMap.remove(taskId);
+        failureCountMap.remove(taskId);
+    }
+
+    public void registerTaskFailure(final String taskId) {
+        final int failures = failureCountMap.merge(taskId, 1, Integer::sum);
+        // exponential backoff with cap:
+        // delay = min(RETRY_DELAY_MAX_MILLIS, RETRY_DELAY_BASE_MILLIS * 2^min(RETRY_DELAY_MAX_EXPONENT, failures)).
+        // the "retry after" moment is current time plus the computed delay.
+        final long retryDelayMillis = Math.min(
+                RETRY_DELAY_MAX_MILLIS,
+                RETRY_DELAY_BASE_MILLIS * (1L << Math.min(RETRY_DELAY_MAX_EXPONENT, failures))
+        );
+        retryAfterMap.put(taskId, System.currentTimeMillis() + retryDelayMillis);
+    }
+
+    public void clearTaskState(final String taskId) {
+        final CancellableQuery unloadQuery = unloadQueryMap.remove(taskId);
+        if (unloadQuery != null) {
+            try {
+                unloadQuery.cancel();
+            } catch (Exception e) {
+                logger.warn("Failed to cancel unloading query for taskId: {}", taskId, e);
+            }
+        }
+        maxValueTrackingContextMap.remove(taskId);
     }
 
     public RecordSchema getRecordSchema() {
@@ -122,13 +193,11 @@ public class ReadContext implements Context {
                 rps.stop();
                 rps.clear();
             });
-            unloadQueryFutureMap.forEach((taskId, unloadQueryFutures) -> {
-                if (!unloadQueryFutures.isDone()) {
-                    try {
-                        unloadQueryFutures.completeExceptionally(new RuntimeException("Unloading was stopped"));
-                    } catch (Exception e) {
-                        logger.warn("Failed to stop unloading query future for taskId: {}", taskId, e);
-                    }
+            unloadQueryMap.forEach((taskId, unloadQuery) -> {
+                try {
+                    unloadQuery.cancel();
+                } catch (Exception e) {
+                    logger.warn("Failed to stop unloading query for taskId: {}", taskId, e);
                 }
             });
         } catch (Exception e) {
@@ -136,7 +205,10 @@ public class ReadContext implements Context {
         } finally {
             metadataMap.clear();
             recordProcessingServiceMap.clear();
-            unloadQueryFutureMap.clear();
+            unloadQueryMap.clear();
+            maxValueTrackingContextMap.clear();
+            retryAfterMap.clear();
+            failureCountMap.clear();
             logger.info("Closed read context with id: {}", contextId);
         }
     }

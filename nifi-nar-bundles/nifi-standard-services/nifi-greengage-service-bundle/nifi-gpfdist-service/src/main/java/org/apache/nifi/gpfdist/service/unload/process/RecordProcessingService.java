@@ -35,6 +35,8 @@ public interface RecordProcessingService {
 
     void clear();
 
+    void resetForNextCycle();
+
     void addChunkRequestProcessor(GpfdistChunkRequestProcessor requestProcessor);
 
     GpfdistChunkRequestProcessor getChunkRequestProcessor(GreengageChunkId chunkId);
