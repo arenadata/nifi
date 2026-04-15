@@ -25,19 +25,21 @@ import org.apache.nifi.tests.system.arenadata.model.Component;
 import org.apache.nifi.tests.system.arenadata.service.DockerComposeService;
 import org.apache.nifi.tests.system.arenadata.service.JdbcService;
 import org.apache.nifi.tests.system.arenadata.service.JdbcServiceFactory;
+import org.apache.nifi.toolkit.client.NiFiClient;
+import org.apache.nifi.toolkit.client.NiFiClientConfig;
+import org.apache.nifi.toolkit.client.impl.JerseyNiFiClient;
 import org.apache.nifi.web.api.entity.ControllerServiceEntity;
 import org.apache.nifi.web.api.entity.ProcessorEntity;
 import org.junit.function.ThrowingRunnable;
 import org.junit.jupiter.api.BeforeAll;
-import org.apache.nifi.toolkit.client.NiFiClient;
-import org.apache.nifi.toolkit.client.NiFiClientConfig;
-import org.apache.nifi.toolkit.client.impl.JerseyNiFiClient;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.TestInfo;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testcontainers.shaded.org.awaitility.Awaitility;
 
+import java.io.IOException;
+import java.security.NoSuchAlgorithmException;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
@@ -45,9 +47,6 @@ import java.util.stream.Collectors;
 
 import static org.apache.nifi.tests.system.arenadata.util.ConfigUtil.getTestConfig;
 import static org.junit.jupiter.api.Assertions.assertEquals;
-
-import java.io.IOException;
-import java.security.NoSuchAlgorithmException;
 
 public class NifiSystemContainerizedIT extends NiFiSystemIT {
     private static final Logger logger = LoggerFactory.getLogger(NifiSystemContainerizedIT.class);
@@ -62,7 +61,7 @@ public class NifiSystemContainerizedIT extends NiFiSystemIT {
 
     @BeforeAll
     public static void setup() {
-        if(adbService == null && postgresService == null) {
+        if (adbService == null && postgresService == null) {
             DockerComposeService composeService = new DockerComposeService(List.of(Component.values()));
             composeService.init();
             JdbcServiceFactory jdbcServiceFactory = new JdbcServiceFactory();
