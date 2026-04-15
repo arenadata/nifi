@@ -53,7 +53,7 @@ permissions:
 
 jobs:
   ubuntu-17:
-    timeout-minutes: 120
+    timeout-minutes: 180
     runs-on: ubuntu-latest
     name: Ubuntu Java 17
     steps:
@@ -93,7 +93,7 @@ jobs:
           retention-days: 7
 
   ubuntu:
-    timeout-minutes: 120
+    timeout-minutes: 180
     runs-on: ubuntu-latest
     name: Ubuntu Java 11
     steps:
