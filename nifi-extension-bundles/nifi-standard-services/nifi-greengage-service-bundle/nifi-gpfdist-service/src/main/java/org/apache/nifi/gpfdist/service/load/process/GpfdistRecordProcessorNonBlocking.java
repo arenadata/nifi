@@ -116,7 +116,8 @@ public class GpfdistRecordProcessorNonBlocking implements RecordProcessor {
         stream.complete();
         try {
             serializationService.close();
-        } catch (Exception ignore) {
+        } catch (Exception e) {
+            logger.warn("Failed to close serialization service for processor {}: {}", id, e.getMessage(), e);
         }
     }
 

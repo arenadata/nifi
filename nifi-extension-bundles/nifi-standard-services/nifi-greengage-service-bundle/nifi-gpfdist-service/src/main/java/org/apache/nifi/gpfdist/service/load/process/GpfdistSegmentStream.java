@@ -140,7 +140,8 @@ public class GpfdistSegmentStream {
             if (completed.get() && queue.isEmpty()) {
                 try {
                     outputStream.flush();
-                } catch (Exception ignore) {
+                } catch (Exception e) {
+                    logger.warn("Failed to flush output stream for recordProcessorId={}: {}", recordProcessorId, e.getMessage(), e);
                 }
                 safeComplete();
             }
@@ -154,6 +155,7 @@ public class GpfdistSegmentStream {
         try {
             asyncCtx.complete();
         } catch (Exception ignore) {
+            logger.warn("Failed to complete async context for recordProcessorId={}: {}", recordProcessorId, ignore.getMessage(), ignore);
         }
     }
 }

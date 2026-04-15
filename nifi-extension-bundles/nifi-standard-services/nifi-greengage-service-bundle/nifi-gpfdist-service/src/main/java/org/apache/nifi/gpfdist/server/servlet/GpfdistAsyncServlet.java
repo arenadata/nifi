@@ -152,11 +152,13 @@ public class GpfdistAsyncServlet extends HttpServlet {
                 if (!response.isCommitted()) {
                     response.setStatus(HttpServletResponse.SC_INTERNAL_SERVER_ERROR);
                 }
-            } catch (Exception ignore) {
+            } catch (Exception ex) {
+                logger.warn("Failed to set error status in async handler: {}", ex.getMessage(), ex);
             }
             try {
                 asyncCtx.complete();
-            } catch (Exception ignore) {
+            } catch (Exception ex2) {
+                logger.warn("Failed to complete async context in error handler: {}", ex2.getMessage(), ex2);
             }
         }
     }
