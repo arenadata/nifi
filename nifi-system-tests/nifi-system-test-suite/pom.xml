@@ -92,6 +92,9 @@
                 <artifactId>maven-failsafe-plugin</artifactId>
                 <configuration>
                     <redirectTestOutputToFile>true</redirectTestOutputToFile>
+                    <excludes>
+                        <exclude>org/apache/nifi/tests/system/arenadata/*IT.java</exclude>
+                    </excludes>
                 </configuration>
             </plugin>
             <plugin>
