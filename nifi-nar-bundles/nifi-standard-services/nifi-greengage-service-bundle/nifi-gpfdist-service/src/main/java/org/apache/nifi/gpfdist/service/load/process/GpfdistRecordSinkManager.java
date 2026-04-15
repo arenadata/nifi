@@ -110,11 +110,13 @@ public class GpfdistRecordSinkManager {
             throw new IllegalArgumentException("concurrentTasksPerNode must be > 0");
         }
         if (nodeCount <= 0) {
-            throw new IllegalArgumentException("nodeCount must be > 0");
+            throw new IllegalArgumentException("nodeCount must be > 0. You have to configure 'Total Nifi Nodes' " +
+                    "property in Gpfdist controller service according to your cluster configuration.");
         }
         if (nodeIndex < 0 || nodeIndex >= nodeCount) {
             throw new IllegalArgumentException(
-                    "nodeIndex must be in range [0.." + (nodeCount - 1) + "]"
+                    "nodeIndex must be in range [0.." + (nodeCount - 1) + "]. Apparently you have configured " +
+                            "'Total Nifi Nodes' property in Gpfdist controller service incorrectly."
             );
         }
     }
