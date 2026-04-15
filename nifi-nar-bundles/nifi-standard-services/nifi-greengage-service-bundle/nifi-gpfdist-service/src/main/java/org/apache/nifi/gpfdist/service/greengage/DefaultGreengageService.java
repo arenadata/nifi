@@ -309,7 +309,7 @@ public class DefaultGreengageService implements GreengageService {
             case "bool":
                 return new BooleanDataType();
             case "money":
-                return new MoneyDataType();
+                return new MoneyDataType(getMoneyScale(conn));
             case "uuid":
                 return new UuidDataType();
             case "jsonb":
@@ -488,6 +488,29 @@ public class DefaultGreengageService implements GreengageService {
         } else {
             return decimalDigits;
         }
+    }
+
+    private int getMoneyScale(final Connection conn) {
+        if (conn == null) {
+            return 2;
+        }
+        final String sql = "WITH v AS (" +
+                "SELECT ((0.123456789::money)::numeric)::text AS num_txt) " +
+                "SELECT CASE " +
+                "WHEN position('.' in num_txt) > 0 THEN length(split_part(num_txt, '.', 2)) " +
+                "ELSE 0 END AS money_scale FROM v";
+        try (PreparedStatement statement = conn.prepareStatement(sql);
+             ResultSet rs = statement.executeQuery()) {
+            if (rs.next()) {
+                final int detectedScale = rs.getInt("money_scale");
+                logger.info("Detected money type scale={} using lc_monetary-aware conversion", detectedScale);
+                return detectedScale;
+            }
+        } catch (SQLException e) {
+            throw new RuntimeException("Failed to detect money scale from database", e);
+        }
+
+        throw new IllegalStateException("Failed to detect money scale from database");
     }
 
     public static String normalizeColumnName(final String colName, final boolean translateColumnNames) {

@@ -53,11 +53,20 @@ public abstract class AbstractExternalTableQueryFactory implements CreateExterna
                 .collect(joining(","));
     }
 
-    private String getTypeName(ColumnDescription columnDescription) {
+    protected final String getTypeName(final ColumnDescription columnDescription) {
+        final String baseTypeName = resolveBaseTypeName(columnDescription);
+        return resolveTypeName(columnDescription, baseTypeName);
+    }
+
+    private String resolveBaseTypeName(final ColumnDescription columnDescription) {
         if (Objects.requireNonNull(columnDescription.getDataType().getType()) == GreengageDataType.ENUM) {
-            EnumDataType enumDataType = (EnumDataType) columnDescription.getDataType();
+            final EnumDataType enumDataType = (EnumDataType) columnDescription.getDataType();
             return enumDataType.getEnumTypeSchema() + "." + enumDataType.getEnumTypeName();
         }
         return columnDescription.getDataType().getName();
+    }
+
+    protected String resolveTypeName(final ColumnDescription columnDescription, final String baseTypeName) {
+        return baseTypeName;
     }
 }
