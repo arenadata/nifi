@@ -114,7 +114,8 @@ public abstract class AbstractDataQueryExecutor implements TransferDataQueryExec
         }
         try {
             conn.rollback();
-        } catch (Exception ignore) {
+        } catch (Exception e) {
+            logger.warn("Failed to rollback connection: {}", e.getMessage(), e);
         }
     }
 
