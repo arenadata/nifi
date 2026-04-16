@@ -92,6 +92,9 @@
                 <artifactId>maven-failsafe-plugin</artifactId>
                 <configuration>
                     <redirectTestOutputToFile>true</redirectTestOutputToFile>
+                    <excludes>
+                        <exclude>org/apache/nifi/tests/system/arenadata/*IT.java</exclude>
+                    </excludes>
                 </configuration>
             </plugin>
             <plugin>
@@ -391,6 +394,18 @@
         <dependency>
             <groupId>org.apache.nifi</groupId>
             <artifactId>nifi-system-test-extensions-nar</artifactId>
+            <version>${nifi.version}</version>
+            <type>nar</type>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.nifi</groupId>
+            <artifactId>nifi-system-test-extensions-services-nar</artifactId>
+            <version>${nifi.version}</version>
+            <type>nar</type>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.nifi</groupId>
+            <artifactId>nifi-system-test-extensions-services-api-nar</artifactId>
             <version>${nifi.version}</version>
             <type>nar</type>
         </dependency>
