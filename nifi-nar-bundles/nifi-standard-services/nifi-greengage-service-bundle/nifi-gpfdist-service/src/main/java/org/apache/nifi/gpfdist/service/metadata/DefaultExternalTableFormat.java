@@ -19,6 +19,8 @@ package org.apache.nifi.gpfdist.service.metadata;
 import org.apache.nifi.gpfdist.metadata.DataFormat;
 import org.apache.nifi.gpfdist.metadata.ExternalTableFormat;
 
+import java.util.Objects;
+
 public class DefaultExternalTableFormat implements ExternalTableFormat {
     private final String delimiter;
     private final String encoding;
@@ -53,5 +55,30 @@ public class DefaultExternalTableFormat implements ExternalTableFormat {
     @Override
     public DataFormat getDataFormat() {
         return dataFormat;
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (o == null || getClass() != o.getClass()) return false;
+        DefaultExternalTableFormat that = (DefaultExternalTableFormat) o;
+        return Objects.equals(delimiter, that.delimiter)
+                && Objects.equals(encoding, that.encoding)
+                && Objects.equals(nullValue, that.nullValue)
+                && dataFormat == that.dataFormat;
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(delimiter, encoding, nullValue, dataFormat);
+    }
+
+    @Override
+    public String toString() {
+        return "DefaultExternalTableFormat{" +
+                "delimiter='" + delimiter + '\'' +
+                ", encoding='" + encoding + '\'' +
+                ", nullValue='" + nullValue + '\'' +
+                ", dataFormat=" + dataFormat +
+                '}';
     }
 }

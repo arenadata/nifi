@@ -22,4 +22,6 @@ import java.util.concurrent.CompletableFuture;
 
 public interface TransferDataQueryExecutor {
     CompletableFuture<Void> execute(GpfdistMetadata context);
+
+    CancellableQuery executeCancellable(GpfdistMetadata metadata);
 }

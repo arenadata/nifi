@@ -14,4 +14,4 @@
 # limitations under the License.
 
 org.apache.nifi.gpfdist.processor.PutGreengageRecord
-org.apache.nifi.gpfdist.processor.PutGreengageRecord
+org.apache.nifi.gpfdist.processor.GetGreengageRecord
