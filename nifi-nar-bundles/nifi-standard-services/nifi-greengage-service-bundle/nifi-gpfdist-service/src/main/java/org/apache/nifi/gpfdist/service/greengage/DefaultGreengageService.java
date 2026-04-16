@@ -70,8 +70,10 @@ import static org.apache.nifi.gpfdist.service.util.GreengageUtil.quote;
 
 public class DefaultGreengageService implements GreengageService {
     private static final int VARCHAR_MAXIMUM_SIZE = 65535;
+    private static final int DEFAULT_MONEY_TYPE_SCALE = 2;
     private final DBCPService dbcpService;
     private final ComponentLog logger;
+    private Integer moneyTypeScale;
 
     public DefaultGreengageService(final DBCPService dbcpService, ComponentLog logger) {
         this.dbcpService = dbcpService;
@@ -491,8 +493,11 @@ public class DefaultGreengageService implements GreengageService {
     }
 
     private int getMoneyScale(final Connection conn) {
+        if (moneyTypeScale != null) {
+            return moneyTypeScale;
+        }
         if (conn == null) {
-            return 2;
+            return useDefaultMoneyScale("Connection is null while detecting money scale from greengage");
         }
         final String sql = "WITH v AS (" +
                 "SELECT ((0.123456789::money)::numeric)::text AS num_txt) " +
@@ -502,15 +507,26 @@ public class DefaultGreengageService implements GreengageService {
         try (PreparedStatement statement = conn.prepareStatement(sql);
              ResultSet rs = statement.executeQuery()) {
             if (rs.next()) {
-                final int detectedScale = rs.getInt("money_scale");
-                logger.info("Detected money type scale={} using lc_monetary-aware conversion", detectedScale);
-                return detectedScale;
+                moneyTypeScale = rs.getInt("money_scale");
+                logger.info("Detected money type scale={} using lc_monetary-aware conversion", moneyTypeScale);
+                return moneyTypeScale;
             }
+            return useDefaultMoneyScale("Failed to detect money scale from greengage");
         } catch (SQLException e) {
-            throw new RuntimeException("Failed to detect money scale from database", e);
+            return useDefaultMoneyScale("Failed to detect money scale from greengage", e);
         }
+    }
 
-        throw new IllegalStateException("Failed to detect money scale from database");
+    private int useDefaultMoneyScale(final String message) {
+        logger.warn("{}, using default scale={}", message, DEFAULT_MONEY_TYPE_SCALE);
+        moneyTypeScale = DEFAULT_MONEY_TYPE_SCALE;
+        return moneyTypeScale;
+    }
+
+    private int useDefaultMoneyScale(final String message, final Throwable throwable) {
+        logger.warn("{}, using default scale={}", message, DEFAULT_MONEY_TYPE_SCALE, throwable);
+        moneyTypeScale = DEFAULT_MONEY_TYPE_SCALE;
+        return moneyTypeScale;
     }
 
     public static String normalizeColumnName(final String colName, final boolean translateColumnNames) {
