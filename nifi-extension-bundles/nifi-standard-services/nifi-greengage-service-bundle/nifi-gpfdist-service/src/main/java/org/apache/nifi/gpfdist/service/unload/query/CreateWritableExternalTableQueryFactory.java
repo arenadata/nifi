@@ -16,7 +16,10 @@
  */
 package org.apache.nifi.gpfdist.service.unload.query;
 
+import org.apache.nifi.gpfdist.metadata.ColumnDescription;
 import org.apache.nifi.gpfdist.metadata.GpfdistMetadata;
+import org.apache.nifi.gpfdist.metadata.GreengageDataType;
+import org.apache.nifi.gpfdist.service.datatype.ArrayDataType;
 import org.apache.nifi.gpfdist.service.metadata.ExternalTableType;
 import org.apache.nifi.gpfdist.service.query.AbstractExternalTableQueryFactory;
 
@@ -29,5 +32,21 @@ public class CreateWritableExternalTableQueryFactory extends AbstractExternalTab
     @Override
     public ExternalTableType getExternalTableType() {
         return ExternalTableType.WRITABLE;
+    }
+
+    @Override
+    protected String resolveTypeName(final ColumnDescription columnDescription, final String baseTypeName) {
+        // for the money data type, we create a column with the decimal type;
+        // the conversion will occur automatically when inserting data into an external table.
+        if (columnDescription.getDataType().getType() == GreengageDataType.MONEY) {
+            return GreengageDataType.DECIMAL.name();
+        }
+        if (columnDescription.getDataType().getType() == GreengageDataType.ARRAY) {
+            final ArrayDataType arrayDataType = (ArrayDataType) columnDescription.getDataType();
+            if (arrayDataType.getElementType().getType() == GreengageDataType.MONEY) {
+                return GreengageDataType.DECIMAL.name() + "[]";
+            }
+        }
+        return baseTypeName;
     }
 }
