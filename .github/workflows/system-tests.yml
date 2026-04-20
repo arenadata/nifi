@@ -27,17 +27,6 @@ on:
       - 'nifi-extension-bundles/nifi-py4j-extension-bundle/**'
       - 'nifi-stateless/**'
       - 'nifi-mock/**'
-  pull_request:
-    paths:
-      - '.github/workflows/system-tests.yml'
-      - 'c2/c2-protocol/**'
-      - 'nifi-system-tests/**'
-      - 'nifi-api/**'
-      - 'nifi-framework-api/**'
-      - 'nifi-framework-bundle/**'
-      - 'nifi-extension-bundles/nifi-py4j-extension-bundle/**'
-      - 'nifi-stateless/**'
-      - 'nifi-mock/**'
 
 env:
   DEFAULT_MAVEN_OPTS: >-

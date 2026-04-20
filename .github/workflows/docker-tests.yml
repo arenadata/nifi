@@ -27,17 +27,6 @@ on:
       - 'nifi-toolkit/nifi-toolkit-cli/**'
       - 'minifi/minifi-assembly/**'
       - 'minifi/minifi-docker/**'
-  pull_request:
-    paths:
-      - '.github/workflows/docker-tests.yml'
-      - 'nifi-assembly/**'
-      - 'nifi-docker/**'
-      - 'nifi-registry/nifi-registry-assembly/**'
-      - 'nifi-registry/nifi-registry-docker-maven/**'
-      - 'nifi-toolkit/nifi-toolkit-assembly/**'
-      - 'nifi-toolkit/nifi-toolkit-cli/**'
-      - 'minifi/minifi-assembly/**'
-      - 'minifi/minifi-docker/**'
 
 env:
   DEFAULT_MAVEN_OPTS: >-
