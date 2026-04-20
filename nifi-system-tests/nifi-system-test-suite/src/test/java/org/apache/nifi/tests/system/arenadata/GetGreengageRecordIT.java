@@ -144,7 +144,6 @@ public class GetGreengageRecordIT extends NifiSystemContainerizedIT {
     }
 
     @Test
-    @Disabled("Bug https://tracker.yandex.ru/ADS-3116")
     @SneakyThrows
     public void testReadRecordsFromAdbForMoneyDataType() {
         Map<String, String> sourceFieldMap = new LinkedHashMap<>();
