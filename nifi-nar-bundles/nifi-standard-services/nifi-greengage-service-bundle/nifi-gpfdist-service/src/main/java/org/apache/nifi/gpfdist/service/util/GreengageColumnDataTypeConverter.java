@@ -18,6 +18,7 @@ import org.apache.nifi.gpfdist.metadata.ColumnDescription;
 import org.apache.nifi.gpfdist.service.datatype.ArrayDataType;
 import org.apache.nifi.gpfdist.service.datatype.DecimalDataType;
 import org.apache.nifi.gpfdist.service.datatype.MapDataType;
+import org.apache.nifi.gpfdist.service.datatype.MoneyDataType;
 import org.apache.nifi.serialization.SimpleRecordSchema;
 import org.apache.nifi.serialization.record.DataType;
 import org.apache.nifi.serialization.record.RecordField;
@@ -34,7 +35,6 @@ import java.util.Map;
 import java.util.function.Supplier;
 
 public class GreengageColumnDataTypeConverter {
-
     public static RecordSchema convert(List<ColumnDescription> columns) {
         List<RecordField> fields = new ArrayList<>();
 
@@ -48,6 +48,9 @@ public class GreengageColumnDataTypeConverter {
 
     private static DataType getDataType(ColumnDataType columnType) {
         switch (columnType.getType()) {
+            case MONEY:
+                MoneyDataType moneyDataType = (MoneyDataType) columnType;
+                return RecordFieldType.DECIMAL.getDecimalDataType(moneyDataType.getPrecision(), moneyDataType.getScale());
             case DECIMAL:
                 DecimalDataType decimalDataType = (DecimalDataType) columnType;
                 return RecordFieldType.DECIMAL.getDecimalDataType(decimalDataType.getPrecision(), decimalDataType.getScale());
@@ -70,7 +73,6 @@ public class GreengageColumnDataTypeConverter {
             case BOOLEAN:
             case BIT:
                 return RecordFieldType.BOOLEAN;
-            case MONEY:
             case DECIMAL:
                 return RecordFieldType.DECIMAL;
             case BIGINT:

@@ -18,10 +18,22 @@ import org.apache.nifi.gpfdist.metadata.GreengageDataType;
 
 public class MoneyDataType
         implements ColumnDataType {
-    private final String name;
+    private static final int DEFAULT_PRECISION = 19;
+    private static final int DEFAULT_SCALE = 2;
+    private final String name = "money";
+    private final int precision;
+    private final int scale;
 
     public MoneyDataType() {
-        this.name = "money";
+        this(DEFAULT_SCALE);
+    }
+
+    public MoneyDataType(final int scale) {
+        this.precision = DEFAULT_PRECISION;
+        if (scale < 0 || scale > precision) {
+            throw new IllegalArgumentException("Money scale must be between 0 and " + precision + ", got " + scale);
+        }
+        this.scale = scale;
     }
 
     @Override
@@ -34,10 +46,20 @@ public class MoneyDataType
         return GreengageDataType.MONEY;
     }
 
+    public int getPrecision() {
+        return precision;
+    }
+
+    public int getScale() {
+        return scale;
+    }
+
     @Override
     public String toString() {
         return "MoneyDataType{" +
                 "name='" + name + '\'' +
+                ", precision=" + precision +
+                ", scale=" + scale +
                 '}';
     }
 }
