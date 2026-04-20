@@ -458,12 +458,9 @@ public class FlowSynchronizationIT extends NiFiSystemIT {
         getClientUtil().startProcessor(generate);
 
         // Stop & restart Node 2.
-        Thread.sleep(10000);
         getNiFiInstance().getNodeInstance(2).stop();
-        Thread.sleep(10000);
         getNiFiInstance().getNodeInstance(2).start(true);
         waitForAllNodesConnected();
-        Thread.sleep(10000);
 
         // Verify that components exist on node 2, by switching client to Node 2 and not replicating requests, so that we see exactly what
         // is on Node 2.
