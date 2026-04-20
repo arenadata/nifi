@@ -496,6 +496,8 @@ public class FlowSynchronizationIT extends NiFiSystemIT {
         assertEquals(count.getId(), node2CountProc.getId());
         waitFor(() -> {
             final ProcessorDTO updatedNode2CountProc = getNifiClient().getProcessorClient(DO_NOT_REPLICATE).getProcessor(node2CountProc.getId()).getComponent();
+            System.out.println(updatedNode2CountProc.getState());
+            System.out.println(updatedNode2CountProc.getValidationErrors());
             return updatedNode2CountProc.getState().equals(RUNNING_STATE);
         });
 

@@ -405,7 +405,7 @@ public abstract class NiFiSystemIT implements NiFiInstanceProvider {
     }
 
     protected void waitFor(final ExceptionalBooleanSupplier condition) throws InterruptedException {
-        waitFor(condition, 100L);
+        waitFor(condition, 1000L);
     }
 
     protected void waitFor(final ExceptionalBooleanSupplier condition, final long delayMillis) throws InterruptedException {
