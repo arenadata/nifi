@@ -44,12 +44,14 @@ import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
 public class StandardJwtAuthenticationConverterTest {
     private static final String USERNAME = "NiFi";
+    private static final String CLIENT_ADDRESS = "192.168.10.50";
 
     private static final String AUTHORIZER_GROUP = "AuthorizerGroup";
 
@@ -102,7 +104,7 @@ public class StandardJwtAuthenticationConverterTest {
                 .claim(SupportedClaim.GROUPS.getClaim(), providerGroups)
                 .build();
 
-        final NiFiAuthenticationToken authenticationToken = converter.convert(jwt);
+        final NiFiAuthenticationToken authenticationToken = converter.convertWithClientAddress(jwt, CLIENT_ADDRESS);
         assertNotNull(authenticationToken);
         assertEquals(USERNAME, authenticationToken.toString());
 
@@ -114,5 +116,22 @@ public class StandardJwtAuthenticationConverterTest {
 
         final Set<String> expectedProviderGroups = Collections.singleton(PROVIDER_GROUP);
         assertEquals(expectedProviderGroups, user.getIdentityProviderGroups());
+        assertEquals(CLIENT_ADDRESS, user.getClientAddress());
+    }
+
+    @Test
+    public void testConvertWithoutClientAddress() {
+        final List<String> providerGroups = Collections.singletonList(PROVIDER_GROUP);
+        final Jwt jwt = Jwt.withTokenValue("token")
+                .header(TYPE_FIELD, JWT_TYPE)
+                .subject(USERNAME)
+                .claim(SupportedClaim.GROUPS.getClaim(), providerGroups)
+                .build();
+
+        final NiFiAuthenticationToken authenticationToken = converter.convert(jwt);
+        final NiFiUserDetails details = (NiFiUserDetails) authenticationToken.getDetails();
+        final NiFiUser user = details.getNiFiUser();
+
+        assertNull(user.getClientAddress());
     }
 }

@@ -57,13 +57,13 @@ import org.apache.nifi.web.security.x509.X509AuthenticationRequestToken;
 import org.apache.nifi.web.security.x509.X509CertificateExtractor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.security.authentication.AuthenticationProvider;
 import org.springframework.security.authentication.AuthenticationServiceException;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.AuthenticationException;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.security.oauth2.server.resource.BearerTokenAuthenticationToken;
-import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationProvider;
 import org.springframework.security.oauth2.server.resource.web.BearerTokenResolver;
 import org.springframework.security.web.authentication.preauth.x509.X509PrincipalExtractor;
 
@@ -106,7 +106,7 @@ public class AccessResource extends ApplicationResource {
     private X509PrincipalExtractor principalExtractor;
 
     private LoginIdentityProvider loginIdentityProvider;
-    private JwtAuthenticationProvider jwtAuthenticationProvider;
+    private AuthenticationProvider jwtAuthenticationProvider;
     private JwtLogoutListener jwtLogoutListener;
     private JwtDecoder jwtDecoder;
     private BearerTokenProvider bearerTokenProvider;
@@ -256,6 +256,7 @@ public class AccessResource extends ApplicationResource {
                 } else {
                     try {
                         final BearerTokenAuthenticationToken authenticationToken = new BearerTokenAuthenticationToken(bearerToken);
+                        authenticationToken.setDetails(getClientAddress(httpServletRequest));
                         final Authentication authentication = jwtAuthenticationProvider.authenticate(authenticationToken);
                         final NiFiUserDetails userDetails = (NiFiUserDetails) authentication.getPrincipal();
                         final String identity = userDetails.getUsername();
@@ -583,6 +584,16 @@ public class AccessResource extends ApplicationResource {
         return applicationCookieService.getCookieValue(httpServletRequest, ApplicationCookieName.LOGOUT_REQUEST_IDENTIFIER);
     }
 
+    private String getClientAddress(final HttpServletRequest httpServletRequest) {
+        final String forwardedFor = httpServletRequest.getHeader("X-Forwarded-For");
+        if (StringUtils.isNotBlank(forwardedFor)) {
+            final int delimiter = forwardedFor.indexOf(',');
+            return delimiter >= 0 ? forwardedFor.substring(0, delimiter).trim() : forwardedFor.trim();
+        }
+
+        return httpServletRequest.getRemoteAddr();
+    }
+
     // setters
     public void setLoginIdentityProvider(LoginIdentityProvider loginIdentityProvider) {
         this.loginIdentityProvider = loginIdentityProvider;
@@ -596,7 +607,7 @@ public class AccessResource extends ApplicationResource {
         this.bearerTokenResolver = bearerTokenResolver;
     }
 
-    public void setJwtAuthenticationProvider(JwtAuthenticationProvider jwtAuthenticationProvider) {
+    public void setRequestDetailsJwtAuthenticationProvider(final AuthenticationProvider jwtAuthenticationProvider) {
         this.jwtAuthenticationProvider = jwtAuthenticationProvider;
     }
 

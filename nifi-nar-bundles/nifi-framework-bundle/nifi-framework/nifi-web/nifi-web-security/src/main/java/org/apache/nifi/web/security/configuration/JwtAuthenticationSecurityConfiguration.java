@@ -26,8 +26,10 @@ import org.apache.nifi.authorization.Authorizer;
 import org.apache.nifi.components.state.StateManager;
 import org.apache.nifi.components.state.StateManagerProvider;
 import org.apache.nifi.util.NiFiProperties;
+import org.apache.nifi.web.security.jwt.converter.RequestDetailsJwtAuthenticationConverter;
 import org.apache.nifi.web.security.jwt.converter.StandardJwtAuthenticationConverter;
 import org.apache.nifi.web.security.StandardAuthenticationEntryPoint;
+import org.apache.nifi.web.security.jwt.RequestDetailsJwtAuthenticationProvider;
 import org.apache.nifi.web.security.jwt.jws.StandardJWSKeySelector;
 import org.apache.nifi.web.security.jwt.jws.StandardJwsSignerProvider;
 import org.apache.nifi.web.security.jwt.key.command.KeyExpirationCommand;
@@ -47,18 +49,19 @@ import org.apache.nifi.web.security.jwt.revocation.JwtRevocationValidator;
 import org.apache.nifi.web.security.jwt.revocation.StandardJwtLogoutListener;
 import org.apache.nifi.web.security.jwt.revocation.StandardJwtRevocationService;
 import org.apache.nifi.web.security.jwt.revocation.command.RevocationExpirationCommand;
+import org.apache.nifi.web.security.util.ClientAddressResolver;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler;
 import org.springframework.security.authentication.AuthenticationManager;
+import org.springframework.security.authentication.AuthenticationProvider;
 import org.springframework.security.oauth2.core.DelegatingOAuth2TokenValidator;
 import org.springframework.security.oauth2.core.OAuth2TokenValidator;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.security.oauth2.jwt.JwtValidators;
 import org.springframework.security.oauth2.jwt.NimbusJwtDecoder;
-import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationProvider;
 import org.springframework.security.oauth2.server.resource.web.BearerTokenAuthenticationEntryPoint;
 import org.springframework.security.oauth2.server.resource.web.BearerTokenResolver;
 import org.springframework.security.oauth2.server.resource.web.authentication.BearerTokenAuthenticationFilter;
@@ -110,6 +113,7 @@ public class JwtAuthenticationSecurityConfiguration {
         final BearerTokenAuthenticationFilter bearerTokenAuthenticationFilter = new BearerTokenAuthenticationFilter(authenticationManager);
         bearerTokenAuthenticationFilter.setBearerTokenResolver(bearerTokenResolver());
         bearerTokenAuthenticationFilter.setAuthenticationEntryPoint(authenticationEntryPoint());
+        bearerTokenAuthenticationFilter.setAuthenticationDetailsSource(clientAddressResolver()::getClientAddress);
         return bearerTokenAuthenticationFilter;
     }
 
@@ -125,10 +129,8 @@ public class JwtAuthenticationSecurityConfiguration {
     }
 
     @Bean
-    public JwtAuthenticationProvider jwtAuthenticationProvider() {
-        final JwtAuthenticationProvider jwtAuthenticationProvider = new JwtAuthenticationProvider(jwtDecoder());
-        jwtAuthenticationProvider.setJwtAuthenticationConverter(jwtAuthenticationConverter());
-        return jwtAuthenticationProvider;
+    public AuthenticationProvider requestDetailsJwtAuthenticationProvider() {
+        return new RequestDetailsJwtAuthenticationProvider(jwtDecoder(), requestDetailsAuthenticationConverter());
     }
 
     @Bean
@@ -179,6 +181,16 @@ public class JwtAuthenticationSecurityConfiguration {
     @Bean
     public StandardJwtAuthenticationConverter jwtAuthenticationConverter() {
         return new StandardJwtAuthenticationConverter(authorizer, niFiProperties);
+    }
+
+    @Bean
+    public RequestDetailsJwtAuthenticationConverter requestDetailsAuthenticationConverter() {
+        return jwtAuthenticationConverter();
+    }
+
+    @Bean
+    public ClientAddressResolver clientAddressResolver() {
+        return new ClientAddressResolver();
     }
 
     @Bean
