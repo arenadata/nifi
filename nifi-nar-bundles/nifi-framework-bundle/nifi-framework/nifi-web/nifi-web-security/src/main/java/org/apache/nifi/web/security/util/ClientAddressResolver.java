@@ -16,20 +16,11 @@
  */
 package org.apache.nifi.web.security.util;
 
-import org.apache.commons.lang3.StringUtils;
-
 import javax.servlet.http.HttpServletRequest;
 
 public class ClientAddressResolver {
-    private static final String X_FORWARDED_FOR_HEADER = "X-Forwarded-For";
 
     public String getClientAddress(final HttpServletRequest request) {
-        final String forwardedFor = request.getHeader(X_FORWARDED_FOR_HEADER);
-        if (StringUtils.isNotBlank(forwardedFor)) {
-            final int delimiter = forwardedFor.indexOf(',');
-            return delimiter >= 0 ? forwardedFor.substring(0, delimiter).trim() : forwardedFor.trim();
-        }
-
         return request.getRemoteAddr();
     }
 }
