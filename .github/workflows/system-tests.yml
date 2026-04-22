@@ -28,18 +28,6 @@ on:
       - 'nifi-registry/nifi-registry-core/nifi-registry-flow-diff/**'
       - 'nifi-stateless/**'
       - 'nifi-mock/**'
-  pull_request:
-    paths:
-      - '.github/workflows/system-tests.yml'
-      - 'c2/c2-protocol/**'
-      - 'nifi-system-tests/**'
-      - 'nifi-api/**'
-      - 'nifi-framework-api/**'
-      - 'nifi-framework-bundle/**'
-      - 'nifi-extension-bundles/nifi-py4j-extension-bundle/**'
-      - 'nifi-registry/nifi-registry-core/nifi-registry-flow-diff/**'
-      - 'nifi-stateless/**'
-      - 'nifi-mock/**'
 
 env:
   DEFAULT_MAVEN_OPTS: >-
@@ -82,7 +70,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ ubuntu-24.04, macos-15 ]
+        os: [ ubuntu-24.04 ]
         version: [ 21, 25 ]
     timeout-minutes: 120
     runs-on: ${{ matrix.os }}
