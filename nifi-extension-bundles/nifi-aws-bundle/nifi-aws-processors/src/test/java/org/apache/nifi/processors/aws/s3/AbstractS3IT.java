@@ -83,7 +83,7 @@ public abstract class AbstractS3IT {
     private static AWSKMS kmsClient;
     private final List<String> addedKeys = new ArrayList<>();
 
-    private static final DockerImageName localstackImage = DockerImageName.parse("localstack/localstack:latest");
+    private static final DockerImageName localstackImage = DockerImageName.parse("localstack/localstack:4.12.0");
 
     private static final LocalStackContainer localstack = new LocalStackContainer(localstackImage)
             .withServices(LocalStackContainer.Service.S3, LocalStackContainer.Service.KMS);

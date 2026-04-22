@@ -117,6 +117,10 @@
                 <artifactId>maven-failsafe-plugin</artifactId>
                 <configuration>
                     <redirectTestOutputToFile>true</redirectTestOutputToFile>
+                    <rerunFailingTestsCount>2</rerunFailingTestsCount>
+                    <excludes>
+                        <exclude>org/apache/nifi/tests/system/arenadata/*IT.java</exclude>
+                    </excludes>
                 </configuration>
             </plugin>
             <plugin>

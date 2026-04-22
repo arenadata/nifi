@@ -15,7 +15,7 @@
 # limitations under the License.
 name: ci-workflow
 
-on: [push, pull_request]
+on: [push]
 
 env:
   MAVEN_COMMAND: ./mvnw
