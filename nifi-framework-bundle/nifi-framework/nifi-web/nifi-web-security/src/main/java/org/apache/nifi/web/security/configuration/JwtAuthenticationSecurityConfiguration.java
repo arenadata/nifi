@@ -20,8 +20,10 @@ import jakarta.servlet.http.HttpServletRequest;
 import org.apache.nifi.authorization.Authorizer;
 import org.apache.nifi.util.NiFiProperties;
 import org.apache.nifi.web.security.NiFiWebAuthenticationDetails;
+import org.apache.nifi.web.security.jwt.converter.RequestDetailsJwtAuthenticationConverter;
 import org.apache.nifi.web.security.jwt.converter.StandardJwtAuthenticationConverter;
 import org.apache.nifi.web.security.StandardAuthenticationEntryPoint;
+import org.apache.nifi.web.security.jwt.RequestDetailsJwtAuthenticationProvider;
 import org.apache.nifi.web.security.jwt.jws.StandardJwsSignerProvider;
 import org.apache.nifi.web.security.jwt.key.command.KeyExpirationCommand;
 import org.apache.nifi.web.security.jwt.key.command.KeyGenerationCommand;
@@ -42,8 +44,8 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler;
 import org.springframework.security.authentication.AuthenticationDetailsSource;
 import org.springframework.security.authentication.AuthenticationManager;
+import org.springframework.security.authentication.AuthenticationProvider;
 import org.springframework.security.oauth2.jwt.JwtDecoder;
-import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationProvider;
 import org.springframework.security.oauth2.server.resource.web.BearerTokenAuthenticationEntryPoint;
 import org.springframework.security.oauth2.server.resource.web.BearerTokenResolver;
 import org.springframework.security.oauth2.server.resource.web.authentication.BearerTokenAuthenticationFilter;
@@ -132,10 +134,8 @@ public class JwtAuthenticationSecurityConfiguration {
      * @return JSON Web Token Authentication Provider
      */
     @Bean
-    public JwtAuthenticationProvider jwtAuthenticationProvider() {
-        final JwtAuthenticationProvider jwtAuthenticationProvider = new JwtAuthenticationProvider(jwtDecoder);
-        jwtAuthenticationProvider.setJwtAuthenticationConverter(jwtAuthenticationConverter());
-        return jwtAuthenticationProvider;
+    public AuthenticationProvider requestDetailsJwtAuthenticationProvider() {
+        return new RequestDetailsJwtAuthenticationProvider(jwtDecoder, requestDetailsAuthenticationConverter());
     }
 
     /**
@@ -156,6 +156,11 @@ public class JwtAuthenticationSecurityConfiguration {
     @Bean
     public StandardJwtAuthenticationConverter jwtAuthenticationConverter() {
         return new StandardJwtAuthenticationConverter(authorizer, niFiProperties);
+    }
+
+    @Bean
+    public RequestDetailsJwtAuthenticationConverter requestDetailsAuthenticationConverter() {
+        return jwtAuthenticationConverter();
     }
 
     /**
