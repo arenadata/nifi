@@ -183,6 +183,7 @@ public class ProvenanceRepositoryIT extends NiFiSystemIT {
         // Restart NiFi. We do this so that when we query provenance for the Processor we won't be able to use the "Cached" events
         // and will instead have to query Lucene
         getNiFiInstance().stop();
+        Thread.sleep(1000);
         getNiFiInstance().start();
 
         // Ensure that Terminate processor is stopped, since nifi could have shutdown before persisting flow.xml.gz
