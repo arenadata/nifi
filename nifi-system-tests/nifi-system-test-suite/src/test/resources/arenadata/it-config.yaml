@@ -30,5 +30,5 @@ postgres:
   containerAddress: "jdbc:postgresql://postgres:5432/postgres"
 
 gpfdistPort: 8099
-generalTimeout: 120
+generalTimeout: 90
 pollInterval: 3
