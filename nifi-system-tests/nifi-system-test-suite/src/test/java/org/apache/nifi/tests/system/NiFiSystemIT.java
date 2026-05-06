@@ -182,6 +182,7 @@ public abstract class NiFiSystemIT implements NiFiInstanceProvider {
             if (isDestroyEnvironmentAfterEachTest()) {
                 instanceCache.poison(nifiRef.get());
                 cleanup();
+                Thread.sleep(3000);
             } else if (destroyFlowFailure != null) {
                 // If unable to destroy the flow, we need to shutdown the instance and delete
                 // the flow and completely recreate the environment.
