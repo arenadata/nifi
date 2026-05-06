@@ -57,8 +57,10 @@ public class GetGreengageRecordIT extends NifiSystemContainerizedIT {
     private static final String CREATE_EXTENSION_HSTORE_SQL = "CREATE EXTENSION IF NOT EXISTS hstore";
     private static final String CREATE_EXTENSION_UUID_SQL = "CREATE EXTENSION IF NOT EXISTS \"uuid-ossp\"";
     private static final String CREATE_TABLE_TEMPLATE_SQL = "CREATE TABLE %s (%s)";
+    private static final String ID_COLUMN = "id";
     private static final Map<String, String> TABLE_COLUMNS = new LinkedHashMap<>() {{
-        put("id", "INT");
+        put(ID_COLUMN, "SERIAL PRIMARY KEY");
+        put("f_int", "INT");
         put("f_bigint", "BIGINT");
         put("f_bit", "BIT");
         put("f_bool", "BOOLEAN");
@@ -121,7 +123,7 @@ public class GetGreengageRecordIT extends NifiSystemContainerizedIT {
             "       ARRAY['foo', 'bar']::text[],\n" +
             "       '\"a\"=>\"1\", \"b\"=>\"2\"'::hstore,\n" +
             "       (ARRAY['sun','mon','tue','wed','thu','fri','sat'])[1 + (i % 7)]::day\n" +
-            "from generate_series(1, 100) s(i)";
+            "from generate_series(1, 100000) s(i)";
 
     private ProcessorEntity getGgRecordProcessor;
     private ProcessorEntity putDbRecordProcessor;
@@ -136,10 +138,13 @@ public class GetGreengageRecordIT extends NifiSystemContainerizedIT {
     @SneakyThrows
     public void testReadRecordsFromAdbWithSupportedDataTypes() {
         adbService.exec(CREATE_ENUM_SQL);
-        String insertQuery = String.format("INSERT INTO %s SELECT * FROM (%s) gen", GG_TABLE_NAME, GENERATE_DATASET_SQL);
+        Map<String, String> tableColumnsWithoutId = new LinkedHashMap<>(TABLE_COLUMNS);
+        tableColumnsWithoutId.remove(ID_COLUMN);
+        String insertColumnList = getFieldNamesString(tableColumnsWithoutId);
+        String insertQuery = String.format("INSERT INTO %s (%s) %s", GG_TABLE_NAME, insertColumnList, GENERATE_DATASET_SQL);
         initDataset(TABLE_COLUMNS, PG_TABLE_COLUMNS, insertQuery);
         configureNifiFlow(TABLE_COLUMNS);
-        assertWithPooling(() -> assertEquals(100, postgresService.queryCountOfRowsInTable(PG_TABLE_NAME)));
+        assertWithPooling(() -> assertEquals(100000, postgresService.queryCountOfRowsInTable(PG_TABLE_NAME)));
     }
 
     @Test
@@ -209,6 +214,40 @@ public class GetGreengageRecordIT extends NifiSystemContainerizedIT {
         configureNifiFlow(sourceFieldMap);
         assertErrorMessage(getGgRecordProcessor, "Column f_bit not found in table");
         assertWithPooling(() -> assertEquals(0, postgresService.queryCountOfRowsInTable(PG_TABLE_NAME)));
+    }
+
+    @Test
+    @SneakyThrows
+    public void testIncrementLoadFromAdb() {
+        adbService.exec(CREATE_ENUM_SQL);
+        Map<String, String> tableColumnsWithoutId = new LinkedHashMap<>(TABLE_COLUMNS);
+        tableColumnsWithoutId.remove(ID_COLUMN);
+        String insertColumnList = getFieldNamesString(tableColumnsWithoutId);
+        String insertQuery = String.format("INSERT INTO %s (%s) %s", GG_TABLE_NAME, insertColumnList, GENERATE_DATASET_SQL);
+        initDataset(TABLE_COLUMNS, PG_TABLE_COLUMNS, insertQuery);
+        configureNifiFlow(TABLE_COLUMNS);
+        assertWithPooling(() -> assertEquals(100000, postgresService.queryCountOfRowsInTable(PG_TABLE_NAME)));
+        adbService.exec(insertQuery);
+        assertWithPooling(() -> assertEquals(200000, postgresService.queryCountOfRowsInTable(PG_TABLE_NAME)));
+    }
+
+    @Test
+    @SneakyThrows
+    public void testIncrementLoadFromAdbWithProcessorRestart() {
+        adbService.exec(CREATE_ENUM_SQL);
+        Map<String, String> tableColumnsWithoutId = new LinkedHashMap<>(TABLE_COLUMNS);
+        tableColumnsWithoutId.remove(ID_COLUMN);
+        String insertColumnList = getFieldNamesString(tableColumnsWithoutId);
+        String insertQuery = String.format("INSERT INTO %s (%s) %s", GG_TABLE_NAME, insertColumnList, GENERATE_DATASET_SQL);
+        initDataset(TABLE_COLUMNS, PG_TABLE_COLUMNS, insertQuery);
+        configureNifiFlow(TABLE_COLUMNS);
+        assertWithPooling(() -> assertEquals(100000, postgresService.queryCountOfRowsInTable(PG_TABLE_NAME)));
+        getClientUtil().stopProcessor(getGgRecordProcessor);
+        getClientUtil().waitForStoppedProcessor(getGgRecordProcessor.getId());
+        adbService.exec(insertQuery);
+        getClientUtil().startProcessor(getGgRecordProcessor);
+        getClientUtil().waitForRunningProcessor(getGgRecordProcessor.getId());
+        assertWithPooling(() -> assertEquals(200000, postgresService.queryCountOfRowsInTable(PG_TABLE_NAME)));
     }
 
     private void initDataset(Map<String, String> fieldMap, String insertQuery) {
@@ -316,6 +355,9 @@ public class GetGreengageRecordIT extends NifiSystemContainerizedIT {
         getGgRecordProperties.put("get-greengage-record-table-name", GG_TABLE_NAME);
         getGgRecordProperties.put("get-greengage-record-schema-name", GG_SCHEMA_NAME);
         getGgRecordProperties.put("get-greengage-table-columns", getFieldNamesString(fieldMap));
+        if (fieldMap.containsKey(ID_COLUMN)) {
+            getGgRecordProperties.put("Maximum-value Columns", ID_COLUMN);
+        }
         getClientUtil().updateProcessorProperties(getGgRecordProcessor, getGgRecordProperties);
         getGgRecordProcessor = getClientUtil().setAutoTerminatedRelationships(getGgRecordProcessor, RELATION_FAILURE);
         return getGgRecordProcessor;

@@ -33,6 +33,7 @@ import java.util.Set;
 
 import static org.apache.nifi.tests.system.arenadata.util.ConfigUtil.getTestConfig;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 @Feature("Put Greengage Record processor")
 public class PutGreengageRecordIT extends NifiSystemContainerizedIT {
@@ -48,6 +49,11 @@ public class PutGreengageRecordIT extends NifiSystemContainerizedIT {
     private static final String RECORD_READER_SERVICE_NAR_ARTIFACT = "nifi-record-serialization-services-nar";
     private static final String GPFDIST_RECORD_PROCESSING_SERVICE_CLASS_NAME = "org.apache.nifi.gpfdist.service.StandartGpfdistService";
     private static final String GPFDIST_RECORD_PROCESSING_SERVICE_NAR_ARTIFACT = "nifi-greengage-service-nar";
+    private static final String UPDATE_ATTRIBUTE_PROCESSOR_CLASS_NAME = "org.apache.nifi.processors.attributes.UpdateAttribute";
+    private static final String UPDATE_ATTRIBUTE_PROCESSOR_NAR_ARTIFACT = "nifi-update-attribute-nar";
+    private static final String TARGET_SCHEMA_PROPERTY = "target-schema";
+    private static final String TARGET_TABLE_PROPERTY = "target-table";
+    private static final String COLS_PROPERTY = "cols";
     private static final String RELATION_SUCCESS = "success";
     private static final String RELATION_FAILURE = "failure";
     private static final String PG_TABLE_NAME = "pg_test";
@@ -56,8 +62,10 @@ public class PutGreengageRecordIT extends NifiSystemContainerizedIT {
     private static final String CREATE_EXTENSION_HSTORE_SQL = "CREATE EXTENSION IF NOT EXISTS hstore";
     private static final String CREATE_EXTENSION_UUID_SQL = "CREATE EXTENSION IF NOT EXISTS \"uuid-ossp\"";
     private static final String CREATE_TABLE_TEMPLATE_SQL = "CREATE TABLE %s (%s)";
+    private static final String ID_COLUMN = "id";
     private static final Map<String, String> TABLE_COLUMNS = new LinkedHashMap<>() {{
-        put("id", "INT");
+        put(ID_COLUMN, "SERIAL PRIMARY KEY");
+        put("f_int", "INT");
         put("f_bigint", "BIGINT");
         put("f_bit", "BIT");
         put("f_bool", "BOOLEAN");
@@ -106,10 +114,12 @@ public class PutGreengageRecordIT extends NifiSystemContainerizedIT {
             "       \"language\"  => \"English\",\n" +
             "       \"ISBN-13\"   => \"978-1449370000\",\n" +
             "       \"weight\"    => \"11.2 ounces\"'::hstore\n" +
-            "from generate_series(1, 100) s(i)";
+            "from generate_series(1, 100000) s(i)";
 
     private ProcessorEntity queryDbTableProcessor;
     private ProcessorEntity putGgRecordProcessor;
+    private ProcessorEntity updateAttributeProcessor;
+    private ConnectionEntity connectionPgToGg;
 
     @AfterEach
     public void cleanupTables() {
@@ -120,10 +130,13 @@ public class PutGreengageRecordIT extends NifiSystemContainerizedIT {
     @Test
     @SneakyThrows
     public void testWriteRecordsToAdbWithSupportedDataTypes() {
-        String insertQuery = String.format("INSERT INTO %s SELECT * FROM (%s) gen", PG_TABLE_NAME, GENERATE_DATASET_SQL);
+        Map<String, String> tableColumnsWithoutId = new LinkedHashMap<>(TABLE_COLUMNS);
+        tableColumnsWithoutId.remove(ID_COLUMN);
+        String insertColumnList = getFieldNamesString(tableColumnsWithoutId);
+        String insertQuery = String.format("INSERT INTO %s (%s) %s", PG_TABLE_NAME, insertColumnList, GENERATE_DATASET_SQL);
         initDataset(TABLE_COLUMNS, insertQuery);
         configureNifiFlow(TABLE_COLUMNS);
-        assertWithPooling(() -> assertEquals(100, adbService.queryCountOfRowsInTable(GG_TABLE_NAME)));
+        assertWithPooling(() -> assertEquals(100000, adbService.queryCountOfRowsInTable(GG_TABLE_NAME)));
     }
 
     @Test
@@ -209,6 +222,51 @@ public class PutGreengageRecordIT extends NifiSystemContainerizedIT {
         assertWithPooling(() -> assertEquals(0, adbService.queryCountOfRowsInTable(GG_TABLE_NAME)));
     }
 
+    @Test
+    @SneakyThrows
+    public void testIncrementLoadToAdb() {
+        Map<String, String> tableColumnsWithoutId = new LinkedHashMap<>(TABLE_COLUMNS);
+        tableColumnsWithoutId.remove(ID_COLUMN);
+        String insertColumnList = getFieldNamesString(tableColumnsWithoutId);
+        String insertQuery = String.format("INSERT INTO %s (%s) %s", PG_TABLE_NAME, insertColumnList, GENERATE_DATASET_SQL);
+        initDataset(TABLE_COLUMNS, insertQuery);
+        configureNifiFlow(TABLE_COLUMNS);
+        assertWithPooling(() -> assertEquals(100000, adbService.queryCountOfRowsInTable(GG_TABLE_NAME)));
+        postgresService.exec(insertQuery);
+        assertWithPooling(() -> assertEquals(200000, adbService.queryCountOfRowsInTable(GG_TABLE_NAME)));
+    }
+
+    @Test
+    @SneakyThrows
+    public void testIncrementLoadToAdbWithProcessorRestart() {
+        Map<String, String> tableColumnsWithoutId = new LinkedHashMap<>(TABLE_COLUMNS);
+        tableColumnsWithoutId.remove(ID_COLUMN);
+        String insertColumnList = getFieldNamesString(tableColumnsWithoutId);
+        String insertQuery = String.format("INSERT INTO %s (%s) %s", PG_TABLE_NAME, insertColumnList, GENERATE_DATASET_SQL);
+        initDataset(TABLE_COLUMNS, insertQuery);
+        configureNifiFlow(TABLE_COLUMNS);
+        assertWithPooling(() -> assertEquals(100000, adbService.queryCountOfRowsInTable(GG_TABLE_NAME)));
+        getClientUtil().stopProcessor(putGgRecordProcessor);
+        getClientUtil().waitForStoppedProcessor(putGgRecordProcessor.getId());
+        postgresService.exec(insertQuery);
+        assertWithPooling(() -> assertTrue(getClientUtil().getQueueSize(connectionPgToGg.getId()).getObjectCount() > 0));
+        getClientUtil().startProcessor(putGgRecordProcessor);
+        getClientUtil().waitForRunningProcessor(putGgRecordProcessor.getId());
+        assertWithPooling(() -> assertEquals(200000, adbService.queryCountOfRowsInTable(GG_TABLE_NAME)));
+    }
+
+    @Test
+    @SneakyThrows
+    public void testExpressionLanguageSupport() {
+        Map<String, String> tableColumnsWithoutId = new LinkedHashMap<>(TABLE_COLUMNS);
+        tableColumnsWithoutId.remove(ID_COLUMN);
+        String insertColumnList = getFieldNamesString(tableColumnsWithoutId);
+        String insertQuery = String.format("INSERT INTO %s (%s) %s", PG_TABLE_NAME, insertColumnList, GENERATE_DATASET_SQL);
+        initDataset(TABLE_COLUMNS, insertQuery);
+        configureNifiFlowWithExpressionLanguage(TABLE_COLUMNS, TABLE_COLUMNS);
+        assertWithPooling(() -> assertEquals(100000, adbService.queryCountOfRowsInTable(GG_TABLE_NAME)));
+    }
+
     private void initDataset(Map<String, String> fieldMap, String insertQuery) {
         initDataset(fieldMap, fieldMap, insertQuery);
     }
@@ -240,7 +298,7 @@ public class PutGreengageRecordIT extends NifiSystemContainerizedIT {
         ControllerServiceEntity ggDbcpService = configureDbcpService(getTestConfig().getAdb());
         ControllerServiceEntity gpfdistRecordProcessingService = configureGpfdistRecordProcessingService(ggDbcpService);
         putGgRecordProcessor = configurePutGgRecordProcessor(gpfdistRecordProcessingService, recordReaderService, targetFieldMap);
-        ConnectionEntity connectionPgToGg = getClientUtil().createConnection(queryDbTableProcessor, putGgRecordProcessor, RELATION_SUCCESS);
+        connectionPgToGg = getClientUtil().createConnection(queryDbTableProcessor, putGgRecordProcessor, RELATION_SUCCESS);
         getClientUtil().waitForValidProcessor(queryDbTableProcessor.getId());
         getClientUtil().waitForValidProcessor(putGgRecordProcessor.getId());
         getClientUtil().startProcessor(queryDbTableProcessor);
@@ -248,6 +306,33 @@ public class PutGreengageRecordIT extends NifiSystemContainerizedIT {
         getClientUtil().waitForRunningProcessor(queryDbTableProcessor.getId());
         getClientUtil().waitForRunningProcessor(putGgRecordProcessor.getId());
         waitForQueueCount(connectionPgToGg.getId(), 1);
+    }
+
+    @SneakyThrows
+    @Step("Configure NiFi flow with expression language")
+    private void configureNifiFlowWithExpressionLanguage(Map<String, String> sourceFieldMap,
+                                                         Map<String, String> targetFieldMap) {
+        ControllerServiceEntity pgDbcpService = configureDbcpService(getTestConfig().getPostgres());
+        queryDbTableProcessor = configureQueryDbTableProcessor(pgDbcpService, sourceFieldMap);
+        updateAttributeProcessor = configureUpdateAttributeProcessor(targetFieldMap);
+        ControllerServiceEntity recordReaderService = configureRecordReaderService();
+        ControllerServiceEntity ggDbcpService = configureDbcpService(getTestConfig().getAdb());
+        ControllerServiceEntity gpfdistRecordProcessingService = configureGpfdistRecordProcessingService(ggDbcpService);
+        putGgRecordProcessor = configurePutGgRecordProcessorWithExpressionLanguage(gpfdistRecordProcessingService,
+                recordReaderService);
+        getClientUtil().createConnection(queryDbTableProcessor, updateAttributeProcessor, RELATION_SUCCESS);
+        ConnectionEntity connectionUpdateAttributeToGg =
+                getClientUtil().createConnection(updateAttributeProcessor, putGgRecordProcessor, RELATION_SUCCESS);
+        getClientUtil().waitForValidProcessor(queryDbTableProcessor.getId());
+        getClientUtil().waitForValidProcessor(updateAttributeProcessor.getId());
+        getClientUtil().waitForValidProcessor(putGgRecordProcessor.getId());
+        getClientUtil().startProcessor(queryDbTableProcessor);
+        getClientUtil().startProcessor(updateAttributeProcessor);
+        getClientUtil().startProcessor(putGgRecordProcessor);
+        getClientUtil().waitForRunningProcessor(queryDbTableProcessor.getId());
+        getClientUtil().waitForRunningProcessor(updateAttributeProcessor.getId());
+        getClientUtil().waitForRunningProcessor(putGgRecordProcessor.getId());
+        waitForQueueCount(connectionUpdateAttributeToGg.getId(), 1);
     }
 
     @SneakyThrows
@@ -303,6 +388,9 @@ public class PutGreengageRecordIT extends NifiSystemContainerizedIT {
         queryDbTableProperties.put("db-fetch-db-type", "PostgreSQL");
         queryDbTableProperties.put("Table Name", PG_TABLE_NAME);
         queryDbTableProperties.put("Columns to Return", getFieldNamesString(fieldMap));
+        if (fieldMap.containsKey(ID_COLUMN)) {
+            queryDbTableProperties.put("Maximum-value Columns", ID_COLUMN);
+        }
         getClientUtil().updateProcessorProperties(queryDbTableProcessor, queryDbTableProperties);
         queryDbTableProcessor = getClientUtil().setAutoTerminatedRelationships(queryDbTableProcessor, RELATION_FAILURE);
         return queryDbTableProcessor;
@@ -324,5 +412,39 @@ public class PutGreengageRecordIT extends NifiSystemContainerizedIT {
         getClientUtil().updateProcessorProperties(putGgRecordProcessor, putGgRecordProperties);
         putGgRecordProcessor = getClientUtil().setAutoTerminatedRelationships(putGgRecordProcessor, Set.of(RELATION_SUCCESS, RELATION_FAILURE));
         return putGgRecordProcessor;
+    }
+
+    @SneakyThrows
+    @Step("Configure put Greengage record processor with expression language")
+    private ProcessorEntity configurePutGgRecordProcessorWithExpressionLanguage(ControllerServiceEntity gpfdistRecordProcessingService,
+                                                                                ControllerServiceEntity recordReaderService) {
+        ProcessorEntity putGgRecordProcessor = getClientUtil().createProcessor(PUT_GG_RECORD_PROCESSOR_CLASS_NAME,
+                NIFI_GROUP_ID, PUT_GG_RECORD_PROCESSOR_NAR_ARTIFACT, getNiFiVersion());
+        Map<String, String> putGgRecordProperties = new HashMap<>();
+        putGgRecordProperties.put("gpfdist-record-processing-service", gpfdistRecordProcessingService.getId());
+        putGgRecordProperties.put("put-greengage-record-record-reader", recordReaderService.getId());
+        putGgRecordProperties.put("put-greengage-record-table-name", String.format("${%s}", TARGET_TABLE_PROPERTY));
+        putGgRecordProperties.put("put-greengage-record-schema-name", String.format("${%s}", TARGET_SCHEMA_PROPERTY));
+        putGgRecordProperties.put("put-greengage-table-columns", String.format("${%s}", COLS_PROPERTY));
+        getClientUtil().updateProcessorProperties(putGgRecordProcessor, putGgRecordProperties);
+        putGgRecordProcessor = getClientUtil().setAutoTerminatedRelationships(putGgRecordProcessor,
+                Set.of(RELATION_SUCCESS, RELATION_FAILURE));
+        return putGgRecordProcessor;
+    }
+
+    @SneakyThrows
+    @Step("Configure update attribute processor")
+    private ProcessorEntity configureUpdateAttributeProcessor(Map<String, String> fieldMap) {
+        ProcessorEntity updateAttributeProcessor =
+                getClientUtil().createProcessor(UPDATE_ATTRIBUTE_PROCESSOR_CLASS_NAME,
+                        NIFI_GROUP_ID, UPDATE_ATTRIBUTE_PROCESSOR_NAR_ARTIFACT, getNiFiVersion());
+        Map<String, String> updateAttributeProperties = new HashMap<>();
+        updateAttributeProperties.put(TARGET_SCHEMA_PROPERTY, GG_SCHEMA_NAME);
+        updateAttributeProperties.put(TARGET_TABLE_PROPERTY, GG_TABLE_NAME);
+        updateAttributeProperties.put(COLS_PROPERTY, getFieldNamesString(fieldMap));
+        getClientUtil().updateProcessorProperties(updateAttributeProcessor, updateAttributeProperties);
+        updateAttributeProcessor = getClientUtil().setAutoTerminatedRelationships(updateAttributeProcessor,
+                Set.of(RELATION_SUCCESS, RELATION_FAILURE));
+        return updateAttributeProcessor;
     }
 }
