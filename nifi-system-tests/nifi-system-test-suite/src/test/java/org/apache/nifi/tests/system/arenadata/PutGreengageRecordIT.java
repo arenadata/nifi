@@ -310,16 +310,19 @@ public class PutGreengageRecordIT extends NifiSystemContainerizedIT {
 
     @SneakyThrows
     @Step("Configure NiFi flow with expression language")
-    private void configureNifiFlowWithExpressionLanguage(Map<String, String> sourceFieldMap, Map<String, String> targetFieldMap) {
+    private void configureNifiFlowWithExpressionLanguage(Map<String, String> sourceFieldMap,
+                                                         Map<String, String> targetFieldMap) {
         ControllerServiceEntity pgDbcpService = configureDbcpService(getTestConfig().getPostgres());
         queryDbTableProcessor = configureQueryDbTableProcessor(pgDbcpService, sourceFieldMap);
         updateAttributeProcessor = configureUpdateAttributeProcessor(targetFieldMap);
         ControllerServiceEntity recordReaderService = configureRecordReaderService();
         ControllerServiceEntity ggDbcpService = configureDbcpService(getTestConfig().getAdb());
         ControllerServiceEntity gpfdistRecordProcessingService = configureGpfdistRecordProcessingService(ggDbcpService);
-        putGgRecordProcessor = configurePutGgRecordProcessorWithExpressionLanguage(gpfdistRecordProcessingService, recordReaderService);
-        ConnectionEntity connectionPgToUpdateAttribute = getClientUtil().createConnection(queryDbTableProcessor, updateAttributeProcessor, RELATION_SUCCESS);
-        ConnectionEntity connectionUpdateAttributeToGg = getClientUtil().createConnection(updateAttributeProcessor, putGgRecordProcessor, RELATION_SUCCESS);
+        putGgRecordProcessor = configurePutGgRecordProcessorWithExpressionLanguage(gpfdistRecordProcessingService,
+                recordReaderService);
+        getClientUtil().createConnection(queryDbTableProcessor, updateAttributeProcessor, RELATION_SUCCESS);
+        ConnectionEntity connectionUpdateAttributeToGg =
+                getClientUtil().createConnection(updateAttributeProcessor, putGgRecordProcessor, RELATION_SUCCESS);
         getClientUtil().waitForValidProcessor(queryDbTableProcessor.getId());
         getClientUtil().waitForValidProcessor(updateAttributeProcessor.getId());
         getClientUtil().waitForValidProcessor(putGgRecordProcessor.getId());
@@ -414,7 +417,7 @@ public class PutGreengageRecordIT extends NifiSystemContainerizedIT {
     @SneakyThrows
     @Step("Configure put Greengage record processor with expression language")
     private ProcessorEntity configurePutGgRecordProcessorWithExpressionLanguage(ControllerServiceEntity gpfdistRecordProcessingService,
-                                                          ControllerServiceEntity recordReaderService) {
+                                                                                ControllerServiceEntity recordReaderService) {
         ProcessorEntity putGgRecordProcessor = getClientUtil().createProcessor(PUT_GG_RECORD_PROCESSOR_CLASS_NAME,
                 NIFI_GROUP_ID, PUT_GG_RECORD_PROCESSOR_NAR_ARTIFACT, getNiFiVersion());
         Map<String, String> putGgRecordProperties = new HashMap<>();
@@ -424,21 +427,24 @@ public class PutGreengageRecordIT extends NifiSystemContainerizedIT {
         putGgRecordProperties.put("put-greengage-record-schema-name", String.format("${%s}", TARGET_SCHEMA_PROPERTY));
         putGgRecordProperties.put("put-greengage-table-columns", String.format("${%s}", COLS_PROPERTY));
         getClientUtil().updateProcessorProperties(putGgRecordProcessor, putGgRecordProperties);
-        putGgRecordProcessor = getClientUtil().setAutoTerminatedRelationships(putGgRecordProcessor, Set.of(RELATION_SUCCESS, RELATION_FAILURE));
+        putGgRecordProcessor = getClientUtil().setAutoTerminatedRelationships(putGgRecordProcessor,
+                Set.of(RELATION_SUCCESS, RELATION_FAILURE));
         return putGgRecordProcessor;
     }
 
     @SneakyThrows
     @Step("Configure update attribute processor")
     private ProcessorEntity configureUpdateAttributeProcessor(Map<String, String> fieldMap) {
-        ProcessorEntity updateAttributeProcessor = getClientUtil().createProcessor(UPDATE_ATTRIBUTE_PROCESSOR_CLASS_NAME,
-                NIFI_GROUP_ID, UPDATE_ATTRIBUTE_PROCESSOR_NAR_ARTIFACT, getNiFiVersion());
+        ProcessorEntity updateAttributeProcessor =
+                getClientUtil().createProcessor(UPDATE_ATTRIBUTE_PROCESSOR_CLASS_NAME,
+                        NIFI_GROUP_ID, UPDATE_ATTRIBUTE_PROCESSOR_NAR_ARTIFACT, getNiFiVersion());
         Map<String, String> updateAttributeProperties = new HashMap<>();
         updateAttributeProperties.put(TARGET_SCHEMA_PROPERTY, GG_SCHEMA_NAME);
         updateAttributeProperties.put(TARGET_TABLE_PROPERTY, GG_TABLE_NAME);
         updateAttributeProperties.put(COLS_PROPERTY, getFieldNamesString(fieldMap));
         getClientUtil().updateProcessorProperties(updateAttributeProcessor, updateAttributeProperties);
-        updateAttributeProcessor = getClientUtil().setAutoTerminatedRelationships(updateAttributeProcessor, Set.of(RELATION_SUCCESS, RELATION_FAILURE));
+        updateAttributeProcessor = getClientUtil().setAutoTerminatedRelationships(updateAttributeProcessor,
+                Set.of(RELATION_SUCCESS, RELATION_FAILURE));
         return updateAttributeProcessor;
     }
 }
