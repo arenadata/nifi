@@ -31,6 +31,7 @@
         <nifi.version>2.5.0</nifi.version>
         <maven-resource-plugin.version>3.2.0</maven-resource-plugin.version>
         <postgresql.version>42.6.1</postgresql.version>
+        <adb.version>6</adb.version>
         <adb.image>hub.adsw.io/java/gpdb6-java-ubuntu:v1.2</adb.image>
     </properties>
 
@@ -56,6 +57,7 @@
                                 <allure.results.directory>${project.build.directory}/allure-results
                                 </allure.results.directory>
                                 <useSystemClassLoader>true</useSystemClassLoader>
+                                <adb.version>${adb.version}</adb.version>
                                 <adb.image>${adb.image}</adb.image>
                             </systemPropertyVariables>
                             <argLine>
@@ -93,6 +95,7 @@
         <profile>
             <id>adb6</id>
             <properties>
+                <adb.version>6</adb.version>
                 <adb.image>hub.adsw.io/java/gpdb6-java-ubuntu:v1.2</adb.image>
             </properties>
         </profile>
@@ -100,6 +103,7 @@
         <profile>
             <id>adb7</id>
             <properties>
+                <adb.version>7</adb.version>
                 <adb.image>hub.adsw.io/java/ggdb7-java-ubuntu:v1.2</adb.image>
             </properties>
         </profile>
