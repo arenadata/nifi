@@ -24,6 +24,7 @@ import org.apache.nifi.web.api.entity.ControllerServiceEntity;
 import org.apache.nifi.web.api.entity.ProcessorEntity;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 
 import java.util.HashMap;
 import java.util.LinkedHashMap;
@@ -33,6 +34,7 @@ import java.util.Set;
 import static org.apache.nifi.tests.system.arenadata.util.ConfigUtil.getTestConfig;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
+@ExtendWith(AllureExtension.class)
 @Feature("Get Greengage Record processor")
 public class GetGreengageRecordIT extends NifiSystemContainerizedIT {
 
@@ -59,7 +61,7 @@ public class GetGreengageRecordIT extends NifiSystemContainerizedIT {
     private static final String CREATE_TABLE_TEMPLATE_SQL = "CREATE TABLE %s (%s)";
     private static final String ID_COLUMN = "id";
     private static final Map<String, String> TABLE_COLUMNS = new LinkedHashMap<>() {{
-        put(ID_COLUMN, "SERIAL PRIMARY KEY");
+        put(ID_COLUMN, "BIGSERIAL PRIMARY KEY");
         put("f_int", "INT");
         put("f_bigint", "BIGINT");
         put("f_bit", "BIT");
