@@ -21,5 +21,7 @@ mvn clean install -DskipTests=true -f ../../pom.xml
 ### Start Arenadata integration tests
 
 ```bash
-mvn install -P arenadata
+mvn install -P arenadata,adb6
+mvn install -P arenadata,adb7
 ```
+Without specifying adb6/adb7 profile tests will be executed on adb6 by default.
