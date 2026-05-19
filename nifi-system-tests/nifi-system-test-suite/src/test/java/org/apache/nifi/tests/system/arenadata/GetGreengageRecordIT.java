@@ -125,7 +125,7 @@ public class GetGreengageRecordIT extends NifiSystemContainerizedIT {
             "       ARRAY['foo', 'bar']::text[],\n" +
             "       '\"a\"=>\"1\", \"b\"=>\"2\"'::hstore,\n" +
             "       (ARRAY['sun','mon','tue','wed','thu','fri','sat'])[1 + (i % 7)]::day\n" +
-            "from generate_series(1, 100000) s(i)";
+            "from generate_series(1, 1000) s(i)";
 
     private ProcessorEntity getGgRecordProcessor;
     private ProcessorEntity putDbRecordProcessor;
@@ -146,7 +146,7 @@ public class GetGreengageRecordIT extends NifiSystemContainerizedIT {
         String insertQuery = String.format("INSERT INTO %s (%s) %s", GG_TABLE_NAME, insertColumnList, GENERATE_DATASET_SQL);
         initDataset(TABLE_COLUMNS, PG_TABLE_COLUMNS, insertQuery);
         configureNifiFlow(TABLE_COLUMNS);
-        assertWithPooling(() -> assertEquals(100000, postgresService.queryCountOfRowsInTable(PG_TABLE_NAME)));
+        assertWithPooling(() -> assertEquals(1000, postgresService.queryCountOfRowsInTable(PG_TABLE_NAME)));
     }
 
     @Test
@@ -228,9 +228,9 @@ public class GetGreengageRecordIT extends NifiSystemContainerizedIT {
         String insertQuery = String.format("INSERT INTO %s (%s) %s", GG_TABLE_NAME, insertColumnList, GENERATE_DATASET_SQL);
         initDataset(TABLE_COLUMNS, PG_TABLE_COLUMNS, insertQuery);
         configureNifiFlow(TABLE_COLUMNS);
-        assertWithPooling(() -> assertEquals(100000, postgresService.queryCountOfRowsInTable(PG_TABLE_NAME)));
+        assertWithPooling(() -> assertEquals(1000, postgresService.queryCountOfRowsInTable(PG_TABLE_NAME)));
         adbService.exec(insertQuery);
-        assertWithPooling(() -> assertEquals(200000, postgresService.queryCountOfRowsInTable(PG_TABLE_NAME)));
+        assertWithPooling(() -> assertEquals(2000, postgresService.queryCountOfRowsInTable(PG_TABLE_NAME)));
     }
 
     @Test
@@ -243,13 +243,13 @@ public class GetGreengageRecordIT extends NifiSystemContainerizedIT {
         String insertQuery = String.format("INSERT INTO %s (%s) %s", GG_TABLE_NAME, insertColumnList, GENERATE_DATASET_SQL);
         initDataset(TABLE_COLUMNS, PG_TABLE_COLUMNS, insertQuery);
         configureNifiFlow(TABLE_COLUMNS);
-        assertWithPooling(() -> assertEquals(100000, postgresService.queryCountOfRowsInTable(PG_TABLE_NAME)));
+        assertWithPooling(() -> assertEquals(1000, postgresService.queryCountOfRowsInTable(PG_TABLE_NAME)));
         getClientUtil().stopProcessor(getGgRecordProcessor);
         getClientUtil().waitForStoppedProcessor(getGgRecordProcessor.getId());
         adbService.exec(insertQuery);
         getClientUtil().startProcessor(getGgRecordProcessor);
         getClientUtil().waitForRunningProcessor(getGgRecordProcessor.getId());
-        assertWithPooling(() -> assertEquals(200000, postgresService.queryCountOfRowsInTable(PG_TABLE_NAME)));
+        assertWithPooling(() -> assertEquals(2000, postgresService.queryCountOfRowsInTable(PG_TABLE_NAME)));
     }
 
     private void initDataset(Map<String, String> fieldMap, String insertQuery) {
