@@ -625,7 +625,7 @@
         <property name="x509AuthenticationProvider" ref="x509AuthenticationProvider"/>
         <property name="certificateExtractor" ref="certificateExtractor"/>
         <property name="principalExtractor" ref="principalExtractor"/>
-        <property name="jwtAuthenticationProvider" ref="jwtAuthenticationProvider"/>
+        <property name="requestDetailsJwtAuthenticationProvider" ref="requestDetailsJwtAuthenticationProvider"/>
         <property name="jwtDecoder" ref="jwtDecoder" />
         <property name="jwtLogoutListener" ref="jwtLogoutListener"/>
         <property name="bearerTokenProvider" ref="bearerTokenProvider"/>

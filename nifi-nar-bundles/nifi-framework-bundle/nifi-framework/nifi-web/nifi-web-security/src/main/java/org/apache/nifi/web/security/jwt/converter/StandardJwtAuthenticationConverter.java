@@ -28,7 +28,6 @@ import org.apache.nifi.web.security.jwt.provider.SupportedClaim;
 import org.apache.nifi.web.security.token.NiFiAuthenticationToken;
 import org.springframework.core.convert.converter.Converter;
 import org.springframework.security.oauth2.jwt.Jwt;
-
 import java.util.Collections;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -37,7 +36,7 @@ import java.util.Set;
 /**
  * Standard Converter from JSON Web Token to NiFi Authentication Token
  */
-public class StandardJwtAuthenticationConverter implements Converter<Jwt, NiFiAuthenticationToken> {
+public class StandardJwtAuthenticationConverter implements Converter<Jwt, NiFiAuthenticationToken>, RequestDetailsJwtAuthenticationConverter {
     private final Authorizer authorizer;
 
     private final List<IdentityMapping> identityMappings;
@@ -55,11 +54,16 @@ public class StandardJwtAuthenticationConverter implements Converter<Jwt, NiFiAu
      */
     @Override
     public NiFiAuthenticationToken convert(final Jwt jwt) {
-        final NiFiUser user = getUser(jwt);
+        return convertWithClientAddress(jwt, null);
+    }
+
+    @Override
+    public NiFiAuthenticationToken convertWithClientAddress(final Jwt jwt, final String clientAddress) {
+        final NiFiUser user = getUser(jwt, clientAddress);
         return new NiFiAuthenticationToken(new NiFiUserDetails(user));
     }
 
-    private NiFiUser getUser(final Jwt jwt) {
+    private NiFiUser getUser(final Jwt jwt, final String clientAddress) {
         final String identity = IdentityMappingUtil.mapIdentity(jwt.getSubject(), identityMappings);
 
         final Set<String> providedGroups = getProvidedGroups(jwt);
@@ -67,6 +71,7 @@ public class StandardJwtAuthenticationConverter implements Converter<Jwt, NiFiAu
                 .identity(identity)
                 .groups(UserGroupUtil.getUserGroups(authorizer, identity))
                 .identityProviderGroups(providedGroups)
+                .clientAddress(clientAddress)
                 .build();
     }
 
