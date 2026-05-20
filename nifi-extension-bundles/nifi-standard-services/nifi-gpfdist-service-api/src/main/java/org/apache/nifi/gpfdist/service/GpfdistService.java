@@ -17,12 +17,30 @@
 package org.apache.nifi.gpfdist.service;
 
 import org.apache.nifi.controller.ControllerService;
+import org.apache.nifi.gpfdist.metadata.Context;
+import org.apache.nifi.gpfdist.metadata.ContextManager;
 
 public interface GpfdistService extends ControllerService {
 
-    RecordSinkProvider getRecordSinkProvider();
+    GreengageService getGreengageMetadataService();
 
-    GreengageService getGreengageTableService();
+    TransferDataQueryExecutor getCreateReadExternalTableQueryExecutor();
 
-    TransferDataQueryExecutor getQueryExecutor();
+    TransferDataQueryExecutor getInsertDataIntoTargetTableQueryExecutor();
+
+    TransferDataQueryExecutor getDropExternalTableQueryExecutor();
+
+    TransferDataQueryExecutor getCreateWriteExternalTableQueryExecutor();
+
+    TransferDataQueryExecutor getInsertDataFromTargetTableQueryExecutor();
+
+    GpfdistUnloadMetadataFactory getGpfdistUnloadMetadataFactory();
+
+    GpfdistLoadMetadataFactory getGpfdistLoadMetadataFactory();
+
+    ContextManager<? extends Context> getReadContextManager();
+
+    ContextManager<? extends Context> getWriteContextManager();
+
+    NodeIndexService getNodeIndexService();
 }

@@ -24,11 +24,11 @@ import org.apache.nifi.gpfdist.metadata.TableDescription;
 import java.util.List;
 
 public class BaseGpfdistMetadata implements GpfdistMetadata {
-    private final TableDescription tableMetadata;
-    private final List<ColumnDescription> columnDescriptions;
-    private final String externalTable;
-    private final ExternalTableFormat externalTableFormatConfig;
-    private final String gpfdistLocation;
+    protected final TableDescription tableMetadata;
+    protected final List<ColumnDescription> columnDescriptions;
+    protected final String externalTable;
+    protected final ExternalTableFormat externalTableFormatConfig;
+    protected final String gpfdistLocation;
 
     public BaseGpfdistMetadata(final TableDescription tableMetadata,
                                final List<ColumnDescription> columns,

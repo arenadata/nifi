@@ -45,7 +45,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  */
 public class ITPutSNS {
 
-    private static final DockerImageName localstackImage = DockerImageName.parse("localstack/localstack:latest");
+    private static final DockerImageName localstackImage = DockerImageName.parse("localstack/localstack:4.12.0");
 
     private static final LocalStackContainer localstack = new LocalStackContainer(localstackImage)
             .withServices(LocalStackContainer.Service.SNS);

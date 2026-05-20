@@ -18,14 +18,15 @@ package org.apache.nifi.gpfdist.service.query;
 
 import org.apache.nifi.dbcp.DBCPService;
 import org.apache.nifi.gpfdist.metadata.GpfdistMetadata;
+import org.apache.nifi.gpfdist.service.CancellableQuery;
 import org.apache.nifi.gpfdist.service.TransferDataQueryExecutor;
 import org.apache.nifi.logging.ComponentLog;
 
 import java.sql.Connection;
 import java.sql.SQLException;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CompletionException;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.atomic.AtomicReference;
 
 public abstract class AbstractDataQueryExecutor implements TransferDataQueryExecutor {
     private final DBCPService dbcpService;
@@ -42,32 +43,90 @@ public abstract class AbstractDataQueryExecutor implements TransferDataQueryExec
 
     @Override
     public CompletableFuture<Void> execute(GpfdistMetadata metadata) {
-        return CompletableFuture.runAsync(() -> {
+        return executeCancellable(metadata).future();
+    }
+
+    @Override
+    public CancellableQuery executeCancellable(GpfdistMetadata metadata) {
+        final AtomicReference<Connection> connRef = new AtomicReference<>();
+        final AtomicReference<GreengageStatement> stmtRef = new AtomicReference<>();
+        final CompletableFuture<Void> future = new CompletableFuture<>();
+        executorService.submit(() -> {
             Connection connection = null;
             try {
                 connection = dbcpService.getConnection();
+                connRef.set(connection);
                 connection.setAutoCommit(false);
                 connection.setReadOnly(false);
-                executeQueries(metadata, connection);
+                GreengageStatement ggStmt = createStatement(metadata, connection);
+                stmtRef.set(ggStmt);
+                ggStmt.execute();
                 connection.commit();
-                connection.close();
-            } catch (Exception e) {
-                String errMsg =
-                        "Failed to execute data transfer query: " + String.join("; ", e.getMessage().split("\n"));
+                future.complete(null);
+            } catch (Throwable e) {
+                final String errMsg = "Failed to execute data transfer query: " +
+                        String.join("; ", String.valueOf(e.getMessage()).split("\n"));
                 logger.error(errMsg, e);
-                throw new CompletionException(errMsg, e);
+                tryRollback(connection);
+                future.completeExceptionally(new RuntimeException(errMsg, e));
             } finally {
-                if (connection != null) {
+                closeQuietly(connection);
+                connRef.set(null);
+                stmtRef.set(null);
+            }
+        });
+
+        return new CancellableQuery() {
+            @Override
+            public CompletableFuture<Void> future() {
+                return future;
+            }
+
+            @Override
+            public void cancel() {
+                GreengageStatement stmt = stmtRef.get();
+                if (stmt != null) {
                     try {
-                        connection.close();
-                    } catch (SQLException e) {
-                        logger.warn("Failed to close connection", e);
+                        stmt.cancel();
+                    } catch (Exception e) {
+                        logger.warn("Failed to cancel statement", e);
                     }
                 }
+                Connection conn = connRef.get();
+                if (conn != null) {
+                    try {
+                        conn.abort(Runnable::run);
+                    } catch (Exception abortEx) {
+                        closeQuietly(conn);
+                    }
+                }
+                future.cancel(true);
             }
-        }, executorService);
+        };
     }
 
-    protected abstract void executeQueries(GpfdistMetadata metadata, Connection connection)
+    protected abstract GreengageStatement createStatement(GpfdistMetadata metadata, Connection connection)
             throws SQLException;
+
+    private void tryRollback(Connection conn) {
+        if (conn == null) {
+            return;
+        }
+        try {
+            conn.rollback();
+        } catch (Exception e) {
+            logger.warn("Failed to rollback connection: {}", e.getMessage(), e);
+        }
+    }
+
+    private void closeQuietly(Connection conn) {
+        if (conn == null) {
+            return;
+        }
+        try {
+            conn.close();
+        } catch (Exception e) {
+            logger.warn("Failed to close connection", e);
+        }
+    }
 }
