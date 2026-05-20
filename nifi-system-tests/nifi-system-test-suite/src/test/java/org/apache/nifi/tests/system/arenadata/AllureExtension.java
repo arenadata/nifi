@@ -17,8 +17,12 @@
 package org.apache.nifi.tests.system.arenadata;
 
 import io.qameta.allure.Allure;
+import io.qameta.allure.model.Parameter;
 import org.junit.jupiter.api.extension.BeforeEachCallback;
 import org.junit.jupiter.api.extension.ExtensionContext;
+
+import java.util.ArrayList;
+import java.util.List;
 
 public class AllureExtension implements BeforeEachCallback {
 
@@ -31,6 +35,12 @@ public class AllureExtension implements BeforeEachCallback {
         Allure.getLifecycle().updateTestCase(allureResult -> {
             String oldHistoryId = allureResult.getHistoryId();
             allureResult.setHistoryId(oldHistoryId + adbVersion);
+            List<Parameter> parameters = new ArrayList<>();
+            Parameter adbVersionParameter = new Parameter().setName("adbVersion").setValue("ADB " + adbVersion);
+            parameters.add(adbVersionParameter);
+            allureResult.setParameters(parameters);
+            allureResult.getLabels().removeIf(label -> "suite".equals(label.getName()));
         });
+        Allure.suite("Greengage connector: ADB " + adbVersion);
     }
 }
