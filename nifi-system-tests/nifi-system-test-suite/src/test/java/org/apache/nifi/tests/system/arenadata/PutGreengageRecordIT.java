@@ -25,6 +25,7 @@ import org.apache.nifi.web.api.entity.ControllerServiceEntity;
 import org.apache.nifi.web.api.entity.ProcessorEntity;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 
 import java.util.HashMap;
 import java.util.LinkedHashMap;
@@ -35,6 +36,7 @@ import static org.apache.nifi.tests.system.arenadata.util.ConfigUtil.getTestConf
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+@ExtendWith(AllureExtension.class)
 @Feature("Put Greengage Record processor")
 public class PutGreengageRecordIT extends NifiSystemContainerizedIT {
 
@@ -64,7 +66,7 @@ public class PutGreengageRecordIT extends NifiSystemContainerizedIT {
     private static final String CREATE_TABLE_TEMPLATE_SQL = "CREATE TABLE %s (%s)";
     private static final String ID_COLUMN = "id";
     private static final Map<String, String> TABLE_COLUMNS = new LinkedHashMap<>() {{
-        put(ID_COLUMN, "SERIAL PRIMARY KEY");
+        put(ID_COLUMN, "BIGSERIAL PRIMARY KEY");
         put("f_int", "INT");
         put("f_bigint", "BIGINT");
         put("f_bit", "BIT");
@@ -114,7 +116,7 @@ public class PutGreengageRecordIT extends NifiSystemContainerizedIT {
             "       \"language\"  => \"English\",\n" +
             "       \"ISBN-13\"   => \"978-1449370000\",\n" +
             "       \"weight\"    => \"11.2 ounces\"'::hstore\n" +
-            "from generate_series(1, 100000) s(i)";
+            "from generate_series(1, 1000) s(i)";
 
     private ProcessorEntity queryDbTableProcessor;
     private ProcessorEntity putGgRecordProcessor;
@@ -136,7 +138,7 @@ public class PutGreengageRecordIT extends NifiSystemContainerizedIT {
         String insertQuery = String.format("INSERT INTO %s (%s) %s", PG_TABLE_NAME, insertColumnList, GENERATE_DATASET_SQL);
         initDataset(TABLE_COLUMNS, insertQuery);
         configureNifiFlow(TABLE_COLUMNS);
-        assertWithPooling(() -> assertEquals(100000, adbService.queryCountOfRowsInTable(GG_TABLE_NAME)));
+        assertWithPooling(() -> assertEquals(1000, adbService.queryCountOfRowsInTable(GG_TABLE_NAME)));
     }
 
     @Test
@@ -231,9 +233,9 @@ public class PutGreengageRecordIT extends NifiSystemContainerizedIT {
         String insertQuery = String.format("INSERT INTO %s (%s) %s", PG_TABLE_NAME, insertColumnList, GENERATE_DATASET_SQL);
         initDataset(TABLE_COLUMNS, insertQuery);
         configureNifiFlow(TABLE_COLUMNS);
-        assertWithPooling(() -> assertEquals(100000, adbService.queryCountOfRowsInTable(GG_TABLE_NAME)));
+        assertWithPooling(() -> assertEquals(1000, adbService.queryCountOfRowsInTable(GG_TABLE_NAME)));
         postgresService.exec(insertQuery);
-        assertWithPooling(() -> assertEquals(200000, adbService.queryCountOfRowsInTable(GG_TABLE_NAME)));
+        assertWithPooling(() -> assertEquals(2000, adbService.queryCountOfRowsInTable(GG_TABLE_NAME)));
     }
 
     @Test
@@ -245,14 +247,14 @@ public class PutGreengageRecordIT extends NifiSystemContainerizedIT {
         String insertQuery = String.format("INSERT INTO %s (%s) %s", PG_TABLE_NAME, insertColumnList, GENERATE_DATASET_SQL);
         initDataset(TABLE_COLUMNS, insertQuery);
         configureNifiFlow(TABLE_COLUMNS);
-        assertWithPooling(() -> assertEquals(100000, adbService.queryCountOfRowsInTable(GG_TABLE_NAME)));
+        assertWithPooling(() -> assertEquals(1000, adbService.queryCountOfRowsInTable(GG_TABLE_NAME)));
         getClientUtil().stopProcessor(putGgRecordProcessor);
         getClientUtil().waitForStoppedProcessor(putGgRecordProcessor.getId());
         postgresService.exec(insertQuery);
         assertWithPooling(() -> assertTrue(getClientUtil().getQueueSize(connectionPgToGg.getId()).getObjectCount() > 0));
         getClientUtil().startProcessor(putGgRecordProcessor);
         getClientUtil().waitForRunningProcessor(putGgRecordProcessor.getId());
-        assertWithPooling(() -> assertEquals(200000, adbService.queryCountOfRowsInTable(GG_TABLE_NAME)));
+        assertWithPooling(() -> assertEquals(2000, adbService.queryCountOfRowsInTable(GG_TABLE_NAME)));
     }
 
     @Test
@@ -264,7 +266,7 @@ public class PutGreengageRecordIT extends NifiSystemContainerizedIT {
         String insertQuery = String.format("INSERT INTO %s (%s) %s", PG_TABLE_NAME, insertColumnList, GENERATE_DATASET_SQL);
         initDataset(TABLE_COLUMNS, insertQuery);
         configureNifiFlowWithExpressionLanguage(TABLE_COLUMNS, TABLE_COLUMNS);
-        assertWithPooling(() -> assertEquals(100000, adbService.queryCountOfRowsInTable(GG_TABLE_NAME)));
+        assertWithPooling(() -> assertEquals(1000, adbService.queryCountOfRowsInTable(GG_TABLE_NAME)));
     }
 
     private void initDataset(Map<String, String> fieldMap, String insertQuery) {

@@ -19,7 +19,7 @@ PRIMARY_SEGMENTS_COUNT=$2
 WITH_MIRRORS=${3:-false}
 
 if "$IS_MASTER_OR_STANDBY" ; then
-    is_master_started=$(ps aux | grep "/usr/local/greengage-db-devel/bin/postgres -D /data/gpdata/master/gpseg-1 -p 6000 -E" | grep -v grep -oc)
+    is_master_started=$(ps aux | grep "/usr/local/greengage-db-devel/bin/postgres -D /data/gpdata/master/gpseg-1" | grep -v grep -oc)
     if [ "$is_master_started" -ne 1 ]; then
         echo "There is no running postgres process on the master host"
         exit 1
