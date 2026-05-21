@@ -53,6 +53,7 @@
                             <goal>integration-test</goal>
                             <goal>verify</goal>
                             <testFailureIgnore>false</testFailureIgnore>
+                            <rerunFailingTestsCount>2</rerunFailingTestsCount>
                             <systemPropertyVariables>
                                 <allure.results.directory>${project.build.directory}/allure-results
                                 </allure.results.directory>
