@@ -47,8 +47,9 @@ public class DockerComposeService {
         logger.info("##### STARTING TEST CONTAINERS... #####");
         compose = new DockerComposeContainer<>(new File(DEFAULT_COMPOSE_FILE_NAME));
         for (Component component : components) {
-            compose.withExposedService(component.getName(), component.getPort(),
-                    Wait.forHealthcheck().withStartupTimeout(DEFAULT_STARTUP_TIMEOUT));
+            compose.withEnv("ADB_IMAGE", System.getProperty("adb.image"))
+                    .withExposedService(component.getName(), component.getPort(),
+                            Wait.forHealthcheck().withStartupTimeout(DEFAULT_STARTUP_TIMEOUT));
         }
         compose.withPull(true).start();
         logger.info("##### TEST CONTAINERS HAVE STARTED IN {} sec #####", (System.currentTimeMillis() - millisBeforeStart) / 1000);
