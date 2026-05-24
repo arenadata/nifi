@@ -32,9 +32,9 @@ import java.util.Map;
 import java.util.Objects;
 
 public class GpfdistCsvDataProcessor implements InputDataProcessor {
-    static final String TIMESTAMP_WITHOUT_TIME_ZONE_FORMAT = "yyyy-MM-dd HH:mm:ss[.SSSSSS][.SSSSS]";
-    static final String TIMESTAMP_WITH_TIME_ZONE_FORMAT = "yyyy-MM-dd HH:mm:ss.SSSSSSX";
-    static final String TIME_FORMAT = "HH:mm:ss[.SSSSSS][.SSSSS]";
+    static final String TIMESTAMP_WITHOUT_TIME_ZONE_FORMAT = "yyyy-MM-dd HH:mm:ss[.SSSSSS][.SSSSS][.SSSS][.SSS][.SS][.S]";
+    static final String TIMESTAMP_WITH_TIME_ZONE_FORMAT = "yyyy-MM-dd HH:mm:ss[.SSSSSS][.SSSSS][.SSSS][.SSS][.SS][.S]X";
+    static final String TIME_FORMAT = "HH:mm:ss[.SSSSSS][.SSSSS][.SSSS][.SSS][.SS][.S]";
     static final String DATE_FORMAT = "yyyy-MM-dd";
     private final RecordSchema schema;
     private final Map<String, ColumnDataType> dataTypes;
