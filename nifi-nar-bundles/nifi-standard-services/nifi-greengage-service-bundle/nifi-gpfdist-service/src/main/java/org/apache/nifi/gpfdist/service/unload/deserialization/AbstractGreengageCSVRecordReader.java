@@ -28,9 +28,13 @@ import org.apache.nifi.serialization.record.type.ArrayDataType;
 import org.apache.nifi.serialization.record.type.MapDataType;
 import org.apache.nifi.serialization.record.util.DataTypeUtils;
 
+import java.sql.Time;
 import java.sql.Timestamp;
 import java.text.DateFormat;
+import java.time.LocalDateTime;
+import java.time.LocalTime;
 import java.time.OffsetDateTime;
+import java.time.format.DateTimeParseException;
 import java.time.format.DateTimeFormatter;
 import java.util.Map;
 import java.util.Optional;
@@ -51,6 +55,10 @@ abstract public class AbstractGreengageCSVRecordReader implements RecordReader {
     protected final RecordSchema schema;
     protected final Map<String, ColumnDataType> dataTypes;
     protected final ComponentLog logger;
+    private static final String FLEXIBLE_FRACTION_FORMAT = "[.SSSSSS][.SSSSS][.SSSS][.SSS][.SS][.S]";
+    private static final DateTimeFormatter FLEXIBLE_TIME_FORMATTER = DateTimeFormatter.ofPattern("HH:mm:ss" + FLEXIBLE_FRACTION_FORMAT);
+    private static final DateTimeFormatter FLEXIBLE_TIMESTAMP_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss" + FLEXIBLE_FRACTION_FORMAT);
+    private static final DateTimeFormatter FLEXIBLE_TIMESTAMP_WITH_TIME_ZONE_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss" + FLEXIBLE_FRACTION_FORMAT + "X");
 
     AbstractGreengageCSVRecordReader(final RecordSchema schema,
                                      final String dateFormat,
@@ -116,6 +124,8 @@ abstract public class AbstractGreengageCSVRecordReader implements RecordReader {
         switch (type) {
             case BOOLEAN:
                 return convertBoolean(trimmed);
+            case TIME:
+                return convertTime(trimmed);
             case TIMESTAMP:
                 return convertTimestamp(trimmed, dataType, fieldName);
             case ARRAY:
@@ -145,8 +155,12 @@ abstract public class AbstractGreengageCSVRecordReader implements RecordReader {
         ColumnDataType columnDataType = Optional.ofNullable(dataTypes.get(fieldName))
                 .orElseThrow(() -> new IllegalArgumentException("Failed to found data type for field " + fieldName + " in columns metadata"));
         if (columnDataType.getType() == GreengageDataType.TIMESTAMP_WITHOUT_TIME_ZONE) {
-            if (DataTypeUtils.isTimestampTypeCompatible(value, timestampFormat)) {
-                return DataTypeUtils.convertType(value, dataType, LAZY_DATE_FORMAT, LAZY_TIME_FORMAT, LAZY_TIMESTAMP_FORMAT, fieldName);
+            try {
+                return Timestamp.valueOf(LocalDateTime.parse(value, FLEXIBLE_TIMESTAMP_FORMATTER));
+            } catch (final DateTimeParseException e) {
+                if (DataTypeUtils.isTimestampTypeCompatible(value, timestampFormat)) {
+                    return DataTypeUtils.convertType(value, dataType, LAZY_DATE_FORMAT, LAZY_TIME_FORMAT, LAZY_TIMESTAMP_FORMAT, fieldName);
+                }
             }
             return value;
         } else if (columnDataType.getType() == GreengageDataType.TIMESTAMP_WITH_TIME_ZONE) {
@@ -161,8 +175,15 @@ abstract public class AbstractGreengageCSVRecordReader implements RecordReader {
         if (format == null) {
             throw new IllegalArgumentException("Format for converting timestamp with timezone is required for field " + fieldName);
         }
-        OffsetDateTime odt = OffsetDateTime.parse(value, DateTimeFormatter.ofPattern(timestampzFormat));
+        OffsetDateTime odt = OffsetDateTime.parse(value, FLEXIBLE_TIMESTAMP_WITH_TIME_ZONE_FORMATTER);
         return Timestamp.from(odt.toInstant());
+    }
+
+    private Time convertTime(final String value) {
+        final LocalTime localTime = LocalTime.parse(value, FLEXIBLE_TIME_FORMATTER);
+        final Time time = Time.valueOf(localTime);
+        time.setTime(time.getTime() + localTime.getNano() / 1_000_000L);
+        return time;
     }
 
     protected final Object convertSimpleIfPossible(final String value, final DataType dataType, final String fieldName) {
@@ -205,8 +226,12 @@ abstract public class AbstractGreengageCSVRecordReader implements RecordReader {
                 }
                 break;
             case TIME:
-                if (DataTypeUtils.isTimeTypeCompatible(trimmed, timeFormat)) {
-                    return DataTypeUtils.convertType(trimmed, dataType, LAZY_DATE_FORMAT, LAZY_TIME_FORMAT, LAZY_TIMESTAMP_FORMAT, fieldName);
+                try {
+                    return convertTime(trimmed);
+                } catch (DateTimeParseException e) {
+                    if (DataTypeUtils.isTimeTypeCompatible(trimmed, timeFormat)) {
+                        return DataTypeUtils.convertType(trimmed, dataType, LAZY_DATE_FORMAT, LAZY_TIME_FORMAT, LAZY_TIMESTAMP_FORMAT, fieldName);
+                    }
                 }
                 break;
             case TIMESTAMP:
