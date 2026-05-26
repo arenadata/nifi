@@ -49,7 +49,7 @@ public class PutGreengageRecordIT extends NifiSystemContainerizedIT {
     private static final String ROOT_GROUP_ID = "root";
     private static final String RECORD_READER_SERVICE_CLASS_NAME = "org.apache.nifi.avro.AvroReader";
     private static final String RECORD_READER_SERVICE_NAR_ARTIFACT = "nifi-record-serialization-services-nar";
-    private static final String GPFDIST_RECORD_PROCESSING_SERVICE_CLASS_NAME = "org.apache.nifi.gpfdist.service.StandartGpfdistService";
+    private static final String GPFDIST_RECORD_PROCESSING_SERVICE_CLASS_NAME = "org.apache.nifi.gpfdist.service.StandardGpfdistService";
     private static final String GPFDIST_RECORD_PROCESSING_SERVICE_NAR_ARTIFACT = "nifi-greengage-service-nar";
     private static final String UPDATE_ATTRIBUTE_PROCESSOR_CLASS_NAME = "org.apache.nifi.processors.attributes.UpdateAttribute";
     private static final String UPDATE_ATTRIBUTE_PROCESSOR_NAR_ARTIFACT = "nifi-update-attribute-nar";

@@ -32,15 +32,15 @@ import java.sql.Connection;
 
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 
-public class TestStandartGpfdistService {
-    private static final String GPFDIST_SERVICE_ID = StandartGpfdistService.class.getName();
+public class TestStandardGpfdistService {
+    private static final String GPFDIST_SERVICE_ID = StandardGpfdistService.class.getName();
     private static final String DBCP_SERVICE_ID = MockDBCPService.class.getName();
     private TestRunner runner;
-    private StandartGpfdistService service;
+    private StandardGpfdistService service;
 
     @BeforeEach
     void setUp() throws InitializationException {
-        service = new StandartGpfdistService();
+        service = new StandardGpfdistService();
         MockDBCPService mockDBCPService = new MockDBCPService();
         runner = TestRunners.newTestRunner(NoOpProcessor.class);
 
