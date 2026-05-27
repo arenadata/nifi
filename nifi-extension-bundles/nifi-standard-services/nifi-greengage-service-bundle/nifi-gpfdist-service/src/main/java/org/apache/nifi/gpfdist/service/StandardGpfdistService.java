@@ -83,7 +83,7 @@ import static org.apache.nifi.gpfdist.service.util.ClusterNodeUtil.getNodesHostn
 @Stateful(description = "Store information about cluster nodes hostnames", scopes = {Scope.CLUSTER})
 @Tags({"gpfdist"})
 @CapabilityDescription("Provides the ability to load data to Greengage segments directly")
-public class StandartGpfdistService extends AbstractControllerService implements GpfdistService {
+public class StandardGpfdistService extends AbstractControllerService implements GpfdistService {
     private static final String KEY_HOSTS = "hosts";
     private static final int MAX_REGISTER_ATTEMPTS = 10;
     private static final long LOAD_ASYNC_TIMEOUT_MS = 120_000;

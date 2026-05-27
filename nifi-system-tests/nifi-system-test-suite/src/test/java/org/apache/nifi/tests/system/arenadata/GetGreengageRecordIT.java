@@ -48,7 +48,7 @@ public class GetGreengageRecordIT extends NifiSystemContainerizedIT {
     private static final String AVRO_RECORD_SET_WRITER_CLASS_NAME = "org.apache.nifi.avro.AvroRecordSetWriter";
     private static final String AVRO_READER_CLASS_NAME = "org.apache.nifi.avro.AvroReader";
     private static final String RECORD_SERIALIZATION_NAR_ARTIFACT = "nifi-record-serialization-services-nar";
-    private static final String GPFDIST_RECORD_PROCESSING_SERVICE_CLASS_NAME = "org.apache.nifi.gpfdist.service.StandartGpfdistService";
+    private static final String GPFDIST_RECORD_PROCESSING_SERVICE_CLASS_NAME = "org.apache.nifi.gpfdist.service.StandardGpfdistService";
     private static final String GPFDIST_RECORD_PROCESSING_SERVICE_NAR_ARTIFACT = "nifi-greengage-service-nar";
     private static final String RELATION_SUCCESS = "success";
     private static final String RELATION_FAILURE = "failure";
