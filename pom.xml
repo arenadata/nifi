@@ -140,7 +140,7 @@
         <ozone.version>1.2.1</ozone.version>
         <gcs.version>2.1.9</gcs.version>
         <aspectj.version>1.9.6</aspectj.version>
-        <jersey.bom.version>2.45</jersey.bom.version>
+        <jersey.bom.version>2.48</jersey.bom.version>
         <log4j2.version>2.24.1</log4j2.version>
         <mockito.version>4.11.0</mockito.version>
         <logback.version>1.3.14</logback.version>
