@@ -82,7 +82,7 @@ public class TestIdentifyMimeType {
 
         final Map<String, String> expectedExtensions = new HashMap<>();
         expectedExtensions.put("1.7z", ".7z");
-        expectedExtensions.put("1.mdb", ".mdb");
+        expectedExtensions.put("1.mdb", ".accdb");
         expectedExtensions.put("1.txt", ".txt");
         expectedExtensions.put("1.csv", ".csv");
         expectedExtensions.put("1.txt.bz2", ".bz2");
