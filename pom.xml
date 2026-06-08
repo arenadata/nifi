@@ -124,8 +124,8 @@
         <testcontainers.version>1.20.3</testcontainers.version>
         <org.slf4j.version>2.0.16</org.slf4j.version>
         <com.jayway.jsonpath.version>2.9.0</com.jayway.jsonpath.version>
-        <ranger.version>2.6.0.4-2.2.0-1</ranger.version>
-        <ranger.solr.version>8.11.3</ranger.solr.version>
+        <ranger.version>2.6.0.5-2.2.0-1</ranger.version>
+        <ranger.solr.version>8.11.4.3-4.3.0-1</ranger.solr.version>
         <jetty.version>9.4.56.v20240826</jetty.version>
         <jackson.bom.version>2.18.1</jackson.bom.version>
         <avro.version>1.11.4</avro.version>
