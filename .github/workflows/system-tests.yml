@@ -50,6 +50,7 @@ env:
 
 permissions:
   contents: read
+  packages: read
 
 jobs:
   ubuntu-17:
@@ -65,8 +66,12 @@ jobs:
           distribution: zulu
           java-version: 17
           cache: 'maven'
+          server-id: arenadata
+          server-username: GITHUB_ACTOR
+          server-password: GITHUB_TOKEN
       - name: Build Dependencies
         env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           MAVEN_OPTS: >-
             ${{ env.DEFAULT_MAVEN_OPTS }}
         run: >
@@ -75,6 +80,7 @@ jobs:
           ${{ env.MAVEN_PROJECTS }}
       - name: Run Tests
         env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           MAVEN_OPTS: >-
             ${{ env.DEFAULT_MAVEN_OPTS }}
         run: >
@@ -105,8 +111,12 @@ jobs:
           distribution: zulu
           java-version: 11
           cache: 'maven'
+          server-id: arenadata
+          server-username: GITHUB_ACTOR
+          server-password: GITHUB_TOKEN
       - name: Build Dependencies
         env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           MAVEN_OPTS: >-
             ${{ env.DEFAULT_MAVEN_OPTS }}
         run: >
@@ -115,6 +125,7 @@ jobs:
           ${{ env.MAVEN_PROJECTS }}
       - name: Run Tests
         env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           MAVEN_OPTS: >-
             ${{ env.DEFAULT_MAVEN_OPTS }}
         run: >
