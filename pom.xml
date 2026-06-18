@@ -164,7 +164,7 @@
         <repository>
             <id>arenadata</id>
             <name>GitHub arenadata Apache Maven Packages</name>
-            <url>https://maven.pkg.github.com/arenadata/ranger</url>
+            <url>https://maven.pkg.github.com/arenadata/nifi</url>
         </repository>
     </distributionManagement>
     <dependencyManagement>
