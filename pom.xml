@@ -154,6 +154,19 @@
         <zookeeper.version>3.9.3</zookeeper.version>
         <caffeine.version>2.9.3</caffeine.version>
     </properties>
+    <repositories>
+        <repository>
+            <id>arenadata</id>
+            <url>https://maven.pkg.github.com/arenadata/*</url>
+        </repository>
+    </repositories>
+    <distributionManagement>
+        <repository>
+            <id>arenadata</id>
+            <name>GitHub arenadata Apache Maven Packages</name>
+            <url>https://maven.pkg.github.com/arenadata/nifi</url>
+        </repository>
+    </distributionManagement>
     <dependencyManagement>
         <dependencies>
             <!-- The following dependency management entries exist because these are jars

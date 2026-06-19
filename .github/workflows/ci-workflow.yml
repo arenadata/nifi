@@ -80,6 +80,7 @@ concurrency:
 
 permissions:
   contents: read
+  packages: read
 
 jobs:
   static-analysis:
@@ -101,7 +102,12 @@ jobs:
         with:
           distribution: 'zulu'
           java-version: '17'
+          server-id: arenadata
+          server-username: GITHUB_ACTOR
+          server-password: GITHUB_TOKEN
       - name: Maven Build
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: >
           ${{ env.MAVEN_COMMAND }}
           validate
@@ -137,8 +143,12 @@ jobs:
           distribution: 'zulu'
           java-version: '17'
           cache: 'maven'
+          server-id: arenadata
+          server-username: GITHUB_ACTOR
+          server-password: GITHUB_TOKEN
       - name: Maven Compile
         env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           MAVEN_OPTS: >-
             ${{ env.COMPILE_MAVEN_OPTS }}
         run: >
@@ -146,6 +156,7 @@ jobs:
           ${{ env.MAVEN_COMPILE_COMMAND }}
       - name: Maven Verify
         env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           NIFI_CI_LOCALE: >-
             -Duser.language=en
             -Duser.country=AU
@@ -200,8 +211,12 @@ jobs:
           distribution: 'zulu'
           java-version: '11'
           cache: 'maven'
+          server-id: arenadata
+          server-username: GITHUB_ACTOR
+          server-password: GITHUB_TOKEN
       - name: Maven Compile
         env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           MAVEN_OPTS: >-
             ${{ env.COMPILE_MAVEN_OPTS }}
         run: >
@@ -209,6 +224,7 @@ jobs:
           ${{ env.MAVEN_COMPILE_COMMAND }}
       - name: Maven Verify
         env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           NIFI_CI_LOCALE: >-
             -Duser.language=hi
             -Duser.country=IN
