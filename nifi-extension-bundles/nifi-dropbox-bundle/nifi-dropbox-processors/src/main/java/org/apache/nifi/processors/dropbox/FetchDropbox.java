@@ -16,6 +16,38 @@
  */
 package org.apache.nifi.processors.dropbox;
 
+import com.dropbox.core.DbxDownloader;
+import com.dropbox.core.DbxException;
+import com.dropbox.core.v2.DbxClientV2;
+import com.dropbox.core.v2.files.FileMetadata;
+import org.apache.nifi.annotation.behavior.InputRequirement;
+import org.apache.nifi.annotation.behavior.WritesAttribute;
+import org.apache.nifi.annotation.behavior.WritesAttributes;
+import org.apache.nifi.annotation.documentation.CapabilityDescription;
+import org.apache.nifi.annotation.documentation.SeeAlso;
+import org.apache.nifi.annotation.documentation.Tags;
+import org.apache.nifi.annotation.lifecycle.OnScheduled;
+import org.apache.nifi.components.PropertyDescriptor;
+import org.apache.nifi.expression.ExpressionLanguageScope;
+import org.apache.nifi.flowfile.FlowFile;
+import org.apache.nifi.migration.PropertyConfiguration;
+import org.apache.nifi.migration.ProxyServiceMigration;
+import org.apache.nifi.processor.AbstractProcessor;
+import org.apache.nifi.processor.ProcessContext;
+import org.apache.nifi.processor.ProcessSession;
+import org.apache.nifi.processor.Relationship;
+import org.apache.nifi.processor.exception.ProcessException;
+import org.apache.nifi.processor.util.StandardValidators;
+import org.apache.nifi.proxy.ProxyConfiguration;
+import org.apache.nifi.proxy.ProxySpec;
+
+import java.io.InputStream;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.TimeUnit;
+import java.util.regex.Pattern;
+
 import static org.apache.nifi.processors.dropbox.DropboxAttributes.ERROR_MESSAGE;
 import static org.apache.nifi.processors.dropbox.DropboxAttributes.ERROR_MESSAGE_DESC;
 import static org.apache.nifi.processors.dropbox.DropboxAttributes.FILENAME;
@@ -30,35 +62,6 @@ import static org.apache.nifi.processors.dropbox.DropboxAttributes.SIZE;
 import static org.apache.nifi.processors.dropbox.DropboxAttributes.SIZE_DESC;
 import static org.apache.nifi.processors.dropbox.DropboxAttributes.TIMESTAMP;
 import static org.apache.nifi.processors.dropbox.DropboxAttributes.TIMESTAMP_DESC;
-
-import com.dropbox.core.DbxDownloader;
-import com.dropbox.core.DbxException;
-import com.dropbox.core.v2.DbxClientV2;
-import com.dropbox.core.v2.files.FileMetadata;
-import java.io.InputStream;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
-import java.util.concurrent.TimeUnit;
-import java.util.regex.Pattern;
-import org.apache.nifi.annotation.behavior.InputRequirement;
-import org.apache.nifi.annotation.behavior.WritesAttribute;
-import org.apache.nifi.annotation.behavior.WritesAttributes;
-import org.apache.nifi.annotation.documentation.CapabilityDescription;
-import org.apache.nifi.annotation.documentation.SeeAlso;
-import org.apache.nifi.annotation.documentation.Tags;
-import org.apache.nifi.annotation.lifecycle.OnScheduled;
-import org.apache.nifi.components.PropertyDescriptor;
-import org.apache.nifi.expression.ExpressionLanguageScope;
-import org.apache.nifi.flowfile.FlowFile;
-import org.apache.nifi.processor.AbstractProcessor;
-import org.apache.nifi.processor.ProcessContext;
-import org.apache.nifi.processor.ProcessSession;
-import org.apache.nifi.processor.Relationship;
-import org.apache.nifi.processor.exception.ProcessException;
-import org.apache.nifi.processor.util.StandardValidators;
-import org.apache.nifi.proxy.ProxyConfiguration;
-import org.apache.nifi.proxy.ProxySpec;
 
 @InputRequirement(InputRequirement.Requirement.INPUT_REQUIRED)
 @Tags({"dropbox", "storage", "fetch"})
@@ -75,9 +78,8 @@ import org.apache.nifi.proxy.ProxySpec;
 )
 public class FetchDropbox extends AbstractProcessor implements DropboxTrait {
 
-    public static final PropertyDescriptor FILE = new PropertyDescriptor
-            .Builder().name("file")
-            .displayName("File")
+    public static final PropertyDescriptor FILE = new PropertyDescriptor.Builder()
+            .name("File")
             .description("The Dropbox identifier or path of the Dropbox file to fetch." +
                     " The 'File' should match the following regular expression pattern: /.*|id:.* ." +
                     " When ListDropbox is used for input, either '${dropbox.id}' (identifying files by Dropbox id)" +
@@ -153,6 +155,13 @@ public class FetchDropbox extends AbstractProcessor implements DropboxTrait {
         } catch (Exception e) {
             handleError(session, flowFile, fileIdentifier, e);
         }
+    }
+
+    @Override
+    public void migrateProperties(PropertyConfiguration config) {
+        config.renameProperty(OLD_CREDENTIAL_SERVICE_PROPERTY_NAME, CREDENTIAL_SERVICE.getName());
+        config.renameProperty("file", FILE.getName());
+        ProxyServiceMigration.renameProxyConfigurationServiceProperty(config);
     }
 
     private FileMetadata fetchFile(String fileId, ProcessSession session, FlowFile outFlowFile) throws DbxException {

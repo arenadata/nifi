@@ -24,6 +24,8 @@ import com.google.cloud.storage.Storage;
 import com.google.cloud.storage.StorageException;
 import com.google.cloud.storage.testing.RemoteStorageHelper;
 import org.apache.nifi.processor.Processor;
+import org.apache.nifi.processors.gcp.credentials.factory.AuthenticationStrategy;
+import org.apache.nifi.processors.gcp.credentials.factory.CredentialPropertyDescriptors;
 import org.apache.nifi.processors.gcp.credentials.service.GCPCredentialsControllerService;
 import org.apache.nifi.util.TestRunner;
 import org.apache.nifi.util.TestRunners;
@@ -94,6 +96,7 @@ public abstract class AbstractGCSIT {
         final GCPCredentialsControllerService credentialsControllerService = new GCPCredentialsControllerService();
         final TestRunner runner = TestRunners.newTestRunner(processor);
         runner.addControllerService("gcpCredentialsControllerService", credentialsControllerService);
+        runner.setProperty(credentialsControllerService, CredentialPropertyDescriptors.AUTHENTICATION_STRATEGY, AuthenticationStrategy.APPLICATION_DEFAULT);
         runner.enableControllerService(credentialsControllerService);
 
         runner.setProperty(AbstractGCSProcessor.GCP_CREDENTIALS_PROVIDER_SERVICE, "gcpCredentialsControllerService");
@@ -128,7 +131,7 @@ public abstract class AbstractGCSIT {
      */
     protected void putTestFileEncrypted(String key, byte[] bytes) throws StorageException {
         storage.create(BlobInfo.newBuilder(BlobId.of(BUCKET, key))
-        .build(), bytes, Storage.BlobTargetOption.encryptionKey(ENCRYPTION_KEY));
+                .build(), bytes, Storage.BlobTargetOption.encryptionKey(ENCRYPTION_KEY));
     }
 
     /**

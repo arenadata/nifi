@@ -18,8 +18,6 @@ package org.apache.nifi.processors.standard;
 
 import org.apache.nifi.annotation.behavior.InputRequirement;
 import org.apache.nifi.annotation.behavior.InputRequirement.Requirement;
-import org.apache.nifi.annotation.behavior.Restricted;
-import org.apache.nifi.annotation.behavior.Restriction;
 import org.apache.nifi.annotation.behavior.SideEffectFree;
 import org.apache.nifi.annotation.behavior.SupportsBatching;
 import org.apache.nifi.annotation.behavior.SystemResource;
@@ -30,7 +28,6 @@ import org.apache.nifi.annotation.documentation.CapabilityDescription;
 import org.apache.nifi.annotation.documentation.Tags;
 import org.apache.nifi.annotation.lifecycle.OnScheduled;
 import org.apache.nifi.components.PropertyDescriptor;
-import org.apache.nifi.components.RequiredPermission;
 import org.apache.nifi.components.resource.ResourceCardinality;
 import org.apache.nifi.components.resource.ResourceType;
 import org.apache.nifi.expression.ExpressionLanguageScope;
@@ -48,13 +45,6 @@ import org.apache.nifi.xml.processing.validation.SchemaValidator;
 import org.apache.nifi.xml.processing.validation.StandardSchemaValidator;
 import org.xml.sax.SAXException;
 
-import javax.xml.stream.XMLStreamException;
-import javax.xml.stream.XMLStreamReader;
-import javax.xml.transform.Source;
-import javax.xml.transform.stax.StAXSource;
-import javax.xml.transform.stream.StreamSource;
-import javax.xml.validation.Schema;
-import javax.xml.validation.SchemaFactory;
 import java.io.ByteArrayInputStream;
 import java.io.InputStream;
 import java.net.URL;
@@ -63,13 +53,20 @@ import java.util.List;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
+import javax.xml.stream.XMLStreamException;
+import javax.xml.stream.XMLStreamReader;
+import javax.xml.transform.Source;
+import javax.xml.transform.stax.StAXSource;
+import javax.xml.transform.stream.StreamSource;
+import javax.xml.validation.Schema;
+import javax.xml.validation.SchemaFactory;
 
 @SideEffectFree
 @SupportsBatching
 @InputRequirement(Requirement.INPUT_REQUIRED)
 @Tags({"xml", "schema", "validation", "xsd"})
 @WritesAttributes({
-    @WritesAttribute(attribute = "validatexml.invalid.error", description = "If the flow file is routed to the invalid relationship "
+    @WritesAttribute(attribute = "validatexml.invalid.error", description = "If the FlowFile is routed to the invalid relationship "
             + "the attribute will contain the error message resulting from the validation failure.")
 })
 @CapabilityDescription("Validates XML contained in a FlowFile. By default, the XML is contained in the FlowFile content. If the 'XML Source Attribute' property is set, the XML to be validated "
@@ -78,14 +75,7 @@ import java.util.concurrent.atomic.AtomicReference;
         + "to ensure the XML syntax is correct and well-formed, e.g. all opening tags are properly closed.")
 @SystemResourceConsideration(resource = SystemResource.MEMORY, description = "While this processor supports processing XML within attributes, it is strongly discouraged to hold "
         + "large amounts of data in attributes. In general, attribute values should be as small as possible and hold no more than a couple hundred characters.")
-@Restricted(
-        restrictions = {
-                @Restriction(
-                        requiredPermission = RequiredPermission.REFERENCE_REMOTE_RESOURCES,
-                        explanation = "Schema configuration can reference resources over HTTP"
-                )
-        }
-)
+
 public class ValidateXml extends AbstractProcessor {
 
     public static final String ERROR_ATTRIBUTE_KEY = "validatexml.invalid.error";

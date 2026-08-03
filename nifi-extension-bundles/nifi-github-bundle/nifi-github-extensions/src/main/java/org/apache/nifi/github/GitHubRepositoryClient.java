@@ -21,18 +21,22 @@ package org.apache.nifi.github;
 
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.nifi.logging.ComponentLog;
 import org.apache.nifi.registry.flow.FlowRegistryException;
 import org.apache.nifi.registry.flow.git.client.GitCommit;
 import org.apache.nifi.registry.flow.git.client.GitCreateContentRequest;
 import org.apache.nifi.registry.flow.git.client.GitRepositoryClient;
+import org.apache.nifi.ssl.SSLContextProvider;
 import org.kohsuke.github.GHCommit;
 import org.kohsuke.github.GHContent;
+import org.kohsuke.github.GHContentBuilder;
 import org.kohsuke.github.GHContentUpdateResponse;
 import org.kohsuke.github.GHMyself;
 import org.kohsuke.github.GHPermissionType;
 import org.kohsuke.github.GHRef;
 import org.kohsuke.github.GHRepository;
+import org.kohsuke.github.GHUser;
 import org.kohsuke.github.GitHub;
 import org.kohsuke.github.GitHubAbuseLimitHandler;
 import org.kohsuke.github.GitHubBuilder;
@@ -41,13 +45,14 @@ import org.kohsuke.github.PagedIterator;
 import org.kohsuke.github.authorization.AppInstallationAuthorizationProvider;
 import org.kohsuke.github.authorization.AuthorizationProvider;
 import org.kohsuke.github.connector.GitHubConnectorResponse;
+import org.kohsuke.github.extras.HttpClientGitHubConnector;
 import org.kohsuke.github.extras.authorization.JWTTokenProvider;
 
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.InputStream;
+import java.net.http.HttpClient;
 import java.security.PrivateKey;
-import java.time.Instant;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -117,6 +122,14 @@ public class GitHubRepositoryClient implements GitRepositoryClient {
                 logger.error("GitHub API request failed with status code: {}, message: {}", connectorResponse.statusCode(), message);
             }
         });
+
+        // Configure HttpClient connector with SSL context if provided
+        if (builder.sslContextProvider != null) {
+            final HttpClient httpClient = HttpClient.newBuilder()
+                    .sslContext(builder.sslContextProvider.createContext())
+                    .build();
+            gitHubBuilder.withConnector(new HttpClientGitHubConnector(httpClient));
+        }
 
         gitHub = gitHubBuilder.build();
 
@@ -190,13 +203,20 @@ public class GitHubRepositoryClient implements GitRepositoryClient {
         logger.debug("Creating content at path [{}] on branch [{}] in repo [{}] ", resolvedPath, branch, repository.getName());
         return execute(() -> {
             try {
-                final GHContentUpdateResponse response = repository.createContent()
+                final GHContentBuilder contentBuilder = repository.createContent()
                         .branch(branch)
                         .path(resolvedPath)
                         .content(request.getContent())
                         .message(request.getMessage())
-                        .sha(request.getExistingContentSha())
-                        .commit();
+                        .sha(request.getExistingContentSha());
+
+                final String authorName = request.getAuthorName();
+                final String authorEmail = request.getAuthorEmail();
+                if (authorName != null && authorEmail != null) {
+                    contentBuilder.author(authorName, authorEmail);
+                }
+
+                final GHContentUpdateResponse response = contentBuilder.commit();
                 return response.getCommit().getSha();
             } catch (final FileNotFoundException fnf) {
                 throwPathOrBranchNotFound(fnf, resolvedPath, branch);
@@ -392,7 +412,35 @@ public class GitHubRepositoryClient implements GitRepositoryClient {
                 final GHContent ghContent = repository.getFileContent(resolvedPath, branchRef);
                 return Optional.of(ghContent.getSha());
             } catch (final FileNotFoundException e) {
-                logger.warn("Unable to get content SHA for [{}] from branch [{}] because content does not exist", resolvedPath, branch);
+                logger.debug("Unable to get content SHA for [{}] from branch [{}] because content does not exist", resolvedPath, branch);
+                return Optional.empty();
+            }
+        });
+    }
+
+    /**
+     * Gets the blob SHA for the given path at a specific commit.
+     * This is used for atomic commit operations where we need the blob SHA at the
+     * user's expected version, not the current version.
+     *
+     * @param path the path to the content
+     * @param commitSha the commit SHA
+     * @return blob SHA for the given file at the specified commit, or empty optional
+     *
+     * @throws IOException if an I/O error happens calling GitHub
+     * @throws FlowRegistryException if a non I/O error happens calling GitHub
+     */
+    @Override
+    public Optional<String> getContentShaAtCommit(final String path, final String commitSha) throws IOException, FlowRegistryException {
+        final String resolvedPath = getResolvedPath(path);
+        logger.debug("Getting content SHA for [{}] at commit [{}] in repository [{}]", resolvedPath, commitSha, repository.getName());
+
+        return execute(() -> {
+            try {
+                final GHContent ghContent = repository.getFileContent(resolvedPath, commitSha);
+                return Optional.of(ghContent.getSha());
+            } catch (final FileNotFoundException e) {
+                logger.debug("Unable to get content SHA for [{}] at commit [{}] because content does not exist", resolvedPath, commitSha);
                 return Optional.empty();
             }
         });
@@ -425,6 +473,58 @@ public class GitHubRepositoryClient implements GitRepositoryClient {
         });
     }
 
+    @Override
+    public void createBranch(final String newBranchName, final String sourceBranch, final Optional<String> sourceCommitSha)
+            throws IOException, FlowRegistryException {
+        if (StringUtils.isBlank(newBranchName)) {
+            throw new IllegalArgumentException("Branch name must be specified");
+        }
+        if (StringUtils.isBlank(sourceBranch)) {
+            throw new IllegalArgumentException("Source branch must be specified");
+        }
+
+        final String trimmedNewBranch = newBranchName.trim();
+        final String trimmedSourceBranch = sourceBranch.trim();
+        final String newBranchRefPath = "heads/" + trimmedNewBranch;
+        final String sourceBranchRefPath = "heads/" + trimmedSourceBranch;
+
+        // FileNotFoundException indicates the branch does not exist, which is the expected case.
+        // Other exceptions (FlowRegistryException, IOException) propagate as communication errors.
+        try {
+            execute(() -> repository.getRef(newBranchRefPath));
+            throw new FlowRegistryException("Branch [" + trimmedNewBranch + "] already exists");
+        } catch (final FileNotFoundException notFound) {
+            logger.debug("Branch [{}] does not exist and will be created", trimmedNewBranch, notFound);
+        }
+
+        final GHRef sourceBranchRef;
+        try {
+            sourceBranchRef = execute(() -> repository.getRef(sourceBranchRefPath));
+        } catch (final FileNotFoundException notFound) {
+            throw new FlowRegistryException("Source branch [" + trimmedSourceBranch + "] does not exist", notFound);
+        }
+
+        final String baseCommitSha;
+        if (sourceCommitSha.isPresent()) {
+            final String requestedCommitSha = sourceCommitSha.get();
+            try {
+                baseCommitSha = execute(() -> repository.getCommit(requestedCommitSha).getSHA1());
+            } catch (final FileNotFoundException notFound) {
+                throw new FlowRegistryException("Commit [" + requestedCommitSha + "] was not found in the repository", notFound);
+            }
+        } else {
+            baseCommitSha = sourceBranchRef.getObject().getSha();
+        }
+
+        logger.info("Creating branch [{}] from [{}] at commit [{}] for repository [{}]",
+                trimmedNewBranch, trimmedSourceBranch, baseCommitSha, repository.getFullName());
+
+        execute(() -> {
+            repository.createRef(BRANCH_REF_PATTERN.formatted(trimmedNewBranch), baseCommitSha);
+            return null;
+        });
+    }
+
     private String getResolvedPath(final String path) {
         return repoPath == null ? path : repoPath + "/" + path;
     }
@@ -435,18 +535,20 @@ public class GitHubRepositoryClient implements GitRepositoryClient {
 
     private GitCommit toGitCommit(final GHCommit ghCommit) throws IOException {
         GitCommit commit = commitCache.getIfPresent(ghCommit.getSHA1());
-        if (commit != null) {
-            return commit;
-        } else {
+
+        if (commit == null) {
             final GHCommit.ShortInfo shortInfo = ghCommit.getCommitShortInfo();
+            final GHUser ghUser = ghCommit.getAuthor();
+            final String author = ghUser != null ? ghUser.getLogin() : shortInfo.getAuthor().getName();
             commit = new GitCommit(
                     ghCommit.getSHA1(),
-                    ghCommit.getAuthor().getLogin(),
+                    author,
                     shortInfo.getMessage(),
-                    Instant.ofEpochMilli(shortInfo.getCommitDate().getTime()));
+                    shortInfo.getCommitDate());
             commitCache.put(ghCommit.getSHA1(), commit);
-            return commit;
         }
+
+        return commit;
     }
 
     private <T> T execute(final GHRequest<T> action) throws FlowRegistryException, IOException {
@@ -511,6 +613,7 @@ public class GitHubRepositoryClient implements GitRepositoryClient {
         private String appPrivateKey;
         private String appId;
         private ComponentLog logger;
+        private SSLContextProvider sslContextProvider;
 
         public Builder apiUrl(final String apiUrl) {
             this.apiUrl = apiUrl;
@@ -553,6 +656,11 @@ public class GitHubRepositoryClient implements GitRepositoryClient {
 
         public Builder logger(final ComponentLog logger) {
             this.logger = logger;
+            return this;
+        }
+
+        public Builder sslContext(final SSLContextProvider sslContextProvider) {
+            this.sslContextProvider = sslContextProvider;
             return this;
         }
 

@@ -17,7 +17,7 @@
  * under the License.
  */
 
-import { afterRender, Component, ElementRef, Input } from '@angular/core';
+import { afterNextRender, Component, ElementRef, Input, inject } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { Store } from '@ngrx/store';
 import { UpdateAttributeState } from '../../state';
@@ -69,6 +69,10 @@ import { selectEvaluationContextError } from '../../state/evaluation-context/eva
     styleUrl: './rule-listing.component.scss'
 })
 export class RuleListing {
+    private store = inject<Store<UpdateAttributeState>>(Store);
+    private formBuilder = inject(FormBuilder);
+    private ruleListing = inject(ElementRef);
+
     @Input() set evaluationContext(evaluationContext: EvaluationContext) {
         this.ruleOrder = evaluationContext.ruleOrder;
         this.flowFilePolicy = evaluationContext.flowFilePolicy;
@@ -91,10 +95,10 @@ export class RuleListing {
         }
     }
 
-    isEditable: boolean = false;
+    isEditable = false;
 
     ruleOrder: string[] = [];
-    allowRuleReordering: boolean = false;
+    allowRuleReordering = false;
     originalRulesList: Rule[] = [];
     rulesList: Rule[] = [];
     dirtyRules: Set<string> = new Set<string>();
@@ -103,17 +107,13 @@ export class RuleListing {
     searchForm: FormGroup;
 
     flowFilePolicyForm: FormGroup;
-    flowFilePolicy: string = 'USE_ORIGINAL';
+    flowFilePolicy = 'USE_ORIGINAL';
 
-    scrollToNewRule: boolean = false;
+    scrollToNewRule = false;
 
-    private openRuleCount: number = 0;
+    private openRuleCount = 0;
 
-    constructor(
-        private store: Store<UpdateAttributeState>,
-        private formBuilder: FormBuilder,
-        private ruleListing: ElementRef
-    ) {
+    constructor() {
         this.searchForm = this.formBuilder.group({ searchRules: '' });
         this.flowFilePolicyForm = this.formBuilder.group({ useOriginalFlowFilePolicy: true });
 
@@ -134,7 +134,7 @@ export class RuleListing {
                 this.filterRules();
             });
 
-        afterRender(() => {
+        afterNextRender(() => {
             if (this.scrollToNewRule) {
                 const newRulePanel = this.ruleListing.nativeElement.querySelector('.new-rule');
                 if (newRulePanel) {
@@ -163,7 +163,7 @@ export class RuleListing {
         return (
             rule.id.toLowerCase().includes(filterText) ||
             rule.name.toLowerCase().includes(filterText) ||
-            rule.comments.toLowerCase().includes(filterText) ||
+            (rule.comments ?? '').toLowerCase().includes(filterText) ||
             rule.conditions.some((condition) => this.conditionMatches(condition, filterText)) ||
             rule.actions.some((action) => this.actionMatches(action, filterText))
         );

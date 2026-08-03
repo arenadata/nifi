@@ -16,21 +16,8 @@
  */
 package org.apache.nifi.remote.client;
 
-import java.io.Closeable;
-import java.io.File;
-import java.io.IOException;
-import java.io.InputStream;
-import java.io.Serializable;
-import java.net.InetAddress;
-import java.nio.file.Files;
-import java.nio.file.Paths;
-import java.security.KeyStore;
-import java.util.LinkedHashSet;
-import java.util.Set;
-import java.util.concurrent.TimeUnit;
-import javax.net.ssl.SSLContext;
 import org.apache.nifi.components.state.StateManager;
-import org.apache.nifi.events.EventReporter;
+import org.apache.nifi.remote.SiteToSiteEventReporter;
 import org.apache.nifi.remote.Transaction;
 import org.apache.nifi.remote.TransferDirection;
 import org.apache.nifi.remote.client.http.HttpClient;
@@ -44,6 +31,20 @@ import org.apache.nifi.remote.protocol.SiteToSiteTransportProtocol;
 import org.apache.nifi.remote.protocol.http.HttpProxy;
 import org.apache.nifi.security.ssl.StandardKeyStoreBuilder;
 import org.apache.nifi.security.ssl.StandardSslContextBuilder;
+
+import java.io.Closeable;
+import java.io.File;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.Serializable;
+import java.net.InetAddress;
+import java.nio.file.Files;
+import java.nio.file.Paths;
+import java.security.KeyStore;
+import java.util.LinkedHashSet;
+import java.util.Set;
+import java.util.concurrent.TimeUnit;
+import javax.net.ssl.SSLContext;
 
 /**
  * <p>
@@ -161,7 +162,7 @@ public interface SiteToSiteClient extends Closeable {
         private String truststoreFilename;
         private String truststorePass;
         private KeystoreType truststoreType;
-        private EventReporter eventReporter = EventReporter.NO_OP;
+        private SiteToSiteEventReporter eventReporter = SiteToSiteEventReporter.DISABLED;
         private File peerPersistenceFile;
         private StateManager stateManager;
         private boolean useCompression;
@@ -474,7 +475,7 @@ public interface SiteToSiteClient extends Closeable {
          * @param eventReporter reporter
          * @return the builder
          */
-        public Builder eventReporter(final EventReporter eventReporter) {
+        public Builder eventReporter(final SiteToSiteEventReporter eventReporter) {
             this.eventReporter = eventReporter;
             return this;
         }
@@ -690,7 +691,7 @@ public interface SiteToSiteClient extends Closeable {
          * @return the EventReporter that is to be used by clients to report
          * events
          */
-        public EventReporter getEventReporter() {
+        public SiteToSiteEventReporter getEventReporter() {
             return eventReporter;
         }
 
@@ -732,7 +733,6 @@ public interface SiteToSiteClient extends Closeable {
             return portIdentifier;
         }
 
-
         /**
          * Specify a HTTP proxy information to use with HTTP protocol of Site-to-Site communication.
          * @param httpProxy HTTP proxy information
@@ -766,7 +766,7 @@ public interface SiteToSiteClient extends Closeable {
         private final String truststoreFilename;
         private final String truststorePass;
         private final KeystoreType truststoreType;
-        private final EventReporter eventReporter;
+        private final SiteToSiteEventReporter eventReporter;
         private final File peerPersistenceFile;
         private final transient StateManager stateManager;
         private final boolean useCompression;
@@ -839,7 +839,6 @@ public interface SiteToSiteClient extends Closeable {
         public boolean isUseCompression() {
             return useCompression;
         }
-
 
         @Override
         public Set<String> getUrls() {
@@ -952,7 +951,7 @@ public interface SiteToSiteClient extends Closeable {
         }
 
         @Override
-        public EventReporter getEventReporter() {
+        public SiteToSiteEventReporter getEventReporter() {
             return eventReporter;
         }
 

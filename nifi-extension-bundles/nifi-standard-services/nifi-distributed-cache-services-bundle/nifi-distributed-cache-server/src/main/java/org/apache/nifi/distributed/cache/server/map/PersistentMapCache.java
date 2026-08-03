@@ -16,6 +16,14 @@
  */
 package org.apache.nifi.distributed.cache.server.map;
 
+import org.apache.nifi.wali.SequentialAccessWriteAheadLog;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.wali.SerDe;
+import org.wali.SerDeFactory;
+import org.wali.UpdateType;
+import org.wali.WriteAheadRepository;
+
 import java.io.DataInputStream;
 import java.io.EOFException;
 import java.io.File;
@@ -29,15 +37,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicLong;
-
-import org.apache.nifi.wali.SequentialAccessWriteAheadLog;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
-import org.wali.SerDe;
-import org.wali.SerDeFactory;
-import org.wali.UpdateType;
-import org.wali.WriteAheadRepository;
 
 public class PersistentMapCache implements MapCache {
 
@@ -83,21 +82,21 @@ public class PersistentMapCache implements MapCache {
     }
 
     protected void putWriteAheadLog(ByteBuffer key, ByteBuffer value, MapPutResult putResult) throws IOException {
-        if ( putResult.isSuccessful() ) {
+        if (putResult.isSuccessful()) {
             // The put was successful.
             final MapWaliRecord record = new MapWaliRecord(UpdateType.CREATE, key, value);
             final List<MapWaliRecord> records = new ArrayList<>();
             records.add(record);
 
             final MapCacheRecord evicted = putResult.getEvicted();
-            if ( evicted != null ) {
+            if (evicted != null) {
                 records.add(new MapWaliRecord(UpdateType.DELETE, evicted.getKey(), evicted.getValue()));
             }
 
             wali.update(records, false);
 
             final long modCount = modifications.getAndIncrement();
-            if ( modCount > 0 && modCount % 100000 == 0 ) {
+            if (modCount > 0 && modCount % 100000 == 0) {
                 wali.checkpoint();
             }
         }

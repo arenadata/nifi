@@ -17,7 +17,8 @@
 
 import { createFeatureSelector, createSelector } from '@ngrx/store';
 import { extensionTypesFeatureKey, ExtensionTypesState, LoadExtensionTypesForDocumentationResponse } from './index';
-import { Bundle, DocumentedType, RequiredPermission } from '../shared';
+import { DocumentedType, RequiredPermission } from '../shared';
+import { Bundle } from '@nifi/shared';
 
 export const selectExtensionTypesState = createFeatureSelector<ExtensionTypesState>(extensionTypesFeatureKey);
 
@@ -61,6 +62,11 @@ export const selectParameterProviderTypes = createSelector(
     (state: ExtensionTypesState) => state.parameterProviderTypes
 );
 
+export const selectConnectorTypes = createSelector(
+    selectExtensionTypesState,
+    (state: ExtensionTypesState) => state.connectorTypes
+);
+
 export const selectTypesToIdentifyComponentRestrictions = createSelector(
     selectExtensionTypesState,
     (state: ExtensionTypesState) => {
@@ -74,6 +80,9 @@ export const selectTypesToIdentifyComponentRestrictions = createSelector(
         }
         if (state.reportingTaskTypes) {
             types.push(...state.reportingTaskTypes);
+        }
+        if (state.registryClientTypes) {
+            types.push(...state.registryClientTypes);
         }
         if (state.parameterProviderTypes) {
             types.push(...state.parameterProviderTypes);
@@ -134,7 +143,9 @@ export const selectExtensionFromTypes = (extensionTypes: string[]) =>
             processorTypes: state.processorTypes.filter(typeFilter),
             controllerServiceTypes: state.controllerServiceTypes.filter(typeFilter),
             reportingTaskTypes: state.reportingTaskTypes.filter(typeFilter),
+            registryClientTypes: state.registryClientTypes.filter(typeFilter),
             parameterProviderTypes: state.parameterProviderTypes.filter(typeFilter),
-            flowAnalysisRuleTypes: state.flowAnalysisRuleTypes.filter(typeFilter)
+            flowAnalysisRuleTypes: state.flowAnalysisRuleTypes.filter(typeFilter),
+            connectorTypes: state.connectorTypes.filter(typeFilter)
         } as LoadExtensionTypesForDocumentationResponse;
     });

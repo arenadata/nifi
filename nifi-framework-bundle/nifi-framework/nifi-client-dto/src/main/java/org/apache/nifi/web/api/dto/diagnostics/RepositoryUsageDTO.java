@@ -17,9 +17,8 @@
 
 package org.apache.nifi.web.api.dto.diagnostics;
 
-import jakarta.xml.bind.annotation.XmlType;
-
 import io.swagger.v3.oas.annotations.media.Schema;
+import jakarta.xml.bind.annotation.XmlType;
 
 @XmlType(name = "repositoryUsage")
 public class RepositoryUsageDTO implements Cloneable {
@@ -31,7 +30,6 @@ public class RepositoryUsageDTO implements Cloneable {
     private Long freeSpaceBytes;
     private Long totalSpaceBytes;
     private String utilization;
-
 
     @Schema(description = "The name of the repository")
     public String getName() {

@@ -77,7 +77,6 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
-
 @ExtendWith({SpringExtension.class, MockitoExtension.class})
 @ContextConfiguration(classes = {TestProcessorAuditor.AuditorConfiguration.class})
 class TestProcessorAuditor {
@@ -148,14 +147,13 @@ class TestProcessorAuditor {
         when(flowController.getControllerServiceProvider()).thenReturn(mock(ControllerServiceProvider.class));
         when(flowController.getStateManagerProvider()).thenReturn(mockStateManagerProvider);
 
-        when(flowManager.getGroup(GROUP_ID)).thenReturn(processGroup);
+        when(flowManager.getGroup(GROUP_ID, null)).thenReturn(processGroup);
         when(flowManager.createProcessor(anyString(), anyString(), any())).thenReturn(mockProcessorNode);
 
         final Bundle bundle = getBundle();
 
         when(extensionManager.getBundle(any(BundleCoordinate.class))).thenReturn(bundle);
         when(extensionManager.getBundles(anyString())).thenReturn(Collections.singletonList(bundle));
-
 
         when(mockStateManagerProvider.getStateManager(anyString(), any())).thenReturn(mockStateManager);
 

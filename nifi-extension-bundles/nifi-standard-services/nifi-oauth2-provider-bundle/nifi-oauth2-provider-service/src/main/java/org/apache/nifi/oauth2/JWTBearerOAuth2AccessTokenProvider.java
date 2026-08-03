@@ -59,8 +59,6 @@ import org.apache.nifi.web.client.api.HttpResponseEntity;
 import org.apache.nifi.web.client.api.WebClientService;
 import org.apache.nifi.web.client.provider.api.WebClientServiceProvider;
 
-import javax.net.ssl.X509ExtendedKeyManager;
-
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.URI;
@@ -86,6 +84,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
+import javax.net.ssl.X509ExtendedKeyManager;
 
 @SupportsSensitiveDynamicProperties
 @Tags({ "oauth2", "provider", "authorization", "access token", "hjwt" })
@@ -221,7 +220,7 @@ public class JWTBearerOAuth2AccessTokenProvider extends AbstractControllerServic
                     The "jti" (JWT ID) claim provides a unique identifier for the JWT. The identifier value must be assigned in a
                     manner that ensures that there's a negligible probability that the same value will be accidentally assigned to a
                     different data object; if the application uses multiple issuers, collisions MUST be prevented among values produced
-                    by different issuers as well. The \"jti\" value is a case-sensitive string. If set, it is recommended to set this
+                    by different issuers as well. The "jti" value is a case-sensitive string. If set, it is recommended to set this
                     value to ${UUID()}.
                     """)
             .required(false)
@@ -429,7 +428,7 @@ public class JWTBearerOAuth2AccessTokenProvider extends AbstractControllerServic
     }
 
     private boolean isRefreshRequired() {
-        if (accessDetails.getExpiresIn() > 0) {
+        if (accessDetails.getExpiresIn() != null) {
             final Instant expirationRefreshTime = accessDetails.getFetchTime()
                     .plusSeconds(accessDetails.getExpiresIn())
                     .minus(refreshWindow);

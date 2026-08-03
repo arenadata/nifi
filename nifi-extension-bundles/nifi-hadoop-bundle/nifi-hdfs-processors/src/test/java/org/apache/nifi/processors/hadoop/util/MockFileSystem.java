@@ -150,7 +150,7 @@ public class MockFileSystem extends FileSystem {
     }
 
     @Override
-    public void setWorkingDirectory(final Path new_dir) {
+    public void setWorkingDirectory(final Path newDir) {
 
     }
 
@@ -313,7 +313,6 @@ public class MockFileSystem extends FileSystem {
     public short getDefaultReplication() {
         return 1;
     }
-
 
     private static FsPermission perms(short p) {
         return new FsPermission(p);

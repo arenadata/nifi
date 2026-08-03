@@ -17,18 +17,6 @@
 
 package org.apache.nifi.csv;
 
-import java.io.ByteArrayInputStream;
-import java.io.FileInputStream;
-import java.io.IOException;
-import java.io.InputStream;
-import java.math.BigDecimal;
-import java.nio.charset.StandardCharsets;
-import java.sql.Time;
-import java.time.LocalTime;
-import java.time.format.DateTimeFormatter;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.List;
 import org.apache.commons.csv.CSVFormat;
 import org.apache.commons.csv.DuplicateHeaderMode;
 import org.apache.commons.text.StringEscapeUtils;
@@ -43,6 +31,19 @@ import org.apache.nifi.serialization.record.RecordSchema;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
+import java.io.ByteArrayInputStream;
+import java.io.FileInputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.math.BigDecimal;
+import java.nio.charset.StandardCharsets;
+import java.sql.Time;
+import java.time.LocalTime;
+import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -53,7 +54,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 public class TestCSVRecordReader {
     private final DataType doubleDataType = RecordFieldType.DOUBLE.getDataType();
     private final CSVFormat format = CSVFormat.DEFAULT.builder().setHeader().setSkipHeaderRecord(true).setTrim(true).setQuote('"').get();
-    private final CSVFormat RFC4180WithTrim = CSVFormat.RFC4180.builder().setTrim(true).get();
+    private static final CSVFormat RFC4180_WITH_TRIM = CSVFormat.RFC4180.builder().setTrim(true).get();
 
     private List<RecordField> getDefaultFields() {
         final List<RecordField> fields = new ArrayList<>();
@@ -320,7 +321,7 @@ public class TestCSVRecordReader {
         final RecordSchema schema = new SimpleRecordSchema(fields);
 
         try (final InputStream fis = new FileInputStream("src/test/resources/csv/single-bank-account.csv");
-             final CSVRecordReader reader = createReader(fis, schema, RFC4180WithTrim, false)) {
+             final CSVRecordReader reader = createReader(fis, schema, RFC4180_WITH_TRIM, false)) {
 
             final Object[] record = reader.nextRecord().getValues();
             final Object[] expectedValues = new Object[] {"1", "John Doe", 4750.89D, "\"123 My Street\"", "My City", "MS", "11111", "USA"};
@@ -383,7 +384,7 @@ public class TestCSVRecordReader {
         final RecordSchema schema = new SimpleRecordSchema(fields);
 
         try (final InputStream fis = new FileInputStream("src/test/resources/csv/multi-bank-account.csv");
-             final CSVRecordReader reader = createReader(fis, schema, RFC4180WithTrim, false)) {
+             final CSVRecordReader reader = createReader(fis, schema, RFC4180_WITH_TRIM, false)) {
 
             final Object[] firstRecord = reader.nextRecord().getValues();
             final Object[] firstExpectedValues = new Object[] {"1", "John Doe", 4750.89D, "\"123 My Street\"", "My City", "MS", "11111", "USA"};
@@ -463,7 +464,7 @@ public class TestCSVRecordReader {
         final byte[] inputData = csvData.getBytes();
 
         try (final InputStream bais = new ByteArrayInputStream(inputData);
-             final CSVRecordReader reader = createReader(bais, schema, RFC4180WithTrim, false)) {
+             final CSVRecordReader reader = createReader(bais, schema, RFC4180_WITH_TRIM, false)) {
 
             final Record record = reader.nextRecord();
             assertNotNull(record);
@@ -544,7 +545,7 @@ public class TestCSVRecordReader {
 
         // test nextRecord does not contain a 'continent' field
         try (final InputStream bais = new ByteArrayInputStream(inputData);
-             final CSVRecordReader reader = createReader(bais, schema, RFC4180WithTrim, false)) {
+             final CSVRecordReader reader = createReader(bais, schema, RFC4180_WITH_TRIM, false)) {
 
             final Record record = reader.nextRecord(true, true);
             assertNotNull(record);
@@ -564,7 +565,7 @@ public class TestCSVRecordReader {
 
         // test nextRawRecord does contain 'continent' field
         try (final InputStream bais = new ByteArrayInputStream(inputData);
-             final CSVRecordReader reader = createReader(bais, schema, RFC4180WithTrim, false)) {
+             final CSVRecordReader reader = createReader(bais, schema, RFC4180_WITH_TRIM, false)) {
 
             final Record record = reader.nextRecord(false, false);
             assertNotNull(record);
@@ -582,7 +583,6 @@ public class TestCSVRecordReader {
             assertNull(reader.nextRecord(false, false));
         }
     }
-
 
     @Test
     public void testFieldInSchemaButNotHeader() throws IOException, MalformedRecordException {
@@ -656,7 +656,7 @@ public class TestCSVRecordReader {
         final byte[] inputData = csvData.getBytes();
 
         try (final InputStream bais = new ByteArrayInputStream(inputData);
-             final CSVRecordReader reader = createReader(bais, schema, RFC4180WithTrim, false)) {
+             final CSVRecordReader reader = createReader(bais, schema, RFC4180_WITH_TRIM, false)) {
 
             final Record record = reader.nextRecord();
             assertNotNull(record);
@@ -681,7 +681,7 @@ public class TestCSVRecordReader {
         // Create another Record Reader that indicates that the header line is present but should be ignored. This should cause
         // our schema to be the definitive list of what fields exist.
         try (final InputStream bais = new ByteArrayInputStream(inputData);
-             final CSVRecordReader reader = new CSVRecordReader(bais, Mockito.mock(ComponentLog.class), schema, RFC4180WithTrim, true, true,
+             final CSVRecordReader reader = new CSVRecordReader(bais, Mockito.mock(ComponentLog.class), schema, RFC4180_WITH_TRIM, true, true,
                      RecordFieldType.DATE.getDefaultFormat(), RecordFieldType.TIME.getDefaultFormat(), RecordFieldType.TIMESTAMP.getDefaultFormat(), "UTF-8", false)) {
 
             final Record record = reader.nextRecord();
@@ -749,7 +749,7 @@ public class TestCSVRecordReader {
 
         // test nextRecord does not contain a 'continent' field
         try (final InputStream bais = new ByteArrayInputStream(inputData);
-             final CSVRecordReader reader = createReader(bais, schema, RFC4180WithTrim, false)) {
+             final CSVRecordReader reader = createReader(bais, schema, RFC4180_WITH_TRIM, false)) {
 
             final Record record = reader.nextRecord(false, false);
             assertNotNull(record);
@@ -827,7 +827,7 @@ public class TestCSVRecordReader {
 
         // test nextRecord has shifted data columns right by 1 after the duplicate "id" & "name" header names
         try (final InputStream bais = new ByteArrayInputStream(inputData);
-             final CSVRecordReader reader = createReader(bais, schema, RFC4180WithTrim, false)) {
+             final CSVRecordReader reader = createReader(bais, schema, RFC4180_WITH_TRIM, false)) {
 
             final Record record = reader.nextRecord(false, false);
             assertNotNull(record);
@@ -848,7 +848,7 @@ public class TestCSVRecordReader {
         }
 
         // confirm duplicate headers cause an exception when requested
-        final CSVFormat disallowDuplicateHeadersFormat = RFC4180WithTrim.builder().setDuplicateHeaderMode(DuplicateHeaderMode.DISALLOW).get();
+        final CSVFormat disallowDuplicateHeadersFormat = RFC4180_WITH_TRIM.builder().setDuplicateHeaderMode(DuplicateHeaderMode.DISALLOW).get();
         try (final InputStream bais = new ByteArrayInputStream(inputData)) {
             final IllegalArgumentException iae = assertThrows(IllegalArgumentException.class, () -> createReader(bais, schema, disallowDuplicateHeadersFormat, false));
             assertTrue(iae.getMessage().startsWith("The header contains a duplicate name"));

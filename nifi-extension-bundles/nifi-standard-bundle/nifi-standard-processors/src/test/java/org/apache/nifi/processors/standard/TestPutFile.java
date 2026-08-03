@@ -43,7 +43,6 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-@DisabledOnOs(value = OS.WINDOWS, disabledReason = "Test only runs on *nix")
 public class TestPutFile {
 
     public static final String TARGET_DIRECTORY = "target/put-file";
@@ -266,6 +265,7 @@ public class TestPutFile {
         emptyTestDirectory();
     }
 
+    @DisabledOnOs(value = OS.WINDOWS, disabledReason = "Windows isn't natively POSIX compliant")
     @Test
     public void testPutFile() throws IOException {
         emptyTestDirectory();
@@ -312,7 +312,6 @@ public class TestPutFile {
 
         putFileRunner.clearTransferState();
     }
-
 
     private void emptyTestDirectory() throws IOException {
         Files.walkFileTree(Paths.get("target/test/data/out/PutFile"), new FileVisitor<>() {

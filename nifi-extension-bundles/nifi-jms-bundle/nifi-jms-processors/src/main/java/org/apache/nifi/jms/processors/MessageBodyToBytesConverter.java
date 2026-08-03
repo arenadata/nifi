@@ -16,6 +16,15 @@
  */
 package org.apache.nifi.jms.processors;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import jakarta.jms.BytesMessage;
+import jakarta.jms.JMSException;
+import jakarta.jms.MapMessage;
+import jakarta.jms.MessageEOFException;
+import jakarta.jms.StreamMessage;
+import jakarta.jms.TextMessage;
+import org.apache.commons.io.IOUtils;
+
 import java.io.ByteArrayOutputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
@@ -26,16 +35,6 @@ import java.util.Enumeration;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-
-import jakarta.jms.BytesMessage;
-import jakarta.jms.JMSException;
-import jakarta.jms.MapMessage;
-import jakarta.jms.MessageEOFException;
-import jakarta.jms.StreamMessage;
-import jakarta.jms.TextMessage;
-
-import com.fasterxml.jackson.databind.ObjectMapper;
-import org.apache.commons.io.IOUtils;
 
 /**
  *
@@ -178,7 +177,7 @@ abstract class MessageBodyToBytesConverter {
     }
 
     private static class BytesMessageInputStream extends InputStream {
-        private BytesMessage message;
+        private final BytesMessage message;
 
         public BytesMessageInputStream(BytesMessage message) {
             this.message = message;
@@ -187,7 +186,10 @@ abstract class MessageBodyToBytesConverter {
         @Override
         public int read() throws IOException {
             try {
-                return this.message.readByte();
+                int value = Byte.toUnsignedInt(this.message.readByte());
+                return value;
+            } catch (MessageEOFException eof) {
+                return -1;
             } catch (JMSException e) {
                 throw new IOException(e.toString());
             }
@@ -201,6 +203,8 @@ abstract class MessageBodyToBytesConverter {
                 } else {
                     return super.read(buffer, offset, length);
                 }
+            } catch (MessageEOFException eof) {
+                return -1;
             } catch (JMSException e) {
                 throw new IOException(e.toString());
             }
@@ -210,6 +214,8 @@ abstract class MessageBodyToBytesConverter {
         public int read(byte[] buffer) throws IOException {
             try {
                 return this.message.readBytes(buffer);
+            } catch (MessageEOFException eof) {
+                return -1;
             } catch (JMSException e) {
                 throw new IOException(e.toString());
             }

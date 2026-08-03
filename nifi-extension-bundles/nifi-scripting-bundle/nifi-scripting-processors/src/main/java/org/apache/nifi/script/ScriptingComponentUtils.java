@@ -30,8 +30,6 @@ import org.apache.nifi.processor.Relationship;
 import org.apache.nifi.search.SearchContext;
 import org.apache.nifi.search.SearchResult;
 
-import javax.script.ScriptEngineFactory;
-import javax.script.ScriptEngineManager;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
@@ -40,18 +38,20 @@ import java.util.List;
 import java.util.Scanner;
 import java.util.Set;
 import java.util.TreeSet;
+import javax.script.ScriptEngineFactory;
+import javax.script.ScriptEngineManager;
 
 /**
  * Utility methods and constants used by the scripting components.
  */
 public class ScriptingComponentUtils {
-    /** A relationship indicating flow files were processed successfully */
+    /** A relationship indicating FlowFiles were processed successfully */
     public static final Relationship REL_SUCCESS = new Relationship.Builder()
             .name("success")
             .description("FlowFiles that were successfully processed")
             .build();
 
-    /** A relationship indicating an error while processing flow files */
+    /** A relationship indicating an error while processing FlowFiles */
     public static final Relationship REL_FAILURE = new Relationship.Builder()
             .name("failure")
             .description("FlowFiles that failed to be processed")

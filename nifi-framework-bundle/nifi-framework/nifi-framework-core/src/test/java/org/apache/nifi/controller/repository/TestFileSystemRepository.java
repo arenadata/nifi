@@ -21,18 +21,18 @@ import org.apache.nifi.controller.repository.claim.ResourceClaim;
 import org.apache.nifi.controller.repository.claim.StandardContentClaim;
 import org.apache.nifi.controller.repository.claim.StandardResourceClaim;
 import org.apache.nifi.controller.repository.claim.StandardResourceClaimManager;
-import org.apache.nifi.controller.repository.util.DiskUtils;
 import org.apache.nifi.events.EventReporter;
 import org.apache.nifi.processor.DataUnit;
 import org.apache.nifi.stream.io.StreamUtils;
 import org.apache.nifi.util.NiFiProperties;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.api.condition.DisabledOnOs;
+import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
 import org.junit.jupiter.api.condition.OS;
+import org.junit.jupiter.api.io.TempDir;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -59,6 +59,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Random;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -67,24 +68,38 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNotSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.fail;
 
-@DisabledOnOs(OS.WINDOWS)
 public class TestFileSystemRepository {
 
     public static final File helloWorldFile = new File("src/test/resources/hello.txt");
     private static final Logger logger = LoggerFactory.getLogger(TestFileSystemRepository.class);
 
+    // The tests configure CONTENT_ARCHIVE_CLEANUP_FREQUENCY to "1 sec", which is the minimum allowed interval for
+    // the background TruncateClaims task. Waiting twice that interval ensures at least one cycle has executed.
+    private static final long BACKGROUND_TASK_WAIT_MILLIS = 2_000L;
+
+    @TempDir
+    private Path tempDir;
+
     private FileSystemRepository repository = null;
     private StandardResourceClaimManager claimManager = null;
-    private final File rootFile = new File("target/content_repository");
+    private Path originalNifiPropertiesFile;
+    private Path rootFile;
     private NiFiProperties nifiProperties;
+    private long maxClaimLength;
 
     @BeforeEach
     public void setup() throws IOException {
-        nifiProperties = NiFiProperties.createBasicNiFiProperties(TestFileSystemRepository.class.getResource("/conf/nifi.properties").getFile());
-        if (rootFile.exists()) {
-            DiskUtils.deleteRecursively(rootFile);
-        }
+        originalNifiPropertiesFile = Paths.get("src/test/resources/conf/nifi.properties");
+        rootFile = tempDir.resolve("content_repository");
+        final String contentRepositoryDirectory = NiFiProperties.REPOSITORY_CONTENT_PREFIX.concat("default");
+        final Map<String, String> additionalProperties = Map.of(
+            contentRepositoryDirectory, rootFile.toString(),
+            NiFiProperties.CONTENT_ARCHIVE_CLEANUP_FREQUENCY, "1 sec"
+        );
+        nifiProperties = NiFiProperties.createBasicNiFiProperties(originalNifiPropertiesFile.toString(), additionalProperties);
+        maxClaimLength = DataUnit.parseDataSize(nifiProperties.getMaxAppendableClaimSize(), DataUnit.B).longValue();
         repository = new FileSystemRepository(nifiProperties);
         claimManager = new StandardResourceClaimManager();
         repository.initialize(new StandardContentRepositoryContext(claimManager, EventReporter.NO_OP));
@@ -97,7 +112,8 @@ public class TestFileSystemRepository {
     }
 
     @Test
-    @Disabled("Intended for manual testing only, in order to judge changes to performance")
+    @EnabledIfSystemProperty(named = "nifi.test.performance", matches = "true",
+            disabledReason = "Intended for manual testing only, in order to judge changes to performance")
     public void testWritePerformance() throws IOException {
         final long bytesToWrite = 1_000_000_000L;
         final int contentSize = 100;
@@ -136,33 +152,61 @@ public class TestFileSystemRepository {
         assertTrue(repository.isArchived(Paths.get("a/b/c/archive/1.txt")));
     }
 
-
     @Test
     @Timeout(30)
     public void testClaimsArchivedWhenMarkedDestructable() throws IOException, InterruptedException {
-        final ContentClaim contentClaim = repository.create(false);
-        final long configuredAppendableClaimLength = DataUnit.parseDataSize(nifiProperties.getMaxAppendableClaimSize(), DataUnit.B).longValue();
-        final Map<String, Path> containerPaths = nifiProperties.getContentRepositoryPaths();
-        assertEquals(1, containerPaths.size());
-        final String containerName = containerPaths.keySet().iterator().next();
+        // Release the repository created during setup and use one that reports no disk pressure. Otherwise, on a
+        // host whose content repository partition is nearly full, the background archive cleanup task can reclaim
+        // the freshly archived claim before this test observes it, leaving the archive count oscillating at 0.
+        shutdown();
 
-        try (final OutputStream out = repository.write(contentClaim)) {
-            long bytesWritten = 0L;
-            final byte[] bytes = "Hello World".getBytes(StandardCharsets.UTF_8);
-
-            while (bytesWritten <= configuredAppendableClaimLength) {
-                out.write(bytes);
-                bytesWritten += bytes.length;
+        final FileSystemRepository localRepository = new FileSystemRepository(nifiProperties) {
+            @Override
+            public long getContainerUsableSpace(final String containerName) {
+                return Long.MAX_VALUE;
             }
-        }
+        };
 
-        assertEquals(0, repository.getArchiveCount(containerName));
-        assertEquals(0, claimManager.decrementClaimantCount(contentClaim.getResourceClaim()));
-        claimManager.markDestructable(contentClaim.getResourceClaim());
+        try {
+            final StandardResourceClaimManager localClaimManager = new StandardResourceClaimManager();
+            localRepository.initialize(new StandardContentRepositoryContext(localClaimManager, EventReporter.NO_OP));
+            localRepository.purge();
 
-        // The claim should become archived but it may take a few seconds, as it's handled by background threads
-        while (repository.getArchiveCount(containerName) != 1) {
-            Thread.sleep(50L);
+            final ContentClaim contentClaim = localRepository.create(false);
+            final Map<String, Path> containerPaths = nifiProperties.getContentRepositoryPaths();
+            assertEquals(1, containerPaths.size());
+            final String containerName = containerPaths.keySet().iterator().next();
+
+            try (final OutputStream out = localRepository.write(contentClaim)) {
+                long bytesWritten = 0L;
+                final byte[] bytes = "Hello World".getBytes(StandardCharsets.UTF_8);
+
+                while (bytesWritten <= maxClaimLength) {
+                    out.write(bytes);
+                    bytesWritten += bytes.length;
+                }
+            }
+
+            assertEquals(0, localRepository.getArchiveCount(containerName));
+            assertEquals(0, localClaimManager.decrementClaimantCount(contentClaim.getResourceClaim()));
+            localClaimManager.markDestructable(contentClaim.getResourceClaim());
+
+            // The claim is archived by background threads, so poll until the archive count reflects it. With disk
+            // pressure disabled the count remains at 1 once archived, so this terminates reliably within a few seconds.
+            final long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10);
+            while (localRepository.getArchiveCount(containerName) != 1) {
+                if (System.nanoTime() > deadline) {
+                    final Path livePath = getPath(localRepository, contentClaim);
+                    final Path archivePath = livePath == null ? null : FileSystemRepository.getArchivePath(livePath);
+                    fail("Claim was not archived for container %s; archive count is %d. Live path %s exists=%s, archive path %s exists=%s".formatted(
+                        containerName, localRepository.getArchiveCount(containerName),
+                        livePath, livePath != null && Files.exists(livePath),
+                        archivePath, archivePath != null && Files.exists(archivePath)));
+                }
+                Thread.sleep(50L);
+            }
+        } finally {
+            localRepository.shutdown();
         }
     }
 
@@ -234,7 +278,6 @@ public class TestFileSystemRepository {
         repository.purge();
     }
 
-
     @Test
     public void testUnreferencedFilesAreArchivedOnCleanup() throws IOException {
         final Map<String, Path> containerPaths = nifiProperties.getContentRepositoryPaths();
@@ -283,13 +326,14 @@ public class TestFileSystemRepository {
         }
     }
 
-
+    @DisabledOnOs(value = OS.WINDOWS,
+            disabledReason = "java.io.FileNotFoundException when there is an attempt to access file <temporary directory>\\content_repository\\0\\archive\\0.bin")
     @Test
     public void testContentNotFoundExceptionThrownIfResourceClaimTooShort() throws IOException {
-        final File contentFile = new File("target/content_repository/0/0.bin");
-        try (final OutputStream fos = new FileOutputStream(contentFile)) {
-            fos.write("Hello World".getBytes(StandardCharsets.UTF_8));
-        }
+        final Path contentDirectory = rootFile.resolve("0");
+        Files.createDirectories(contentDirectory);
+        final Path contentFile = contentDirectory.resolve("0.bin");
+        Files.writeString(contentFile, "Hello World", StandardOpenOption.CREATE_NEW);
 
         final ResourceClaim resourceClaim = new StandardResourceClaim(claimManager, "default", "0", "0.bin", false);
         final StandardContentClaim existingContentClaim = new StandardContentClaim(resourceClaim, 0);
@@ -323,21 +367,22 @@ public class TestFileSystemRepository {
         assertThrows(ContentNotFoundException.class, () -> repository.read(missingContentClaim));
     }
 
+    @DisabledOnOs(value = OS.WINDOWS, disabledReason = "java.io.File setReadable(false) does not work on Windows. See javadocs.")
     @Test
     public void testBogusFile() throws IOException {
         repository.shutdown();
-        System.setProperty(NiFiProperties.PROPERTIES_FILE_PATH, TestFileSystemRepository.class.getResource("/conf/nifi.properties").getFile());
+        System.setProperty(NiFiProperties.PROPERTIES_FILE_PATH, originalNifiPropertiesFile.toString());
 
-        File bogus = new File(rootFile, "bogus");
+        Path bogus = rootFile.resolve("bogus");
         try {
-            bogus.mkdir();
-            bogus.setReadable(false);
+            Files.createDirectories(bogus);
+            bogus.toFile().setReadable(false);
 
             repository = new FileSystemRepository(nifiProperties);
             repository.initialize(new StandardContentRepositoryContext(new StandardResourceClaimManager(), EventReporter.NO_OP));
         } finally {
-            bogus.setReadable(true);
-            assertTrue(bogus.delete());
+            bogus.toFile().setReadable(true);
+            Files.delete(bogus);
         }
     }
 
@@ -349,6 +394,8 @@ public class TestFileSystemRepository {
         assertEquals(1, repository.getClaimantCount(claim));
     }
 
+    @DisabledOnOs(value = OS.WINDOWS,
+            disabledReason = "JUnit 5 tempDir cannot be deleted since there is a file in the content repository which cannot be deleted.")
     @Test
     public void testReadClaimThenWriteThenReadMore() throws IOException {
         final ContentClaim claim = repository.create(false);
@@ -473,12 +520,9 @@ public class TestFileSystemRepository {
         repository.incrementClaimaintCount(claim);
 
         final Path claimPath = getPath(claim);
-        final String maxAppendableClaimLength = nifiProperties.getMaxAppendableClaimSize();
-        final int maxClaimLength = DataUnit.parseDataSize(maxAppendableClaimLength, DataUnit.B).intValue();
-
         // Create the file.
         try (final OutputStream out = repository.write(claim)) {
-            out.write(new byte[maxClaimLength]);
+            out.write(new byte[(int) maxClaimLength]);
         }
 
         int count = repository.decrementClaimantCount(claim);
@@ -495,10 +539,14 @@ public class TestFileSystemRepository {
     }
 
     private Path getPath(final ContentClaim claim) {
+        return getPath(repository, claim);
+    }
+
+    private Path getPath(final FileSystemRepository repo, final ContentClaim claim) {
         try {
-            final Method m = repository.getClass().getDeclaredMethod("getPath", ContentClaim.class);
+            final Method m = FileSystemRepository.class.getDeclaredMethod("getPath", ContentClaim.class);
             m.setAccessible(true);
-            return (Path) m.invoke(repository, claim);
+            return (Path) m.invoke(repo, claim);
         } catch (final Exception e) {
             throw new RuntimeException("Could not invoke #getPath on FileSystemRepository due to " + e);
         }
@@ -599,8 +647,8 @@ public class TestFileSystemRepository {
     @Test
     public void testSizeWithNoContent() {
         final ContentClaim claim =
-         new StandardContentClaim(new StandardResourceClaim(claimManager,
-                 "container1", "section 1", "1", false), 0L);
+            new StandardContentClaim(new StandardResourceClaim(claimManager,
+                    "container1", "section 1", "1", false), 0L);
 
         assertThrows(ContentNotFoundException.class, () -> repository.size(claim));
     }
@@ -631,6 +679,8 @@ public class TestFileSystemRepository {
         }
     }
 
+    @DisabledOnOs(value = OS.WINDOWS,
+            disabledReason = "java.nio.file.Files.deleteIfExists fails on Windows if the file is open and in use by the same Java Virtual Machine process or another external process")
     @Test
     public void testReadWithContentArchived() throws IOException {
         final ContentClaim claim = repository.create(true);
@@ -652,10 +702,8 @@ public class TestFileSystemRepository {
         }
     }
 
-    private boolean isWindowsEnvironment() {
-        return System.getProperty("os.name").toLowerCase().startsWith("windows");
-    }
-
+    @DisabledOnOs(value = OS.WINDOWS,
+            disabledReason = "java.nio.file.Files.deleteIfExists fails on Windows if the file is open and in use by the same Java Virtual Machine process or another external process")
     @Test
     public void testReadWithNoContentArchived() throws IOException {
         final ContentClaim claim = repository.create(true);
@@ -687,9 +735,7 @@ public class TestFileSystemRepository {
 
         // write at least 1 MB to the output stream so that when we close the output stream
         // the repo won't keep the stream open.
-        final String maxAppendableClaimLength = nifiProperties.getMaxAppendableClaimSize();
-        final int maxClaimLength = DataUnit.parseDataSize(maxAppendableClaimLength, DataUnit.B).intValue();
-        final byte[] buff = new byte[maxClaimLength];
+        final byte[] buff = new byte[(int) maxClaimLength];
         out.write(buff);
         out.write(buff);
 
@@ -890,15 +936,372 @@ public class TestFileSystemRepository {
         }
     }
 
+    @Test
+    public void testTruncationCandidateMarkedOnlyForLargeNonStartClaim() throws IOException {
+        // Create a small claim at offset 0. Write less data than maxAppendableClaimLength so the ResourceClaim
+        // is recycled back to the writable queue.
+        final ContentClaim smallClaim = repository.create(false);
+        final byte[] smallData = new byte[100];
+        try (final OutputStream out = repository.write(smallClaim)) {
+            out.write(smallData);
+        }
+        assertFalse(smallClaim.isTruncationCandidate());
+
+        // Now create a large claim on potentially the same ResourceClaim, writing more than maxAppendableClaimLength
+        // to freeze the ResourceClaim. Because smallClaim was small and recycled, largeClaim will be at a non-zero
+        // offset on the same ResourceClaim.
+        final ContentClaim largeClaim = repository.create(false);
+        final byte[] largeData = new byte[(int) maxClaimLength + 1024];
+        try (final OutputStream out = repository.write(largeClaim)) {
+            out.write(largeData);
+        }
+        assertTrue(largeClaim.isTruncationCandidate());
+
+        // Negative case: create a standalone large claim at offset 0 (fresh ResourceClaim)
+        // To ensure a fresh ResourceClaim, write large data to all writable claims to exhaust them,
+        // then create a new claim that starts at offset 0.
+        // The simplest approach: create claims until we get one at offset 0.
+        ContentClaim offsetZeroClaim = null;
+        for (int i = 0; i < 20; i++) {
+            final ContentClaim candidate = repository.create(false);
+            if (candidate instanceof StandardContentClaim standardContentClaim && standardContentClaim.getOffset() == 0) {
+                // Write large data that exceeds maxAppendableClaimLength
+                try (final OutputStream out = repository.write(candidate)) {
+                    out.write(new byte[(int) maxClaimLength + 1024]);
+                }
+                offsetZeroClaim = candidate;
+                break;
+            } else {
+                // Write large data to exhaust this claim's ResourceClaim
+                try (final OutputStream out = repository.write(candidate)) {
+                    out.write(new byte[(int) maxClaimLength + 1024]);
+                }
+            }
+        }
+
+        assertNotNull(offsetZeroClaim);
+        assertFalse(offsetZeroClaim.isTruncationCandidate());
+    }
+
+    @Test
+    public void testIncrementClaimantCountPreservesTruncationCandidate() throws IOException {
+        final ContentClaim smallClaim = repository.create(false);
+        try (final OutputStream out = repository.write(smallClaim)) {
+            out.write(new byte[100]);
+        }
+
+        final ContentClaim largeClaim = repository.create(false);
+        try (final OutputStream out = repository.write(largeClaim)) {
+            out.write(new byte[(int) maxClaimLength + 1024]);
+        }
+
+        assertTrue(largeClaim.isTruncationCandidate());
+
+        // Simulating a clone by incrementing claimant count should not clear the truncation
+        // candidate flag. ContentClaim reference counting in the FlowFile repository prevents
+        // premature truncation of shared claims; the flag must remain so that truncation can
+        // proceed once all references are removed.
+        repository.incrementClaimaintCount(largeClaim);
+
+        assertTrue(largeClaim.isTruncationCandidate());
+    }
+
+    @Test
+    @Timeout(60)
+    public void testTruncateClaimReducesFileSizeAndPreservesEarlierData() throws IOException, InterruptedException {
+        // We need to create our own repository that overrides getContainerUsableSpace to simulate disk pressure
+        shutdown();
+
+        final FileSystemRepository localRepository = new FileSystemRepository(nifiProperties) {
+            @Override
+            public long getContainerUsableSpace(final String containerName) {
+                return 0; // Extreme disk pressure
+            }
+
+            @Override
+            protected boolean isArchiveClearedOnLastRun(final String containerName) {
+                return true;
+            }
+        };
+
+        try {
+            final StandardResourceClaimManager localClaimManager = new StandardResourceClaimManager();
+            localRepository.initialize(new StandardContentRepositoryContext(localClaimManager, EventReporter.NO_OP));
+            localRepository.purge();
+
+            // Create a small claim then a large claim on the same ResourceClaim
+            final ContentClaim smallClaim = localRepository.create(false);
+            final byte[] smallData = "Hello World - small claim data".getBytes(StandardCharsets.UTF_8);
+            try (final OutputStream out = localRepository.write(smallClaim)) {
+                out.write(smallData);
+            }
+
+            final ContentClaim largeClaim = localRepository.create(false);
+            final byte[] largeData = new byte[(int) maxClaimLength + 4096];
+            new Random().nextBytes(largeData);
+            try (final OutputStream out = localRepository.write(largeClaim)) {
+                out.write(largeData);
+            }
+
+            assertTrue(largeClaim.isTruncationCandidate());
+
+            // Both claims should share the same resource claim
+            assertEquals(smallClaim.getResourceClaim(), largeClaim.getResourceClaim());
+
+            // Get the file path
+            final Path filePath = getPath(localRepository, smallClaim);
+            assertNotNull(filePath);
+            final long originalSize = Files.size(filePath);
+            assertTrue(originalSize > maxClaimLength);
+
+            // Decrement claimant count for the large claim to 0 (small claim still holds a reference)
+            localClaimManager.decrementClaimantCount(largeClaim.getResourceClaim());
+
+            // Mark the large claim as truncatable
+            localClaimManager.markTruncatable(largeClaim);
+
+            // Wait for the TruncateClaims background task to truncate the file. Poll the file size until it shrinks.
+            final long expectedTruncatedSize = largeClaim.getOffset();
+            while (Files.size(filePath) != expectedTruncatedSize) {
+                Thread.sleep(100L);
+            }
+
+            // Verify the small claim's data is still fully readable
+            try (final InputStream in = localRepository.read(smallClaim)) {
+                final byte[] readData = readFully(in, smallData.length);
+                assertArrayEquals(smallData, readData);
+            }
+        } finally {
+            localRepository.shutdown();
+        }
+    }
+
+    @Test
+    @Timeout(60)
+    public void testTruncateNotActiveWhenDiskNotPressured() throws IOException, InterruptedException {
+        shutdown();
+
+        final FileSystemRepository localRepository = new FileSystemRepository(nifiProperties) {
+            @Override
+            public long getContainerUsableSpace(final String containerName) {
+                return Long.MAX_VALUE;
+            }
+
+            @Override
+            protected boolean isArchiveClearedOnLastRun(final String containerName) {
+                return true;
+            }
+        };
+
+        try {
+            final StandardResourceClaimManager localClaimManager = new StandardResourceClaimManager();
+            localRepository.initialize(new StandardContentRepositoryContext(localClaimManager, EventReporter.NO_OP));
+            localRepository.purge();
+
+            final ContentClaim smallClaim = localRepository.create(false);
+            try (final OutputStream out = localRepository.write(smallClaim)) {
+                out.write(new byte[100]);
+            }
+
+            final ContentClaim largeClaim = localRepository.create(false);
+            try (final OutputStream out = localRepository.write(largeClaim)) {
+                out.write(new byte[(int) maxClaimLength + 4096]);
+            }
+
+            assertTrue(largeClaim.isTruncationCandidate());
+
+            final Path filePath = getPath(localRepository, smallClaim);
+            final long originalSize = Files.size(filePath);
+
+            localClaimManager.decrementClaimantCount(largeClaim.getResourceClaim());
+            localClaimManager.markTruncatable(largeClaim);
+
+            Thread.sleep(BACKGROUND_TASK_WAIT_MILLIS);
+            assertEquals(originalSize, Files.size(filePath));
+        } finally {
+            localRepository.shutdown();
+        }
+    }
+
+    @Test
+    @Timeout(90)
+    public void testTruncateClaimDeferredThenExecutedWhenPressureStarts() throws IOException, InterruptedException {
+        shutdown();
+
+        final AtomicLong usableSpace = new AtomicLong(Long.MAX_VALUE);
+        final FileSystemRepository localRepository = new FileSystemRepository(nifiProperties) {
+            @Override
+            public long getContainerUsableSpace(final String containerName) {
+                return usableSpace.get();
+            }
+
+            @Override
+            protected boolean isArchiveClearedOnLastRun(final String containerName) {
+                return true;
+            }
+        };
+
+        try {
+            final StandardResourceClaimManager localClaimManager = new StandardResourceClaimManager();
+            localRepository.initialize(new StandardContentRepositoryContext(localClaimManager, EventReporter.NO_OP));
+            localRepository.purge();
+
+            // Create a small claim then a large claim on the same ResourceClaim
+            final ContentClaim smallClaim = localRepository.create(false);
+            try (final OutputStream out = localRepository.write(smallClaim)) {
+                out.write(new byte[100]);
+            }
+
+            final ContentClaim largeClaim = localRepository.create(false);
+            try (final OutputStream out = localRepository.write(largeClaim)) {
+                out.write(new byte[(int) maxClaimLength + 4096]);
+            }
+
+            assertTrue(largeClaim.isTruncationCandidate());
+            assertEquals(smallClaim.getResourceClaim(), largeClaim.getResourceClaim());
+
+            final Path filePath = getPath(localRepository, smallClaim);
+            final long originalSize = Files.size(filePath);
+
+            localClaimManager.decrementClaimantCount(largeClaim.getResourceClaim());
+            localClaimManager.markTruncatable(largeClaim);
+
+            // Wait for at least one run of the background task with no disk pressure. File should not be truncated.
+            Thread.sleep(BACKGROUND_TASK_WAIT_MILLIS);
+            assertEquals(originalSize, Files.size(filePath));
+
+            // Now turn on disk pressure
+            usableSpace.set(0);
+
+            // Wait for the next background task run to truncate the file
+            final long expectedTruncatedSize = largeClaim.getOffset();
+            while (Files.size(filePath) != expectedTruncatedSize) {
+                Thread.sleep(100L);
+            }
+
+            // Verify the small claim's data is still readable
+            try (final InputStream in = localRepository.read(smallClaim)) {
+                assertNotNull(in);
+            }
+        } finally {
+            localRepository.shutdown();
+        }
+    }
 
     private byte[] readFully(final InputStream inStream, final int size) throws IOException {
-        final ByteArrayOutputStream baos = new ByteArrayOutputStream(size);
+        final ByteArrayOutputStream outputStream = new ByteArrayOutputStream(size);
         int len;
         final byte[] buffer = new byte[size];
         while ((len = inStream.read(buffer)) >= 0) {
-            baos.write(buffer, 0, len);
+            outputStream.write(buffer, 0, len);
         }
 
-        return baos.toByteArray();
+        return outputStream.toByteArray();
+    }
+
+    @Test
+    @Timeout(60)
+    public void testTruncateClaimsSkipsClaimWithPositiveTruncationReferenceCount() throws IOException, InterruptedException {
+        shutdown();
+
+        final FileSystemRepository localRepository = new FileSystemRepository(nifiProperties) {
+            @Override
+            public long getContainerUsableSpace(final String containerName) {
+                return 0;
+            }
+
+            @Override
+            protected boolean isArchiveClearedOnLastRun(final String containerName) {
+                return true;
+            }
+        };
+
+        try {
+            final StandardResourceClaimManager localClaimManager = new StandardResourceClaimManager();
+            localRepository.initialize(new StandardContentRepositoryContext(localClaimManager, EventReporter.NO_OP));
+            localRepository.purge();
+
+            final ContentClaim smallClaim = localRepository.create(false);
+            final byte[] smallData = "Small claim data".getBytes(StandardCharsets.UTF_8);
+            try (final OutputStream out = localRepository.write(smallClaim)) {
+                out.write(smallData);
+            }
+
+            final ContentClaim largeClaim = localRepository.create(false);
+            final byte[] largeData = new byte[(int) maxClaimLength + 4096];
+            new Random().nextBytes(largeData);
+            try (final OutputStream out = localRepository.write(largeClaim)) {
+                out.write(largeData);
+            }
+
+            assertTrue(largeClaim.isTruncationCandidate());
+            assertEquals(smallClaim.getResourceClaim(), largeClaim.getResourceClaim());
+
+            final Path filePath = getPath(localRepository, smallClaim);
+            final long originalSize = Files.size(filePath);
+            assertTrue(originalSize > maxClaimLength);
+
+            // Simulate a second FlowFile (e.g., a clone) still referencing this claim
+            localClaimManager.incrementTruncationReferenceCount(largeClaim);
+
+            localClaimManager.decrementClaimantCount(largeClaim.getResourceClaim());
+            localClaimManager.markTruncatable(largeClaim);
+
+            // markTruncatable should have been rejected because the ref count is positive.
+            // But even if it had been enqueued (e.g. a future code path change), TruncateClaims
+            // must also skip it. Directly enqueue to simulate that scenario.
+            final List<ContentClaim> forceEnqueued = new ArrayList<>();
+            localClaimManager.drainTruncatableClaims(forceEnqueued, 100);
+            assertTrue(forceEnqueued.isEmpty(), "markTruncatable should have rejected the claim due to positive ref count");
+
+            // Force-enqueue by decrementing to zero, marking truncatable, then re-incrementing
+            // before the background task can run. This simulates the Layer 3 scenario.
+            localClaimManager.decrementTruncationReferenceCount(largeClaim);
+            localClaimManager.markTruncatable(largeClaim);
+            localClaimManager.incrementTruncationReferenceCount(largeClaim);
+
+            // Wait long enough for the TruncateClaims background task to have executed at least once
+            Thread.sleep(BACKGROUND_TASK_WAIT_MILLIS);
+
+            assertEquals(originalSize, Files.size(filePath),
+                    "File should not be truncated because TruncateClaims should skip claims with positive truncation reference count");
+
+            // Clean up: decrement the ref count and re-mark truncatable
+            localClaimManager.decrementTruncationReferenceCount(largeClaim);
+            localClaimManager.markTruncatable(largeClaim);
+
+            // Now TruncateClaims should proceed
+            final long expectedTruncatedSize = largeClaim.getOffset();
+            while (Files.size(filePath) != expectedTruncatedSize) {
+                Thread.sleep(100L);
+            }
+
+            try (final InputStream in = localRepository.read(smallClaim)) {
+                final byte[] readData = readFully(in, smallData.length);
+                assertArrayEquals(smallData, readData);
+            }
+        } finally {
+            localRepository.shutdown();
+        }
+    }
+
+    @Test
+    public void testTruncationDisabledPreventsSettingTruncationCandidate() throws IOException {
+        recreateRepositoryWithPropertyOverrides(Map.of(
+                NiFiProperties.REPOSITORY_CONTENT_PREFIX + "default", rootFile.toString(),
+                NiFiProperties.CONTENT_CLAIM_TRUNCATION_ENABLED, "false"));
+
+        final ContentClaim smallClaim = repository.create(false);
+        try (final OutputStream out = repository.write(smallClaim)) {
+            out.write(new byte[100]);
+        }
+
+        final ContentClaim largeClaim = repository.create(false);
+        try (final OutputStream out = repository.write(largeClaim)) {
+            out.write(new byte[(int) maxClaimLength + 1024]);
+        }
+
+        assertFalse(largeClaim.isTruncationCandidate(),
+                "Truncation candidate should not be set when truncation is disabled");
     }
 }

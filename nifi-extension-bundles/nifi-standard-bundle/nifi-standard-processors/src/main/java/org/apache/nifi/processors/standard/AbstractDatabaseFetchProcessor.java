@@ -21,9 +21,9 @@ import org.apache.nifi.components.ValidationContext;
 import org.apache.nifi.components.ValidationResult;
 import org.apache.nifi.context.PropertyContext;
 import org.apache.nifi.database.dialect.service.api.ColumnDefinition;
-import org.apache.nifi.database.dialect.service.api.StandardColumnDefinition;
 import org.apache.nifi.database.dialect.service.api.DatabaseDialectService;
 import org.apache.nifi.database.dialect.service.api.QueryStatementRequest;
+import org.apache.nifi.database.dialect.service.api.StandardColumnDefinition;
 import org.apache.nifi.database.dialect.service.api.StandardQueryStatementRequest;
 import org.apache.nifi.database.dialect.service.api.StatementResponse;
 import org.apache.nifi.database.dialect.service.api.StatementType;
@@ -32,6 +32,7 @@ import org.apache.nifi.dbcp.DBCPService;
 import org.apache.nifi.expression.ExpressionLanguageScope;
 import org.apache.nifi.flowfile.FlowFile;
 import org.apache.nifi.flowfile.attributes.FragmentAttributes;
+import org.apache.nifi.migration.PropertyConfiguration;
 import org.apache.nifi.processor.AbstractSessionFactoryProcessor;
 import org.apache.nifi.processor.ProcessContext;
 import org.apache.nifi.processor.Relationship;
@@ -169,8 +170,7 @@ public abstract class AbstractDatabaseFetchProcessor extends AbstractSessionFact
             .build();
 
     public static final PropertyDescriptor WHERE_CLAUSE = new PropertyDescriptor.Builder()
-            .name("db-fetch-where-clause")
-            .displayName("Additional WHERE clause")
+            .name("Additional WHERE Clause")
             .description("A custom clause to be added in the WHERE condition when building SQL queries.")
             .required(false)
             .expressionLanguageSupported(ExpressionLanguageScope.FLOWFILE_ATTRIBUTES)
@@ -178,8 +178,7 @@ public abstract class AbstractDatabaseFetchProcessor extends AbstractSessionFact
             .build();
 
     public static final PropertyDescriptor SQL_QUERY = new PropertyDescriptor.Builder()
-            .name("db-fetch-sql-query")
-            .displayName("Custom Query")
+            .name("Custom Query")
             .description("A custom SQL query used to retrieve data. Instead of building a SQL query from "
                     + "other properties, this query will be wrapped as a sub-query. Query must have no ORDER BY statement.")
             .required(false)
@@ -192,7 +191,7 @@ public abstract class AbstractDatabaseFetchProcessor extends AbstractSessionFact
     // The delimiter to use when referencing qualified names (such as table@!@column in the state map)
     protected static final String NAMESPACE_DELIMITER = "@!@";
 
-    public static final PropertyDescriptor DB_TYPE = DatabaseAdapterDescriptor.getDatabaseTypeDescriptor("db-fetch-db-type");
+    public static final PropertyDescriptor DB_TYPE = DatabaseAdapterDescriptor.getDatabaseTypeDescriptor();
     static final PropertyDescriptor DATABASE_DIALECT_SERVICE = DatabaseAdapterDescriptor.getDatabaseDialectServiceDescriptor(DB_TYPE);
 
     protected final Map<String, Integer> columnTypeMap = new HashMap<>();
@@ -217,6 +216,13 @@ public abstract class AbstractDatabaseFetchProcessor extends AbstractSessionFact
 
     // A Map (name to value) of initial maximum-value properties, filled at schedule-time and used at trigger-time
     protected Map<String, String> maxValueProperties;
+
+    @Override
+    public void migrateProperties(PropertyConfiguration config) {
+        config.renameProperty("db-fetch-db-type", DB_TYPE.getName());
+        config.renameProperty("db-fetch-where-clause", WHERE_CLAUSE.getName());
+        config.renameProperty("db-fetch-sql-query", SQL_QUERY.getName());
+    }
 
     // A common validation procedure for DB fetch processors, it stores whether the Table Name and/or Max Value Column properties have expression language
     @Override
@@ -356,37 +362,37 @@ public abstract class AbstractDatabaseFetchProcessor extends AbstractSessionFact
             case INTEGER:
             case SMALLINT:
             case TINYINT:
-                Integer colIntValue = resultSet.getInt(columnIndex);
+                int colIntValue = resultSet.getInt(columnIndex);
                 Integer maxIntValue = null;
                 if (maxValueString != null) {
                     maxIntValue = Integer.valueOf(maxValueString);
                 }
                 if (maxIntValue == null || colIntValue > maxIntValue) {
-                    return colIntValue.toString();
+                    return Integer.toString(colIntValue);
                 }
                 break;
 
             case BIGINT:
-                Long colLongValue = resultSet.getLong(columnIndex);
+                long colLongValue = resultSet.getLong(columnIndex);
                 Long maxLongValue = null;
                 if (maxValueString != null) {
                     maxLongValue = Long.valueOf(maxValueString);
                 }
                 if (maxLongValue == null || colLongValue > maxLongValue) {
-                    return colLongValue.toString();
+                    return Long.toString(colLongValue);
                 }
                 break;
 
             case FLOAT:
             case REAL:
             case DOUBLE:
-                Double colDoubleValue = resultSet.getDouble(columnIndex);
+                double colDoubleValue = resultSet.getDouble(columnIndex);
                 Double maxDoubleValue = null;
                 if (maxValueString != null) {
                     maxDoubleValue = Double.valueOf(maxValueString);
                 }
                 if (maxDoubleValue == null || colDoubleValue > maxDoubleValue) {
-                    return colDoubleValue.toString();
+                    return Double.toString(colDoubleValue);
                 }
                 break;
 

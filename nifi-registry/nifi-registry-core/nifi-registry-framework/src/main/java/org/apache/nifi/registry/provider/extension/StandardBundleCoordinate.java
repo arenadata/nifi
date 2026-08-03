@@ -53,8 +53,12 @@ public class StandardBundleCoordinate implements BundleCoordinate {
 
     @Override
     public boolean equals(Object o) {
-        if (this == o) return true;
-        if (o == null || getClass() != o.getClass()) return false;
+        if (this == o) {
+            return true;
+        }
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
         final StandardBundleCoordinate that = (StandardBundleCoordinate) o;
         return bucketId.equals(that.bucketId)
                 && groupId.equals(that.groupId)
@@ -86,7 +90,6 @@ public class StandardBundleCoordinate implements BundleCoordinate {
             this.artifactId = artifactId;
             return this;
         }
-
 
         public StandardBundleCoordinate build() {
             return new StandardBundleCoordinate(this);

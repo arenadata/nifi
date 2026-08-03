@@ -22,8 +22,8 @@ import org.apache.nifi.provenance.search.Query;
 import org.apache.nifi.provenance.search.QuerySubmission;
 import org.apache.nifi.provenance.search.SearchTerms;
 import org.apache.nifi.util.NiFiProperties;
-import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 
 import java.io.IOException;
@@ -48,7 +48,7 @@ public class TestVolatileProvenanceRepository {
 
     @Test
     public void testAddAndGet() throws IOException {
-        repo = new VolatileProvenanceRepository(NiFiProperties.createBasicNiFiProperties(null));
+        repo = new VolatileProvenanceRepository(NiFiProperties.createBasicNiFiProperties((String) null));
 
         final Map<String, String> attributes = new HashMap<>();
         attributes.put("abc", "xyz");
@@ -81,7 +81,7 @@ public class TestVolatileProvenanceRepository {
 
     @Test
     public void testIndexAndCompressOnRolloverAndSubsequentSearchAsync() throws InterruptedException {
-        repo = new VolatileProvenanceRepository(NiFiProperties.createBasicNiFiProperties(null));
+        repo = new VolatileProvenanceRepository(NiFiProperties.createBasicNiFiProperties((String) null));
 
         final String uuid = "00000000-0000-0000-0000-000000000000";
         final Map<String, String> attributes = new HashMap<>();
@@ -120,7 +120,7 @@ public class TestVolatileProvenanceRepository {
 
     @Test
     public void testSearchForInverseValue() throws InterruptedException {
-        repo = new VolatileProvenanceRepository(NiFiProperties.createBasicNiFiProperties(null));
+        repo = new VolatileProvenanceRepository(NiFiProperties.createBasicNiFiProperties((String) null));
 
         final Map<String, String> attributes = new HashMap<>();
         attributes.put("abc", "xyz");
@@ -132,17 +132,17 @@ public class TestVolatileProvenanceRepository {
         builder.setComponentId("1234");
         builder.setComponentType("dummy processor");
 
-        final String uuid_prefix = "00000000-0000-0000-0000-000000000000";
+        final String uuidPrefix = "00000000-0000-0000-0000-000000000000";
 
         for (int i = 0; i < 2; i++) {
-            attributes.put("uuid", uuid_prefix + i);
+            attributes.put("uuid", uuidPrefix + i);
             attributes.put("file.owner", "testOwner1");
             builder.fromFlowFile(createFlowFile(i, 3000L, attributes));
             repo.registerEvent(builder.build());
         }
 
         for (int i = 2; i < 10; i++) {
-            attributes.put("uuid", uuid_prefix + i);
+            attributes.put("uuid", uuidPrefix + i);
             attributes.put("file.owner", "testOwner2");
             builder.fromFlowFile(createFlowFile(i, 3000L, attributes));
             repo.registerEvent(builder.build());

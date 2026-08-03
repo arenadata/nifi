@@ -16,19 +16,21 @@
  */
 package org.apache.nifi.jms.cf;
 
+import jakarta.jms.ConnectionFactory;
 import org.apache.nifi.annotation.behavior.DynamicProperty;
-import org.apache.nifi.annotation.behavior.Restricted;
-import org.apache.nifi.annotation.behavior.Restriction;
 import org.apache.nifi.annotation.documentation.CapabilityDescription;
 import org.apache.nifi.annotation.documentation.SeeAlso;
 import org.apache.nifi.annotation.documentation.Tags;
 import org.apache.nifi.components.PropertyDescriptor;
-import org.apache.nifi.components.RequiredPermission;
+import org.apache.nifi.components.ValidationContext;
+import org.apache.nifi.components.ValidationResult;
 import org.apache.nifi.controller.ConfigurationContext;
 import org.apache.nifi.expression.ExpressionLanguageScope;
 import org.apache.nifi.logging.ComponentLog;
+import org.apache.nifi.migration.PropertyConfiguration;
 
-import jakarta.jms.ConnectionFactory;
+import java.util.ArrayList;
+import java.util.Collection;
 import java.util.List;
 
 /**
@@ -51,15 +53,43 @@ import java.util.List;
                 + "property and 'com.ibm.mq.jms.MQConnectionFactory.setTransportType(int)' would imply 'transportType' property.",
                 expressionLanguageScope = ExpressionLanguageScope.ENVIRONMENT)
 @SeeAlso(classNames = {"org.apache.nifi.jms.processors.ConsumeJMS", "org.apache.nifi.jms.processors.PublishJMS"})
-@Restricted(
-        restrictions = {
-                @Restriction(
-                        requiredPermission = RequiredPermission.REFERENCE_REMOTE_RESOURCES,
-                        explanation = "Client Library Location can reference resources over HTTP"
-                )
-        }
-)
+
 public class JMSConnectionFactoryProvider extends AbstractJMSConnectionFactoryProvider {
+
+    @Override
+    protected Collection<ValidationResult> customValidate(final ValidationContext validationContext) {
+        final List<ValidationResult> results = new ArrayList<>(super.customValidate(validationContext));
+
+        final String connectionFactoryImpl = validationContext.getProperty(JMSConnectionFactoryProperties.JMS_CONNECTION_FACTORY_IMPL).getValue();
+        final boolean sslContextServiceSet = validationContext.getProperty(JMSConnectionFactoryProperties.JMS_SSL_CONTEXT_SERVICE).isSet();
+        final boolean brokerUriSet = validationContext.getProperty(JMSConnectionFactoryProperties.JMS_BROKER_URI).isSet();
+
+        if (connectionFactoryImpl != null
+                && connectionFactoryImpl.startsWith("org.apache.activemq.artemis")
+                && sslContextServiceSet
+                && brokerUriSet) {
+            final String brokerUriRaw = validationContext.getProperty(JMSConnectionFactoryProperties.JMS_BROKER_URI).getValue();
+            if (!validationContext.isExpressionLanguagePresent(brokerUriRaw)
+                    && brokerUriRaw.matches("(?i).*[?&;]sslEnabled=false.*")) {
+                results.add(new ValidationResult.Builder()
+                        .subject(JMSConnectionFactoryProperties.JMS_BROKER_URI.getDisplayName())
+                        .valid(false)
+                        .explanation("JMS SSL Context Service is configured, but JMS Broker URI contains sslEnabled=false. "
+                                + "Remove sslEnabled=false from the broker URI or unset the SSL Context Service.")
+                        .build());
+            }
+        }
+
+        return results;
+    }
+
+    @Override
+    public void migrateProperties(PropertyConfiguration config) {
+        config.renameProperty(JMSConnectionFactoryProperties.OLD_JMS_CONNECTION_FACTORY_IMPL_PROPERTY_NAME, JMSConnectionFactoryProperties.JMS_CONNECTION_FACTORY_IMPL.getName());
+        config.renameProperty(JMSConnectionFactoryProperties.OLD_JMS_CLIENT_LIBRARIES_PROPERTY_NAME, JMSConnectionFactoryProperties.JMS_CLIENT_LIBRARIES.getName());
+        config.renameProperty(JMSConnectionFactoryProperties.OLD_JMS_BROKER_URI_PROPERTY_NAME, JMSConnectionFactoryProperties.JMS_BROKER_URI.getName());
+        config.renameProperty(JMSConnectionFactoryProperties.OLD_JMS_SSL_CONTEXT_SERVICE_PROPERTY_NAME, JMSConnectionFactoryProperties.JMS_SSL_CONTEXT_SERVICE.getName());
+    }
 
     @Override
     protected List<PropertyDescriptor> getSupportedPropertyDescriptors() {

@@ -47,14 +47,14 @@ import org.springframework.security.ldap.search.FilterBasedLdapUserSearch;
 import org.springframework.security.ldap.search.LdapUserSearch;
 import org.springframework.security.ldap.userdetails.LdapUserDetails;
 
-import javax.naming.Context;
-import javax.net.ssl.SSLContext;
 import java.io.FileInputStream;
 import java.io.IOException;
 import java.security.KeyStore;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
+import javax.naming.Context;
+import javax.net.ssl.SSLContext;
 
 /**
  * LDAP based implementation of a login identity provider.
@@ -75,7 +75,6 @@ public class LdapIdentityProvider extends BasicAuthIdentityProvider implements I
         if (StringUtils.isBlank(rawExpiration)) {
             throw new SecurityProviderCreationException("The Authentication Expiration must be specified.");
         }
-
 
         try {
             expiration = Math.round(FormatUtils.getPreciseTimeDuration(rawExpiration, TimeUnit.MILLISECONDS));

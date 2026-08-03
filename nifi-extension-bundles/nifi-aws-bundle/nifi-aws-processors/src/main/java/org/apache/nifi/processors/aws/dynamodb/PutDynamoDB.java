@@ -49,6 +49,9 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
+import static org.apache.nifi.processors.aws.region.RegionUtil.CUSTOM_REGION;
+import static org.apache.nifi.processors.aws.region.RegionUtil.REGION;
+
 @SupportsBatching
 @SeeAlso({DeleteDynamoDB.class, GetDynamoDB.class, PutDynamoDBRecord.class})
 @InputRequirement(Requirement.INPUT_REQUIRED)
@@ -80,6 +83,7 @@ public class PutDynamoDB extends AbstractDynamoDBProcessor {
     public static final List<PropertyDescriptor> PROPERTY_DESCRIPTORS = List.of(
         TABLE,
         REGION,
+        CUSTOM_REGION,
         AWS_CREDENTIALS_PROVIDER_SERVICE,
         JSON_DOCUMENT,
         HASH_KEY_NAME,
@@ -183,9 +187,10 @@ public class PutDynamoDB extends AbstractDynamoDBProcessor {
                 }
             }
 
-            // Handle any remaining flowfiles
+            final String transitUri = "dynamodb://%s".formatted(table);
             for (final FlowFile flowFile : keysToFlowFileMap.values()) {
                 getLogger().debug("Successful posted items to dynamodb : {}", table);
+                session.getProvenanceReporter().send(flowFile, transitUri);
                 session.transfer(flowFile, REL_SUCCESS);
             }
         } catch (final AwsServiceException exception) {

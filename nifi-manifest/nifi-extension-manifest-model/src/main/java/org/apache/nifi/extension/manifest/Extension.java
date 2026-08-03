@@ -17,12 +17,12 @@
 package org.apache.nifi.extension.manifest;
 
 import io.swagger.v3.oas.annotations.media.Schema;
-
-import javax.validation.Valid;
+import jakarta.validation.Valid;
 import jakarta.xml.bind.annotation.XmlAccessType;
 import jakarta.xml.bind.annotation.XmlAccessorType;
 import jakarta.xml.bind.annotation.XmlElement;
 import jakarta.xml.bind.annotation.XmlElementWrapper;
+
 import java.util.List;
 import java.util.Objects;
 
@@ -106,6 +106,11 @@ public class Extension {
     @XmlElementWrapper
     @XmlElement(name = "multiProcessorUseCase")
     private List<MultiProcessorUseCase> multiProcessorUseCases;
+
+    // Connector-specific fields
+    @XmlElementWrapper
+    @XmlElement(name = "configurationStep")
+    private List<ConfigurationStep> configurationSteps;
 
     @Schema(description = "The name of the extension")
     public String getName() {
@@ -196,7 +201,7 @@ public class Extension {
         this.dynamicRelationship = dynamicRelationship;
     }
 
-    @Schema(description = "The attributes read from flow files by the extension")
+    @Schema(description = "The attributes read from FlowFiles by the extension")
     public List<Attribute> getReadsAttributes() {
         return readsAttributes;
     }
@@ -205,7 +210,7 @@ public class Extension {
         this.readsAttributes = readsAttributes;
     }
 
-    @Schema(description = "The attributes written to flow files by the extension")
+    @Schema(description = "The attributes written to FlowFiles by the extension")
     public List<Attribute> getWritesAttributes() {
         return writesAttributes;
     }
@@ -304,7 +309,7 @@ public class Extension {
         this.triggerWhenEmpty = triggerWhenEmpty;
     }
 
-    @Schema(description = "Indicates that a processor should be triggered when any destinations have space for flow files")
+    @Schema(description = "Indicates that a processor should be triggered when any destinations have space for FlowFiles")
     public boolean getTriggerWhenAnyDestinationAvailable() {
         return triggerWhenAnyDestinationAvailable;
     }
@@ -358,10 +363,23 @@ public class Extension {
         this.multiProcessorUseCases = multiProcessorUseCases;
     }
 
+    @Schema(description = "The configuration steps for a Connector extension")
+    public List<ConfigurationStep> getConfigurationSteps() {
+        return configurationSteps;
+    }
+
+    public void setConfigurationSteps(final List<ConfigurationStep> configurationSteps) {
+        this.configurationSteps = configurationSteps;
+    }
+
     @Override
     public boolean equals(Object o) {
-        if (this == o) return true;
-        if (o == null || getClass() != o.getClass()) return false;
+        if (this == o) {
+            return true;
+        }
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
         Extension extension = (Extension) o;
         return Objects.equals(name, extension.name);
     }

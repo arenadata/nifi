@@ -15,14 +15,18 @@
  * limitations under the License.
  */
 
-import { Injectable } from '@angular/core';
+import { Injectable, inject } from '@angular/core';
 import { Actions, createEffect, ofType } from '@ngrx/effects';
 import { concatLatestFrom } from '@ngrx/operators';
 import * as QueueListingActions from './queue-listing.actions';
 import { Store } from '@ngrx/store';
 import { CanvasState } from '../../../flow-designer/state';
 import { asyncScheduler, catchError, filter, from, interval, map, of, switchMap, take, takeUntil, tap } from 'rxjs';
-import { selectConnectionIdFromRoute, selectActiveListingRequest } from './queue-listing.selectors';
+import {
+    selectConnectionIdFromRoute,
+    selectActiveListingRequest,
+    selectSelectedConnection
+} from './queue-listing.selectors';
 import { QueueService } from '../../service/queue.service';
 import { ListingRequest } from './index';
 import { CancelDialog } from '../../../../ui/common/cancel-dialog/cancel-dialog.component';
@@ -33,19 +37,16 @@ import { isDefinedAndNotNull, NiFiCommon, LARGE_DIALOG } from '@nifi/shared';
 import { HttpErrorResponse } from '@angular/common/http';
 import * as ErrorActions from '../../../../state/error/error.actions';
 import { ErrorHelper } from '../../../../service/error-helper.service';
-import { stopPollingQueueListingRequest } from './queue-listing.actions';
 import { ErrorContextKey } from '../../../../state/error';
 
 @Injectable()
 export class QueueListingEffects {
-    constructor(
-        private actions$: Actions,
-        private store: Store<CanvasState>,
-        private queueService: QueueService,
-        private errorHelper: ErrorHelper,
-        private dialog: MatDialog,
-        private nifiCommon: NiFiCommon
-    ) {}
+    private actions$ = inject(Actions);
+    private store = inject<Store<CanvasState>>(Store);
+    private queueService = inject(QueueService);
+    private errorHelper = inject(ErrorHelper);
+    private dialog = inject(MatDialog);
+    private nifiCommon = inject(NiFiCommon);
 
     loadConnectionLabel$ = createEffect(() =>
         this.actions$.pipe(
@@ -110,19 +111,13 @@ export class QueueListingEffects {
                             }
                         })
                     ),
-                    catchError((errorResponse: HttpErrorResponse) => {
-                        if (this.errorHelper.showErrorInContext(errorResponse.status)) {
-                            return of(
-                                QueueListingActions.queueListingApiError({
-                                    error: this.errorHelper.getErrorString(errorResponse)
-                                })
-                            );
-                        } else {
-                            this.store.dispatch(stopPollingQueueListingRequest());
-
-                            return of(this.errorHelper.fullScreenError(errorResponse));
-                        }
-                    })
+                    catchError((errorResponse: HttpErrorResponse) =>
+                        of(
+                            QueueListingActions.queueListingApiError({
+                                error: this.errorHelper.getErrorString(errorResponse)
+                            })
+                        )
+                    )
                 );
             })
         )
@@ -168,9 +163,12 @@ export class QueueListingEffects {
     pollQueueListingRequest$ = createEffect(() =>
         this.actions$.pipe(
             ofType(QueueListingActions.pollQueueListingRequest),
-            concatLatestFrom(() => this.store.select(selectActiveListingRequest).pipe(isDefinedAndNotNull())),
-            switchMap(([, listingRequest]) => {
-                return from(this.queueService.pollQueueListingRequest(listingRequest)).pipe(
+            concatLatestFrom(() => [
+                this.store.select(selectSelectedConnection).pipe(isDefinedAndNotNull()),
+                this.store.select(selectActiveListingRequest).pipe(isDefinedAndNotNull())
+            ]),
+            switchMap(([, selectedConnection, listingRequest]) => {
+                return from(this.queueService.pollQueueListingRequest(selectedConnection.id, listingRequest.id)).pipe(
                     map((response) =>
                         QueueListingActions.pollQueueListingRequestSuccess({
                             response: {
@@ -178,19 +176,13 @@ export class QueueListingEffects {
                             }
                         })
                     ),
-                    catchError((errorResponse: HttpErrorResponse) => {
-                        if (this.errorHelper.showErrorInContext(errorResponse.status)) {
-                            return of(
-                                QueueListingActions.queueListingApiError({
-                                    error: this.errorHelper.getErrorString(errorResponse)
-                                })
-                            );
-                        } else {
-                            this.store.dispatch(stopPollingQueueListingRequest());
-
-                            return of(this.errorHelper.fullScreenError(errorResponse));
-                        }
-                    })
+                    catchError((errorResponse: HttpErrorResponse) =>
+                        of(
+                            QueueListingActions.queueListingApiError({
+                                error: this.errorHelper.getErrorString(errorResponse)
+                            })
+                        )
+                    )
                 );
             })
         )
@@ -215,19 +207,20 @@ export class QueueListingEffects {
     deleteQueueListingRequest$ = createEffect(() =>
         this.actions$.pipe(
             ofType(QueueListingActions.deleteQueueListingRequest),
-            concatLatestFrom(() => this.store.select(selectActiveListingRequest)),
-            tap(([, listingRequest]) => {
+            concatLatestFrom(() => [
+                this.store.select(selectSelectedConnection).pipe(isDefinedAndNotNull()),
+                this.store.select(selectActiveListingRequest).pipe(isDefinedAndNotNull())
+            ]),
+            tap(([, selectedConnection, listingRequest]) => {
                 this.dialog.closeAll();
 
-                if (listingRequest) {
-                    this.queueService.deleteQueueListingRequest(listingRequest).subscribe({
-                        error: (errorResponse: HttpErrorResponse) => {
-                            this.store.dispatch(
-                                ErrorActions.snackBarError({ error: this.errorHelper.getErrorString(errorResponse) })
-                            );
-                        }
-                    });
-                }
+                this.queueService.deleteQueueListingRequest(selectedConnection.id, listingRequest.id).subscribe({
+                    error: (errorResponse: HttpErrorResponse) => {
+                        this.store.dispatch(
+                            ErrorActions.snackBarError({ error: this.errorHelper.getErrorString(errorResponse) })
+                        );
+                    }
+                });
             }),
             switchMap(() => of(QueueListingActions.deleteQueueListingRequestSuccess()))
         )
@@ -237,8 +230,15 @@ export class QueueListingEffects {
         this.actions$.pipe(
             ofType(QueueListingActions.viewFlowFile),
             map((action) => action.request),
-            switchMap((request) =>
-                from(this.queueService.getFlowFile(request.flowfileSummary)).pipe(
+            concatLatestFrom(() => this.store.select(selectSelectedConnection).pipe(isDefinedAndNotNull())),
+            switchMap(([request, selectedConnection]) =>
+                from(
+                    this.queueService.getFlowFile(
+                        selectedConnection.id,
+                        request.flowfileSummary.uuid,
+                        request.flowfileSummary.clusterNodeId
+                    )
+                ).pipe(
                     map((response) =>
                         QueueListingActions.openFlowFileDialog({
                             request: {
@@ -336,6 +336,7 @@ export class QueueListingEffects {
         this.actions$.pipe(
             ofType(QueueListingActions.queueListingApiError),
             tap(() => {
+                this.dialog.closeAll();
                 this.store.dispatch(QueueListingActions.stopPollingQueueListingRequest());
             }),
             switchMap(({ error }) =>

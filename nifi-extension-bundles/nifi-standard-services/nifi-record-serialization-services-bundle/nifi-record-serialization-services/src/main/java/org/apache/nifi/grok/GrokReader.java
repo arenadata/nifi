@@ -21,14 +21,11 @@ import io.krakens.grok.api.Grok;
 import io.krakens.grok.api.GrokCompiler;
 import io.krakens.grok.api.GrokUtils;
 import io.krakens.grok.api.exception.GrokException;
-import org.apache.nifi.annotation.behavior.Restricted;
-import org.apache.nifi.annotation.behavior.Restriction;
 import org.apache.nifi.annotation.documentation.CapabilityDescription;
 import org.apache.nifi.annotation.documentation.Tags;
 import org.apache.nifi.annotation.lifecycle.OnEnabled;
 import org.apache.nifi.components.AllowableValue;
 import org.apache.nifi.components.PropertyDescriptor;
-import org.apache.nifi.components.RequiredPermission;
 import org.apache.nifi.components.ValidationContext;
 import org.apache.nifi.components.ValidationResult;
 import org.apache.nifi.components.resource.ResourceCardinality;
@@ -38,6 +35,7 @@ import org.apache.nifi.context.PropertyContext;
 import org.apache.nifi.controller.ConfigurationContext;
 import org.apache.nifi.expression.ExpressionLanguageScope;
 import org.apache.nifi.logging.ComponentLog;
+import org.apache.nifi.migration.PropertyConfiguration;
 import org.apache.nifi.processor.util.StandardValidators;
 import org.apache.nifi.schema.access.SchemaAccessStrategy;
 import org.apache.nifi.schema.access.SchemaField;
@@ -76,14 +74,7 @@ import java.util.stream.Collectors;
     + "a log message is considered to be part of the previous message but is added to the 'stackTrace' field of the Record. If a record has "
     + "no stack trace, it will have a NULL value for the stackTrace field (assuming that the schema does in fact include a stackTrace field of type String). "
     + "Assuming that the schema includes a '_raw' field of type String, the raw message will be included in the Record.")
-@Restricted(
-        restrictions = {
-                @Restriction(
-                        requiredPermission = RequiredPermission.REFERENCE_REMOTE_RESOURCES,
-                        explanation = "Patterns and Expressions can reference resources over HTTP"
-                )
-        }
-)
+
 public class GrokReader extends SchemaRegistryService implements RecordReaderFactory {
     private volatile List<Grok> groks;
     private volatile NoMatchStrategy noMatchStrategy;
@@ -106,8 +97,7 @@ public class GrokReader extends SchemaRegistryService implements RecordReaderFac
     );
 
     static final PropertyDescriptor GROK_PATTERNS = new PropertyDescriptor.Builder()
-        .name("Grok Pattern File")
-        .displayName("Grok Patterns")
+        .name("Grok Patterns")
         .description("Grok Patterns to use for parsing logs. If not specified, a built-in default Pattern file "
             + "will be used. If specified, all patterns specified will override the default patterns. See the Controller Service's "
             + "Additional Details for a list of pre-defined patterns.")
@@ -117,8 +107,7 @@ public class GrokReader extends SchemaRegistryService implements RecordReaderFac
         .build();
 
     static final PropertyDescriptor GROK_EXPRESSION = new PropertyDescriptor.Builder()
-        .name("Grok Expression")
-        .displayName("Grok Expressions")
+        .name("Grok Expressions")
         .description("Specifies the format of a log line in Grok format. This allows the Record Reader to understand how to parse each log line. "
             + "The property supports one or more Grok expressions. The Reader attempts to parse input lines according to the configured order of the expressions."
             + "If a line in the log file does not match any expressions, the line will be assumed to belong to the previous log message."
@@ -130,8 +119,7 @@ public class GrokReader extends SchemaRegistryService implements RecordReaderFac
         .build();
 
     static final PropertyDescriptor NO_MATCH_BEHAVIOR = new PropertyDescriptor.Builder()
-        .name("no-match-behavior")
-        .displayName("No Match Behavior")
+        .name("No Match Behavior")
         .description("If a line of text is encountered and it does not match the given Grok Expression, and it is not part of a stack trace, "
             + "this property specifies how the text should be processed.")
         .allowableValues(APPEND_TO_PREVIOUS_MESSAGE, SKIP_LINE, RAW_LINE)
@@ -276,7 +264,6 @@ public class GrokReader extends SchemaRegistryService implements RecordReaderFac
         }
     }
 
-
     @Override
     protected List<AllowableValue> getSchemaAccessStrategyValues() {
         final List<AllowableValue> allowableValues = new ArrayList<>();
@@ -303,7 +290,6 @@ public class GrokReader extends SchemaRegistryService implements RecordReaderFac
         return new SchemaAccessStrategy() {
             private final Set<SchemaField> schemaFields = EnumSet.noneOf(SchemaField.class);
 
-
             @Override
             public RecordSchema getSchema(Map<String, String> variables, InputStream contentStream, RecordSchema readSchema) {
                 return recordSchema;
@@ -320,6 +306,14 @@ public class GrokReader extends SchemaRegistryService implements RecordReaderFac
     public RecordReader createRecordReader(final Map<String, String> variables, final InputStream in, final long inputLength, final ComponentLog logger) throws IOException, SchemaNotFoundException {
         final RecordSchema schema = getSchema(variables, in, null);
         return new GrokRecordReader(in, groks, schema, recordSchemaFromGrok, noMatchStrategy);
+    }
+
+    @Override
+    public void migrateProperties(PropertyConfiguration config) {
+        super.migrateProperties(config);
+        config.renameProperty("Grok Pattern File", GROK_PATTERNS.getName());
+        config.renameProperty("Grok Expression", GROK_EXPRESSION.getName());
+        config.renameProperty("no-match-behavior", NO_MATCH_BEHAVIOR.getName());
     }
 
     private Reader getDefaultPatterns() throws IOException {

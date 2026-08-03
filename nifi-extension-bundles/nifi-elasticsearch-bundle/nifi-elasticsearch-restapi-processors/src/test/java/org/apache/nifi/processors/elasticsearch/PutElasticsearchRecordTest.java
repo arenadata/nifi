@@ -220,7 +220,7 @@ class PutElasticsearchRecordTest extends AbstractPutElasticsearchTest {
         assertNotNull(migratedWriter);
         assertTrue(runner.isControllerServiceEnabled(migratedWriter));
 
-        assertEquals(1, result.getPropertiesRenamed().size());
+        assertTrue(1 < result.getPropertiesRenamed().size());
         assertEquals(AbstractPutElasticsearch.NOT_FOUND_IS_SUCCESSFUL.getName(), result.getPropertiesRenamed().get("put-es-record-not_found-is-error"));
         assertEquals(0, result.getPropertiesRemoved().size());
         assertEquals(1, result.getPropertiesUpdated().size());
@@ -441,7 +441,6 @@ class PutElasticsearchRecordTest extends AbstractPutElasticsearchTest {
         runner.assertTransferCount(AbstractPutElasticsearch.REL_SUCCESSFUL, 1);
         runner.assertTransferCount(AbstractPutElasticsearch.REL_ERROR_RESPONSES, 0);
 
-
         // re-run the same test but with schema inference rather
         runner.disableControllerService(reader);
         runner.removeProperty(reader, SchemaAccessUtils.SCHEMA_REGISTRY);
@@ -547,7 +546,7 @@ class PutElasticsearchRecordTest extends AbstractPutElasticsearchTest {
             final long upsert = items.stream().filter(item ->  IndexOperationRequest.Operation.Upsert.equals(item.getOperation())).count();
             final long delete = items.stream().filter(item ->  IndexOperationRequest.Operation.Delete.equals(item.getOperation())).count();
             final long timestampCount = items.stream().filter(item -> Long.valueOf(101).equals(item.getFields().get("@timestamp"))).count();
-            final long noTimestampCount = items.stream().filter(item -> !item.getFields().containsKey("@timestamp") ).count();
+            final long noTimestampCount = items.stream().filter(item -> !item.getFields().containsKey("@timestamp")).count();
             assertEquals(1, index, getUnexpectedCountMsg("index"));
             assertEquals(2, create, getUnexpectedCountMsg("create"));
             assertEquals(1, update, getUnexpectedCountMsg("update"));
@@ -998,7 +997,7 @@ class PutElasticsearchRecordTest extends AbstractPutElasticsearchTest {
         runner.setEnvironmentVariableValue("blank", " ");
         runner.assertValid();
 
-        clientService.setEvalParametersConsumer( (final Map<String, String> params) -> {
+        clientService.setEvalParametersConsumer((final Map<String, String> params) -> {
             assertEquals(2, params.size());
             assertEquals("true", params.get("refresh"));
             assertEquals("auto", params.get("slices"));

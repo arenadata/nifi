@@ -20,18 +20,17 @@ import com.zaxxer.hikari.HikariDataSource;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.nifi.annotation.behavior.DynamicProperty;
 import org.apache.nifi.annotation.behavior.RequiresInstanceClassLoading;
-import org.apache.nifi.annotation.behavior.Restricted;
-import org.apache.nifi.annotation.behavior.Restriction;
 import org.apache.nifi.annotation.behavior.SupportsSensitiveDynamicProperties;
 import org.apache.nifi.annotation.documentation.CapabilityDescription;
 import org.apache.nifi.annotation.documentation.Tags;
 import org.apache.nifi.annotation.lifecycle.OnDisabled;
 import org.apache.nifi.annotation.lifecycle.OnEnabled;
+import org.apache.nifi.annotation.lifecycle.OnRemoved;
 import org.apache.nifi.components.ConfigVerificationResult;
 import org.apache.nifi.components.PropertyDescriptor;
 import org.apache.nifi.components.PropertyValue;
-import org.apache.nifi.components.RequiredPermission;
 import org.apache.nifi.components.resource.ResourceCardinality;
+import org.apache.nifi.components.resource.ResourceReference;
 import org.apache.nifi.components.resource.ResourceReferences;
 import org.apache.nifi.components.resource.ResourceType;
 import org.apache.nifi.controller.AbstractControllerService;
@@ -42,21 +41,23 @@ import org.apache.nifi.expression.AttributeExpression;
 import org.apache.nifi.expression.ExpressionLanguageScope;
 import org.apache.nifi.kerberos.KerberosUserService;
 import org.apache.nifi.logging.ComponentLog;
+import org.apache.nifi.migration.PropertyConfiguration;
 import org.apache.nifi.processor.exception.ProcessException;
 import org.apache.nifi.processor.util.StandardValidators;
 import org.apache.nifi.security.krb.KerberosAction;
 import org.apache.nifi.security.krb.KerberosLoginException;
 import org.apache.nifi.security.krb.KerberosUser;
 
-import javax.security.auth.login.LoginException;
-
 import java.sql.Connection;
+import java.sql.Driver;
+import java.sql.DriverManager;
 import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Properties;
 import java.util.concurrent.TimeUnit;
+import javax.security.auth.login.LoginException;
 
 import static org.apache.nifi.components.ConfigVerificationResult.Outcome.FAILED;
 import static org.apache.nifi.components.ConfigVerificationResult.Outcome.SUCCESSFUL;
@@ -72,14 +73,7 @@ import static org.apache.nifi.components.ConfigVerificationResult.Outcome.SUCCES
         description = "Specifies a property name and value to be set on the JDBC connection(s). "
                 + "If Expression Language is used, evaluation will be performed upon the controller service being enabled. "
                 + "Note that no flow file input (attributes, e.g.) is available for use in Expression Language constructs for these properties.")
-@Restricted(
-        restrictions = {
-                @Restriction(
-                        requiredPermission = RequiredPermission.REFERENCE_REMOTE_RESOURCES,
-                        explanation = "Database Driver Location can reference resources over HTTP"
-                )
-        }
-)
+
 public class HikariCPConnectionPool extends AbstractControllerService implements DBCPService, VerifiableControllerService {
     /**
      * Property Name Prefix for Sensitive Dynamic Properties
@@ -93,8 +87,7 @@ public class HikariCPConnectionPool extends AbstractControllerService implements
     private static final int DEFAULT_MIN_VALIDATION_TIMEOUT = 250;
 
     public static final PropertyDescriptor DATABASE_URL = new PropertyDescriptor.Builder()
-            .name("hikaricp-connection-url")
-            .displayName("Database Connection URL")
+            .name("Database Connection URL")
             .description("A database connection URL used to connect to a database. May contain database system name, host, port, database name and some parameters."
                     + " The exact syntax of a database connection URL is specified by your DBMS.")
             .addValidator(new ConnectionUrlValidator())
@@ -103,8 +96,7 @@ public class HikariCPConnectionPool extends AbstractControllerService implements
             .build();
 
     public static final PropertyDescriptor DB_DRIVERNAME = new PropertyDescriptor.Builder()
-            .name("hikaricp-driver-classname")
-            .displayName("Database Driver Class Name")
+            .name("Database Driver Class Name")
             .description("The fully-qualified class name of the JDBC driver. Example: com.mysql.jdbc.Driver")
             .required(true)
             .addValidator(new DriverClassValidator())
@@ -112,8 +104,7 @@ public class HikariCPConnectionPool extends AbstractControllerService implements
             .build();
 
     public static final PropertyDescriptor DB_DRIVER_LOCATION = new PropertyDescriptor.Builder()
-            .name("hikaricp-driver-locations")
-            .displayName("Database Driver Location(s)")
+            .name("Database Driver Locations")
             .description("Comma-separated list of files/folders and/or URLs containing the driver JAR and its dependencies (if any). For example '/var/tmp/mariadb-java-client-1.1.7.jar'")
             .required(false)
             .identifiesExternalResource(ResourceCardinality.MULTIPLE, ResourceType.FILE, ResourceType.DIRECTORY, ResourceType.URL)
@@ -122,16 +113,14 @@ public class HikariCPConnectionPool extends AbstractControllerService implements
             .build();
 
     public static final PropertyDescriptor DB_USER = new PropertyDescriptor.Builder()
-            .name("hikaricp-username")
-            .displayName("Database User")
+            .name("Database User")
             .description("Database user name")
             .addValidator(StandardValidators.NON_EMPTY_VALIDATOR)
             .expressionLanguageSupported(ExpressionLanguageScope.ENVIRONMENT)
             .build();
 
     public static final PropertyDescriptor DB_PASSWORD = new PropertyDescriptor.Builder()
-            .name("hikaricp-password")
-            .displayName("Password")
+            .name("Password")
             .description("The password for the database user")
             .required(false)
             .sensitive(true)
@@ -140,8 +129,7 @@ public class HikariCPConnectionPool extends AbstractControllerService implements
             .build();
 
     public static final PropertyDescriptor MAX_WAIT_TIME = new PropertyDescriptor.Builder()
-            .name("hikaricp-max-wait-time")
-            .displayName("Max Wait Time")
+            .name("Max Wait Time")
             .description("The maximum amount of time that the pool will wait (when there are no available connections) "
                     + " for a connection to be returned before failing, or 0 <time units> to wait indefinitely. ")
             .defaultValue("500 millis")
@@ -152,8 +140,7 @@ public class HikariCPConnectionPool extends AbstractControllerService implements
             .build();
 
     public static final PropertyDescriptor MAX_TOTAL_CONNECTIONS = new PropertyDescriptor.Builder()
-            .name("hikaricp-max-total-conns")
-            .displayName("Max Total Connections")
+            .name("Max Total Connections")
             .description("This property controls the maximum size that the pool is allowed to reach, including both idle and in-use connections. Basically this value will determine the "
                     + "maximum number of actual connections to the database backend. A reasonable value for this is best determined by your execution environment. When the pool reaches "
                     + "this size, and no idle connections are available, the service will block for up to connectionTimeout milliseconds before timing out.")
@@ -165,8 +152,7 @@ public class HikariCPConnectionPool extends AbstractControllerService implements
             .build();
 
     public static final PropertyDescriptor VALIDATION_QUERY = new PropertyDescriptor.Builder()
-            .name("hikaricp-validation-query")
-            .displayName("Validation Query")
+            .name("Validation Query")
             .description("Validation Query used to validate connections before returning them. "
                     + "When connection is invalid, it gets dropped and new valid connection will be returned. "
                     + "NOTE: Using validation might have some performance penalty.")
@@ -176,8 +162,7 @@ public class HikariCPConnectionPool extends AbstractControllerService implements
             .build();
 
     public static final PropertyDescriptor MIN_IDLE = new PropertyDescriptor.Builder()
-            .name("hikaricp-min-idle-conns")
-            .displayName("Minimum Idle Connections")
+            .name("Minimum Idle Connections")
             .description("This property controls the minimum number of idle connections that HikariCP tries to maintain in the pool. If the idle connections dip below this value and total "
                     + "connections in the pool are less than 'Max Total Connections', HikariCP will make a best effort to add additional connections quickly and efficiently. It is recommended "
                     + "that this property to be set equal to 'Max Total Connections'.")
@@ -188,8 +173,7 @@ public class HikariCPConnectionPool extends AbstractControllerService implements
             .build();
 
     public static final PropertyDescriptor MAX_CONN_LIFETIME = new PropertyDescriptor.Builder()
-            .name("hikaricp-max-conn-lifetime")
-            .displayName("Max Connection Lifetime")
+            .name("Max Connection Lifetime")
             .description("The maximum lifetime of a connection. After this time is exceeded the " +
                     "connection will fail the next activation, passivation or validation test. A value of zero or less " +
                     "means the connection has an infinite lifetime.")
@@ -200,8 +184,7 @@ public class HikariCPConnectionPool extends AbstractControllerService implements
             .build();
 
     public static final PropertyDescriptor KERBEROS_USER_SERVICE = new PropertyDescriptor.Builder()
-            .name("hikaricp-kerberos-user-service")
-            .displayName("Kerberos User Service")
+            .name("Kerberos User Service")
             .description("Specifies the Kerberos User Controller Service that should be used for authenticating with Kerberos")
             .identifiesControllerService(KerberosUserService.class)
             .required(false)
@@ -223,6 +206,8 @@ public class HikariCPConnectionPool extends AbstractControllerService implements
 
     private volatile HikariDataSource dataSource;
     private volatile KerberosUser kerberosUser;
+    // Hold an instance of the driver so we can properly de-register it.
+    private volatile Driver registeredDriver;
 
     @Override
     protected List<PropertyDescriptor> getSupportedPropertyDescriptors() {
@@ -398,6 +383,21 @@ public class HikariCPConnectionPool extends AbstractControllerService implements
         return results;
     }
 
+    @Override
+    public void migrateProperties(PropertyConfiguration config) {
+        config.renameProperty("hikaricp-connection-url", DATABASE_URL.getName());
+        config.renameProperty("hikaricp-driver-classname", DB_DRIVERNAME.getName());
+        config.renameProperty("hikaricp-driver-locations", DB_DRIVER_LOCATION.getName());
+        config.renameProperty("hikaricp-username", DB_USER.getName());
+        config.renameProperty("hikaricp-password", DB_PASSWORD.getName());
+        config.renameProperty("hikaricp-max-wait-time", MAX_WAIT_TIME.getName());
+        config.renameProperty("hikaricp-max-total-conns", MAX_TOTAL_CONNECTIONS.getName());
+        config.renameProperty("hikaricp-validation-query", VALIDATION_QUERY.getName());
+        config.renameProperty("hikaricp-min-idle-conns", MIN_IDLE.getName());
+        config.renameProperty("hikaricp-max-conn-lifetime", MAX_CONN_LIFETIME.getName());
+        config.renameProperty("hikaricp-kerberos-user-service", KERBEROS_USER_SERVICE.getName());
+    }
+
     protected void configureDataSource(final ConfigurationContext context, final HikariDataSource dataSource) {
         final String driverName = context.getProperty(DB_DRIVERNAME).evaluateAttributeExpressions().getValue();
         final String user = context.getProperty(DB_USER).evaluateAttributeExpressions().getValue();
@@ -418,6 +418,9 @@ public class HikariCPConnectionPool extends AbstractControllerService implements
             }
         }
 
+        // We load the driver here so we can keep a reference to it if it was loaded in the InstanceClassLoader.
+        // This allows us to deregister it to prevent a memory leak.
+        loadDriver(driverName, dburl);
         dataSource.setConnectionTimeout(maxWaitMillis);
         dataSource.setValidationTimeout(Math.max(maxWaitMillis, DEFAULT_MIN_VALIDATION_TIMEOUT));
         dataSource.setMaximumPoolSize(maxTotal);
@@ -489,7 +492,80 @@ public class HikariCPConnectionPool extends AbstractControllerService implements
         }
     }
 
-        @Override
+    protected void loadDriver(final String driverClassName, final String url) {
+        final Class<?> clazz;
+
+        try {
+            clazz = Class.forName(driverClassName);
+        } catch (final ClassNotFoundException e) {
+            // Enhanced error message with discovery
+            ResourceReferences driverResources = null;
+            try {
+                // Try to get driver resources from current context if available
+                if (getConfigurationContext() != null) {
+                    driverResources = getConfigurationContext().getProperty(DB_DRIVER_LOCATION).evaluateAttributeExpressions().asResources();
+                }
+            } catch (Exception ignored) {
+                // Context might not be available, continue without it
+            }
+
+            final List<String> availableDrivers = (driverResources != null && driverResources.getCount() != 0) ? DriverUtils.discoverDriverClasses(driverResources) : List.of();
+
+            StringBuilder errorMessage = new StringBuilder("JDBC driver class '%s' not found.".formatted(driverClassName));
+
+            if (!availableDrivers.isEmpty()) {
+                errorMessage.append(" Available driver classes found in resources: %s.".formatted(String.join(", ", availableDrivers)));
+            } else if (driverResources != null && driverResources.getCount() != 0) {
+                final List<ResourceReference> resourcesList = driverResources.asList();
+                if (resourcesList.stream().filter(r -> r.getResourceType() != ResourceType.URL).count() != 0) {
+                    errorMessage.append(" No JDBC driver classes found in the provided resources.");
+                }
+            } else if (driverResources == null) {
+                errorMessage.append(" The property 'Database Driver Location(s)' should be set.");
+            }
+
+            throw new IllegalStateException(errorMessage.toString(), e);
+        }
+
+        try {
+            final Driver driver = DriverManager.getDriver(url);
+            // Ensure drivers that register themselves during class loading can be set as the registeredDriver.
+            // This ensures drivers that register themselves can be deregisterd when the componet is removed.
+            // These drivers should be loaded in the same InstanceClassloader that load this component
+            if (driver != registeredDriver
+                    && driver.getClass().getClassLoader().equals(getClass().getClassLoader())) {
+                DriverManager.deregisterDriver(registeredDriver);
+                registeredDriver = driver;
+            }
+        } catch (final SQLException e) {
+            // In case the driver is not registered by the implementation, we explicitly try to register it.
+            try {
+                if (registeredDriver != null) {
+                    DriverManager.deregisterDriver(registeredDriver);
+                }
+                registeredDriver = (Driver) clazz.getDeclaredConstructor().newInstance();
+
+                DriverManager.registerDriver(registeredDriver);
+                DriverManager.getDriver(url);
+            } catch (final SQLException e2) {
+                throw new IllegalStateException("No suitable driver for the given Database Connection URL", e2);
+            } catch (final Exception e2) {
+                throw new IllegalStateException("Creating driver instance is failed", e2);
+            }
+        }
+    }
+
+    @OnRemoved
+    public void onRemove() {
+        try {
+            // We need to deregister the driver to allow the InstanceClassLoader to be garbage collected.
+            DriverManager.deregisterDriver(registeredDriver);
+        } catch (final SQLException e) {
+            getLogger().warn("Failed to deregister driver [{}]", registeredDriver, e);
+        }
+    }
+
+    @Override
     public String toString() {
         return String.format("%s[id=%s]", getClass().getSimpleName(), getIdentifier());
     }

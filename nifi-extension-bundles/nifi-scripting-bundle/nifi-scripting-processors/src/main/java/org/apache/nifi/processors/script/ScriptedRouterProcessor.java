@@ -17,14 +17,11 @@
 package org.apache.nifi.processors.script;
 
 import org.apache.nifi.annotation.behavior.InputRequirement;
-import org.apache.nifi.annotation.behavior.Restricted;
-import org.apache.nifi.annotation.behavior.Restriction;
 import org.apache.nifi.annotation.behavior.SideEffectFree;
 import org.apache.nifi.annotation.behavior.SupportsBatching;
 import org.apache.nifi.annotation.behavior.WritesAttribute;
 import org.apache.nifi.annotation.behavior.WritesAttributes;
 import org.apache.nifi.components.PropertyDescriptor;
-import org.apache.nifi.components.RequiredPermission;
 import org.apache.nifi.flowfile.FlowFile;
 import org.apache.nifi.processor.ProcessContext;
 import org.apache.nifi.processor.ProcessSession;
@@ -42,22 +39,19 @@ import org.apache.nifi.serialization.record.Record;
 import org.apache.nifi.serialization.record.RecordSchema;
 import org.apache.nifi.serialization.record.RecordSet;
 
-import javax.script.ScriptEngine;
-import javax.script.ScriptException;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import javax.script.ScriptEngine;
+import javax.script.ScriptException;
 
 @SupportsBatching
 @SideEffectFree
 @InputRequirement(InputRequirement.Requirement.INPUT_REQUIRED)
-@Restricted(restrictions = {
-        @Restriction(requiredPermission = RequiredPermission.EXECUTE_CODE,
-                explanation = "Provides operator the ability to execute arbitrary code assuming all permissions that NiFi has.")
-})
+
 @WritesAttributes({
         @WritesAttribute(attribute = "mime.type", description = "Sets the mime.type attribute to the MIME Type specified by the Record Writer"),
         @WritesAttribute(attribute = "record.count", description = "The number of records within the flow file."),
@@ -164,7 +158,7 @@ public abstract class ScriptedRouterProcessor<T> extends ScriptedRecordProcessor
                         }
                     }
 
-                    // Sending outgoing flow files
+                    // Sending outgoing FlowFiles
                     for (final Relationship relationship : outgoingFlowFiles.keySet()) {
                         final RecordSetWriter writer = recordSetWriters.get(relationship);
                         final FlowFile outgoingFlowFile = outgoingFlowFiles.get(relationship);

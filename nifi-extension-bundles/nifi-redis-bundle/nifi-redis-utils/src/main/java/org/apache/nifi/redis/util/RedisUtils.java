@@ -27,6 +27,7 @@ import org.apache.nifi.redis.RedisConnectionPool;
 import org.apache.nifi.redis.RedisType;
 import org.apache.nifi.ssl.SSLContextProvider;
 import org.apache.nifi.util.StringUtils;
+import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.data.redis.connection.PoolException;
@@ -43,39 +44,36 @@ import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.serializer.RedisSerializer;
 import org.springframework.data.redis.stream.StreamMessageListenerContainer;
-import org.springframework.lang.Nullable;
-import redis.clients.jedis.JedisPoolConfig;
-
-import javax.net.ssl.SSLContext;
+import redis.clients.jedis.ConnectionPoolConfig;
 
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
+import javax.net.ssl.SSLContext;
 
 public class RedisUtils {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(RedisUtils.class);
 
     // These properties are shared among the controller service(s) and processor(s) that use a RedisConnectionPool
+    public static final String OLD_REDIS_CONNECTION_POOL_PROPERTY_NAME = "redis-connection-pool";
+    public static final String OLD_TTL_PROPERTY_NAME = "redis-cache-ttl";
 
     public static final PropertyDescriptor REDIS_CONNECTION_POOL = new PropertyDescriptor.Builder()
-            .name("redis-connection-pool")
-            .displayName("Redis Connection Pool")
+            .name("Redis Connection Pool")
             .identifiesControllerService(RedisConnectionPool.class)
             .required(true)
             .build();
 
     public static final PropertyDescriptor TTL = new PropertyDescriptor.Builder()
-            .name("redis-cache-ttl")
-            .displayName("TTL")
+            .name("TTL")
             .description("Indicates how long the data should exist in Redis. Setting '0 secs' would mean the data would exist forever")
             .addValidator(StandardValidators.TIME_PERIOD_VALIDATOR)
             .required(true)
             .defaultValue("0 secs")
             .build();
-
 
     // These properties are shared between the connection pool controller service and the state provider, the name
     // is purposely set to be more human-readable since that will be referenced in state-management.xml
@@ -345,7 +343,7 @@ public class RedisUtils {
         final String sentinelUsername = redisConfig.getSentinelUsername();
         final String sentinelPassword = redisConfig.getSentinelPassword();
         final Integer timeout = redisConfig.getTimeout();
-        final JedisPoolConfig poolConfig = createJedisPoolConfig(redisConfig);
+        final ConnectionPoolConfig poolConfig = createConnectionPoolConfig(redisConfig);
 
         JedisClientConfiguration.JedisClientConfigurationBuilder builder = JedisClientConfiguration.builder()
                 .connectTimeout(Duration.ofMillis(timeout))
@@ -442,8 +440,8 @@ public class RedisUtils {
         }
     }
 
-    private static JedisPoolConfig createJedisPoolConfig(final RedisConfig redisConfig) {
-        final JedisPoolConfig poolConfig = new JedisPoolConfig();
+    private static ConnectionPoolConfig createConnectionPoolConfig(final RedisConfig redisConfig) {
+        final ConnectionPoolConfig poolConfig = new ConnectionPoolConfig();
         poolConfig.setMaxTotal(redisConfig.getPoolMaxTotal());
         poolConfig.setMaxIdle(redisConfig.getPoolMaxIdle());
         poolConfig.setMinIdle(redisConfig.getPoolMinIdle());

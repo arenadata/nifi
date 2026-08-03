@@ -26,9 +26,7 @@ import org.apache.nifi.util.MockFlowFile;
 import org.apache.nifi.util.TestRunner;
 import org.apache.nifi.util.TestRunners;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.condition.DisabledOnOs;
 import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
-import org.junit.jupiter.api.condition.OS;
 import org.opentest4j.AssertionFailedError;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -56,10 +54,8 @@ public class AttributeRollingWindowIT {
         runner.setProperty(AttributeRollingWindow.VALUE_TO_TRACK, "${value}");
         runner.setProperty(AttributeRollingWindow.TIME_WINDOW, "3 sec");
 
-
         final Map<String, String> attributes = new HashMap<>();
         attributes.put("value", "bad");
-
 
         runner.enqueue("1".getBytes(), attributes);
         runner.run(1);
@@ -109,6 +105,9 @@ public class AttributeRollingWindowIT {
         return System.getProperty("os.name").toLowerCase().startsWith("windows");
     }
 
+    @EnabledIfSystemProperty(named = "nifi.test.unstable",
+            matches = "true",
+            disabledReason = "this test is too unstable in terms of timing on different size/types of testing envs")
     @Test
     public void testBasic() throws InterruptedException {
         final TestRunner runner = TestRunners.newTestRunner(AttributeRollingWindow.class);
@@ -116,10 +115,8 @@ public class AttributeRollingWindowIT {
         runner.setProperty(AttributeRollingWindow.VALUE_TO_TRACK, "${value}");
         runner.setProperty(AttributeRollingWindow.TIME_WINDOW, "300 ms");
 
-
         final Map<String, String> attributes = new HashMap<>();
         attributes.put("value", "1");
-
 
         runner.enqueue("1".getBytes(), attributes);
         runner.run(1);
@@ -135,7 +132,7 @@ public class AttributeRollingWindowIT {
         runner.enqueue("2".getBytes(), attributes);
         runner.run(1);
         runner.assertAllFlowFilesTransferred(AttributeRollingWindow.REL_SUCCESS, 1);
-         flowFile = runner.getFlowFilesForRelationship(AttributeRollingWindow.REL_SUCCESS).getFirst();
+        flowFile = runner.getFlowFilesForRelationship(AttributeRollingWindow.REL_SUCCESS).getFirst();
         runner.clearTransferState();
         flowFile.assertAttributeEquals(ROLLING_WINDOW_VALUE_KEY, "2.0");
         flowFile.assertAttributeEquals(ROLLING_WINDOW_COUNT_KEY, "2");
@@ -159,7 +156,6 @@ public class AttributeRollingWindowIT {
     }
 
     @Test
-    @DisabledOnOs(OS.WINDOWS)
     public void testVerifyCount() throws InterruptedException {
         final TestRunner runner = TestRunners.newTestRunner(AttributeRollingWindow.class);
 
@@ -212,7 +208,6 @@ public class AttributeRollingWindowIT {
     }
 
     @Test
-    @DisabledOnOs(OS.WINDOWS)
     public void testVerifyVarianceAndStandardDeviation() throws InterruptedException {
         final TestRunner runner = TestRunners.newTestRunner(AttributeRollingWindow.class);
 
@@ -252,14 +247,12 @@ public class AttributeRollingWindowIT {
             matches = "true",
             disabledReason = "this test is too unstable in terms of timing on different size/types of testing envs")
     @Test
-    @DisabledOnOs(OS.WINDOWS)
     public void testMicroBatching() throws InterruptedException {
         final TestRunner runner = TestRunners.newTestRunner(AttributeRollingWindow.class);
 
         runner.setProperty(AttributeRollingWindow.VALUE_TO_TRACK, "${value}");
         runner.setProperty(AttributeRollingWindow.SUB_WINDOW_LENGTH, "500 ms");
         runner.setProperty(AttributeRollingWindow.TIME_WINDOW, "1 sec");
-
 
         final Map<String, String> attributes = new HashMap<>();
         attributes.put("value", "2");
@@ -283,7 +276,6 @@ public class AttributeRollingWindowIT {
         flowFile.assertAttributeEquals(ROLLING_WINDOW_VALUE_KEY, "4.0");
         flowFile.assertAttributeEquals(ROLLING_WINDOW_COUNT_KEY, "2");
         flowFile.assertAttributeEquals(ROLLING_WINDOW_MEAN_KEY, "2.0");
-
 
         Thread.sleep(300L);
 

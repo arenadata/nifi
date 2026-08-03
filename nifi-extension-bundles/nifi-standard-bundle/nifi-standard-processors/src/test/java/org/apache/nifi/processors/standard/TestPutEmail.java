@@ -27,6 +27,7 @@ import org.apache.commons.codec.binary.StringUtils;
 import org.apache.commons.io.IOUtils;
 import org.apache.nifi.flowfile.attributes.CoreAttributes;
 import org.apache.nifi.oauth2.OAuth2AccessTokenProvider;
+import org.apache.nifi.util.PropertyMigrationResult;
 import org.apache.nifi.util.TestRunner;
 import org.apache.nifi.util.TestRunners;
 import org.junit.jupiter.api.BeforeEach;
@@ -132,7 +133,7 @@ public class TestPutEmail {
 
         // Verify that the Message was populated correctly
         assertEquals(1, processor.getMessages().size(), "Expected a single message to be sent");
-        Message message = processor.getMessages().get(0);
+        Message message = processor.getMessages().getFirst();
         assertEquals("test@apache.org", message.getFrom()[0].toString());
         assertEquals("TestingNiFi", message.getHeader("X-Mailer")[0], "X-Mailer Header");
         assertEquals("Message Body", getMessageText(message, StandardCharsets.UTF_8));
@@ -145,11 +146,11 @@ public class TestPutEmail {
     public void testOAuth() throws Exception {
         // GIVEN
         String oauthServiceID = "oauth-access-token-provider";
-        String access_token = "access_token_123";
+        String accessToken = "accessToken_123";
 
         OAuth2AccessTokenProvider oauthService = mock(OAuth2AccessTokenProvider.class, RETURNS_DEEP_STUBS);
         when(oauthService.getIdentifier()).thenReturn(oauthServiceID);
-        when(oauthService.getAccessDetails().getAccessToken()).thenReturn(access_token);
+        when(oauthService.getAccessDetails().getAccessToken()).thenReturn(accessToken);
         runner.addControllerService(oauthServiceID, oauthService);
         runner.enableControllerService(oauthService);
 
@@ -170,9 +171,9 @@ public class TestPutEmail {
         runner.assertAllFlowFilesTransferred(PutEmail.REL_SUCCESS);
 
         assertEquals(1, processor.getMessages().size(), "Expected a single message to be sent");
-        Message message = processor.getMessages().get(0);
+        Message message = processor.getMessages().getFirst();
         assertEquals("XOAUTH2", message.getSession().getProperty("mail.smtp.auth.mechanisms"));
-        assertEquals("access_token_123", message.getSession().getProperty("mail.smtp.password"));
+        assertEquals("accessToken_123", message.getSession().getProperty("mail.smtp.password"));
     }
 
     @Test
@@ -207,7 +208,7 @@ public class TestPutEmail {
 
         // Verify that the Message was populated correctly
         assertEquals(1, processor.getMessages().size(), "Expected a single message to be sent");
-        Message message = processor.getMessages().get(0);
+        Message message = processor.getMessages().getFirst();
         assertEquals("\"test@apache.org\" <NiFi>", message.getFrom()[0].toString());
         assertEquals("TestingNíFiNonASCII", MimeUtility.decodeText(message.getHeader("X-Mailer")[0]), "X-Mailer Header");
         assertEquals("the message body", getMessageText(message, StandardCharsets.UTF_8));
@@ -281,7 +282,7 @@ public class TestPutEmail {
 
         // Verify that the Message was populated correctly
         assertEquals(1, processor.getMessages().size(), "Expected a single message to be sent");
-        Message message = processor.getMessages().get(0);
+        Message message = processor.getMessages().getFirst();
         assertEquals("test@apache.org", message.getFrom()[0].toString());
         assertEquals("TestingNiFi", message.getHeader("X-Mailer")[0], "X-Mailer Header");
         assertEquals("recipient@apache.org", message.getRecipients(RecipientType.TO)[0].toString());
@@ -326,7 +327,7 @@ public class TestPutEmail {
 
         // Verify that the Message was populated correctly
         assertEquals(1, processor.getMessages().size(), "Expected a single message to be sent");
-        Message message = processor.getMessages().get(0);
+        Message message = processor.getMessages().getFirst();
         assertEquals("test@apache.org", message.getFrom()[0].toString());
         assertEquals("from@apache.org", message.getFrom()[1].toString());
         assertEquals("TestingNiFi", message.getHeader("X-Mailer")[0], "X-Mailer Header");
@@ -409,9 +410,24 @@ public class TestPutEmail {
 
         // Verify that the Message was populated correctly
         assertEquals(1, processor.getMessages().size(), "Expected a single message to be sent");
-        Message message = processor.getMessages().get(0);
+        Message message = processor.getMessages().getFirst();
         final String retrievedMessageText = getMessageText(message, StandardCharsets.UTF_8);
         assertNotEquals(rawString, retrievedMessageText);
+    }
+
+    @Test
+    void testMigrateProperties() {
+        final Map<String, String> expectedRenamed = Map.ofEntries(
+                Map.entry("authorization-mode", PutEmail.AUTHORIZATION_MODE.getName()),
+                Map.entry("oauth2-access-token-provider", PutEmail.OAUTH2_ACCESS_TOKEN_PROVIDER.getName()),
+                Map.entry("SMTP TLS", PutEmail.SMTP_TLS.getName()),
+                Map.entry("attribute-name-regex", PutEmail.ATTRIBUTE_NAME_REGEX.getName()),
+                Map.entry("email-ff-content-as-message", PutEmail.CONTENT_AS_MESSAGE.getName()),
+                Map.entry("input-character-set", PutEmail.INPUT_CHARACTER_SET.getName())
+        );
+
+        final PropertyMigrationResult propertyMigrationResult = runner.migrateProperties();
+        assertEquals(expectedRenamed, propertyMigrationResult.getPropertiesRenamed());
     }
 
     private void setRequiredProperties(final TestRunner runner) {
@@ -423,8 +439,7 @@ public class TestPutEmail {
     }
 
     private String getMessageText(final Message message, final Charset charset) throws Exception {
-        if (message.getContent() instanceof MimeMultipart) {
-            final MimeMultipart multipart = (MimeMultipart) message.getContent();
+        if (message.getContent() instanceof MimeMultipart multipart) {
             final BodyPart part = multipart.getBodyPart(0);
             final InputStream is = part.getDataHandler().getInputStream();
             final String encoding = StandardCharsets.US_ASCII.equals(charset) ? "7bit" : "base64";

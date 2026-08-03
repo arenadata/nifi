@@ -17,13 +17,10 @@
 package org.apache.nifi.record.sink.script;
 
 import org.apache.nifi.annotation.behavior.DynamicProperty;
-import org.apache.nifi.annotation.behavior.Restricted;
-import org.apache.nifi.annotation.behavior.Restriction;
 import org.apache.nifi.annotation.documentation.CapabilityDescription;
 import org.apache.nifi.annotation.documentation.Tags;
 import org.apache.nifi.annotation.lifecycle.OnEnabled;
 import org.apache.nifi.components.PropertyDescriptor;
-import org.apache.nifi.components.RequiredPermission;
 import org.apache.nifi.components.ValidationContext;
 import org.apache.nifi.components.ValidationResult;
 import org.apache.nifi.controller.ConfigurationContext;
@@ -37,10 +34,6 @@ import org.apache.nifi.script.ScriptingComponentHelper;
 import org.apache.nifi.serialization.WriteResult;
 import org.apache.nifi.serialization.record.RecordSet;
 
-import javax.script.Invocable;
-import javax.script.ScriptContext;
-import javax.script.ScriptEngine;
-import javax.script.ScriptException;
 import java.io.IOException;
 import java.lang.reflect.UndeclaredThrowableException;
 import java.util.Collection;
@@ -49,6 +42,10 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicReference;
+import javax.script.Invocable;
+import javax.script.ScriptContext;
+import javax.script.ScriptEngine;
+import javax.script.ScriptException;
 
 @Tags({"record", "record sink", "script", "invoke", "groovy"})
 @CapabilityDescription("Allows the user to provide a scripted RecordSinkService instance in order to transmit records to the desired target. The script must set a variable 'recordSink' to an "
@@ -56,13 +53,7 @@ import java.util.concurrent.atomic.AtomicReference;
 @DynamicProperty(name = "Script Engine Binding property", value = "Binding property value passed to Script Runner",
         expressionLanguageScope = ExpressionLanguageScope.ENVIRONMENT,
         description = "Updates a script engine property specified by the Dynamic Property's key with the value specified by the Dynamic Property's value")
-@Restricted(
-        restrictions = {
-                @Restriction(
-                        requiredPermission = RequiredPermission.EXECUTE_CODE,
-                        explanation = "Provides operator the ability to execute arbitrary code assuming all permissions that NiFi has.")
-        }
-)
+
 public class ScriptedRecordSink extends AbstractScriptedControllerService implements RecordSinkService {
 
     protected final AtomicReference<RecordSinkService> recordSink = new AtomicReference<>();
@@ -149,7 +140,6 @@ public class ScriptedRecordSink extends AbstractScriptedControllerService implem
 
                 // evaluate the script
                 scriptRunner.run(scriptEngine.getBindings(ScriptContext.ENGINE_SCOPE));
-
 
                 // get configured processor from the script (if it exists)
                 final Object obj = scriptRunner.getScriptEngine().get("recordSink");

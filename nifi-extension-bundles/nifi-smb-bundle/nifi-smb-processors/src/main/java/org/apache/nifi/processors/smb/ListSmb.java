@@ -16,42 +16,6 @@
  */
 package org.apache.nifi.processors.smb;
 
-import static java.time.ZoneOffset.UTC;
-import static java.time.format.DateTimeFormatter.ISO_DATE_TIME;
-import static java.util.Arrays.asList;
-import static java.util.Collections.emptyList;
-import static java.util.Collections.unmodifiableMap;
-import static java.util.concurrent.TimeUnit.MILLISECONDS;
-import static org.apache.nifi.components.state.Scope.CLUSTER;
-import static org.apache.nifi.processor.util.StandardValidators.DATA_SIZE_VALIDATOR;
-import static org.apache.nifi.processor.util.StandardValidators.NON_BLANK_VALIDATOR;
-import static org.apache.nifi.processor.util.StandardValidators.NON_EMPTY_VALIDATOR;
-import static org.apache.nifi.processor.util.StandardValidators.TIME_PERIOD_VALIDATOR;
-import static org.apache.nifi.services.smb.SmbListableEntity.ALLOCATION_SIZE;
-import static org.apache.nifi.services.smb.SmbListableEntity.CHANGE_TIME;
-import static org.apache.nifi.services.smb.SmbListableEntity.LAST_MODIFIED_TIME;
-import static org.apache.nifi.services.smb.SmbListableEntity.CREATION_TIME;
-import static org.apache.nifi.services.smb.SmbListableEntity.FILENAME;
-import static org.apache.nifi.services.smb.SmbListableEntity.LAST_ACCESS_TIME;
-import static org.apache.nifi.services.smb.SmbListableEntity.PATH;
-import static org.apache.nifi.services.smb.SmbListableEntity.SERVICE_LOCATION;
-import static org.apache.nifi.services.smb.SmbListableEntity.SHORT_NAME;
-import static org.apache.nifi.services.smb.SmbListableEntity.SIZE;
-
-import java.io.IOException;
-import java.net.URI;
-import java.time.Instant;
-import java.time.LocalDateTime;
-import java.time.format.DateTimeParseException;
-import java.util.Collection;
-import java.util.Iterator;
-import java.util.LinkedList;
-import java.util.List;
-import java.util.Map;
-import java.util.TreeMap;
-import java.util.function.Predicate;
-import java.util.regex.Pattern;
-import java.util.stream.Stream;
 import org.apache.nifi.annotation.behavior.InputRequirement;
 import org.apache.nifi.annotation.behavior.InputRequirement.Requirement;
 import org.apache.nifi.annotation.behavior.PrimaryNodeOnly;
@@ -72,6 +36,7 @@ import org.apache.nifi.components.ValidationResult;
 import org.apache.nifi.components.Validator;
 import org.apache.nifi.components.state.Scope;
 import org.apache.nifi.context.PropertyContext;
+import org.apache.nifi.migration.PropertyConfiguration;
 import org.apache.nifi.processor.DataUnit;
 import org.apache.nifi.processor.ProcessContext;
 import org.apache.nifi.processor.exception.ProcessException;
@@ -84,6 +49,43 @@ import org.apache.nifi.serialization.record.RecordSchema;
 import org.apache.nifi.services.smb.SmbClientProviderService;
 import org.apache.nifi.services.smb.SmbClientService;
 import org.apache.nifi.services.smb.SmbListableEntity;
+
+import java.io.IOException;
+import java.net.URI;
+import java.time.Instant;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeParseException;
+import java.util.Collection;
+import java.util.Iterator;
+import java.util.LinkedList;
+import java.util.List;
+import java.util.Map;
+import java.util.TreeMap;
+import java.util.function.Predicate;
+import java.util.regex.Pattern;
+import java.util.stream.Stream;
+
+import static java.time.ZoneOffset.UTC;
+import static java.time.format.DateTimeFormatter.ISO_DATE_TIME;
+import static java.util.Arrays.asList;
+import static java.util.Collections.emptyList;
+import static java.util.Collections.unmodifiableMap;
+import static java.util.concurrent.TimeUnit.MILLISECONDS;
+import static org.apache.nifi.components.state.Scope.CLUSTER;
+import static org.apache.nifi.processor.util.StandardValidators.DATA_SIZE_VALIDATOR;
+import static org.apache.nifi.processor.util.StandardValidators.NON_BLANK_VALIDATOR;
+import static org.apache.nifi.processor.util.StandardValidators.NON_EMPTY_VALIDATOR;
+import static org.apache.nifi.processor.util.StandardValidators.TIME_PERIOD_VALIDATOR;
+import static org.apache.nifi.services.smb.SmbListableEntity.ALLOCATION_SIZE;
+import static org.apache.nifi.services.smb.SmbListableEntity.CHANGE_TIME;
+import static org.apache.nifi.services.smb.SmbListableEntity.CREATION_TIME;
+import static org.apache.nifi.services.smb.SmbListableEntity.FILENAME;
+import static org.apache.nifi.services.smb.SmbListableEntity.LAST_ACCESS_TIME;
+import static org.apache.nifi.services.smb.SmbListableEntity.LAST_MODIFIED_TIME;
+import static org.apache.nifi.services.smb.SmbListableEntity.PATH;
+import static org.apache.nifi.services.smb.SmbListableEntity.SERVICE_LOCATION;
+import static org.apache.nifi.services.smb.SmbListableEntity.SHORT_NAME;
+import static org.apache.nifi.services.smb.SmbListableEntity.SIZE;
 
 @PrimaryNodeOnly
 @TriggerSerially
@@ -127,8 +129,7 @@ import org.apache.nifi.services.smb.SmbListableEntity;
 public class ListSmb extends AbstractListProcessor<SmbListableEntity> {
 
     public static final PropertyDescriptor DIRECTORY = new PropertyDescriptor.Builder()
-            .displayName("Input Directory")
-            .name("directory")
+            .name("Input Directory")
             .description("The network folder from which to list files. This is the remaining relative path " +
                     "after the share: smb://HOSTNAME:PORT/SHARE/[DIRECTORY]/sub/directories. It is also possible "
                     + "to add subdirectories. The given path on the remote file share must exist. "
@@ -139,8 +140,7 @@ public class ListSmb extends AbstractListProcessor<SmbListableEntity> {
             .build();
 
     public static final PropertyDescriptor MINIMUM_AGE = new PropertyDescriptor.Builder()
-            .displayName("Minimum File Age")
-            .name("min-file-age")
+            .name("Minimum File Age")
             .description("The minimum age that a file must be in order to be listed; any file younger than this "
                     + "amount of time will be ignored.")
             .required(true)
@@ -149,24 +149,21 @@ public class ListSmb extends AbstractListProcessor<SmbListableEntity> {
             .build();
 
     public static final PropertyDescriptor MAXIMUM_AGE = new PropertyDescriptor.Builder()
-            .displayName("Maximum File Age")
-            .name("max-file-age")
+            .name("Maximum File Age")
             .description("Any file older than the given value will be omitted.")
             .required(false)
             .addValidator(TIME_PERIOD_VALIDATOR)
             .build();
 
     public static final PropertyDescriptor MINIMUM_SIZE = new PropertyDescriptor.Builder()
-            .displayName("Minimum File Size")
-            .name("min-file-size")
+            .name("Minimum File Size")
             .description("Any file smaller than the given value will be omitted.")
             .required(false)
             .addValidator(DATA_SIZE_VALIDATOR)
             .build();
 
     public static final PropertyDescriptor MAXIMUM_SIZE = new PropertyDescriptor.Builder()
-            .displayName("Maximum File Size")
-            .name("max-file-size")
+            .name("Maximum File Size")
             .description("Any file larger than the given value will be omitted.")
             .required(false)
             .addValidator(DATA_SIZE_VALIDATOR)
@@ -178,8 +175,7 @@ public class ListSmb extends AbstractListProcessor<SmbListableEntity> {
             .build();
 
     public static final PropertyDescriptor INITIAL_LISTING_STRATEGY = new Builder()
-            .name("initial-listing-strategy")
-            .displayName("Initial Listing Strategy")
+            .name("Initial Listing Strategy")
             .description("Specifies how to handle existing files on the SMB share when the processor is started for the first time (or its state has been cleared).")
             .required(true)
             .allowableValues(InitialListingStrategy.class)
@@ -188,8 +184,7 @@ public class ListSmb extends AbstractListProcessor<SmbListableEntity> {
             .build();
 
     public static final PropertyDescriptor INITIAL_LISTING_TIMESTAMP = new Builder()
-            .name("initial-listing-timestamp")
-            .displayName("Initial Listing Timestamp")
+            .name("Initial Listing Timestamp")
             .description("The timestamp from which the files will be listed when the processor is started for the first time (or its state has been cleared). " +
                     "The value can be specified as an epoch timestamp in milliseconds or as a UTC datetime in a format such as 2025-02-01T00:00:00Z")
             .required(true)
@@ -198,16 +193,14 @@ public class ListSmb extends AbstractListProcessor<SmbListableEntity> {
             .build();
 
     public static final PropertyDescriptor SMB_CLIENT_PROVIDER_SERVICE = new Builder()
-            .name("smb-client-provider-service")
-            .displayName("SMB Client Provider Service")
+            .name("SMB Client Provider Service")
             .description("Specifies the SMB client provider to use for creating SMB connections.")
             .required(true)
             .identifiesControllerService(SmbClientProviderService.class)
             .build();
 
     public static final PropertyDescriptor FILE_FILTER = new Builder()
-            .name("file-filter")
-            .displayName("File Filter")
+            .name("File Filter")
             .description("Only files whose names match the given regular expression will be listed.")
             .required(false)
             .addValidator(NON_BLANK_VALIDATOR)
@@ -215,8 +208,7 @@ public class ListSmb extends AbstractListProcessor<SmbListableEntity> {
             .build();
 
     public static final PropertyDescriptor PATH_FILTER = new Builder()
-            .name("path-filter")
-            .displayName("Path Filter")
+            .name("Path Filter")
             .description("Only files whose paths (up to the file's parent directory) match the given regular expression will be listed.")
             .required(false)
             .addValidator(NON_BLANK_VALIDATOR)
@@ -224,8 +216,7 @@ public class ListSmb extends AbstractListProcessor<SmbListableEntity> {
             .build();
 
     public static final PropertyDescriptor IGNORE_FILES_WITH_SUFFIX = new Builder()
-            .name("file-name-suffix-filter")
-            .displayName("Ignore Files with Suffix")
+            .name("Ignore Files with Suffix")
             .description("Files ending with the given suffix will be omitted. Can be used to make sure that files "
                     + "that are still uploading are not listed multiple times, by having those files have a suffix "
                     + "and remove the suffix once the upload finishes. This is highly recommended when using "
@@ -294,6 +285,25 @@ public class ListSmb extends AbstractListProcessor<SmbListableEntity> {
     public void onScheduled(ProcessContext context) throws IOException {
         boolean isStateEmpty = context.getStateManager().getState(getStateScope(context)).toMap().isEmpty();
         initialListingTimestamp = isStateEmpty ? getInitialListingTimestamp(context) : null;
+    }
+
+    @Override
+    public void migrateProperties(PropertyConfiguration config) {
+        super.migrateProperties(config);
+        config.renameProperty(ListedEntityTracker.OLD_TRACKING_STATE_CACHE_PROPERTY_NAME, TRACKING_STATE_CACHE.getName());
+        config.renameProperty(ListedEntityTracker.OLD_TRACKING_TIME_WINDOW_PROPERTY_NAME, TRACKING_TIME_WINDOW.getName());
+        config.renameProperty(ListedEntityTracker.OLD_INITIAL_LISTING_TARGET_PROPERTY_NAME, INITIAL_LISTING_TARGET.getName());
+        config.renameProperty("directory", DIRECTORY.getName());
+        config.renameProperty("min-file-age", MINIMUM_AGE.getName());
+        config.renameProperty("max-file-age", MAXIMUM_AGE.getName());
+        config.renameProperty("min-file-size", MINIMUM_SIZE.getName());
+        config.renameProperty("max-file-size", MAXIMUM_SIZE.getName());
+        config.renameProperty("initial-listing-strategy", INITIAL_LISTING_STRATEGY.getName());
+        config.renameProperty("initial-listing-timestamp", INITIAL_LISTING_TIMESTAMP.getName());
+        config.renameProperty("smb-client-provider-service", SMB_CLIENT_PROVIDER_SERVICE.getName());
+        config.renameProperty("file-filter", FILE_FILTER.getName());
+        config.renameProperty("path-filter", PATH_FILTER.getName());
+        config.renameProperty("file-name-suffix-filter", IGNORE_FILES_WITH_SUFFIX.getName());
     }
 
     @Override

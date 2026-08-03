@@ -21,6 +21,7 @@ import org.apache.nifi.nar.ExtensionManager;
 import org.apache.nifi.nar.NarLoader;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
 import java.io.File;
 
 public class NarAutoUnloadService {
@@ -58,7 +59,5 @@ public class NarAutoUnloadService {
         }
         return true;
     }
-
-
 
 }

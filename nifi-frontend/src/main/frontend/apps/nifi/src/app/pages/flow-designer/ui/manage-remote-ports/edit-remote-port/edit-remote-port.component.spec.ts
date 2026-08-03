@@ -21,10 +21,15 @@ import { EditRemotePortComponent } from './edit-remote-port.component';
 import { MAT_DIALOG_DATA, MatDialogRef } from '@angular/material/dialog';
 import { provideMockStore } from '@ngrx/store/testing';
 import { NoopAnimationsModule } from '@angular/platform-browser/animations';
-import { EditComponentDialogRequest } from '../../../state/flow';
+import { EditComponentDialogRequest } from '../../../../../state/shared';
 import { ComponentType } from '@nifi/shared';
 import { initialState } from '../../../state/manage-remote-ports/manage-remote-ports.reducer';
 import { ClusterConnectionService } from '../../../../../service/cluster-connection.service';
+import { initialState as initialErrorState } from '../../../../../state/error/error.reducer';
+import { errorFeatureKey } from '../../../../../state/error';
+import { initialState as initialCurrentUserState } from '../../../../../state/current-user/current-user.reducer';
+import { currentUserFeatureKey } from '../../../../../state/current-user';
+import { remotePortsFeatureKey } from '../../../state/manage-remote-ports';
 
 describe('EditRemotePortComponent', () => {
     let component: EditRemotePortComponent;
@@ -53,11 +58,17 @@ describe('EditRemotePortComponent', () => {
             imports: [EditRemotePortComponent, NoopAnimationsModule],
             providers: [
                 { provide: MAT_DIALOG_DATA, useValue: data },
-                provideMockStore({ initialState }),
+                provideMockStore({
+                    initialState: {
+                        [errorFeatureKey]: initialErrorState,
+                        [currentUserFeatureKey]: initialCurrentUserState,
+                        [remotePortsFeatureKey]: initialState
+                    }
+                }),
                 {
                     provide: ClusterConnectionService,
                     useValue: {
-                        isDisconnectionAcknowledged: jest.fn()
+                        isDisconnectionAcknowledged: vi.fn()
                     }
                 },
                 { provide: MatDialogRef, useValue: null }

@@ -16,6 +16,13 @@
  */
 package org.apache.nifi.remote.client;
 
+import org.apache.nifi.remote.SiteToSiteEventReporter;
+import org.apache.nifi.remote.TransferDirection;
+import org.apache.nifi.remote.protocol.http.HttpProxy;
+import org.apache.nifi.remote.util.SiteToSiteRestApiClient;
+import org.apache.nifi.web.api.dto.ControllerDTO;
+import org.apache.nifi.web.api.dto.PortDTO;
+
 import java.io.IOException;
 import java.net.InetAddress;
 import java.net.URI;
@@ -27,15 +34,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
-
 import javax.net.ssl.SSLContext;
-
-import org.apache.nifi.events.EventReporter;
-import org.apache.nifi.remote.TransferDirection;
-import org.apache.nifi.remote.protocol.http.HttpProxy;
-import org.apache.nifi.remote.util.SiteToSiteRestApiClient;
-import org.apache.nifi.web.api.dto.ControllerDTO;
-import org.apache.nifi.web.api.dto.PortDTO;
 
 public class SiteInfoProvider {
 
@@ -101,7 +100,7 @@ public class SiteInfoProvider {
     }
 
     protected SiteToSiteRestApiClient createSiteToSiteRestApiClient(final SSLContext sslContext, final HttpProxy proxy) {
-        final SiteToSiteRestApiClient apiClient = new SiteToSiteRestApiClient(sslContext, proxy, EventReporter.NO_OP);
+        final SiteToSiteRestApiClient apiClient = new SiteToSiteRestApiClient(sslContext, proxy, SiteToSiteEventReporter.DISABLED);
         apiClient.setConnectTimeoutMillis(connectTimeoutMillis);
         apiClient.setReadTimeoutMillis(readTimeoutMillis);
         apiClient.setLocalAddress(localAddress);

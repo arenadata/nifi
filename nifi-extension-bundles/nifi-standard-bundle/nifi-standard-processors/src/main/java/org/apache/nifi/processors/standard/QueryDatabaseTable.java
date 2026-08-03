@@ -31,6 +31,7 @@ import org.apache.nifi.annotation.documentation.Tags;
 import org.apache.nifi.components.PropertyDescriptor;
 import org.apache.nifi.components.state.Scope;
 import org.apache.nifi.expression.ExpressionLanguageScope;
+import org.apache.nifi.migration.PropertyConfiguration;
 import org.apache.nifi.processor.ProcessContext;
 import org.apache.nifi.processor.ProcessSession;
 import org.apache.nifi.processor.Relationship;
@@ -38,6 +39,7 @@ import org.apache.nifi.processors.standard.sql.DefaultAvroSqlWriter;
 import org.apache.nifi.processors.standard.sql.SqlWriter;
 import org.apache.nifi.scheduling.SchedulingStrategy;
 import org.apache.nifi.util.db.JdbcCommon;
+import org.apache.nifi.util.db.JdbcProperties;
 
 import java.util.List;
 import java.util.Set;
@@ -46,7 +48,6 @@ import static org.apache.nifi.util.db.JdbcProperties.NORMALIZE_NAMES_FOR_AVRO;
 import static org.apache.nifi.util.db.JdbcProperties.USE_AVRO_LOGICAL_TYPES;
 import static org.apache.nifi.util.db.JdbcProperties.VARIABLE_REGISTRY_ONLY_DEFAULT_PRECISION;
 import static org.apache.nifi.util.db.JdbcProperties.VARIABLE_REGISTRY_ONLY_DEFAULT_SCALE;
-
 
 @TriggerSerially
 @InputRequirement(Requirement.INPUT_FORBIDDEN)
@@ -68,13 +69,13 @@ import static org.apache.nifi.util.db.JdbcProperties.VARIABLE_REGISTRY_ONLY_DEFA
 @WritesAttributes({
         @WritesAttribute(attribute = "tablename", description = "Name of the table being queried"),
         @WritesAttribute(attribute = "querydbtable.row.count", description = "The number of rows selected by the query"),
-        @WritesAttribute(attribute = "fragment.identifier", description = "If 'Max Rows Per Flow File' is set then all FlowFiles from the same query result set "
+        @WritesAttribute(attribute = "fragment.identifier", description = "If 'Max Rows Per FlowFile' is set then all FlowFiles from the same query result set "
                 + "will have the same value for the fragment.identifier attribute. This can then be used to correlate the results."),
-        @WritesAttribute(attribute = "fragment.count", description = "If 'Max Rows Per Flow File' is set then this is the total number of  "
+        @WritesAttribute(attribute = "fragment.count", description = "If 'Max Rows Per FlowFile' is set then this is the total number of  "
                 + "FlowFiles produced by a single ResultSet. This can be used in conjunction with the "
                 + "fragment.identifier attribute in order to know how many FlowFiles belonged to the same incoming ResultSet. If Output Batch Size is set, then this "
                 + "attribute will not be populated."),
-        @WritesAttribute(attribute = "fragment.index", description = "If 'Max Rows Per Flow File' is set then the position of this FlowFile in the list of "
+        @WritesAttribute(attribute = "fragment.index", description = "If 'Max Rows Per FlowFile' is set then the position of this FlowFile in the list of "
                 + "outgoing FlowFiles that were all derived from the same result set FlowFile. This can be "
                 + "used in conjunction with the fragment.identifier attribute to know which FlowFiles originated from the same query result set and in what order  "
                 + "FlowFiles were produced"),
@@ -120,6 +121,15 @@ public class QueryDatabaseTable extends AbstractQueryDatabaseTable {
     public QueryDatabaseTable() {
         relationships = RELATIONSHIPS;
         propDescriptors = PROPERTY_DESCRIPTORS;
+    }
+
+    @Override
+    public void migrateProperties(PropertyConfiguration config) {
+        super.migrateProperties(config);
+        config.renameProperty(JdbcProperties.OLD_NORMALIZE_NAMES_FOR_AVRO_PROPERTY_NAME, NORMALIZE_NAMES_FOR_AVRO.getName());
+        config.renameProperty(JdbcProperties.OLD_USE_AVRO_LOGICAL_TYPES_PROPERTY_NAME, USE_AVRO_LOGICAL_TYPES.getName());
+        config.renameProperty(JdbcProperties.OLD_DEFAULT_SCALE_PROPERTY_NAME, VARIABLE_REGISTRY_ONLY_DEFAULT_SCALE.getName());
+        config.renameProperty(JdbcProperties.OLD_DEFAULT_PRECISION_PROPERTY_NAME, VARIABLE_REGISTRY_ONLY_DEFAULT_PRECISION.getName());
     }
 
     @Override

@@ -17,22 +17,6 @@
 
 package org.apache.nifi.minifi.commons.service;
 
-import static java.util.Map.entry;
-import static java.util.UUID.randomUUID;
-import static java.util.stream.Collectors.toMap;
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertTrue;
-import static org.mockito.ArgumentMatchers.anyString;
-import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.when;
-
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Map.Entry;
-import java.util.Set;
-import java.util.stream.Stream;
 import org.apache.commons.lang3.RandomStringUtils;
 import org.apache.nifi.c2.protocol.component.api.Bundle;
 import org.apache.nifi.c2.protocol.component.api.ComponentManifest;
@@ -55,6 +39,23 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Map.Entry;
+import java.util.Set;
+import java.util.stream.Stream;
+
+import static java.util.Map.entry;
+import static java.util.UUID.randomUUID;
+import static java.util.stream.Collectors.toMap;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
 public class StandardFlowPropertyEncryptorTest {
@@ -94,7 +95,6 @@ public class StandardFlowPropertyEncryptorTest {
     private static final Map<String, VersionedPropertyDescriptor> DESCRIPTORS3 = Map.of(
         SENSITIVE_3, versionedPropertyDescriptor(SENSITIVE_3, true)
     );
-
 
     @Mock
     private PropertyEncryptor mockPropertyEncryptor;
@@ -309,12 +309,11 @@ public class StandardFlowPropertyEncryptorTest {
             .map(VersionedConfigurableExtension::getProperties)
             .flatMap(properties -> properties.entrySet().stream())
             .forEach(propertyEntry -> {
-                    if (propertyEntry.getKey().startsWith(SENSITIVE_PROPERTY_NAME_PREFIX)) {
-                        assertTrue(propertyEntry.getValue().startsWith(FlowSerializer.ENC_PREFIX));
-                    } else {
-                        assertFalse(propertyEntry.getValue().startsWith(FlowSerializer.ENC_PREFIX));
-                    }
+                if (propertyEntry.getKey().startsWith(SENSITIVE_PROPERTY_NAME_PREFIX)) {
+                    assertTrue(propertyEntry.getValue().startsWith(FlowSerializer.ENC_PREFIX));
+                } else {
+                    assertFalse(propertyEntry.getValue().startsWith(FlowSerializer.ENC_PREFIX));
                 }
-            );
+            });
     }
 }

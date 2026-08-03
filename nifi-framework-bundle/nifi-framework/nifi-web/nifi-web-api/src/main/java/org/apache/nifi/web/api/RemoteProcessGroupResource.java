@@ -28,6 +28,7 @@ import jakarta.ws.rs.DELETE;
 import jakarta.ws.rs.DefaultValue;
 import jakarta.ws.rs.GET;
 import jakarta.ws.rs.HttpMethod;
+import jakarta.ws.rs.POST;
 import jakarta.ws.rs.PUT;
 import jakarta.ws.rs.Path;
 import jakarta.ws.rs.PathParam;
@@ -50,6 +51,8 @@ import org.apache.nifi.web.api.dto.PositionDTO;
 import org.apache.nifi.web.api.dto.RemoteProcessGroupDTO;
 import org.apache.nifi.web.api.dto.RemoteProcessGroupPortDTO;
 import org.apache.nifi.web.api.dto.RevisionDTO;
+import org.apache.nifi.web.api.entity.ClearBulletinsRequestEntity;
+import org.apache.nifi.web.api.entity.ClearBulletinsResultEntity;
 import org.apache.nifi.web.api.entity.ComponentStateEntity;
 import org.apache.nifi.web.api.entity.RemotePortRunStatusEntity;
 import org.apache.nifi.web.api.entity.RemoteProcessGroupEntity;
@@ -61,6 +64,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Controller;
 
 import java.net.URI;
+import java.time.Instant;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -226,6 +230,77 @@ public class RemoteProcessGroupResource extends ApplicationResource {
     }
 
     /**
+     * Clears bulletins for a remote process group.
+     *
+     * @param id The id of the remote process group
+     * @param clearBulletinsRequestEntity The clear bulletin request
+     * @return a clearBulletinsResultEntity
+     */
+    @POST
+    @Consumes(MediaType.APPLICATION_JSON)
+    @Produces(MediaType.APPLICATION_JSON)
+    @Path("{id}/bulletins/clear-requests")
+    @Operation(
+            summary = "Clears bulletins for a remote process group",
+            responses = {
+                    @ApiResponse(responseCode = "200", content = @Content(schema = @Schema(implementation = ClearBulletinsResultEntity.class))),
+                    @ApiResponse(responseCode = "400", description = "NiFi was unable to complete the request because it was invalid. The request should not be retried without modification."),
+                    @ApiResponse(responseCode = "401", description = "Client could not be authenticated."),
+                    @ApiResponse(responseCode = "403", description = "Client is not authorized to make this request."),
+                    @ApiResponse(responseCode = "404", description = "The specified resource could not be found."),
+                    @ApiResponse(responseCode = "409", description = "The request was valid but NiFi was not in the appropriate state to process it.")
+            },
+            security = {
+                    @SecurityRequirement(name = "Write - /remote-process-groups/{uuid}")
+            }
+    )
+    public Response clearBulletins(
+            @Parameter(
+                    description = "The remote process group id.",
+                    required = true
+            )
+            @PathParam("id") final String id,
+            @Parameter(
+                    description = "The clear bulletin request.",
+                    required = true
+            ) final ClearBulletinsRequestEntity clearBulletinsRequestEntity) {
+
+        if (clearBulletinsRequestEntity == null) {
+            throw new IllegalArgumentException("Clear bulletin request must be specified.");
+        }
+
+        // Validate the request
+        if (clearBulletinsRequestEntity.getFromTimestamp() == null) {
+            throw new IllegalArgumentException("From timestamp must be specified in the clear bulletin request.");
+        }
+
+        if (isReplicateRequest()) {
+            return replicate(HttpMethod.POST, clearBulletinsRequestEntity);
+        }
+
+        final RemoteProcessGroupEntity requestRemoteProcessGroupEntity = new RemoteProcessGroupEntity();
+        requestRemoteProcessGroupEntity.setId(id);
+
+        return withWriteLock(
+                serviceFacade,
+                requestRemoteProcessGroupEntity,
+                lookup -> {
+                    final Authorizable remoteProcessGroup = lookup.getRemoteProcessGroup(id);
+                    remoteProcessGroup.authorize(authorizer, RequestAction.WRITE, NiFiUserUtils.getNiFiUser());
+                },
+                () -> { },
+                (remoteProcessGroupEntity) -> {
+                    final Instant fromTimestamp = clearBulletinsRequestEntity.getFromTimestamp();
+
+                    // Clear bulletins for the remote process group
+                    final ClearBulletinsResultEntity entity = serviceFacade.clearBulletinsForComponent(remoteProcessGroupEntity.getId(), fromTimestamp);
+
+                    return generateOkResponse(entity).build();
+                }
+        );
+    }
+
+    /**
      * Updates the specified remote process group input port.
      *
      * @param id The id of the remote process group to update.
@@ -264,7 +339,7 @@ public class RemoteProcessGroupResource extends ApplicationResource {
             )
             @PathParam("port-id") final String portId,
             @Parameter(
-                    description = "The remote process group port.",
+                    description = "The remote process group port configuration details.",
                     required = true
             ) final RemoteProcessGroupPortEntity requestRemoteProcessGroupPortEntity) {
 
@@ -363,7 +438,7 @@ public class RemoteProcessGroupResource extends ApplicationResource {
             )
             @PathParam("port-id") String portId,
             @Parameter(
-                    description = "The remote process group port.",
+                    description = "The remote process group port configuration details.",
                     required = true
             ) RemoteProcessGroupPortEntity requestRemoteProcessGroupPortEntity) {
 
@@ -437,7 +512,7 @@ public class RemoteProcessGroupResource extends ApplicationResource {
     @Produces(MediaType.APPLICATION_JSON)
     @Path("{id}/input-ports/{port-id}/run-status")
     @Operation(
-            summary = "Updates run status of a remote port",
+            summary = "Updates run status of a remote input port",
             description = NON_GUARANTEED_ENDPOINT,
             responses = {
                     @ApiResponse(responseCode = "200", content = @Content(schema = @Schema(implementation = RemoteProcessGroupPortEntity.class))),
@@ -463,7 +538,7 @@ public class RemoteProcessGroupResource extends ApplicationResource {
             )
             @PathParam("port-id") final String portId,
             @Parameter(
-                    description = "The remote process group port.",
+                    description = "The remote process group port run status details.",
                     required = true
             ) final RemotePortRunStatusEntity requestRemotePortRunStatusEntity) {
 
@@ -532,7 +607,7 @@ public class RemoteProcessGroupResource extends ApplicationResource {
     @Produces(MediaType.APPLICATION_JSON)
     @Path("{id}/output-ports/{port-id}/run-status")
     @Operation(
-            summary = "Updates run status of a remote port",
+            summary = "Updates run status of a remote output port",
             description = NON_GUARANTEED_ENDPOINT,
             responses = {
                     @ApiResponse(responseCode = "200", content = @Content(schema = @Schema(implementation = RemoteProcessGroupPortEntity.class))),
@@ -558,7 +633,7 @@ public class RemoteProcessGroupResource extends ApplicationResource {
             )
             @PathParam("port-id") String portId,
             @Parameter(
-                    description = "The remote process group port.",
+                    description = "The remote process group port run status details.",
                     required = true
             ) RemotePortRunStatusEntity requestRemotePortRunStatusEntity) {
 
@@ -639,7 +714,7 @@ public class RemoteProcessGroupResource extends ApplicationResource {
             )
             @PathParam("id") String id,
             @Parameter(
-                    description = "The remote process group.",
+                    description = "The remote process group configuration details.",
                     required = true
             ) final RemoteProcessGroupEntity requestRemoteProcessGroupEntity) {
 
@@ -876,16 +951,14 @@ public class RemoteProcessGroupResource extends ApplicationResource {
                 () -> serviceFacade.verifyUpdateRemoteProcessGroups(processGroupId, shouldTransmit(requestRemotePortRunStatusEntity)),
                 (_revisions, remotePortRunStatusEntity) -> {
                     _revisions.forEach(revision -> {
-                                final RemoteProcessGroupEntity entity =
-                                        serviceFacade.updateRemoteProcessGroup(revision, createDTOWithDesiredRunStatus(revision.getComponentId(), remotePortRunStatusEntity));
-                                populateRemainingRemoteProcessGroupEntityContent(entity);
-                            });
+                        final RemoteProcessGroupEntity entity =
+                                serviceFacade.updateRemoteProcessGroup(revision, createDTOWithDesiredRunStatus(revision.getComponentId(), remotePortRunStatusEntity));
+                        populateRemainingRemoteProcessGroupEntityContent(entity);
+                    });
 
                     RemoteProcessGroupsEntity remoteProcessGroupsEntity = new RemoteProcessGroupsEntity();
 
-                    Response response = generateOkResponse(remoteProcessGroupsEntity).build();
-
-                    return response;
+                    return generateOkResponse(remoteProcessGroupsEntity).build();
                 }
         );
     }
@@ -949,7 +1022,6 @@ public class RemoteProcessGroupResource extends ApplicationResource {
         dto.setTransmitting(shouldTransmit(entity));
         return dto;
     }
-
 
     private boolean shouldTransmit(RemotePortRunStatusEntity requestRemotePortRunStatusEntity) {
         return "TRANSMITTING".equals(requestRemotePortRunStatusEntity.getState());

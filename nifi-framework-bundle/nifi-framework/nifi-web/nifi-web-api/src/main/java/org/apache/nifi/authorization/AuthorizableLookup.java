@@ -18,7 +18,6 @@ package org.apache.nifi.authorization;
 
 import org.apache.nifi.authorization.resource.Authorizable;
 import org.apache.nifi.components.ConfigurableComponent;
-import org.apache.nifi.components.RequiredPermission;
 import org.apache.nifi.parameter.ParameterContext;
 import org.apache.nifi.web.api.dto.BundleDTO;
 
@@ -194,6 +193,17 @@ public interface AuthorizableLookup {
     ComponentAuthorizable getControllerService(String id);
 
     /**
+     * Returns a {@link ConnectorManagedAuthorizableLookup} view of this lookup that resolves components within
+     * Connector-managed Process Groups regardless of the owning Connector's state. Only Connector-scoped REST
+     * endpoints should use this view; standard endpoints continue to use the methods directly on this interface,
+     * which intentionally hide components inside Connector-managed flows unless the owning Connector is in
+     * Troubleshooting mode.
+     *
+     * @return the Connector-managed authorizable lookup facade
+     */
+    ConnectorManagedAuthorizableLookup forConnectorManagedFlow();
+
+    /**
      * Get the authorizable referencing component.
      *
      * @param controllerServiceId controller service id
@@ -257,6 +267,12 @@ public interface AuthorizableLookup {
     Authorizable getParameterContexts();
 
     /**
+     * Get the authorizable for Connectors
+     * @return authorizable
+     */
+    Authorizable getConnectors();
+
+    /**
      * Get the authorizable connectable. Note this does not include RemoteGroupPorts.
      *
      * @param id connectable id
@@ -309,6 +325,12 @@ public interface AuthorizableLookup {
      */
     Authorizable getAuthorizableFromResource(final String resource);
 
+    /**
+     * Get the authorizable for the connector with the given ID
+     * @param connectorId the ID of the connector
+     * @return authorizable
+     */
+    Authorizable getConnector(String connectorId);
 
     /**
      * Get the authorizable for access to the System resource.
@@ -317,18 +339,4 @@ public interface AuthorizableLookup {
      */
     Authorizable getSystem();
 
-    /**
-     * Get the authorizable for accessing restricted components.
-     *
-     * @return authorizable
-     */
-    Authorizable getRestrictedComponents();
-
-    /**
-     * Get the authorizable for accessing restricted components with a specific required permission.
-     *
-     * @param requiredPermission required permission
-     * @return authorizable
-     */
-    Authorizable getRestrictedComponents(RequiredPermission requiredPermission);
 }

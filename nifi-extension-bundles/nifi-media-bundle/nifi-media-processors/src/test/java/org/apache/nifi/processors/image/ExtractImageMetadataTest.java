@@ -33,13 +33,12 @@ import java.util.Map;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 
-
 public class ExtractImageMetadataTest {
-    private final static String BMP_HEADER = "BMP Header.";
-    private final static String JPEG_HEADER = "JPEG.";
-    private final static String GIF_HEADER = "GIF Header.";
-    private final static String GIF_CONTROL = "GIF Control.";
-    private final static String PNG_HEADER = "PNG-";
+    private static final String BMP_HEADER = "BMP Header.";
+    private static final String JPEG_HEADER = "JPEG.";
+    private static final String GIF_HEADER = "GIF Header.";
+    private static final String GIF_CONTROL = "GIF Control.";
+    private static final String PNG_HEADER = "PNG-";
 
     private TestRunner testRunner;
 
@@ -128,7 +127,6 @@ public class ExtractImageMetadataTest {
         assertEquals("1", attributes.get(BMP_HEADER + "Planes"));
         assertEquals("40", attributes.get(BMP_HEADER + "Header Size"));
 
-
         assertNull(attributes.get(BMP_HEADER + "Compression"));
         assertNull(attributes.get(BMP_HEADER + "X Pixels per Meter"));
         assertNull(attributes.get(BMP_HEADER + "Y Pixels per Meter"));
@@ -145,7 +143,6 @@ public class ExtractImageMetadataTest {
 
         testRunner.run();
         testRunner.assertAllFlowFilesTransferred(rel, 1);
-
 
         MockFlowFile flowFile = testRunner.getFlowFilesForRelationship(rel).get(0);
         testRunner.assertQueueEmpty();

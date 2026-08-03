@@ -496,11 +496,6 @@ public class TestAbstractComponentNode {
         }
 
         @Override
-        public boolean isRestricted() {
-            return false;
-        }
-
-        @Override
         public boolean isDeprecated() {
             return false;
         }
@@ -536,7 +531,7 @@ public class TestAbstractComponentNode {
         }
 
         @Override
-        protected List<ValidationResult> validateConfig() {
+        protected List<ValidationResult> validateConfig(final ValidationContext validationContext) {
             return Collections.emptyList();
         }
 
@@ -553,7 +548,6 @@ public class TestAbstractComponentNode {
             this.paramContext = parameterContext;
         }
     }
-
 
     private static class ValidationControlledAbstractComponentNode extends LocalComponentNode {
         private final long pauseMillis;

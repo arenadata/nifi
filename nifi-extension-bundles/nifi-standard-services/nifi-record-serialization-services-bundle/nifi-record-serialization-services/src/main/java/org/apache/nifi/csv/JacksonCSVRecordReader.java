@@ -22,18 +22,6 @@ import com.fasterxml.jackson.databind.ObjectReader;
 import com.fasterxml.jackson.dataformat.csv.CsvMapper;
 import com.fasterxml.jackson.dataformat.csv.CsvParser;
 import com.fasterxml.jackson.dataformat.csv.CsvSchema;
-import java.io.IOException;
-import java.io.InputStream;
-import java.io.InputStreamReader;
-import java.io.Reader;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Map;
-import java.util.Optional;
-import java.util.Set;
 import org.apache.commons.csv.CSVFormat;
 import org.apache.commons.csv.DuplicateHeaderMode;
 import org.apache.commons.io.input.BOMInputStream;
@@ -46,13 +34,25 @@ import org.apache.nifi.serialization.record.MapRecord;
 import org.apache.nifi.serialization.record.Record;
 import org.apache.nifi.serialization.record.RecordSchema;
 
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.io.Reader;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
 
 public class JacksonCSVRecordReader extends AbstractCSVRecordReader {
     private final MappingIterator<String[]> recordStream;
     private List<String> rawFieldNames = null;
     private boolean allowDuplicateHeaderNames;
 
-    private volatile static CsvMapper mapper = new CsvMapper().enable(CsvParser.Feature.WRAP_AS_ARRAY);
+    private static volatile CsvMapper mapper = new CsvMapper().enable(CsvParser.Feature.WRAP_AS_ARRAY);
 
     public JacksonCSVRecordReader(final InputStream in, final ComponentLog logger, final RecordSchema schema, final CSVFormat csvFormat, final boolean hasHeader, final boolean ignoreHeader,
                                   final String dateFormat, final String timeFormat, final String timestampFormat, final String encoding, final boolean trimDoubleQuote) throws IOException {
@@ -120,10 +120,10 @@ public class JacksonCSVRecordReader extends AbstractCSVRecordReader {
                         final Set<String> deDupe = new HashSet<>(schema.getFieldCount());
                         for (final String name : rawFieldNames) {
                             if (!deDupe.add(name)) {
-                                    throw new IllegalArgumentException(String.format(
-                                            "The header contains a duplicate name: \"%s\" in %s. If this is valid then use CSVFormat.withAllowDuplicateHeaderNames().",
-                                            name, rawFieldNames
-                                    ));
+                                throw new IllegalArgumentException(String.format(
+                                        "The header contains a duplicate name: \"%s\" in %s. If this is valid then use CSVFormat.withAllowDuplicateHeaderNames().",
+                                        name, rawFieldNames
+                                ));
                             }
                         }
                     }

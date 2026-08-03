@@ -17,10 +17,10 @@
 package org.apache.nifi.extension.manifest;
 
 import io.swagger.v3.oas.annotations.media.Schema;
-
-import javax.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotBlank;
 import jakarta.xml.bind.annotation.XmlAccessType;
 import jakarta.xml.bind.annotation.XmlAccessorType;
+
 import java.util.Objects;
 
 @XmlAccessorType(XmlAccessType.FIELD)
@@ -51,8 +51,12 @@ public class Restriction {
 
     @Override
     public boolean equals(final Object o) {
-        if (this == o) return true;
-        if (o == null || getClass() != o.getClass()) return false;
+        if (this == o) {
+            return true;
+        }
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
         final Restriction that = (Restriction) o;
         return Objects.equals(requiredPermission, that.requiredPermission)
                 && Objects.equals(explanation, that.explanation);

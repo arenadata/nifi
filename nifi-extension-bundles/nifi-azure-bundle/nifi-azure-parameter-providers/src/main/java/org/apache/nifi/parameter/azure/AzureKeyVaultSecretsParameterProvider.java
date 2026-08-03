@@ -16,6 +16,8 @@
  */
 package org.apache.nifi.parameter.azure;
 
+import com.azure.core.http.HttpClient;
+import com.azure.core.http.jdk.httpclient.JdkHttpClientBuilder;
 import com.azure.security.keyvault.secrets.SecretClient;
 import com.azure.security.keyvault.secrets.SecretClientBuilder;
 import com.azure.security.keyvault.secrets.models.KeyVaultSecret;
@@ -40,9 +42,10 @@ import java.util.Map;
 import java.util.regex.Pattern;
 
 /**
- * Reads secrets from Azure Key Vault Secrets to provide parameter values.  Secrets must be created similar to the following Azure cli command: <br/><br/>
- * <code>az keyvault secret set --vault-name &lt;your-unique-keyvault-name> --name &lt;parameter-name> --value &lt;parameter-value>
- * --tags group-name=&lt;group-name></code> <br/><br/>
+ * Reads secrets from Azure Key Vault Secrets to provide parameter values.  Secrets must be created similar to the following Azure cli command:
+ * {@snippet lang="text" :
+ *       az keyvault secret set --vault-name <your-unique-keyvault-name> --name <parameter-name> --value <parameter-value> --tags group-name=<group-name>
+ *  }
  * @see <a href="https://learn.microsoft.com/en-us/azure/key-vault/secrets/quick-create-cli">Azure Key Vault Secrets</a>
  */
 @Tags({"azure", "keyvault", "key", "vault", "secrets"})
@@ -61,7 +64,7 @@ public class AzureKeyVaultSecretsParameterProvider extends AbstractParameterProv
             .displayName("Key Vault URI")
             .description("Vault URI of the Key Vault that contains the secrets")
             .required(true)
-            .addValidator(StandardValidators.NON_EMPTY_VALIDATOR)
+            .addValidator(StandardValidators.URI_VALIDATOR)
             .build();
     public static final PropertyDescriptor GROUP_NAME_PATTERN = new PropertyDescriptor.Builder()
             .name("group-name-pattern")
@@ -190,7 +193,9 @@ public class AzureKeyVaultSecretsParameterProvider extends AbstractParameterProv
         final AzureCredentialsService credentialsService =
                 context.getProperty(AZURE_CREDENTIALS_SERVICE).asControllerService(AzureCredentialsService.class);
         final String vaultUrl = context.getProperty(KEY_VAULT_URI).getValue();
+        final HttpClient httpClient = new JdkHttpClientBuilder().build();
         return new SecretClientBuilder()
+                .httpClient(httpClient)
                 .credential(credentialsService.getCredentials())
                 .vaultUrl(vaultUrl)
                 .buildClient();

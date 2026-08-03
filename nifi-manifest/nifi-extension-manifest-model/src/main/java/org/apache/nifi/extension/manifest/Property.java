@@ -17,11 +17,11 @@
 package org.apache.nifi.extension.manifest;
 
 import io.swagger.v3.oas.annotations.media.Schema;
-
 import jakarta.xml.bind.annotation.XmlAccessType;
 import jakarta.xml.bind.annotation.XmlAccessorType;
 import jakarta.xml.bind.annotation.XmlElement;
 import jakarta.xml.bind.annotation.XmlElementWrapper;
+
 import java.util.List;
 
 @XmlAccessorType(XmlAccessType.FIELD)
@@ -51,6 +51,8 @@ public class Property {
     private List<Dependency> dependencies;
 
     private ResourceDefinition resourceDefinition;
+
+    private ListenPortDefinition listenPortDefinition;
 
     @Schema(description = "The name of the property")
     public String getName() {
@@ -176,5 +178,14 @@ public class Property {
 
     public void setResourceDefinition(ResourceDefinition resourceDefinition) {
         this.resourceDefinition = resourceDefinition;
+    }
+
+    @Schema(description = "The optional listen port definition")
+    public ListenPortDefinition getListenPortDefinition() {
+        return listenPortDefinition;
+    }
+
+    public void setListenPortDefinition(final ListenPortDefinition listenPortDefinition) {
+        this.listenPortDefinition = listenPortDefinition;
     }
 }

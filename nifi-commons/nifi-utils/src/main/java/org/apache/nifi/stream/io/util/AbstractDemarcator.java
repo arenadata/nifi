@@ -16,12 +16,12 @@
  */
 package org.apache.nifi.stream.io.util;
 
+import org.apache.nifi.stream.io.exception.TokenTooLargeException;
+
 import java.io.Closeable;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.BufferOverflowException;
-
-import org.apache.nifi.stream.io.exception.TokenTooLargeException;
 
 /**
  * Base class for implementing streaming demarcators.
@@ -31,7 +31,7 @@ import org.apache.nifi.stream.io.exception.TokenTooLargeException;
  */
 abstract class AbstractDemarcator implements Closeable {
 
-    final static int INIT_BUFFER_SIZE = 8192;
+    static final int INIT_BUFFER_SIZE = 8192;
 
     private final InputStream is;
 

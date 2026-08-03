@@ -15,14 +15,11 @@
  * limitations under the License.
  */
 
-import { Injectable } from '@angular/core';
+import { Injectable, inject } from '@angular/core';
 import { Observable } from 'rxjs';
 import { HttpClient, HttpParams } from '@angular/common/http';
-import { NiFiCommon } from '@nifi/shared';
 import {
     DownloadFlowFileContentRequest,
-    FlowFileSummary,
-    ListingRequest,
     SubmitQueueListingRequest,
     ViewFlowFileContentRequest
 } from '../state/queue-listing';
@@ -30,25 +27,24 @@ import { Client } from '../../../service/client.service';
 
 @Injectable({ providedIn: 'root' })
 export class QueueService {
-    private static readonly API: string = '../nifi-api';
+    private httpClient = inject(HttpClient);
+    private client = inject(Client);
 
-    constructor(
-        private httpClient: HttpClient,
-        private nifiCommon: NiFiCommon,
-        private client: Client
-    ) {}
+    private static readonly API: string = '../nifi-api';
 
     getConnection(connectionId: string): Observable<any> {
         return this.httpClient.get(`${QueueService.API}/connections/${connectionId}`);
     }
 
-    getFlowFile(flowfileSummary: FlowFileSummary): Observable<any> {
+    getFlowFile(connectionId: string, flowfileId: string, clusterNodeId?: string): Observable<any> {
         let params = new HttpParams();
-        if (flowfileSummary.clusterNodeId) {
-            params = params.set('clusterNodeId', flowfileSummary.clusterNodeId);
+        if (clusterNodeId) {
+            params = params.set('clusterNodeId', clusterNodeId);
         }
 
-        return this.httpClient.get(this.nifiCommon.stripProtocol(flowfileSummary.uri), { params });
+        return this.httpClient.get(`${QueueService.API}/flowfile-queues/${connectionId}/flowfiles/${flowfileId}`, {
+            params
+        });
     }
 
     submitQueueListingRequest(queueListingRequest: SubmitQueueListingRequest): Observable<any> {
@@ -58,12 +54,16 @@ export class QueueService {
         );
     }
 
-    pollQueueListingRequest(listingRequest: ListingRequest): Observable<any> {
-        return this.httpClient.get(this.nifiCommon.stripProtocol(listingRequest.uri));
+    pollQueueListingRequest(connectionId: string, listingRequestId: string): Observable<any> {
+        return this.httpClient.get(
+            `${QueueService.API}/flowfile-queues/${connectionId}/listing-requests/${listingRequestId}`
+        );
     }
 
-    deleteQueueListingRequest(listingRequest: ListingRequest): Observable<any> {
-        return this.httpClient.delete(this.nifiCommon.stripProtocol(listingRequest.uri));
+    deleteQueueListingRequest(connectionId: string, listingRequestId: string): Observable<any> {
+        return this.httpClient.delete(
+            `${QueueService.API}/flowfile-queues/${connectionId}/listing-requests/${listingRequestId}`
+        );
     }
 
     downloadContent(request: DownloadFlowFileContentRequest): void {

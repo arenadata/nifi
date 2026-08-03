@@ -64,6 +64,7 @@ import org.apache.nifi.web.api.dto.VersionedFlowDTO;
 import org.apache.nifi.web.api.dto.VersionedFlowUpdateRequestDTO;
 import org.apache.nifi.web.api.entity.AffectedComponentEntity;
 import org.apache.nifi.web.api.entity.CreateActiveRequestEntity;
+import org.apache.nifi.web.api.entity.CreateFlowBranchRequestEntity;
 import org.apache.nifi.web.api.entity.Entity;
 import org.apache.nifi.web.api.entity.ProcessGroupEntity;
 import org.apache.nifi.web.api.entity.StartVersionControlRequestEntity;
@@ -120,7 +121,8 @@ public class VersionsResource extends FlowUpdateResource<VersionControlInformati
                     @SecurityRequirement(name = "Read - /process-groups/{uuid}")
             }
     )
-    public Response getVersionInformation(@Parameter(description = "The process group id.", required = true) @PathParam("id") final String groupId) {
+    public Response getVersionInformation(
+            @Parameter(description = "The process group id.", required = true) @PathParam("id") final String groupId) {
 
         if (isReplicateRequest()) {
             return replicate(HttpMethod.GET);
@@ -161,7 +163,9 @@ public class VersionsResource extends FlowUpdateResource<VersionControlInformati
                     @SecurityRequirement(name = "Read - /process-groups/{uuid}")
             }
     )
-    public Response exportFlowVersion(@Parameter(description = "The process group id.", required = true) @PathParam("id") final String groupId) {
+    public Response exportFlowVersion(
+            @Parameter(description = "The process group id.", required = true) @PathParam("id") final String groupId) {
+
         // authorize access
         serviceFacade.authorizeAccess(lookup -> {
             final ProcessGroupAuthorizable groupAuthorizable = lookup.getProcessGroup(groupId);
@@ -270,7 +274,6 @@ public class VersionsResource extends FlowUpdateResource<VersionControlInformati
                 });
     }
 
-
     @PUT
     @Consumes(MediaType.APPLICATION_JSON)
     @Produces(MediaType.APPLICATION_JSON)
@@ -290,8 +293,9 @@ public class VersionsResource extends FlowUpdateResource<VersionControlInformati
                     @SecurityRequirement(name = "Only the user that submitted the request can update it")
             }
     )
-    public Response updateVersionControlRequest(@Parameter(description = "The request ID.") @PathParam("id") final String requestId,
-                                                @Parameter(description = "The version control component mapping.", required = true) final VersionControlComponentMappingEntity requestEntity) {
+    public Response updateVersionControlRequest(
+            @Parameter(description = "The request ID.") @PathParam("id") final String requestId,
+            @Parameter(description = "The version control component mapping.", required = true) final VersionControlComponentMappingEntity requestEntity) {
 
         if (requestEntity == null) {
             throw new IllegalArgumentException("Version control information must be specified.");
@@ -388,7 +392,6 @@ public class VersionsResource extends FlowUpdateResource<VersionControlInformati
         }
     }
 
-
     @DELETE
     @Consumes(MediaType.WILDCARD)
     @Produces(MediaType.APPLICATION_JSON)
@@ -454,7 +457,6 @@ public class VersionsResource extends FlowUpdateResource<VersionControlInformati
                     });
         }
     }
-
 
     @POST
     @Consumes(MediaType.APPLICATION_JSON)
@@ -549,7 +551,6 @@ public class VersionsResource extends FlowUpdateResource<VersionControlInformati
                 throw new RuntimeException(e);
             }
 
-
             // Now that we have the Request, we know that no other thread is updating the Flow Registry. So we can now
             // create the Flow in the Flow Registry and push the Process Group as the first version of the Flow. Once we've
             // succeeded with that, we need to update all nodes' Process Group to contain the new Version Control Information.
@@ -623,6 +624,83 @@ public class VersionsResource extends FlowUpdateResource<VersionControlInformati
         }
     }
 
+    @POST
+    @Consumes(MediaType.APPLICATION_JSON)
+    @Produces(MediaType.APPLICATION_JSON)
+    @Path("process-groups/{id}/branches")
+    @Operation(
+            summary = "Creates a new branch for a version controlled Process Group",
+            description = NON_GUARANTEED_ENDPOINT,
+            responses = {
+                    @ApiResponse(responseCode = "200", content = @Content(schema = @Schema(implementation = VersionControlInformationEntity.class))),
+                    @ApiResponse(responseCode = "400", description = "NiFi was unable to complete the request because it was invalid. The request should not be retried without modification."),
+                    @ApiResponse(responseCode = "401", description = "Client could not be authenticated."),
+                    @ApiResponse(responseCode = "403", description = "Client is not authorized to make this request."),
+                    @ApiResponse(responseCode = "404", description = "The specified resource could not be found."),
+                    @ApiResponse(responseCode = "409", description = "The request was valid but NiFi was not in the appropriate state to process it.")
+            },
+            security = {
+                    @SecurityRequirement(name = "Read - /process-groups/{uuid}"),
+                    @SecurityRequirement(name = "Write - /process-groups/{uuid}")
+            }
+    )
+    public Response createFlowBranch(
+            @Parameter(description = "The process group id.") @PathParam("id") final String groupId,
+            @Parameter(description = "The branch creation request.", required = true) final CreateFlowBranchRequestEntity requestEntity) {
+
+        if (requestEntity == null) {
+            throw new IllegalArgumentException("Branch creation request must be specified.");
+        }
+
+        final RevisionDTO revisionDto = requestEntity.getProcessGroupRevision();
+        if (revisionDto == null) {
+            throw new IllegalArgumentException("Process Group Revision must be specified");
+        }
+        if (StringUtils.isBlank(requestEntity.getBranch())) {
+            throw new IllegalArgumentException("Branch name must be specified");
+        }
+
+        if (isReplicateRequest()) {
+            return replicate(HttpMethod.POST, requestEntity);
+        } else if (isDisconnectedFromCluster()) {
+            verifyDisconnectedNodeModification(requestEntity.isDisconnectedNodeAcknowledged());
+        }
+
+        final Revision requestRevision = getRevision(revisionDto, groupId);
+
+        return withWriteLock(
+                serviceFacade,
+                requestEntity,
+                requestRevision,
+                lookup -> {
+                    final Authorizable processGroup = lookup.getProcessGroup(groupId).getAuthorizable();
+                    final NiFiUser user = NiFiUserUtils.getNiFiUser();
+                    processGroup.authorize(authorizer, RequestAction.READ, user);
+                    processGroup.authorize(authorizer, RequestAction.WRITE, user);
+                },
+                () -> {
+                    final VersionControlInformationEntity currentVersionControlInfo = serviceFacade.getVersionControlInformation(groupId);
+                    if (currentVersionControlInfo == null || currentVersionControlInfo.getVersionControlInformation() == null) {
+                        throw new IllegalStateException("Process Group with ID " + groupId + " is not currently under Version Control");
+                    }
+
+                    final VersionControlInformationDTO currentInfo = currentVersionControlInfo.getVersionControlInformation();
+                    if (VersionControlInformationDTO.SYNC_FAILURE.equals(currentInfo.getState())) {
+                        throw new IllegalStateException("Process Group with ID " + groupId + " cannot create a new branch while reporting Sync Failure");
+                    }
+                },
+                (revision, entity) -> {
+                    final VersionControlInformationEntity responseEntity = serviceFacade.createFlowBranch(
+                            revision,
+                            groupId,
+                            entity.getBranch(),
+                            entity.getSourceBranch(),
+                            entity.getSourceVersion());
+
+                    return generateOkResponse(responseEntity).build();
+                });
+    }
+
     private String lockVersionControl(final URI originalUri, final String groupId) throws URISyntaxException {
         final URI createRequestUri = new URI(originalUri.getScheme(), originalUri.getUserInfo(), originalUri.getHost(),
                 originalUri.getPort(), "/nifi-api/versions/active-requests", null, originalUri.getFragment());
@@ -653,8 +731,7 @@ public class VersionsResource extends FlowUpdateResource<VersionControlInformati
                     "Failed to create a Version Control Request across all nodes in the cluster. Received response code " + clusterResponse.getStatus() + " with content: " + errorResponse);
         }
 
-        final String requestId = getResponseEntity(clusterResponse, String.class);
-        return requestId;
+        return getResponseEntity(clusterResponse, String.class);
     }
 
     private void replicateVersionControlMapping(final VersionControlComponentMappingEntity mappingEntity, final StartVersionControlRequestEntity requestEntity,
@@ -711,7 +788,6 @@ public class VersionsResource extends FlowUpdateResource<VersionControlInformati
             }
         }
     }
-
 
     @DELETE
     @Consumes(MediaType.WILDCARD)
@@ -778,7 +854,6 @@ public class VersionsResource extends FlowUpdateResource<VersionControlInformati
                 });
     }
 
-
     @PUT
     @Consumes(MediaType.APPLICATION_JSON)
     @Produces(MediaType.APPLICATION_JSON)
@@ -801,8 +876,9 @@ public class VersionsResource extends FlowUpdateResource<VersionControlInformati
                     @SecurityRequirement(name = "Write - /process-groups/{uuid}")
             }
     )
-    public Response updateFlowVersion(@Parameter(description = "The process group id.") @PathParam("id") final String groupId,
-                                      @Parameter(description = "The controller service configuration details.", required = true) final VersionedFlowSnapshotEntity requestEntity) {
+    public Response updateFlowVersion(
+            @Parameter(description = "The process group id.") @PathParam("id") final String groupId,
+            @Parameter(description = "The controller service configuration details.", required = true) final VersionedFlowSnapshotEntity requestEntity) {
 
         if (requestEntity == null) {
             throw new IllegalArgumentException("Version control information must be specified.");
@@ -878,7 +954,6 @@ public class VersionsResource extends FlowUpdateResource<VersionControlInformati
                 });
     }
 
-
     @GET
     @Consumes(MediaType.WILDCARD)
     @Produces(MediaType.APPLICATION_JSON)
@@ -901,7 +976,9 @@ public class VersionsResource extends FlowUpdateResource<VersionControlInformati
                     @SecurityRequirement(name = "Only the user that submitted the request can get it")
             }
     )
-    public Response getUpdateRequest(@Parameter(description = "The ID of the Update Request") @PathParam("id") final String updateRequestId) {
+    public Response getUpdateRequest(
+            @Parameter(description = "The ID of the Update Request") @PathParam("id") final String updateRequestId) {
+
         return retrieveFlowUpdateRequest("update-requests", updateRequestId);
     }
 
@@ -927,7 +1004,9 @@ public class VersionsResource extends FlowUpdateResource<VersionControlInformati
                     @SecurityRequirement(name = "Only the user that submitted the request can get it")
             }
     )
-    public Response getRevertRequest(@Parameter(description = "The ID of the Revert Request") @PathParam("id") final String revertRequestId) {
+    public Response getRevertRequest(
+            @Parameter(description = "The ID of the Revert Request") @PathParam("id") final String revertRequestId) {
+
         return retrieveFlowUpdateRequest("revert-requests", revertRequestId);
     }
 
@@ -960,7 +1039,7 @@ public class VersionsResource extends FlowUpdateResource<VersionControlInformati
             @QueryParam(DISCONNECTED_NODE_ACKNOWLEDGED) @DefaultValue("false") final Boolean disconnectedNodeAcknowledged,
             @Parameter(description = "The ID of the Update Request") @PathParam("id") final String updateRequestId) {
 
-        return deleteFlowUpdateRequest("update-requests", updateRequestId, disconnectedNodeAcknowledged.booleanValue());
+        return deleteFlowUpdateRequest("update-requests", updateRequestId, disconnectedNodeAcknowledged);
     }
 
     @DELETE
@@ -992,7 +1071,7 @@ public class VersionsResource extends FlowUpdateResource<VersionControlInformati
             @QueryParam(DISCONNECTED_NODE_ACKNOWLEDGED) @DefaultValue("false") final Boolean disconnectedNodeAcknowledged,
             @Parameter(description = "The ID of the Revert Request") @PathParam("id") final String revertRequestId) {
 
-        return deleteFlowUpdateRequest("revert-requests", revertRequestId, disconnectedNodeAcknowledged.booleanValue());
+        return deleteFlowUpdateRequest("revert-requests", revertRequestId, disconnectedNodeAcknowledged);
     }
 
     @POST
@@ -1021,7 +1100,6 @@ public class VersionsResource extends FlowUpdateResource<VersionControlInformati
                     @SecurityRequirement(name = "Write - /process-groups/{uuid}"),
                     @SecurityRequirement(name = "Read - /{component-type}/{uuid} - For all encapsulated components"),
                     @SecurityRequirement(name = "Write - /{component-type}/{uuid} - For all encapsulated components"),
-                    @SecurityRequirement(name = "Write - if the template contains any restricted components - /restricted-components"),
                     @SecurityRequirement(name = "Read - /parameter-contexts/{uuid} - For any Parameter Context that is referenced by a Property that is changed, added, or removed")
             }
     )
@@ -1091,12 +1169,12 @@ public class VersionsResource extends FlowUpdateResource<VersionControlInformati
                     @SecurityRequirement(name = "Write - /process-groups/{uuid}"),
                     @SecurityRequirement(name = "Read - /{component-type}/{uuid} - For all encapsulated components"),
                     @SecurityRequirement(name = "Write - /{component-type}/{uuid} - For all encapsulated components"),
-                    @SecurityRequirement(name = "Write - if the template contains any restricted components - /restricted-components"),
                     @SecurityRequirement(name = "Read - /parameter-contexts/{uuid} - For any Parameter Context that is referenced by a Property that is changed, added, or removed")
             }
     )
-    public Response initiateRevertFlowVersion(@Parameter(description = "The process group id.") @PathParam("id") final String groupId,
-                                              @Parameter(description = "The Version Control Information to revert to.", required = true) final VersionControlInformationEntity requestEntity) {
+    public Response initiateRevertFlowVersion(
+            @Parameter(description = "The process group id.") @PathParam("id") final String groupId,
+            @Parameter(description = "The Version Control Information to revert to.", required = true) final VersionControlInformationEntity requestEntity) {
 
         if (requestEntity == null) {
             throw new IllegalArgumentException("Version control information must be specified.");
@@ -1149,6 +1227,7 @@ public class VersionsResource extends FlowUpdateResource<VersionControlInformati
         // The flow in the registry may not contain the same versions of components that we have in our flow. As a result, we need to update
         // the flow snapshot to contain compatible bundles.
         serviceFacade.discoverCompatibleBundles(flowSnapshot.getFlowContents());
+        serviceFacade.discoverCompatibleBundles(flowSnapshot.getParameterProviders());
 
         // If there are any Controller Services referenced that are inherited from the parent group, resolve those to point to the appropriate Controller Service, if we are able to.
         final Set<String> unresolvedControllerServices = serviceFacade.resolveInheritedControllerServices(flowSnapshotContainer, groupId, NiFiUserUtils.getNiFiUser());

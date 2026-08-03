@@ -26,10 +26,9 @@ import com.hierynomus.smbj.session.Session;
 import com.hierynomus.smbj.share.DiskEntry;
 import com.hierynomus.smbj.share.DiskShare;
 import com.hierynomus.smbj.share.File;
-import java.io.ByteArrayOutputStream;
-import java.io.IOException;
-import java.util.Set;
+import org.apache.nifi.flowfile.FlowFile;
 import org.apache.nifi.processor.ProcessContext;
+import org.apache.nifi.util.MockFlowFile;
 import org.apache.nifi.util.TestRunner;
 import org.apache.nifi.util.TestRunners;
 import org.junit.jupiter.api.AfterEach;
@@ -39,17 +38,28 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.Captor;
 import org.mockito.MockitoAnnotations;
 
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.atomic.AtomicInteger;
+
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anySet;
 import static org.mockito.Mockito.any;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
-
 
 public class PutSmbFileTest {
 
@@ -64,12 +74,14 @@ public class PutSmbFileTest {
     private ServerList serverList;
     private ByteArrayOutputStream baOutputStream;
 
-    private final static String HOSTNAME = "smbhostname";
-    private final static String SHARE = "smbshare";
-    private final static String DIRECTORY = "smbdirectory\\subdir";
-    private final static String DOMAIN = "mydomain";
-    private final static String USERNAME = "myusername";
-    private final static String PASSWORD = "mypassword";
+    private static final String HOSTNAME = "smbhostname";
+    private static final String SHARE = "smbshare";
+    private static final String DIRECTORY = "smbdirectory";
+    private static final String DOMAIN = "mydomain";
+    private static final String USERNAME = "myusername";
+    private static final String PASSWORD = "mypassword";
+
+    private static final AtomicInteger FLOWFILE_ID_COUNTER = new AtomicInteger(0);
 
     @Captor
     private ArgumentCaptor<Set<SMB2ShareAccess>> shareAccessSet;
@@ -86,7 +98,7 @@ public class PutSmbFileTest {
         serverList = mock(ServerList.class);
         baOutputStream = new ByteArrayOutputStream();
 
-        when(smbClient.connect(any(String.class))).thenReturn(connection);
+        when(smbClient.connect(any(String.class), anyInt())).thenReturn(connection);
         when(smbClient.getServerList()).thenReturn(serverList);
 
         when(connection.authenticate(any(AuthenticationContext.class))).thenReturn(session);
@@ -118,13 +130,15 @@ public class PutSmbFileTest {
     }
 
     private void testDirectoryCreation(String dirFlag, int times) throws IOException {
-        when(diskShare.folderExists(DIRECTORY)).thenReturn(false);
+        when(diskShare.folderExists(any())).thenReturn(false);
 
+        testRunner.setProperty(PutSmbFile.DIRECTORY, "smbdirectory/subdir");
         testRunner.setProperty(PutSmbFile.CREATE_DIRS, dirFlag);
         testRunner.enqueue("data");
         testRunner.run();
 
-        verify(diskShare, times(times)).mkdir(DIRECTORY);
+        verify(diskShare, times(times)).mkdir("smbdirectory");
+        verify(diskShare, times(times)).mkdir("smbdirectory/subdir");
     }
 
     private Set<SMB2ShareAccess> testOpenFileShareAccess() throws IOException {
@@ -140,6 +154,17 @@ public class PutSmbFileTest {
             anySet()
         );
         return shareAccessSet.getValue();
+    }
+
+    private List<MockFlowFile> generateFlowFile(int numberOfFlowFiles, Map<String, String> attributes) {
+        final List<MockFlowFile> result = new ArrayList<>();
+        for (int i = 0; i < numberOfFlowFiles; i++) {
+            final MockFlowFile flowFile = new MockFlowFile(FLOWFILE_ID_COUNTER.incrementAndGet());
+            flowFile.putAttributes(attributes);
+            result.add(flowFile);
+        }
+
+        return result;
     }
 
     private AutoCloseable mockCloseable;
@@ -161,6 +186,81 @@ public class PutSmbFileTest {
         if (mockCloseable != null) {
             mockCloseable.close();
         }
+    }
+
+    @Test
+    public void testHostnameAndShareEL() {
+        testRunner.setProperty(PutSmbFile.HOSTNAME, "${smb.hostname}");
+        testRunner.setProperty(PutSmbFile.SHARE, "${smb.share}");
+        testRunner.setProperty(PutSmbFile.BATCH_SIZE, "20");
+
+        // Add 10 FlowFiles with the same hostname and share property values
+        final Map<String, String> attributes1 = new HashMap<>(Map.of(
+                "smb.hostname", "test-host-1",
+                "smb.share", "test-share-1"
+        ));
+        final List<MockFlowFile> flowFiles1 = generateFlowFile(10, attributes1);
+        testRunner.enqueue(flowFiles1.toArray(new FlowFile[0]));
+
+        // Add 20 FlowFiles with a different hostname and share property value than the first 10
+        final Map<String, String> attributes2 = new HashMap<>(Map.of(
+                "smb.hostname", "test-host-2",
+                "smb.share", "test-share-2"
+        ));
+        final List<MockFlowFile> flowFiles2 = generateFlowFile(20, attributes2);
+        testRunner.enqueue(flowFiles2.toArray(new FlowFile[0]));
+
+        //trigger the processor only once
+        testRunner.run(1);
+
+        // Since 10 FlowFiles share the same hostname and share as the first processed FlowFile, 20 FlowFiles should remain in the queue.
+        assertEquals(20, testRunner.getQueueSize().getObjectCount());
+    }
+
+    @Test
+    public void testHostnameAndShareELWhenBatchsizeIsLowerThanAcceptableFlowFiles() {
+        testRunner.setProperty(PutSmbFile.HOSTNAME, "${smb.hostname}");
+        testRunner.setProperty(PutSmbFile.SHARE, "${smb.share}");
+        testRunner.setProperty(PutSmbFile.BATCH_SIZE, "10");
+
+        // Add 20 FlowFiles with the same hostname and share property values
+        final Map<String, String> attributes1 = new HashMap<>(Map.of(
+                "smb.hostname", "test-host-1",
+                "smb.share", "test-share-1"
+        ));
+        final List<MockFlowFile> flowFiles1 = generateFlowFile(20, attributes1);
+        testRunner.enqueue(flowFiles1.toArray(new FlowFile[0]));
+
+        // Add 20 FlowFiles with a different hostname and share property value than the first 20
+        final Map<String, String> attributes2 = new HashMap<>(Map.of(
+                "smb.hostname", "test-host-2",
+                "smb.share", "test-share-2"
+        ));
+        final List<MockFlowFile> flowFiles2 = generateFlowFile(20, attributes2);
+        testRunner.enqueue(flowFiles2.toArray(new FlowFile[0]));
+
+        //trigger the processor only once
+        testRunner.run(1);
+
+        // 20 FlowFiles share the same hostname and share as the first processed FlowFile, but since the batch size is 10, 30 FlowFiles should remain in the queue
+        assertEquals(30, testRunner.getQueueSize().getObjectCount());
+    }
+
+    @Test
+    public void testDefaultPortIsUsed() throws IOException {
+        testRunner.enqueue("data");
+        testRunner.run();
+
+        verify(smbClient).connect(HOSTNAME, 445);
+    }
+
+    @Test
+    public void testCustomPortIsUsed() throws IOException {
+        testRunner.setProperty(PutSmbFile.PORT, "4445");
+        testRunner.enqueue("data");
+        testRunner.run();
+
+        verify(smbClient).connect(HOSTNAME, 4445);
     }
 
     @Test
@@ -192,27 +292,54 @@ public class PutSmbFileTest {
     @Test
     public void testDirExistsWithoutCreate() throws IOException {
         testDirectoryCreation("false", 0);
+
+        testRunner.assertAllFlowFilesTransferred(PutSmbFile.REL_FAILURE);
     }
 
     @Test
     public void testDirExistsWithCreate() throws IOException {
         testDirectoryCreation("true", 1);
+
+        testRunner.assertAllFlowFilesTransferred(PutSmbFile.REL_SUCCESS);
     }
 
     @Test
     public void testDirectoriesCreatedWhenDontExists() throws IOException {
-        final String directory = new java.io.File("a\\b\\c\\b\\e").getPath();
-        final int count = directory.split(java.util.regex.Pattern.quote(java.io.File.separator)).length;
-        when(diskShare.folderExists(DIRECTORY)).thenReturn(false);
+        final String directory = "a\\b/c/b\\e";
+        when(diskShare.folderExists(any())).thenReturn(false);
 
         testRunner.setProperty(PutSmbFile.CREATE_DIRS, "true");
         testRunner.setProperty(PutSmbFile.DIRECTORY, directory);
         testRunner.enqueue("data");
         testRunner.run();
 
-        verify(diskShare, times(count)).mkdir(
+        verify(diskShare, times(5)).mkdir(
             any(String.class)
         );
+    }
+
+    @Test
+    public void testBatchCanContinueAfterDirectoryCreationFailure() throws IOException {
+        when(diskShare.folderExists(any())).thenReturn(false);
+        doThrow(new RuntimeException("Access denied")).when(diskShare).mkdir("dir2");
+
+        FlowFile flowFile1 = createFlowFileWithDirectoryAttribute(1, "dir1");
+        FlowFile flowFile2 = createFlowFileWithDirectoryAttribute(2, "dir2");
+        FlowFile flowFile3 = createFlowFileWithDirectoryAttribute(3, "dir3");
+
+        testRunner.setProperty(PutSmbFile.CREATE_DIRS, "true");
+        testRunner.setProperty(PutSmbFile.DIRECTORY, "${directory}");
+        testRunner.enqueue(flowFile1, flowFile2, flowFile3);
+        testRunner.run();
+
+        testRunner.assertTransferCount(PutSmbFile.REL_SUCCESS, 2);
+        testRunner.assertTransferCount(PutSmbFile.REL_FAILURE, 1);
+    }
+
+    private FlowFile createFlowFileWithDirectoryAttribute(long id, String directory) {
+        MockFlowFile flowFile = new MockFlowFile(id);
+        flowFile.putAttributes(Map.of("directory", directory));
+        return flowFile;
     }
 
     @Test
@@ -322,13 +449,13 @@ public class PutSmbFileTest {
 
         assertTrue(initialFilename.getValue().endsWith(suffix), "Suffix is not present and it should be");
         assertTrue(!finalFilename.getValue().endsWith(suffix), "Suffix is present and it shouldn't be");
-        assertTrue(replace.getValue(), "Replace flag shold be true");
+        assertTrue(replace.getValue(), "Replace flag should be true");
     }
 
     @Test
     public void testConnectionError() throws IOException {
         String emsg = "mock connection exception";
-        when(smbClient.connect(any(String.class))).thenThrow(new IOException(emsg));
+        when(smbClient.connect(any(String.class), anyInt())).thenThrow(new IOException(emsg));
 
         testRunner.enqueue("1");
         testRunner.enqueue("2");
@@ -337,4 +464,23 @@ public class PutSmbFileTest {
 
         testRunner.assertAllFlowFilesTransferred(PutSmbFile.REL_FAILURE, 3);
     }
+
+    @Test
+    void testNormalizePath() {
+        PutSmbFile processor = new PutSmbFile();
+
+        assertNull(processor.normalizePath(null));
+
+        assertEquals("", processor.normalizePath("/"));
+        assertEquals("", processor.normalizePath("\\"));
+
+        assertEquals("d1/d2", processor.normalizePath("d1/d2"));
+        assertEquals("d1/d2", processor.normalizePath("/d1/d2/"));
+        assertEquals("d1/d2", processor.normalizePath("//d1//d2//"));
+
+        assertEquals("d1/d2", processor.normalizePath("d1\\d2"));
+        assertEquals("d1/d2", processor.normalizePath("\\d1\\d2\\"));
+        assertEquals("d1/d2", processor.normalizePath("\\\\d1\\\\d2\\\\"));
+    }
+
 }

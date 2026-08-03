@@ -17,9 +17,9 @@
 package org.apache.nifi.web.api.dto;
 
 import io.swagger.v3.oas.annotations.media.Schema;
+import jakarta.xml.bind.annotation.XmlType;
 import org.apache.nifi.web.api.entity.ControllerServiceReferencingComponentEntity;
 
-import jakarta.xml.bind.annotation.XmlType;
 import java.util.Collection;
 import java.util.Map;
 import java.util.Set;
@@ -115,10 +115,10 @@ public class ControllerServiceReferencingComponentDTO {
     }
 
     /**
-     * @return type of reference this is (Processor, ControllerService, ParameterProvider, or ReportingTask)
+     * @return type of reference this is (Processor, ControllerService, ReportingTask, FlowRegistryClient, ParameterProvider, or FlowAnalysisRule)
      */
     @Schema(description = "The type of reference this is.",
-            allowableValues = {"Processor", "ControllerService", "ReportingTask", "FlowRegistryClient"}
+            allowableValues = {"Processor", "ControllerService", "ReportingTask", "FlowRegistryClient", "ParameterProvider", "FlowAnalysisRule"}
     )
     public String getReferenceType() {
         return referenceType;

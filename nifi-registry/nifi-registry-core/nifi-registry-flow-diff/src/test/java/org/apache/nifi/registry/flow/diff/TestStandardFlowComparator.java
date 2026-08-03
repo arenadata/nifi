@@ -23,10 +23,12 @@ import org.apache.nifi.flow.ScheduledState;
 import org.apache.nifi.flow.VersionedAsset;
 import org.apache.nifi.flow.VersionedComponent;
 import org.apache.nifi.flow.VersionedControllerService;
+import org.apache.nifi.flow.VersionedFlowCoordinates;
 import org.apache.nifi.flow.VersionedParameter;
 import org.apache.nifi.flow.VersionedParameterContext;
 import org.apache.nifi.flow.VersionedProcessGroup;
 import org.apache.nifi.flow.VersionedProcessor;
+import org.apache.nifi.flow.VersionedPropertyDescriptor;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -62,7 +64,7 @@ public class TestStandardFlowComparator {
         final Function<String, String> decryptor = encryptedToDecrypted::get;
         final ComparableDataFlow flowA = new StandardComparableDataFlow("Flow A", new VersionedProcessGroup());
         final ComparableDataFlow flowB = new StandardComparableDataFlow("Flow B", new VersionedProcessGroup());
-        comparator = new StandardFlowComparator(flowA, flowB, Collections.emptySet(),
+        comparator = new StandardFlowComparator(flowA, flowB,
             new StaticDifferenceDescriptor(), decryptor, VersionedComponent::getInstanceIdentifier, FlowComparatorVersionedStrategy.SHALLOW);
     }
 
@@ -222,7 +224,7 @@ public class TestStandardFlowComparator {
 
         // Testing when a child PG is added and the child PG contains components
 
-        comparator = new StandardFlowComparator(flowA, flowB, Collections.emptySet(),
+        comparator = new StandardFlowComparator(flowA, flowB,
                 new StaticDifferenceDescriptor(), decryptor, VersionedComponent::getIdentifier, FlowComparatorVersionedStrategy.SHALLOW);
 
         final Set<FlowDifference> diffShallowChildPgAdded = comparator.compare().getDifferences();
@@ -231,7 +233,7 @@ public class TestStandardFlowComparator {
                 .anyMatch(difference -> difference.getDifferenceType() == DifferenceType.COMPONENT_ADDED
                         && difference.getComponentB().getComponentType() == ComponentType.PROCESS_GROUP));
 
-        comparator = new StandardFlowComparator(flowA, flowB, Collections.emptySet(),
+        comparator = new StandardFlowComparator(flowA, flowB,
                 new StaticDifferenceDescriptor(), decryptor, VersionedComponent::getIdentifier, FlowComparatorVersionedStrategy.DEEP);
         final Set<FlowDifference> diffDeepChildPgAdded = comparator.compare().getDifferences();
         assertEquals(15, diffDeepChildPgAdded.size());
@@ -256,7 +258,7 @@ public class TestStandardFlowComparator {
 
         // Testing when a child PG is removed and the child PG contains components
 
-        comparator = new StandardFlowComparator(flowB, flowA, Collections.emptySet(),
+        comparator = new StandardFlowComparator(flowB, flowA,
                 new StaticDifferenceDescriptor(), decryptor, VersionedComponent::getIdentifier, FlowComparatorVersionedStrategy.SHALLOW);
 
         final Set<FlowDifference> diffShallowChildPgRemoved = comparator.compare().getDifferences();
@@ -265,7 +267,7 @@ public class TestStandardFlowComparator {
                 .anyMatch(difference -> difference.getDifferenceType() == DifferenceType.COMPONENT_REMOVED
                         && difference.getComponentA().getComponentType() == ComponentType.PROCESS_GROUP));
 
-        comparator = new StandardFlowComparator(flowB, flowA, Collections.emptySet(),
+        comparator = new StandardFlowComparator(flowB, flowA,
                 new StaticDifferenceDescriptor(), decryptor, VersionedComponent::getIdentifier, FlowComparatorVersionedStrategy.DEEP);
         final Set<FlowDifference> diffDeepChildPgRemoved = comparator.compare().getDifferences();
         assertEquals(4, diffDeepChildPgRemoved.size());
@@ -283,6 +285,283 @@ public class TestStandardFlowComparator {
         assertTrue(diffDeepChildPgRemoved.stream()
                 .anyMatch(difference -> difference.getDifferenceType() == DifferenceType.COMPONENT_REMOVED
                         && difference.getComponentA().getComponentType() == ComponentType.CONTROLLER_SERVICE));
+    }
+
+    /**
+     * NIFI-15016: Test that scheduled state changes are detected for processors inside a regular
+     * nested process group (NOT separately version-controlled).
+     *
+     * Scenario: A versioned PG contains a regular nested PG. User disables a processor inside
+     * the nested PG. When comparing for upgrade, we should detect the scheduled state change.
+     *
+     * Note: The nested PG does NOT have VersionedFlowCoordinates because it's just a regular
+     * nested PG within the flow, not a separately versioned child flow.
+     */
+    @Test
+    public void testScheduledStateChangeDetectedForProcessorInRegularNestedGroup() {
+        final String rootPgIdentifier = "rootPG";
+        final String nestedPgIdentifier = "nestedPG";
+        final String procIdentifier = "processorZ";
+
+        // Registry version
+        final VersionedProcessGroup registryRoot = new VersionedProcessGroup();
+        registryRoot.setIdentifier(rootPgIdentifier);
+
+        final VersionedProcessGroup registryNested = new VersionedProcessGroup();
+        registryNested.setIdentifier(nestedPgIdentifier);
+        // NO setVersionedFlowCoordinates - this is a regular nested PG, not separately versioned
+        registryRoot.getProcessGroups().add(registryNested);
+
+        final VersionedProcessor registryProcessor = new VersionedProcessor();
+        registryProcessor.setIdentifier(procIdentifier);
+        registryProcessor.setScheduledState(ScheduledState.ENABLED);
+        registryProcessor.setProperties(Collections.emptyMap());
+        registryProcessor.setPropertyDescriptors(Collections.emptyMap());
+        registryNested.getProcessors().add(registryProcessor);
+
+        // Local version - user has disabled the processor
+        final VersionedProcessGroup localRoot = new VersionedProcessGroup();
+        localRoot.setIdentifier(rootPgIdentifier);
+
+        final VersionedProcessGroup localNested = new VersionedProcessGroup();
+        localNested.setIdentifier(nestedPgIdentifier);
+        // NO setVersionedFlowCoordinates - this is a regular nested PG
+        localRoot.getProcessGroups().add(localNested);
+
+        final VersionedProcessor localProcessor = new VersionedProcessor();
+        localProcessor.setIdentifier(procIdentifier);
+        localProcessor.setScheduledState(ScheduledState.DISABLED); // User disabled this
+        localProcessor.setProperties(Collections.emptyMap());
+        localProcessor.setPropertyDescriptors(Collections.emptyMap());
+        localNested.getProcessors().add(localProcessor);
+
+        final ComparableDataFlow registryFlow = new StandardComparableDataFlow("registry", registryRoot);
+        final ComparableDataFlow localFlow = new StandardComparableDataFlow("local", localRoot);
+
+        final StandardFlowComparator testComparator = new StandardFlowComparator(
+                registryFlow,
+                localFlow,
+                new StaticDifferenceDescriptor(),
+                Function.identity(),
+                VersionedComponent::getIdentifier,
+                FlowComparatorVersionedStrategy.SHALLOW);
+
+        final Set<FlowDifference> differences = testComparator.compare().getDifferences();
+
+        final boolean scheduledStateDiffFound = differences.stream()
+                .anyMatch(diff -> diff.getDifferenceType() == DifferenceType.SCHEDULED_STATE_CHANGED
+                        && diff.getComponentB() != null
+                        && procIdentifier.equals(diff.getComponentB().getIdentifier()));
+
+        assertTrue(scheduledStateDiffFound,
+                "Expected scheduled state change for processor inside regular nested process group to be detected");
+    }
+
+    /**
+     * NIFI-15366: Test that when a nested VERSIONED PG (separately version-controlled) has the
+     * SAME version coordinates (is "up to date"), its contents are NOT compared.
+     *
+     * This is the correct behavior because:
+     * 1. When both PGs have the same version coordinates, the child PG is considered "up to date"
+     * 2. Any content differences should be viewed via the child PG's own "Show Local Changes"
+     * 3. The parent PG's local changes should only show changes made directly to the parent
+     */
+    @Test
+    public void testNoChangesDetectedForSeparatelyVersionedNestedGroupWhenVersionsMatch() {
+        final String rootPgIdentifier = "rootPG";
+        final String nestedPgIdentifier = "nestedPG";
+        final String procIdentifier = "processorZ";
+        final VersionedProcessGroup registryRoot = new VersionedProcessGroup();
+        registryRoot.setIdentifier(rootPgIdentifier);
+
+        final VersionedProcessGroup localRoot = new VersionedProcessGroup();
+        localRoot.setIdentifier(rootPgIdentifier);
+
+        final VersionedProcessGroup registryNested = new VersionedProcessGroup();
+        registryNested.setIdentifier(nestedPgIdentifier);
+        registryNested.setVersionedFlowCoordinates(createVersionedFlowCoordinates()); // Separately versioned!
+        registryRoot.getProcessGroups().add(registryNested);
+
+        final VersionedProcessGroup localNested = new VersionedProcessGroup();
+        localNested.setIdentifier(nestedPgIdentifier);
+        localNested.setVersionedFlowCoordinates(createVersionedFlowCoordinates()); // Same version = up-to-date
+        localRoot.getProcessGroups().add(localNested);
+
+        final VersionedProcessor registryProcessor = new VersionedProcessor();
+        registryProcessor.setIdentifier(procIdentifier);
+        registryProcessor.setScheduledState(ScheduledState.ENABLED);
+        registryProcessor.setProperties(Collections.emptyMap());
+        registryProcessor.setPropertyDescriptors(Collections.emptyMap());
+        registryNested.getProcessors().add(registryProcessor);
+
+        final VersionedProcessor localProcessor = new VersionedProcessor();
+        localProcessor.setIdentifier(procIdentifier);
+        localProcessor.setScheduledState(ScheduledState.DISABLED); // Different state - but should NOT be reported
+        localProcessor.setProperties(Collections.emptyMap());
+        localProcessor.setPropertyDescriptors(Collections.emptyMap());
+        localNested.getProcessors().add(localProcessor);
+
+        final ComparableDataFlow registryFlow = new StandardComparableDataFlow("registry", registryRoot);
+        final ComparableDataFlow localFlow = new StandardComparableDataFlow("local", localRoot);
+
+        final StandardFlowComparator testComparator = new StandardFlowComparator(
+                registryFlow,
+                localFlow,
+                new StaticDifferenceDescriptor(),
+                Function.identity(),
+                VersionedComponent::getIdentifier,
+                FlowComparatorVersionedStrategy.SHALLOW);
+
+        final Set<FlowDifference> differences = testComparator.compare().getDifferences();
+
+        // When version coordinates match for a separately versioned nested PG,
+        // we should NOT report any differences - they should be viewed via the child's own local changes
+        assertEquals(0, differences.size(),
+                "When separately versioned nested PG has same version coordinates, should NOT detect content differences. " +
+                        "Differences found: " + differences);
+    }
+
+    /**
+     * Test for NIFI-15366: Simulates the actual bug scenario where:
+     * - Child PG B was committed separately to registry
+     * - Parent PG A was committed containing B as a versioned reference
+     * - When fetching A's snapshot with nested contents, B's contents come from B's own registry entry
+     * - B's registry entry uses different identifiers than what's in the local canvas
+     *
+     * This test verifies that when identifiers differ but version coordinates are the same,
+     * we should NOT report the child's contents as changes.
+     */
+    @Test
+    public void testNestedVersionedPGWithDifferentIdentifiersButSameVersion() {
+        final String rootPgIdentifier = "rootPG";
+        final String nestedPgIdentifier = "nestedPG";
+
+        // Registry version of root PG - child B has contents with B's internal identifiers
+        final VersionedProcessGroup registryRoot = new VersionedProcessGroup();
+        registryRoot.setIdentifier(rootPgIdentifier);
+
+        final VersionedProcessGroup registryNested = new VersionedProcessGroup();
+        registryNested.setIdentifier(nestedPgIdentifier);
+        registryNested.setVersionedFlowCoordinates(createVersionedFlowCoordinates());
+        registryRoot.getProcessGroups().add(registryNested);
+
+        // Processor in registry nested PG has its own identifier (from B's registry snapshot)
+        final VersionedProcessor registryNestedProcessor = new VersionedProcessor();
+        registryNestedProcessor.setIdentifier("proc-id-from-B-registry"); // B's internal ID
+        registryNestedProcessor.setScheduledState(ScheduledState.ENABLED);
+        registryNestedProcessor.setProperties(Collections.emptyMap());
+        registryNestedProcessor.setPropertyDescriptors(Collections.emptyMap());
+        registryNested.getProcessors().add(registryNestedProcessor);
+
+        // Local version - child B has contents with local NiFi identifiers
+        final VersionedProcessGroup localRoot = new VersionedProcessGroup();
+        localRoot.setIdentifier(rootPgIdentifier);
+
+        final VersionedProcessGroup localNested = new VersionedProcessGroup();
+        localNested.setIdentifier(nestedPgIdentifier);
+        localNested.setVersionedFlowCoordinates(createVersionedFlowCoordinates()); // Same coordinates - B is up-to-date
+        localRoot.getProcessGroups().add(localNested);
+
+        // Same processor but with different identifier (local NiFi instance ID)
+        final VersionedProcessor localNestedProcessor = new VersionedProcessor();
+        localNestedProcessor.setIdentifier("proc-id-from-local-nifi"); // Different ID!
+        localNestedProcessor.setScheduledState(ScheduledState.ENABLED); // Same state
+        localNestedProcessor.setProperties(Collections.emptyMap());
+        localNestedProcessor.setPropertyDescriptors(Collections.emptyMap());
+        localNested.getProcessors().add(localNestedProcessor);
+
+        final ComparableDataFlow registryFlow = new StandardComparableDataFlow("Versioned Flow", registryRoot);
+        final ComparableDataFlow localFlow = new StandardComparableDataFlow("Local Flow", localRoot);
+
+        // Test with SHALLOW strategy
+        final StandardFlowComparator shallowComparator = new StandardFlowComparator(
+                registryFlow,
+                localFlow,
+                new StaticDifferenceDescriptor(),
+                Function.identity(),
+                VersionedComponent::getIdentifier,
+                FlowComparatorVersionedStrategy.SHALLOW);
+
+        final Set<FlowDifference> shallowDifferences = shallowComparator.compare().getDifferences();
+
+        assertEquals(0, shallowDifferences.size(),
+                "When nested versioned PG has same version coordinates, should not report any content differences " +
+                        "even if component identifiers differ. Differences found: " + shallowDifferences);
+    }
+
+    /**
+     * Versioned PG A contains versioned PG B (up-to-date).
+     * Add a processor to A only (not in B).
+     * Listing local changes on A should return a single entry for the added processor.
+     */
+    @Test
+    public void testAddProcessorToParentOnly() {
+        final String rootPgIdentifier = "rootPG";
+        final String nestedPgIdentifier = "nestedPG";
+        final String addedProcessorInA = "addedProcessorInA";
+        final String existingProcessorInB = "existingProcessorInB";
+
+        // Registry version: A contains B with one processor
+        final VersionedProcessGroup registryRoot = new VersionedProcessGroup();
+        registryRoot.setIdentifier(rootPgIdentifier);
+
+        final VersionedProcessGroup registryNested = new VersionedProcessGroup();
+        registryNested.setIdentifier(nestedPgIdentifier);
+        registryNested.setVersionedFlowCoordinates(createVersionedFlowCoordinates());
+        registryRoot.getProcessGroups().add(registryNested);
+
+        final VersionedProcessor registryNestedProcessor = new VersionedProcessor();
+        registryNestedProcessor.setIdentifier(existingProcessorInB);
+        registryNestedProcessor.setScheduledState(ScheduledState.ENABLED);
+        registryNestedProcessor.setProperties(Collections.emptyMap());
+        registryNestedProcessor.setPropertyDescriptors(Collections.emptyMap());
+        registryNested.getProcessors().add(registryNestedProcessor);
+
+        // Local version: A has a new processor, B is unchanged (up-to-date)
+        final VersionedProcessGroup localRoot = new VersionedProcessGroup();
+        localRoot.setIdentifier(rootPgIdentifier);
+
+        // New processor added to A
+        final VersionedProcessor processorAddedToA = new VersionedProcessor();
+        processorAddedToA.setIdentifier(addedProcessorInA);
+        processorAddedToA.setScheduledState(ScheduledState.ENABLED);
+        processorAddedToA.setProperties(Collections.emptyMap());
+        processorAddedToA.setPropertyDescriptors(Collections.emptyMap());
+        localRoot.getProcessors().add(processorAddedToA);
+
+        // B is unchanged - same version coordinates
+        final VersionedProcessGroup localNested = new VersionedProcessGroup();
+        localNested.setIdentifier(nestedPgIdentifier);
+        localNested.setVersionedFlowCoordinates(createVersionedFlowCoordinates()); // Same coordinates = up-to-date
+        localRoot.getProcessGroups().add(localNested);
+
+        // Same processor in B (unchanged)
+        final VersionedProcessor localNestedProcessor = new VersionedProcessor();
+        localNestedProcessor.setIdentifier(existingProcessorInB);
+        localNestedProcessor.setScheduledState(ScheduledState.ENABLED);
+        localNestedProcessor.setProperties(Collections.emptyMap());
+        localNestedProcessor.setPropertyDescriptors(Collections.emptyMap());
+        localNested.getProcessors().add(localNestedProcessor);
+
+        final ComparableDataFlow registryFlow = new StandardComparableDataFlow("Versioned Flow", registryRoot);
+        final ComparableDataFlow localFlow = new StandardComparableDataFlow("Local Flow", localRoot);
+
+        final StandardFlowComparator comparator = new StandardFlowComparator(
+                registryFlow,
+                localFlow,
+                new StaticDifferenceDescriptor(),
+                Function.identity(),
+                VersionedComponent::getIdentifier,
+                FlowComparatorVersionedStrategy.SHALLOW);
+
+        final Set<FlowDifference> differences = comparator.compare().getDifferences();
+
+        // Should only show the added processor in A
+        assertEquals(1, differences.size(), "Should only have 1 difference (added processor in A)");
+        final FlowDifference diff = differences.iterator().next();
+        assertEquals(DifferenceType.COMPONENT_ADDED, diff.getDifferenceType());
+        assertEquals(addedProcessorInA, diff.getComponentB().getIdentifier());
+        assertEquals(ComponentType.PROCESSOR, diff.getComponentB().getComponentType());
     }
 
     private VersionedParameter createParameter(final String name, final String value, final boolean sensitive) {
@@ -303,5 +582,283 @@ public class TestStandardFlowComparator {
         asset.setIdentifier(id);
         asset.setName(name);
         return asset;
+    }
+
+    /**
+     * Ensures that when a non-versioned nested PG (PG2) with a processor is added inside a
+     * versioned parent PG (PG1), "Show Local Changes" on PG1 reports both the addition of
+     * PG2 and the processor inside PG2.
+     */
+    @Test
+    public void testAddNonVersionedNestedPGWithProcessorShowsBothAdditions() {
+        final String rootPgId = "rootPG";
+        final String nestedPgId = "nestedPG";
+        final String nestedProcessorId = "nestedProcessor";
+
+        // Registry snapshot: PG1 has no nested PGs
+        final VersionedProcessGroup registryRoot = new VersionedProcessGroup();
+        registryRoot.setIdentifier(rootPgId);
+
+        // Local: PG1 now contains PG2 (NOT versioned) with a processor
+        final VersionedProcessGroup localRoot = new VersionedProcessGroup();
+        localRoot.setIdentifier(rootPgId);
+
+        final VersionedProcessGroup localNested = new VersionedProcessGroup();
+        localNested.setIdentifier(nestedPgId);
+        localRoot.getProcessGroups().add(localNested);
+
+        final VersionedProcessor nestedProcessor = new VersionedProcessor();
+        nestedProcessor.setIdentifier(nestedProcessorId);
+        nestedProcessor.setScheduledState(ScheduledState.ENABLED);
+        nestedProcessor.setProperties(Collections.emptyMap());
+        nestedProcessor.setPropertyDescriptors(Collections.emptyMap());
+        localNested.getProcessors().add(nestedProcessor);
+
+        final ComparableDataFlow registryFlow = new StandardComparableDataFlow("Versioned Flow", registryRoot);
+        final ComparableDataFlow localFlow = new StandardComparableDataFlow("Local Flow", localRoot);
+
+        // DEEP strategy: both PG2 addition AND processor addition should be reported
+        final StandardFlowComparator deepComparator = new StandardFlowComparator(
+                registryFlow, localFlow, new StaticDifferenceDescriptor(),
+                Function.identity(), VersionedComponent::getIdentifier, FlowComparatorVersionedStrategy.DEEP);
+
+        final Set<FlowDifference> deepDifferences = deepComparator.compare().getDifferences();
+
+        assertTrue(deepDifferences.stream().anyMatch(diff -> diff.getDifferenceType() == DifferenceType.COMPONENT_ADDED
+                        && diff.getComponentB().getComponentType() == ComponentType.PROCESS_GROUP
+                        && nestedPgId.equals(diff.getComponentB().getIdentifier())),
+                "DEEP: Should report PG2 as added. Differences: " + deepDifferences);
+        assertTrue(deepDifferences.stream().anyMatch(diff -> diff.getDifferenceType() == DifferenceType.COMPONENT_ADDED
+                        && diff.getComponentB().getComponentType() == ComponentType.PROCESSOR
+                        && nestedProcessorId.equals(diff.getComponentB().getIdentifier())),
+                "DEEP: Should report the processor inside PG2 as added. Differences: " + deepDifferences);
+
+        // SHALLOW strategy: only PG2 addition is reported (processor inside is not expanded)
+        final StandardFlowComparator shallowComparator = new StandardFlowComparator(
+                registryFlow, localFlow, new StaticDifferenceDescriptor(),
+                Function.identity(), VersionedComponent::getIdentifier, FlowComparatorVersionedStrategy.SHALLOW);
+
+        final Set<FlowDifference> shallowDifferences = shallowComparator.compare().getDifferences();
+
+        assertTrue(shallowDifferences.stream().anyMatch(diff -> diff.getDifferenceType() == DifferenceType.COMPONENT_ADDED
+                        && diff.getComponentB().getComponentType() == ComponentType.PROCESS_GROUP
+                        && nestedPgId.equals(diff.getComponentB().getIdentifier())),
+                "SHALLOW: Should report PG2 as added. Differences: " + shallowDifferences);
+        assertEquals(1, shallowDifferences.size(),
+                "SHALLOW: Should only report the PG addition itself (processor inside not expanded). Differences: " + shallowDifferences);
+    }
+
+    /**
+     * Ensures that when a processor is added to an already-existing non-versioned nested PG,
+     * "Show Local Changes" on the parent reports the processor addition.
+     */
+    @Test
+    public void testAddProcessorToExistingNonVersionedNestedPGShowsProcessorAddition() {
+        final String rootPgId = "rootPG";
+        final String nestedPgId = "nestedPG";
+        final String addedProcessorId = "addedProcessor";
+
+        // Registry snapshot: PG1 contains PG2 (no flow coordinates = not versioned), PG2 is empty
+        final VersionedProcessGroup registryRoot = new VersionedProcessGroup();
+        registryRoot.setIdentifier(rootPgId);
+
+        final VersionedProcessGroup registryNested = new VersionedProcessGroup();
+        registryNested.setIdentifier(nestedPgId);
+        registryRoot.getProcessGroups().add(registryNested);
+
+        // Local: PG2 now has a processor added to it
+        final VersionedProcessGroup localRoot = new VersionedProcessGroup();
+        localRoot.setIdentifier(rootPgId);
+
+        final VersionedProcessGroup localNested = new VersionedProcessGroup();
+        localNested.setIdentifier(nestedPgId);
+        localRoot.getProcessGroups().add(localNested);
+
+        final VersionedProcessor addedProcessor = new VersionedProcessor();
+        addedProcessor.setIdentifier(addedProcessorId);
+        addedProcessor.setScheduledState(ScheduledState.ENABLED);
+        addedProcessor.setProperties(Collections.emptyMap());
+        addedProcessor.setPropertyDescriptors(Collections.emptyMap());
+        localNested.getProcessors().add(addedProcessor);
+
+        final ComparableDataFlow registryFlow = new StandardComparableDataFlow("Versioned Flow", registryRoot);
+        final ComparableDataFlow localFlow = new StandardComparableDataFlow("Local Flow", localRoot);
+
+        final StandardFlowComparator testComparator = new StandardFlowComparator(
+                registryFlow, localFlow, new StaticDifferenceDescriptor(),
+                Function.identity(), VersionedComponent::getIdentifier, FlowComparatorVersionedStrategy.SHALLOW);
+
+        final Set<FlowDifference> differences = testComparator.compare().getDifferences();
+
+        assertEquals(1, differences.size(), "Should report exactly the added processor. Differences: " + differences);
+        final FlowDifference diff = differences.iterator().next();
+        assertEquals(DifferenceType.COMPONENT_ADDED, diff.getDifferenceType());
+        assertEquals(addedProcessorId, diff.getComponentB().getIdentifier());
+        assertEquals(ComponentType.PROCESSOR, diff.getComponentB().getComponentType());
+    }
+
+    /**
+     * When a nested separately version-controlled PG has its version changed
+     * (committed separately to the registry), the parent's "Show Local Changes" should only
+     * report the version coordinate change for the child PG. It should NOT report individual
+     * component changes (processors, connections, etc.) from inside the child PG.
+     *
+     * In the real-world scenario, the parent's registry snapshot contains the child PG's contents
+     * with the child's REGISTRY identifiers, while locally the child PG's contents use LOCAL NiFi
+     * instance identifiers. This causes identifier mismatches that the comparator incorrectly
+     * reports as components being added/removed.
+     *
+     * Scenario:
+     * - Parent PG contains a processor and a nested child PG with 3 processors
+     * - Both are committed to the registry; child is at version 1
+     * - User changes something in the child PG and commits child to version 2
+     * - Parent's "Show Local Changes" should show: child PG version changed (1 -> 2)
+     * - Parent's "Show Local Changes" should NOT show: individual processors from child PG
+     */
+    @Test
+    public void testNestedVersionedPGVersionChangeOnlyReportsVersionCoordinateDifference() {
+        final String parentPgId = "parentPG";
+        final String childPgId = "childPG";
+        final String parentProcessorId = "parentProcessor";
+
+        // --- Registry snapshot of parent (child at version 1) ---
+        final VersionedProcessGroup registryParent = new VersionedProcessGroup();
+        registryParent.setIdentifier(parentPgId);
+
+        final VersionedProcessor registryParentProc = new VersionedProcessor();
+        registryParentProc.setIdentifier(parentProcessorId);
+        registryParentProc.setScheduledState(ScheduledState.ENABLED);
+        registryParentProc.setProperties(Collections.emptyMap());
+        registryParentProc.setPropertyDescriptors(Collections.emptyMap());
+        registryParent.getProcessors().add(registryParentProc);
+
+        final VersionedProcessGroup registryChild = new VersionedProcessGroup();
+        registryChild.setIdentifier(childPgId);
+        final VersionedFlowCoordinates registryChildCoords = createVersionedFlowCoordinates();
+        registryChildCoords.setVersion("1");
+        registryChild.setVersionedFlowCoordinates(registryChildCoords);
+        registryParent.getProcessGroups().add(registryChild);
+
+        // Child processors in registry snapshot have REGISTRY identifiers
+        for (int i = 1; i <= 3; i++) {
+            final VersionedProcessor proc = new VersionedProcessor();
+            proc.setIdentifier("registry-child-proc-" + i);
+            proc.setScheduledState(ScheduledState.ENABLED);
+            proc.setProperties(Collections.emptyMap());
+            proc.setPropertyDescriptors(Collections.emptyMap());
+            registryChild.getProcessors().add(proc);
+        }
+
+        // --- Local state of parent (child at version 2, committed separately) ---
+        final VersionedProcessGroup localParent = new VersionedProcessGroup();
+        localParent.setIdentifier(parentPgId);
+
+        final VersionedProcessor localParentProc = new VersionedProcessor();
+        localParentProc.setIdentifier(parentProcessorId);
+        localParentProc.setScheduledState(ScheduledState.ENABLED);
+        localParentProc.setProperties(Collections.emptyMap());
+        localParentProc.setPropertyDescriptors(Collections.emptyMap());
+        localParent.getProcessors().add(localParentProc);
+
+        final VersionedProcessGroup localChild = new VersionedProcessGroup();
+        localChild.setIdentifier(childPgId);
+        final VersionedFlowCoordinates localChildCoords = createVersionedFlowCoordinates();
+        localChildCoords.setVersion("2");
+        localChild.setVersionedFlowCoordinates(localChildCoords);
+        localParent.getProcessGroups().add(localChild);
+
+        // Child processors locally have LOCAL NiFi instance identifiers (different from registry)
+        for (int i = 1; i <= 3; i++) {
+            final VersionedProcessor proc = new VersionedProcessor();
+            proc.setIdentifier("local-child-proc-" + i);
+            proc.setScheduledState(ScheduledState.ENABLED);
+            proc.setProperties(Collections.emptyMap());
+            proc.setPropertyDescriptors(Collections.emptyMap());
+            localChild.getProcessors().add(proc);
+        }
+
+        final ComparableDataFlow registryFlow = new StandardComparableDataFlow("Versioned Flow", registryParent);
+        final ComparableDataFlow localFlow = new StandardComparableDataFlow("Local Flow", localParent);
+
+        final StandardFlowComparator testComparator = new StandardFlowComparator(
+                registryFlow, localFlow, new StaticDifferenceDescriptor(),
+                Function.identity(), VersionedComponent::getIdentifier, FlowComparatorVersionedStrategy.SHALLOW);
+
+        final Set<FlowDifference> differences = testComparator.compare().getDifferences();
+
+        final long versionCoordinateChanges = differences.stream()
+                .filter(diff -> diff.getDifferenceType() == DifferenceType.VERSIONED_FLOW_COORDINATES_CHANGED)
+                .count();
+        assertEquals(1, versionCoordinateChanges, "Should report exactly one version coordinate change for the child PG");
+
+        final boolean hasChildProcessorDifferences = differences.stream()
+                .anyMatch(diff -> (diff.getComponentA() instanceof VersionedProcessor && !parentProcessorId.equals(diff.getComponentA().getIdentifier()))
+                        || (diff.getComponentB() instanceof VersionedProcessor && !parentProcessorId.equals(diff.getComponentB().getIdentifier())));
+        assertFalse(hasChildProcessorDifferences,
+                "Parent's local changes should NOT include individual processor differences from inside the nested versioned child PG. " +
+                        "Differences found: " + differences);
+
+        assertEquals(1, differences.size(),
+                "Should only have 1 difference (child PG version coordinate change). Differences found: " + differences);
+    }
+
+    /**
+     * Verifies that changing a processor's controller service property from one external service
+     * to another is detected as a PROPERTY_CHANGED difference. Previously, the comparator had
+     * suppression logic that could incorrectly hide such changes when the old service ID
+     * was no longer accessible.
+     */
+    @Test
+    public void testExternalControllerServicePropertyChangeDetected() {
+        final String processorId = "processor1";
+        final String servicePropertyKey = "my-service";
+        final String oldServiceId = "service-X-id";
+        final String newServiceId = "service-Y-id";
+
+        final VersionedPropertyDescriptor serviceDescriptor = new VersionedPropertyDescriptor();
+        serviceDescriptor.setName(servicePropertyKey);
+        serviceDescriptor.setIdentifiesControllerService(true);
+
+        final VersionedProcessor registryProcessor = new VersionedProcessor();
+        registryProcessor.setIdentifier(processorId);
+        registryProcessor.setScheduledState(ScheduledState.ENABLED);
+        registryProcessor.setProperties(Map.of(servicePropertyKey, oldServiceId));
+        registryProcessor.setPropertyDescriptors(Map.of(servicePropertyKey, serviceDescriptor));
+
+        final VersionedProcessor localProcessor = new VersionedProcessor();
+        localProcessor.setIdentifier(processorId);
+        localProcessor.setScheduledState(ScheduledState.ENABLED);
+        localProcessor.setProperties(Map.of(servicePropertyKey, newServiceId));
+        localProcessor.setPropertyDescriptors(Map.of(servicePropertyKey, serviceDescriptor));
+
+        final VersionedProcessGroup registryRoot = new VersionedProcessGroup();
+        registryRoot.setIdentifier("rootPG");
+        registryRoot.getProcessors().add(registryProcessor);
+
+        final VersionedProcessGroup localRoot = new VersionedProcessGroup();
+        localRoot.setIdentifier("rootPG");
+        localRoot.getProcessors().add(localProcessor);
+
+        final ComparableDataFlow registryFlow = new StandardComparableDataFlow("Versioned Flow", registryRoot);
+        final ComparableDataFlow localFlow = new StandardComparableDataFlow("Local Flow", localRoot);
+
+        final StandardFlowComparator testComparator = new StandardFlowComparator(
+                registryFlow, localFlow, new StaticDifferenceDescriptor(),
+                Function.identity(), VersionedComponent::getIdentifier, FlowComparatorVersionedStrategy.SHALLOW);
+
+        final Set<FlowDifference> differences = testComparator.compare().getDifferences();
+
+        assertEquals(1, differences.size());
+        final FlowDifference diff = differences.iterator().next();
+        assertEquals(DifferenceType.PROPERTY_CHANGED, diff.getDifferenceType());
+    }
+
+    private VersionedFlowCoordinates createVersionedFlowCoordinates() {
+        final VersionedFlowCoordinates coordinates = new VersionedFlowCoordinates();
+        coordinates.setRegistryId("registry");
+        coordinates.setBucketId("bucketId");
+        coordinates.setFlowId("flowId");
+        coordinates.setVersion("1");
+        return coordinates;
     }
 }

@@ -19,6 +19,7 @@ import { createReducer, on } from '@ngrx/store';
 import { produce } from 'immer';
 import { RegistryClientsState } from './index';
 import {
+    clearRegistryClientBulletinsSuccess,
     configureRegistryClient,
     configureRegistryClientSuccess,
     createRegistryClient,
@@ -26,6 +27,7 @@ import {
     deleteRegistryClient,
     deleteRegistryClientSuccess,
     loadRegistryClients,
+    loadRegistryClientsError,
     loadRegistryClientsSuccess,
     registryClientsBannerApiError,
     registryClientsSnackbarApiError,
@@ -53,6 +55,10 @@ export const registryClientsReducer = createReducer(
         registryClients: response.registryClients,
         loadedTimestamp: response.loadedTimestamp,
         status: 'success' as const
+    })),
+    on(loadRegistryClientsError, (state, { status }) => ({
+        ...state,
+        status
     })),
     on(registryClientsBannerApiError, registryClientsSnackbarApiError, (state) => ({
         ...state,
@@ -86,6 +92,18 @@ export const registryClientsReducer = createReducer(
                 draftState.registryClients.splice(componentIndex, 1);
             }
             draftState.saving = false;
+        });
+    }),
+    on(clearRegistryClientBulletinsSuccess, (state, { response }) => {
+        return produce(state, (draftState) => {
+            const componentIndex: number = draftState.registryClients.findIndex(
+                (client: any) => client.id === response.componentId
+            );
+            if (componentIndex > -1) {
+                const client = draftState.registryClients[componentIndex];
+                // Replace bulletins with the current bulletins from the server
+                client.bulletins = response.bulletins || [];
+            }
         });
     })
 );

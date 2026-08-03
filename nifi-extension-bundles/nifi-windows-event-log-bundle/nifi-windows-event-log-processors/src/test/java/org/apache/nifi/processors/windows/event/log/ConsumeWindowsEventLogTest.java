@@ -29,6 +29,7 @@ import org.apache.nifi.processors.windows.event.log.jna.WEvtApi;
 import org.apache.nifi.util.MockFlowFile;
 import org.apache.nifi.util.MockProcessSession;
 import org.apache.nifi.util.MockSessionFactory;
+import org.apache.nifi.util.PropertyMigrationResult;
 import org.apache.nifi.util.ReflectionUtils;
 import org.apache.nifi.util.TestRunner;
 import org.apache.nifi.util.TestRunners;
@@ -46,6 +47,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -166,7 +168,6 @@ public class ConsumeWindowsEventLogTest {
 
         testRunner = TestRunners.newTestRunner(evtSubscribe);
 
-
         testRunner.run(1, false, true);
 
         WinNT.HANDLE handle = mockEventHandles(wEvtApi, kernel32, List.of("test")).getFirst();
@@ -243,23 +244,38 @@ public class ConsumeWindowsEventLogTest {
         assertEquals(ConsumeWindowsEventLog.RELATIONSHIPS, evtSubscribe.getRelationships());
     }
 
+    @Test
+    void testMigrateProperties() {
+        final TestRunner testRunner = TestRunners.newTestRunner(ConsumeWindowsEventLog.class);
+        final Map<String, String> expectedRenamed = Map.ofEntries(
+                Map.entry("channel", ConsumeWindowsEventLog.CHANNEL.getName()),
+                Map.entry("query", ConsumeWindowsEventLog.QUERY.getName()),
+                Map.entry("maxBuffer", ConsumeWindowsEventLog.MAX_BUFFER_SIZE.getName()),
+                Map.entry("maxQueue", ConsumeWindowsEventLog.MAX_EVENT_QUEUE_SIZE.getName()),
+                Map.entry("inactiveDurationToReconnect", ConsumeWindowsEventLog.INACTIVE_DURATION_TO_RECONNECT.getName())
+        );
+
+        final PropertyMigrationResult propertyMigrationResult = testRunner.migrateProperties();
+        assertEquals(expectedRenamed, propertyMigrationResult.getPropertiesRenamed());
+    }
+
     public static List<WinNT.HANDLE> mockEventHandles(WEvtApi wEvtApi, Kernel32 kernel32, List<String> eventXmls) {
         List<WinNT.HANDLE> eventHandles = new ArrayList<>();
         for (String eventXml : eventXmls) {
             WinNT.HANDLE eventHandle = mock(WinNT.HANDLE.class);
             when(wEvtApi.EvtRender(isNull(), eq(eventHandle), eq(WEvtApi.EvtRenderFlags.EVENT_XML),
                     anyInt(), any(Pointer.class), any(Pointer.class), any(Pointer.class))).thenAnswer(invocation -> {
-                Object[] arguments = invocation.getArguments();
-                Pointer bufferUsed = (Pointer) arguments[5];
-                byte[] array = StandardCharsets.UTF_16LE.encode(eventXml).array();
-                if (array.length > (int) arguments[3]) {
-                    when(kernel32.GetLastError()).thenReturn(W32Errors.ERROR_INSUFFICIENT_BUFFER).thenReturn(W32Errors.ERROR_SUCCESS);
-                } else {
-                    ((Pointer) arguments[4]).write(0, array, 0, array.length);
-                }
-                bufferUsed.setInt(0, array.length);
-                return false;
-            });
+                        Object[] arguments = invocation.getArguments();
+                        Pointer bufferUsed = (Pointer) arguments[5];
+                        byte[] array = StandardCharsets.UTF_16LE.encode(eventXml).array();
+                        if (array.length > (int) arguments[3]) {
+                            when(kernel32.GetLastError()).thenReturn(W32Errors.ERROR_INSUFFICIENT_BUFFER).thenReturn(W32Errors.ERROR_SUCCESS);
+                        } else {
+                            ((Pointer) arguments[4]).write(0, array, 0, array.length);
+                        }
+                        bufferUsed.setInt(0, array.length);
+                        return false;
+                    });
             eventHandles.add(eventHandle);
         }
         return eventHandles;

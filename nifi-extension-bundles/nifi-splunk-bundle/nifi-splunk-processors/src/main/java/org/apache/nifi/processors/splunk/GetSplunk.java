@@ -348,14 +348,13 @@ public class GetSplunk extends AbstractProcessor implements ClassloaderIsolation
 
     @Override
     public void onPropertyModified(PropertyDescriptor descriptor, String oldValue, String newValue) {
-        if ( ((oldValue != null && !oldValue.equals(newValue)))
+        if (((oldValue != null && !oldValue.equals(newValue)))
                 && (descriptor.equals(QUERY)
                 || descriptor.equals(TIME_FIELD_STRATEGY)
                 || descriptor.equals(TIME_RANGE_STRATEGY)
                 || descriptor.equals(EARLIEST_TIME)
                 || descriptor.equals(LATEST_TIME)
-                || descriptor.equals(HOSTNAME))
-                ) {
+                || descriptor.equals(HOSTNAME))) {
             getLogger().debug("A property that require resetting state was modified - {} oldValue {} newValue {}",
                     descriptor.getDisplayName(), oldValue, newValue);
             resetState = true;
@@ -395,7 +394,7 @@ public class GetSplunk extends AbstractProcessor implements ClassloaderIsolation
         try {
             context.getStateManager().clear(Scope.CLUSTER);
         } catch (IOException e) {
-           getLogger().error("Unable to clear processor state due to {}", e.getMessage(), e);
+            getLogger().error("Unable to clear processor state due to {}", e.getMessage(), e);
         }
     }
 
@@ -459,7 +458,7 @@ public class GetSplunk extends AbstractProcessor implements ClassloaderIsolation
                         earliestTime = dateTimeFormatter.format(previousLastDate.plusSeconds(1));
                         latestTime = dateTimeFormatter.format(currentTime);
                     } catch (DateTimeParseException e) {
-                       throw new ProcessException(e);
+                        throw new ProcessException(e);
                     }
                 }
 
@@ -548,11 +547,11 @@ public class GetSplunk extends AbstractProcessor implements ClassloaderIsolation
         final int port = context.getProperty(PORT).asInteger();
         serviceArgs.setPort(port);
 
-        final int connect_timeout = context.getProperty(CONNECT_TIMEOUT).asTimePeriod(TimeUnit.MILLISECONDS).intValue();
-        serviceArgs.add("connectTimeout", connect_timeout);
+        final int connectTimeout = context.getProperty(CONNECT_TIMEOUT).asTimePeriod(TimeUnit.MILLISECONDS).intValue();
+        serviceArgs.add("connectTimeout", connectTimeout);
 
-        final int read_timeout = context.getProperty(READ_TIMEOUT).asTimePeriod(TimeUnit.MILLISECONDS).intValue();
-        serviceArgs.add("readTimeout", read_timeout);
+        final int readTimeout = context.getProperty(READ_TIMEOUT).asTimePeriod(TimeUnit.MILLISECONDS).intValue();
+        serviceArgs.add("readTimeout", readTimeout);
 
         final String app = context.getProperty(APP).getValue();
         if (!StringUtils.isBlank(app)) {

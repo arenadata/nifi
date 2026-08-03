@@ -17,7 +17,6 @@
 package org.apache.nifi.processors.script;
 
 import org.apache.commons.codec.binary.Hex;
-
 import org.apache.nifi.annotation.lifecycle.OnConfigurationRestored;
 import org.apache.nifi.components.PropertyDescriptor;
 import org.apache.nifi.processor.ProcessContext;
@@ -52,12 +51,12 @@ public class TestInvokeGroovy extends BaseScriptTest {
     }
 
     /**
-     * Tests a script that has a Groovy Processor that that reads the first line of text from the flowfiles content and stores the value in an attribute of the outgoing flowfile.
+     * Tests a script that has a Groovy Processor that that reads the first line of text from the FlowFiles content and stores the value in an attribute of the outgoing flowfile.
      *
      */
     @Test
     public void testReadFlowFileContentAndStoreInFlowFileAttribute() {
-        runner.setProperty(scriptingComponent.getScriptingComponentHelper().SCRIPT_ENGINE, "Groovy");
+        runner.setProperty(scriptingComponent.getScriptingComponentHelper().scriptEngine, "Groovy");
         runner.setProperty(ScriptingComponentUtils.SCRIPT_FILE, "target/test/resources/groovy/test_reader.groovy");
         runner.setProperty(ScriptingComponentUtils.MODULES, "target/test/resources/groovy");
 
@@ -71,7 +70,7 @@ public class TestInvokeGroovy extends BaseScriptTest {
     }
 
     /**
-     * Tests a script that has a Groovy Processor that that reads the first line of text from the flowfiles content and
+     * Tests a script that has a Groovy Processor that that reads the first line of text from the FlowFiles content and
      * stores the value in an attribute of the outgoing flowfile.
      *
      */
@@ -83,7 +82,7 @@ public class TestInvokeGroovy extends BaseScriptTest {
 
         processor.initialize(initContext);
 
-        context.setProperty(scriptingComponent.getScriptingComponentHelper().SCRIPT_ENGINE, "Groovy");
+        context.setProperty(scriptingComponent.getScriptingComponentHelper().scriptEngine, "Groovy");
         context.setProperty(ScriptingComponentUtils.SCRIPT_FILE, "target/test/resources/groovy/test_reader.groovy");
         context.setProperty(ScriptingComponentUtils.MODULES, "target/test/resources/groovy");
         // State Manger is unused, and a null reference is specified
@@ -104,7 +103,7 @@ public class TestInvokeGroovy extends BaseScriptTest {
     }
 
     /**
-     * Tests a script that has a Groovy Processor that that reads the first line of text from the flowfiles content and
+     * Tests a script that has a Groovy Processor that that reads the first line of text from the FlowFiles content and
      * stores the value in an attribute of the outgoing flowfile.
      *
      */
@@ -116,7 +115,7 @@ public class TestInvokeGroovy extends BaseScriptTest {
 
         processor.initialize(initContext);
 
-        context.setProperty(scriptingComponent.getScriptingComponentHelper().SCRIPT_ENGINE, "Groovy");
+        context.setProperty(scriptingComponent.getScriptingComponentHelper().scriptEngine, "Groovy");
         context.setProperty(ScriptingComponentUtils.SCRIPT_FILE, "target/test/resources/groovy/test_reader.groovy");
         // State Manger is unused, and a null reference is specified
         processor.customValidate(new MockValidationContext(context));
@@ -143,7 +142,7 @@ public class TestInvokeGroovy extends BaseScriptTest {
     @Test
     public void testInvokeScriptCausesException() {
         final TestRunner runner = TestRunners.newTestRunner(new OverrideInvokeScriptedProcessor());
-        runner.setProperty(scriptingComponent.getScriptingComponentHelper().SCRIPT_ENGINE, "Groovy");
+        runner.setProperty(scriptingComponent.getScriptingComponentHelper().scriptEngine, "Groovy");
         runner.setProperty(ScriptingComponentUtils.SCRIPT_BODY, getFileContentsAsString(
                 TEST_RESOURCE_LOCATION + "groovy/testInvokeScriptCausesException.groovy")
         );
@@ -158,7 +157,7 @@ public class TestInvokeGroovy extends BaseScriptTest {
      */
     @Test
     public void testScriptRoutesToFailure() {
-        runner.setProperty(scriptingComponent.getScriptingComponentHelper().SCRIPT_ENGINE, "Groovy");
+        runner.setProperty(scriptingComponent.getScriptingComponentHelper().scriptEngine, "Groovy");
         runner.setProperty(ScriptingComponentUtils.SCRIPT_BODY, getFileContentsAsString(
                 TEST_RESOURCE_LOCATION + "groovy/testScriptRoutesToFailure.groovy")
         );
@@ -173,7 +172,7 @@ public class TestInvokeGroovy extends BaseScriptTest {
 
     @Test
     public void testValidationResultsReset() {
-        runner.setProperty(scriptingComponent.getScriptingComponentHelper().SCRIPT_ENGINE, "Groovy");
+        runner.setProperty(scriptingComponent.getScriptingComponentHelper().scriptEngine, "Groovy");
         runner.setProperty(ScriptingComponentUtils.SCRIPT_FILE, "target/test/resources/groovy/test_reader.groovy");
         runner.setProperty(ScriptingComponentUtils.MODULES, "target/test/resources/groovy");
 
@@ -189,7 +188,7 @@ public class TestInvokeGroovy extends BaseScriptTest {
     @Test
     public void testAbstractProcessorImplementationWithBodyScriptFile() {
         runner.setValidateExpressionUsage(false);
-        runner.setProperty(scriptingComponent.getScriptingComponentHelper().SCRIPT_ENGINE, "Groovy");
+        runner.setProperty(scriptingComponent.getScriptingComponentHelper().scriptEngine, "Groovy");
         runner.setProperty(ScriptingComponentUtils.SCRIPT_BODY, getFileContentsAsString(TEST_RESOURCE_LOCATION + "groovy/test_implementingabstractProcessor.groovy"));
         runner.setProperty(ScriptingComponentUtils.MODULES, TEST_RESOURCE_LOCATION + "groovy");
         runner.setProperty("custom_prop", "bla bla");
@@ -214,7 +213,7 @@ public class TestInvokeGroovy extends BaseScriptTest {
      */
     @Test
     public void testReadRecordsWithRecordPath() throws Exception {
-        runner.setProperty(scriptingComponent.getScriptingComponentHelper().SCRIPT_ENGINE, "Groovy");
+        runner.setProperty(scriptingComponent.getScriptingComponentHelper().scriptEngine, "Groovy");
         runner.setProperty(ScriptingComponentUtils.SCRIPT_FILE, "target/test/resources/groovy/test_record_path.groovy");
         runner.setProperty(ScriptingComponentUtils.MODULES, "target/test/resources/groovy");
 
@@ -246,7 +245,7 @@ public class TestInvokeGroovy extends BaseScriptTest {
      */
     @Test
     public void testOnPrimaryNodeStateChange() {
-        runner.setProperty(scriptingComponent.getScriptingComponentHelper().SCRIPT_ENGINE, "Groovy");
+        runner.setProperty(scriptingComponent.getScriptingComponentHelper().scriptEngine, "Groovy");
         runner.setProperty(ScriptingComponentUtils.SCRIPT_FILE, "target/test/resources/groovy/test_OnPrimaryStateChange.groovy");
         runner.setProperty(ScriptingComponentUtils.MODULES, "target/test/resources/groovy");
         InvokeScriptedProcessor invokeScriptedProcessor = ((InvokeScriptedProcessor) scriptingComponent);

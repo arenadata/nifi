@@ -16,12 +16,17 @@
  */
 package org.apache.nifi.cluster.coordination.http.replication;
 
+import jakarta.ws.rs.HttpMethod;
+import jakarta.ws.rs.ProcessingException;
+import jakarta.ws.rs.core.Response;
+import jakarta.ws.rs.core.Response.Status;
 import org.apache.nifi.authorization.user.NiFiUser;
 import org.apache.nifi.authorization.user.NiFiUserDetails;
 import org.apache.nifi.authorization.user.NiFiUserUtils;
 import org.apache.nifi.authorization.user.StandardNiFiUser;
 import org.apache.nifi.authorization.user.StandardNiFiUser.Builder;
 import org.apache.nifi.cluster.coordination.ClusterCoordinator;
+import org.apache.nifi.cluster.coordination.http.ReplicationHeader;
 import org.apache.nifi.cluster.coordination.http.replication.util.MockReplicationClient;
 import org.apache.nifi.cluster.coordination.node.NodeConnectionState;
 import org.apache.nifi.cluster.coordination.node.NodeConnectionStatus;
@@ -43,10 +48,6 @@ import org.mockito.stubbing.Answer;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 
-import jakarta.ws.rs.HttpMethod;
-import jakarta.ws.rs.ProcessingException;
-import jakarta.ws.rs.core.Response;
-import jakarta.ws.rs.core.Response.Status;
 import java.net.SocketTimeoutException;
 import java.net.URI;
 import java.util.Arrays;
@@ -56,6 +57,7 @@ import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -202,6 +204,65 @@ public class TestThreadPoolRequestReplicator {
     }
 
     @Test
+    public void testUpdateRequestHeadersWithNullUserOmitsProxiedEntitiesChain() {
+        final ClusterCoordinator coordinator = createClusterCoordinator();
+        final NiFiProperties props = NiFiProperties.createBasicNiFiProperties((String) null);
+        final MockReplicationClient client = new MockReplicationClient();
+        final RequestCompletionCallback callback = (uri, method, responses) -> { };
+
+        final ThreadPoolRequestReplicator replicator = new ThreadPoolRequestReplicator(
+                5, 100, client, coordinator, callback, EventReporter.NO_OP, props);
+
+        try {
+            final Map<String, String> headers = new HashMap<>();
+            replicator.updateRequestHeaders(headers, null);
+
+            assertNull(headers.get(ProxiedEntitiesUtils.PROXY_ENTITIES_CHAIN));
+            assertNull(headers.get(ProxiedEntitiesUtils.PROXY_ENTITY_GROUPS));
+        } finally {
+            replicator.shutdown();
+        }
+    }
+
+    @Test
+    public void testUpdateRequestHeadersWithUserSetsProxiedEntitiesChain() {
+        final ClusterCoordinator coordinator = createClusterCoordinator();
+        final NiFiProperties props = NiFiProperties.createBasicNiFiProperties((String) null);
+        final MockReplicationClient client = new MockReplicationClient();
+        final RequestCompletionCallback callback = (uri, method, responses) -> { };
+
+        final ThreadPoolRequestReplicator replicator = new ThreadPoolRequestReplicator(
+                5, 100, client, coordinator, callback, EventReporter.NO_OP, props);
+
+        try {
+            final NiFiUser user = new Builder().identity("test-user").build();
+            final Map<String, String> headers = new HashMap<>();
+            replicator.updateRequestHeaders(headers, user);
+
+            assertNotNull(headers.get(ProxiedEntitiesUtils.PROXY_ENTITIES_CHAIN));
+            assertTrue(headers.get(ProxiedEntitiesUtils.PROXY_ENTITIES_CHAIN).contains("test-user"));
+        } finally {
+            replicator.shutdown();
+        }
+    }
+
+    @Test
+    @Timeout(value = 15)
+    public void testReplicateWithNullUserOmitsProxiedEntitiesChain() {
+        withReplicator(replicator -> {
+            final Set<NodeIdentifier> nodeIds = new HashSet<>();
+            nodeIds.add(new NodeIdentifier("1", "localhost", 8000, "localhost", 8001, "localhost", 8002, 8003, false));
+            final URI uri = new URI("http://localhost:8080/processors/1");
+            final Entity entity = new ProcessorEntity();
+
+            final AsyncClusterResponse response = replicator.replicate(nodeIds, null, HttpMethod.GET, uri, entity, new HashMap<>(), true, true);
+
+            final NodeResponse nodeResponse = response.awaitMergedResponse(3, TimeUnit.SECONDS);
+            assertEquals(Response.Status.OK.getStatusCode(), nodeResponse.getStatus());
+        }, Response.Status.OK, 0L, null, null, null);
+    }
+
+    @Test
     @Timeout(value = 15)
     public void testLongWaitForResponse() {
         withReplicator(replicator -> {
@@ -268,7 +329,7 @@ public class TestThreadPoolRequestReplicator {
         when(coordinator.getConnectionStatus(Mockito.any(NodeIdentifier.class))).thenReturn(new NodeConnectionStatus(nodeId, NodeConnectionState.CONNECTED));
 
         final AtomicInteger requestCount = new AtomicInteger(0);
-        final NiFiProperties props = NiFiProperties.createBasicNiFiProperties(null);
+        final NiFiProperties props = NiFiProperties.createBasicNiFiProperties((String) null);
 
         final MockReplicationClient client = new MockReplicationClient();
         final RequestCompletionCallback requestCompletionCallback = (uri, method, responses) -> {
@@ -320,6 +381,83 @@ public class TestThreadPoolRequestReplicator {
         return coordinator;
     }
 
+    private ThreadPoolRequestReplicator createHeaderCapturingReplicator(final Map<String, String> capturedHeaders) {
+        final ClusterCoordinator coordinator = createClusterCoordinator();
+        final NiFiProperties props = NiFiProperties.createBasicNiFiProperties((String) null);
+        final MockReplicationClient client = new MockReplicationClient();
+        final RequestCompletionCallback callback = (uri, method, responses) -> { };
+
+        return new ThreadPoolRequestReplicator(5, 100, client, coordinator, callback, EventReporter.NO_OP, props) {
+            @Override
+            protected NodeResponse replicateRequest(final PreparedRequest request, final NodeIdentifier nodeId, final URI uri, final String requestId,
+                    final StandardAsyncClusterResponse response) {
+                capturedHeaders.putAll(request.getHeaders());
+
+                final Response clientResponse = mock(Response.class);
+                when(clientResponse.getStatus()).thenReturn(Status.OK.getStatusCode());
+                return new NodeResponse(nodeId, request.getMethod(), uri, clientResponse, -1L, requestId);
+            }
+        };
+    }
+
+    @Test
+    @Timeout(value = 15)
+    public void testForwardToCoordinatorSetsForwardedHeader() throws Exception {
+        final NodeIdentifier coordinatorNodeId = new NodeIdentifier("1", "localhost", 8100, "localhost", 8101, "localhost", 8102, 8103, false);
+
+        final Map<String, String> capturedHeaders = new ConcurrentHashMap<>();
+        final ThreadPoolRequestReplicator replicator = createHeaderCapturingReplicator(capturedHeaders);
+
+        try {
+            final Authentication authentication = new NiFiAuthenticationToken(new NiFiUserDetails(StandardNiFiUser.ANONYMOUS));
+            SecurityContextHolder.getContext().setAuthentication(authentication);
+
+            final URI uri = new URI("http://localhost:8080/nifi-api/controller/registry-types");
+            final Entity entity = new ProcessorEntity();
+
+            final AsyncClusterResponse response = replicator.forwardToCoordinator(coordinatorNodeId, HttpMethod.GET, uri, entity, new HashMap<>());
+            response.awaitMergedResponse(3, TimeUnit.SECONDS);
+
+            assertEquals(Boolean.TRUE.toString(), capturedHeaders.get(ReplicationHeader.REQUEST_FORWARDED_TO_COORDINATOR.getHeader()));
+            assertNull(capturedHeaders.get(ReplicationHeader.REQUEST_REPLICATED.getHeader()));
+        } finally {
+            replicator.shutdown();
+        }
+    }
+
+    @Test
+    @Timeout(value = 15)
+    public void testForwardToCoordinatorStripsSpoofedMarkersAndPreservesTargetId() throws Exception {
+        final NodeIdentifier coordinatorNodeId = new NodeIdentifier("1", "localhost", 8100, "localhost", 8101, "localhost", 8102, 8103, false);
+
+        final Map<String, String> capturedHeaders = new ConcurrentHashMap<>();
+        final ThreadPoolRequestReplicator replicator = createHeaderCapturingReplicator(capturedHeaders);
+
+        try {
+            final Authentication authentication = new NiFiAuthenticationToken(new NiFiUserDetails(StandardNiFiUser.ANONYMOUS));
+            SecurityContextHolder.getContext().setAuthentication(authentication);
+
+            final URI uri = new URI("http://localhost:8080/nifi-api/controller/registry-types");
+            final Entity entity = new ProcessorEntity();
+
+            final Map<String, String> inboundHeaders = new HashMap<>();
+            inboundHeaders.put(ReplicationHeader.REQUEST_REPLICATED.getHeader(), "spoofed");
+            inboundHeaders.put(ReplicationHeader.REQUEST_FORWARDED_TO_COORDINATOR.getHeader(), "spoofed");
+            inboundHeaders.put(RequestReplicationHeader.REPLICATION_TARGET_ID.getHeader(), "node-uuid");
+
+            final AsyncClusterResponse response = replicator.forwardToCoordinator(coordinatorNodeId, HttpMethod.GET, uri, entity, inboundHeaders);
+            response.awaitMergedResponse(3, TimeUnit.SECONDS);
+
+            // The spoofed replicated marker is stripped, the forwarded marker is set by the framework, and the
+            // framework-supplied replication target id is preserved
+            assertNull(capturedHeaders.get(ReplicationHeader.REQUEST_REPLICATED.getHeader()));
+            assertEquals(Boolean.TRUE.toString(), capturedHeaders.get(ReplicationHeader.REQUEST_FORWARDED_TO_COORDINATOR.getHeader()));
+            assertEquals("node-uuid", capturedHeaders.get(RequestReplicationHeader.REPLICATION_TARGET_ID.getHeader()));
+        } finally {
+            replicator.shutdown();
+        }
+    }
+
     @Test
     @Timeout(value = 15)
     public void testOneNodeRejectsTwoPhaseCommit() {
@@ -329,7 +467,7 @@ public class TestThreadPoolRequestReplicator {
 
         final ClusterCoordinator coordinator = createClusterCoordinator();
         final AtomicInteger requestCount = new AtomicInteger(0);
-        final NiFiProperties props = NiFiProperties.createBasicNiFiProperties(null);
+        final NiFiProperties props = NiFiProperties.createBasicNiFiProperties((String) null);
 
         final MockReplicationClient client = new MockReplicationClient();
         final RequestCompletionCallback requestCompletionCallback = (uri, method, responses) -> {
@@ -462,7 +600,6 @@ public class TestThreadPoolRequestReplicator {
         });
     }
 
-
     @Test
     @Timeout(value = 5)
     public void testMonitorNotifiedOnFailureResponse() {
@@ -512,7 +649,6 @@ public class TestThreadPoolRequestReplicator {
         }, Status.INTERNAL_SERVER_ERROR, 0L, null);
     }
 
-
     private void withReplicator(final WithReplicator function) {
         withReplicator(function, Response.Status.OK, 0L, null);
     }
@@ -529,7 +665,7 @@ public class TestThreadPoolRequestReplicator {
     private void withReplicator(final WithReplicator function, final Status status, final long delayMillis, final RuntimeException failure,
                                 final String expectedRequestChain, final String expectedProxiedEntityGroups) {
         final ClusterCoordinator coordinator = createClusterCoordinator();
-        final NiFiProperties nifiProps = NiFiProperties.createBasicNiFiProperties(null);
+        final NiFiProperties nifiProps = NiFiProperties.createBasicNiFiProperties((String) null);
         final MockReplicationClient client = new MockReplicationClient();
         final RequestCompletionCallback requestCompletionCallback = (uri, method, responses) -> {
         };

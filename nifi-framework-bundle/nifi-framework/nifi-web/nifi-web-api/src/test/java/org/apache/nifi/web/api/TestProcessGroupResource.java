@@ -16,6 +16,8 @@
  */
 package org.apache.nifi.web.api;
 
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.ws.rs.core.Response;
 import org.apache.nifi.authorization.AccessDeniedException;
 import org.apache.nifi.authorization.AuthorizeAccess;
 import org.apache.nifi.flow.VersionedProcessGroup;
@@ -32,8 +34,6 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
-import jakarta.servlet.http.HttpServletRequest;
-import jakarta.ws.rs.core.Response;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -60,7 +60,7 @@ public class TestProcessGroupResource {
         when(versionedFlowSnapshot.getFlowContents()).thenReturn(versionedProcessGroup);
         when(versionedProcessGroup.getName()).thenReturn("flowname");
 
-        try (Response response = processGroupResource.exportProcessGroup(groupId, false)) {
+        try (Response response = processGroupResource.exportProcessGroup(groupId, false, false)) {
             assertEquals(200, response.getStatus());
             assertEquals(versionedFlowSnapshot, response.getEntity());
         }

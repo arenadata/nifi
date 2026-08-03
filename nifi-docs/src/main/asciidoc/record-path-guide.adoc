@@ -446,6 +446,18 @@ and the replacement value. The replacement value may optionally use back-referen
 
 
 
+=== replaceNull
+
+Returns the value of the first argument when it is non-null. If the first argument evaluates to `null`, the function returns the replacement value.
+
+|==========================================================
+| RecordPath | Return value
+| `replaceNull( /details/vehicle, 'no vehicle' )` | no vehicle
+| `replaceNull( /name, 'default' )` | John Doe
+| `replaceNull( /details/vehicle, /name )` | John Doe
+|==========================================================
+
+
 === concat
 
 Concatenates all the arguments together.
@@ -1331,6 +1343,21 @@ Returns `true` if a String value contains the provided substring, `false` otherw
 
 
 
+=== containsRegex
+
+Evaluates a Regular Expression against the contents of a String value and returns `true` if the String value contains a substring
+that matches the Regular Expression, `false` otherwise.
+This function requires 2 arguments: the String to run the regular expression against, and the regular expression to run.
+
+|==============================================================================
+| RecordPath | Return value
+| `/name[containsRegex(., 'o[gh]n')]` | John Doe
+| `/name[containsRegex(., 'John')]` | John Doe
+| `/name[containsRegex(., 'o[xy]n')]` | <returns no results>
+|==============================================================================
+
+
+
 === matchesRegex
 
 Evaluates a Regular Expression against the contents of a String value and returns `true` if the Regular Expression
@@ -1408,4 +1435,129 @@ only of white space (spaces, tabs, carriage returns, and new-line characters).
 | `/name[isBlank(/details/vehicle)]` | John Doe
 | `/name[isBlank(/details/phase)]` | John Doe
 | `/name[isBlank(.)]` | <returns no results>
+|==============================================================================
+
+[[math_functions]]
+== Math Functions
+
+Math functions accept the following number types:
+
+- Byte
+- Short
+- Integer
+- Long
+- Float
+- Double
+
+The following non-number types are also accepted if they can be coerced to a number:
+
+- String
+- Date
+
+Unless otherwise specified, the calculated result is either a Long or Double:
+
+- If any argument is a Float or Double, the result is a Double
+- Otherwise, the result is a Long
+
+Math functions do not handle overflow.
+
+Examples below use the schema:
+
+```
+{
+    "type": "record",
+    "name": "logs",
+    "fields": [
+        { "name": "flags", "type": "byte" },
+        { "name": "seq", "type" : "short"},
+        { "name": "txns", "type" : "int"},
+        { "name": "timestamp", "type" : "long"},
+        { "name": "temp", "type" : "float"},
+        { "name": "load", "type" : "double"},
+        { "name": "timestampMillis", "type" : "string"},
+        { "name": "date", "type" : "date"},
+    ]
+}
+```
+
+and the record:
+
+```
+{
+    "flags" : 7,
+    "seq": 1024,
+    "txns": 125000,
+    "timestamp": 1768967368,
+    "temp": 55.0,
+    "load": 5.67,
+    "timestampMillis": "1768967368000",
+    "date": "2026-01-21",
+}
+```
+
+
+=== toNumber
+
+Coerces a String or Date value to a number. If the argument is already a number it is returned unmodified, preserving the original type.
+
+|==============================================================================
+| RecordPath | Return value
+| `toNumber(456)` | 456
+| `toNumber(/flags)` | 7
+| `toNumber(/load)` | 5.67
+| `toNumber('7.89')` | 7.89
+| `toNumber(/timestampMillis)` | 1768967368000
+| `toNumber(/date)` | 1768953600000
+|==============================================================================
+
+=== add
+
+Calculates the sum of two numbers.
+
+|==============================================================================
+| RecordPath | Return value
+| `add(2, 2)` | 4
+| `add('2.0', 2)` | 4.0
+| `add(/flags, 2)` | 9
+| `add(2, /temp)` | 57.0
+| `add(/load, /temp)` | 60.67
+|==============================================================================
+
+=== subtract
+
+Calculates the difference between two numbers.
+
+|==============================================================================
+| RecordPath | Return value
+| `subtract(2, 2)` | 0
+| `subtract('2.0', 2)` | 0.0
+| `subtract(/flags, 2)` | 5
+| `subtract(2, /temp)` | -53.0
+| `subtract(/load, /temp)` | -49.33
+|==============================================================================
+
+=== multiply
+
+Calculates the product of two numbers.
+
+|==============================================================================
+| RecordPath | Return value
+| `multiply(2, 2)` | 4
+| `multiply('2.0', 2)` | 4.0
+| `multiply(/flags, 2)` | 14
+| `multiply(2, /temp)` | 110.0
+| `multiply(/load, /temp)` | 311.85
+|==============================================================================
+
+=== divide
+
+Calculates the quotient of two numbers.
+
+|==============================================================================
+| RecordPath | Return value
+| `divide(2, 2)` | 1
+| `divide(3, 2)` | 1
+| `divide(3, '2.0')` | 1.5
+| `divide(/txns, /temp)` | 2272.7272727272725
+| `divide(/timestampMillis, 300000)` | 5896557
 |==============================================================================

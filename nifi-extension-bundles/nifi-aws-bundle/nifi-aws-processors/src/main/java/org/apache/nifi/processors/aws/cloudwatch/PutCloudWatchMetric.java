@@ -36,7 +36,7 @@ import org.apache.nifi.processor.ProcessSession;
 import org.apache.nifi.processor.Relationship;
 import org.apache.nifi.processor.exception.ProcessException;
 import org.apache.nifi.processor.util.StandardValidators;
-import org.apache.nifi.processors.aws.v2.AbstractAwsSyncProcessor;
+import org.apache.nifi.processors.aws.AbstractAwsSyncProcessor;
 import software.amazon.awssdk.services.cloudwatch.CloudWatchClient;
 import software.amazon.awssdk.services.cloudwatch.CloudWatchClientBuilder;
 import software.amazon.awssdk.services.cloudwatch.model.Dimension;
@@ -55,6 +55,9 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
+
+import static org.apache.nifi.processors.aws.region.RegionUtil.CUSTOM_REGION;
+import static org.apache.nifi.processors.aws.region.RegionUtil.REGION;
 
 @SupportsBatching
 @InputRequirement(Requirement.INPUT_REQUIRED)
@@ -179,6 +182,7 @@ public class PutCloudWatchMetric extends AbstractAwsSyncProcessor<CloudWatchClie
         NAMESPACE,
         METRIC_NAME,
         REGION,
+        CUSTOM_REGION,
         AWS_CREDENTIALS_PROVIDER_SERVICE,
         VALUE,
         MAXIMUM,
@@ -332,6 +336,9 @@ public class PutCloudWatchMetric extends AbstractAwsSyncProcessor<CloudWatchClie
                     .build();
 
             putMetricData(context, metricDataRequest);
+            final String namespace = context.getProperty(NAMESPACE).evaluateAttributeExpressions(flowFile).getValue();
+            final String metricName = context.getProperty(METRIC_NAME).evaluateAttributeExpressions(flowFile).getValue();
+            session.getProvenanceReporter().send(flowFile, "cloudwatch://%s/%s".formatted(namespace, metricName));
             session.transfer(flowFile, REL_SUCCESS);
             getLogger().info("Successfully published cloudwatch metric for {}", flowFile);
         } catch (final Exception e) {

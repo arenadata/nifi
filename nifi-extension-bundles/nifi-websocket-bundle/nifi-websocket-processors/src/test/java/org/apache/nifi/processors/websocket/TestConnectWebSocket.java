@@ -23,6 +23,7 @@ import org.apache.nifi.provenance.ProvenanceEventType;
 import org.apache.nifi.reporting.InitializationException;
 import org.apache.nifi.util.MockFlowFile;
 import org.apache.nifi.util.MockProcessSession;
+import org.apache.nifi.util.PropertyMigrationResult;
 import org.apache.nifi.util.SharedSessionState;
 import org.apache.nifi.util.TestRunner;
 import org.apache.nifi.util.TestRunners;
@@ -48,7 +49,6 @@ import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.when;
-
 
 class TestConnectWebSocket extends TestListenWebSocket {
 
@@ -150,7 +150,6 @@ class TestConnectWebSocket extends TestListenWebSocket {
 
         JettyWebSocketClient client = new JettyWebSocketClient();
 
-
         runner.addControllerService(clientId, client);
         runner.setProperty(client, JettyWebSocketClient.WS_URI, String.format("ws://localhost:%s/${dynamicUrlPart}", listeningPort));
         runner.enableControllerService(client);
@@ -182,7 +181,6 @@ class TestConnectWebSocket extends TestListenWebSocket {
 
         JettyWebSocketClient service = new JettyWebSocketClient();
 
-
         runner.addControllerService(serviceId, service);
         runner.setProperty(service, JettyWebSocketClient.WS_URI, "ws://localhost/${dynamicUrlPart}");
         runner.enableControllerService(service);
@@ -202,7 +200,7 @@ class TestConnectWebSocket extends TestListenWebSocket {
     }
 
     @Test
-    void testDynamicUrlsParsedFromFlowFileAndAbleToConnectAndDisconnect() throws InitializationException {
+    void testDynamicUrlsParsedFromFlowFileAndAbleToConnectAndDisconnect() throws Exception {
         // Start websocket server
         final TestRunner webSocketListener = TestRunners.newTestRunner(ListenWebSocket.class);
 
@@ -228,7 +226,6 @@ class TestConnectWebSocket extends TestListenWebSocket {
 
         JettyWebSocketClient client = new JettyWebSocketClient();
 
-
         runner.addControllerService(clientId, client);
         runner.setProperty(client, JettyWebSocketClient.WS_URI, String.format("ws://localhost:%s/${dynamicUrlPart}", listeningPort));
         runner.enableControllerService(client);
@@ -246,10 +243,29 @@ class TestConnectWebSocket extends TestListenWebSocket {
 
         webSocketListener.disableControllerService(server);
 
+        final long disconnectTimeout = System.currentTimeMillis() + 5000;
+        while (runner.getFlowFilesForRelationship(ConnectWebSocket.REL_DISCONNECTED).isEmpty()
+                && System.currentTimeMillis() < disconnectTimeout) {
+            Thread.sleep(50);
+        }
+
         final List<MockFlowFile> flowFilesForDisconnectedRelationship = runner.getFlowFilesForRelationship(ConnectWebSocket.REL_DISCONNECTED);
         assertEquals(1, flowFilesForDisconnectedRelationship.size());
 
         runner.stop();
+    }
+
+    @Test
+    @Override
+    void testMigrateProperties() {
+        final TestRunner runner = TestRunners.newTestRunner(ConnectWebSocket.class);
+        final Map<String, String> expectedRenamed = Map.ofEntries(
+                Map.entry("websocket-client-controller-service", ConnectWebSocket.PROP_WEBSOCKET_CLIENT_SERVICE.getName()),
+                Map.entry("websocket-client-id", ConnectWebSocket.PROP_WEBSOCKET_CLIENT_ID.getName())
+        );
+
+        final PropertyMigrationResult propertyMigrationResult = runner.migrateProperties();
+        assertEquals(expectedRenamed, propertyMigrationResult.getPropertiesRenamed());
     }
 
     private MockFlowFile getFlowFile() {

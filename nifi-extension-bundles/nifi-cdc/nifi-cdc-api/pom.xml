@@ -17,7 +17,7 @@
     <parent>
         <groupId>org.apache.nifi</groupId>
         <artifactId>nifi-cdc</artifactId>
-        <version>2.6.0</version>
+        <version>2.10.0.1</version>
     </parent>
     
     <artifactId>nifi-cdc-api</artifactId>

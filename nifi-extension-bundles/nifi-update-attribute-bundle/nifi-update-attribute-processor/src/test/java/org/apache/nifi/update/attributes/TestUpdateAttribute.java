@@ -23,6 +23,7 @@ import org.apache.nifi.processors.attributes.UpdateAttribute;
 import org.apache.nifi.state.MockStateManager;
 import org.apache.nifi.update.attributes.serde.CriteriaSerDe;
 import org.apache.nifi.util.MockFlowFile;
+import org.apache.nifi.util.PropertyMigrationResult;
 import org.apache.nifi.util.TestRunner;
 import org.apache.nifi.util.TestRunners;
 import org.junit.jupiter.api.Test;
@@ -40,7 +41,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 public class TestUpdateAttribute {
 
-    final static private String TEST_CONTENT = "THIS IS TEST CONTENT";
+    private static final String TEST_CONTENT = "THIS IS TEST CONTENT";
 
     final UpdateAttribute processor = new UpdateAttribute();
     final TestRunner runner = TestRunners.newTestRunner(processor);
@@ -103,6 +104,20 @@ public class TestUpdateAttribute {
     }
 
     @Test
+    public void testDynamicPropertyWithUnsetParameter() {
+        runner.setProperty("attribute.with.param", "#{missing.parameter}");
+        runner.assertNotValid();
+        runner.setProperty("attribute.with.param", "#{missing.parameter}#{another.missing.parameter}");
+        runner.assertNotValid();
+        runner.setProperty("attribute.with.param", "#{missing.parameter} #{another.missing.parameter}");
+        runner.assertValid();
+        runner.setProperty("attribute.with.param", "#{missing.parameter}${now()}");
+        runner.assertValid();
+        runner.setProperty("attribute.with.param", "${#{missing.parameter}:isEmpty():ifElse('', #{missing.parameter})}");
+        runner.assertValid();
+    }
+
+    @Test
     public void testBasicState() {
         runner.setProperty(UpdateAttribute.STORE_STATE, STORE_STATE_LOCALLY);
         runner.setProperty("count", "${getStateValue('count'):plus(1)}");
@@ -151,7 +166,6 @@ public class TestUpdateAttribute {
         flowFile.assertAttributeEquals("count", "1");
         flowFile.assertAttributeEquals("sum", "2");
     }
-
 
     @Test
     public void testStateWithInitValue() {
@@ -869,6 +883,16 @@ public class TestUpdateAttribute {
         } catch (AssertionError e) {
             assertTrue(e.getMessage().contains("org.apache.nifi.processor.exception.ProcessException"));
         }
+    }
+
+    @Test
+    void testMigrateProperties() {
+        final Map<String, String> expectedRenamed = Map.of(
+                "canonical-value-lookup-cache-size", UpdateAttribute.CANONICAL_VALUE_LOOKUP_CACHE_SIZE.getName()
+        );
+
+        final PropertyMigrationResult propertyMigrationResult = runner.migrateProperties();
+        assertEquals(expectedRenamed, propertyMigrationResult.getPropertiesRenamed());
     }
 
     private Criteria getCriteria() {

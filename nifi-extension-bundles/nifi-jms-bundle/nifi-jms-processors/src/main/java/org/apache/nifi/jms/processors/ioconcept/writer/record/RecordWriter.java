@@ -50,7 +50,7 @@ import static org.apache.nifi.jms.processors.ioconcept.writer.record.OutputStrat
 
 public class RecordWriter<T> implements FlowFileWriter<T> {
 
-    private final static String RECORD_COUNT_KEY = "record.count";
+    private static final String RECORD_COUNT_KEY = "record.count";
 
     private final RecordReaderFactory readerFactory;
     private final RecordSetWriterFactory writerFactory;
@@ -136,6 +136,11 @@ public class RecordWriter<T> implements FlowFileWriter<T> {
                                     logger.error("Failed to obtain Schema for FlowFile, sending to the parse failure relationship", e);
                                     failedMessages.add(message);
                                     flowFileWriterCallback.onParseFailure(flowFile, message, e);
+                                    try {
+                                        rawOut.close();
+                                    } catch (final IOException ioe) {
+                                        logger.warn("Failed to close output stream", ioe);
+                                    }
                                     continue;
                                 }
 

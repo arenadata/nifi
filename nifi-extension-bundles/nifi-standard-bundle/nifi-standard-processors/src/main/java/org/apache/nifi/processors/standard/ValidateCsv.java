@@ -32,6 +32,7 @@ import org.apache.nifi.components.ValidationResult;
 import org.apache.nifi.expression.ExpressionLanguageScope;
 import org.apache.nifi.flowfile.FlowFile;
 import org.apache.nifi.logging.ComponentLog;
+import org.apache.nifi.migration.PropertyConfiguration;
 import org.apache.nifi.processor.AbstractProcessor;
 import org.apache.nifi.processor.ProcessContext;
 import org.apache.nifi.processor.ProcessSession;
@@ -88,11 +89,11 @@ import java.util.concurrent.atomic.AtomicReference;
     @WritesAttribute(attribute = "count.valid.lines", description = "If line by line validation, number of valid lines extracted from the source data"),
     @WritesAttribute(attribute = "count.invalid.lines", description = "If line by line validation, number of invalid lines extracted from the source data"),
     @WritesAttribute(attribute = "count.total.lines", description = "If line by line validation, total number of lines in the source data"),
-    @WritesAttribute(attribute = "validation.error.message", description = "For flow files routed to invalid, message of the first validation error")
+    @WritesAttribute(attribute = "validation.error.message", description = "For FlowFiles routed to invalid, message of the first validation error")
 })
 public class ValidateCsv extends AbstractProcessor {
 
-    private final static List<String> ALLOWED_OPERATORS = List.of(
+    private static final List<String> ALLOWED_OPERATORS = List.of(
             "ParseBigDecimal", "ParseBool", "ParseChar", "ParseDate", "ParseDouble", "ParseInt", "ParseLong",
             "Optional", "DMinMax", "Equals", "ForbidSubStr", "LMinMax", "NotNull", "Null", "RequireHashCode", "RequireSubStr",
             "Strlen", "StrMinMax", "StrNotNullOrEmpty", "StrRegEx", "Unique", "UniqueHashCode", "IsIncludedIn"
@@ -102,7 +103,7 @@ public class ValidateCsv extends AbstractProcessor {
     private static final String ROUTE_LINES_INDIVIDUALLY = "Line by line validation";
 
     public static final AllowableValue VALIDATE_WHOLE_FLOWFILE = new AllowableValue(ROUTE_WHOLE_FLOW_FILE, ROUTE_WHOLE_FLOW_FILE,
-            "As soon as an error is found in the CSV file, the validation will stop and the whole flow file will be routed to the 'invalid'"
+            "As soon as an error is found in the CSV file, the validation will stop and the whole FlowFile will be routed to the 'invalid'"
                     + " relationship. This option offers best performances.");
 
     public static final AllowableValue VALIDATE_LINES_INDIVIDUALLY = new AllowableValue(ROUTE_LINES_INDIVIDUALLY, ROUTE_LINES_INDIVIDUALLY,
@@ -112,8 +113,7 @@ public class ValidateCsv extends AbstractProcessor {
                     + "the first occurrence will be considered valid and the next ones as invalid.");
 
     public static final PropertyDescriptor SCHEMA = new PropertyDescriptor.Builder()
-            .name("validate-csv-schema")
-            .displayName("Schema")
+            .name("Schema")
             .description("The schema to be used for validation. Is expected a comma-delimited string representing the cell "
                     + "processors to apply. The following cell processors are allowed in the schema definition: "
                     + ALLOWED_OPERATORS + ". Note: cell processors cannot be nested except with Optional. Schema is required if Header is false.")
@@ -123,9 +123,8 @@ public class ValidateCsv extends AbstractProcessor {
             .build();
 
     public static final PropertyDescriptor HEADER = new PropertyDescriptor.Builder()
-            .name("validate-csv-header")
-            .displayName("Header")
-            .description("True if the incoming flow file contains a header to ignore, false otherwise.")
+            .name("Header")
+            .description("True if the incoming FlowFile contains a header to ignore, false otherwise.")
             .required(true)
             .defaultValue("true")
             .allowableValues("true", "false")
@@ -133,8 +132,7 @@ public class ValidateCsv extends AbstractProcessor {
             .build();
 
     public static final PropertyDescriptor QUOTE_CHARACTER = new PropertyDescriptor.Builder()
-            .name("validate-csv-quote")
-            .displayName("Quote character")
+            .name("Quote Character")
             .description("Character used as 'quote' in the incoming data. Example: \"")
             .required(true)
             .defaultValue("\"")
@@ -157,8 +155,7 @@ public class ValidateCsv extends AbstractProcessor {
             .build();
 
     public static final PropertyDescriptor DELIMITER_CHARACTER = new PropertyDescriptor.Builder()
-            .name("validate-csv-delimiter")
-            .displayName("Delimiter character")
+            .name("Delimiter Character")
             .description("Character used as 'delimiter' in the incoming data. Example: ,")
             .required(true)
             .defaultValue(",")
@@ -167,8 +164,7 @@ public class ValidateCsv extends AbstractProcessor {
             .build();
 
     public static final PropertyDescriptor END_OF_LINE_CHARACTER = new PropertyDescriptor.Builder()
-            .name("validate-csv-eol")
-            .displayName("End of line symbols")
+            .name("End of Line Symbols")
             .description("Symbols used as 'end of line' in the incoming data. Example: \\n")
             .required(true)
             .defaultValue("\\n")
@@ -177,8 +173,7 @@ public class ValidateCsv extends AbstractProcessor {
             .build();
 
     public static final PropertyDescriptor VALIDATION_STRATEGY = new PropertyDescriptor.Builder()
-            .name("validate-csv-strategy")
-            .displayName("Validation strategy")
+            .name("Validation Strategy")
             .description("Strategy to apply when routing input files to output relationships.")
             .required(true)
             .defaultValue(VALIDATE_WHOLE_FLOWFILE)
@@ -196,8 +191,7 @@ public class ValidateCsv extends AbstractProcessor {
             .build();
 
     public static final PropertyDescriptor INCLUDE_ALL_VIOLATIONS = new PropertyDescriptor.Builder()
-            .name("validate-csv-violations")
-            .displayName("Include all violations")
+            .name("Include Violations")
             .description("If true, the validation.error.message attribute would include the list of all the violations"
                     + " for the first invalid line. Note that setting this property to true would slightly decrease"
                     + " the performances as all columns would be validated. If false, a line is invalid as soon as a"
@@ -382,51 +376,60 @@ public class ValidateCsv extends AbstractProcessor {
                 return new ParseDate(argument.substring(1, argument.length() - 1));
 
             case "parsedouble":
-                if (argument != null && !argument.isEmpty())
+                if (argument != null && !argument.isEmpty()) {
                     throw new IllegalArgumentException("ParseDouble does not expect any argument but has " + argument);
+                }
                 return new ParseDouble();
 
             case "parsebigdecimal":
-                if (argument != null && !argument.isEmpty())
+                if (argument != null && !argument.isEmpty()) {
                     throw new IllegalArgumentException("ParseBigDecimal does not expect any argument but has " + argument);
+                }
                 return new ParseBigDecimal();
 
             case "parsebool":
-                if (argument != null && !argument.isEmpty())
+                if (argument != null && !argument.isEmpty()) {
                     throw new IllegalArgumentException("ParseBool does not expect any argument but has " + argument);
+                }
                 return new ParseBool();
 
             case "parsechar":
-                if (argument != null && !argument.isEmpty())
+                if (argument != null && !argument.isEmpty()) {
                     throw new IllegalArgumentException("ParseChar does not expect any argument but has " + argument);
+                }
                 return new ParseChar();
 
             case "parseint":
-                if (argument != null && !argument.isEmpty())
+                if (argument != null && !argument.isEmpty()) {
                     throw new IllegalArgumentException("ParseInt does not expect any argument but has " + argument);
+                }
                 return new ParseInt();
 
             case "parselong":
-                if (argument != null && !argument.isEmpty())
+                if (argument != null && !argument.isEmpty()) {
                     throw new IllegalArgumentException("ParseLong does not expect any argument but has " + argument);
+                }
                 return new ParseLong();
 
             case "notnull":
-                if (argument != null && !argument.isEmpty())
+                if (argument != null && !argument.isEmpty()) {
                     throw new IllegalArgumentException("NotNull does not expect any argument but has " + argument);
+                }
                 return new NotNull();
 
             case "strregex":
                 return new StrRegEx(argument.substring(1, argument.length() - 1));
 
             case "unique":
-                if (argument != null && !argument.isEmpty())
+                if (argument != null && !argument.isEmpty()) {
                     throw new IllegalArgumentException("Unique does not expect any argument but has " + argument);
+                }
                 return new Unique();
 
             case "uniquehashcode":
-                if (argument != null && !argument.isEmpty())
+                if (argument != null && !argument.isEmpty()) {
                     throw new IllegalArgumentException("UniqueHashCode does not expect any argument but has " + argument);
+                }
                 return new UniqueHashCode();
 
             case "strlen":
@@ -450,8 +453,9 @@ public class ValidateCsv extends AbstractProcessor {
                 return new DMinMax(Double.parseDouble(doubles[0]), Double.parseDouble(doubles[1]));
 
             case "equals":
-                if (argument != null && !argument.isEmpty())
+                if (argument != null && !argument.isEmpty()) {
                     throw new IllegalArgumentException("Equals does not expect any argument but has " + argument);
+                }
                 return new Equals();
 
             case "forbidsubstr":
@@ -463,8 +467,9 @@ public class ValidateCsv extends AbstractProcessor {
                 return new RequireSubStr(requiredSubStrings);
 
             case "strnotnullorempty":
-                if (argument != null && !argument.isEmpty())
+                if (argument != null && !argument.isEmpty()) {
                     throw new IllegalArgumentException("StrNotNullOrEmpty does not expect any argument but has " + argument);
+                }
                 return new StrNotNullOrEmpty();
 
             case "requirehashcode":
@@ -476,8 +481,9 @@ public class ValidateCsv extends AbstractProcessor {
                 return new RequireHashCode(hashcodes);
 
             case "null":
-                if (argument != null && !argument.isEmpty())
+                if (argument != null && !argument.isEmpty()) {
                     throw new IllegalArgumentException("Null does not expect any argument but has " + argument);
+                }
                 return null;
 
             case "isincludedin":
@@ -581,7 +587,7 @@ public class ValidateCsv extends AbstractProcessor {
                         logger.debug("Failed to validate {} against schema due to {}; routing to 'invalid'", flowFile, e);
                         break;
                     } else {
-                        // we append the invalid line to the flow file that will be routed to invalid relationship
+                        // we append the invalid line to the FlowFile that will be routed to invalid relationship
                         invalidFF = session.append(invalidFF, out -> out.write(print(listReader.getUntokenizedRow(), csvPref, isFirstLineInvalid.get())));
 
                         if (isFirstLineInvalid.get()) {
@@ -652,6 +658,17 @@ public class ValidateCsv extends AbstractProcessor {
         }
     }
 
+    @Override
+    public void migrateProperties(PropertyConfiguration config) {
+        config.renameProperty("validate-csv-schema", SCHEMA.getName());
+        config.renameProperty("validate-csv-header", HEADER.getName());
+        config.renameProperty("validate-csv-quote", QUOTE_CHARACTER.getName());
+        config.renameProperty("validate-csv-delimiter", DELIMITER_CHARACTER.getName());
+        config.renameProperty("validate-csv-eol", END_OF_LINE_CHARACTER.getName());
+        config.renameProperty("validate-csv-strategy", VALIDATION_STRATEGY.getName());
+        config.renameProperty("validate-csv-violations", INCLUDE_ALL_VIOLATIONS.getName());
+    }
+
     private byte[] print(String row, CsvPreference csvPref, boolean isFirstLine) {
         StringBuffer buffer = new StringBuffer();
         if (!isFirstLine) {
@@ -672,10 +689,10 @@ public class ValidateCsv extends AbstractProcessor {
         }
 
         public List<Object> read(boolean includeAllViolations, CellProcessor... processors) throws IOException {
-            if ( processors == null ) {
+            if (processors == null) {
                 throw new NullPointerException("Processors should not be null");
             }
-            if ( readRow() ) {
+            if (readRow()) {
                 executeProcessors(new ArrayList<>(getColumns().size()), processors, includeAllViolations);
                 return new ArrayList<>(getColumns());
             }

@@ -16,6 +16,13 @@
  */
 package org.apache.nifi.processors.standard;
 
+import org.apache.avro.Schema;
+import org.apache.avro.file.DataFileWriter;
+import org.apache.avro.generic.GenericData;
+import org.apache.avro.generic.GenericDatumWriter;
+import org.apache.avro.generic.GenericRecord;
+import org.apache.nifi.avro.AvroReader;
+import org.apache.nifi.avro.AvroRecordSetWriter;
 import org.apache.nifi.controller.AbstractControllerService;
 import org.apache.nifi.csv.CSVReader;
 import org.apache.nifi.json.JsonRecordSetWriter;
@@ -24,6 +31,7 @@ import org.apache.nifi.logging.ComponentLog;
 import org.apache.nifi.reporting.InitializationException;
 import org.apache.nifi.schema.access.SchemaAccessUtils;
 import org.apache.nifi.schema.inference.SchemaInferenceUtil;
+import org.apache.nifi.serialization.RecordReader;
 import org.apache.nifi.serialization.RecordSetWriter;
 import org.apache.nifi.serialization.RecordSetWriterFactory;
 import org.apache.nifi.serialization.SimpleRecordSchema;
@@ -39,13 +47,18 @@ import org.apache.nifi.serialization.record.RecordFieldType;
 import org.apache.nifi.serialization.record.RecordSchema;
 import org.apache.nifi.serialization.record.RecordSet;
 import org.apache.nifi.util.MockFlowFile;
+import org.apache.nifi.util.PropertyMigrationResult;
 import org.apache.nifi.util.TestRunner;
 import org.apache.nifi.util.TestRunners;
+import org.apache.nifi.util.db.JdbcProperties;
 import org.junit.jupiter.api.Test;
 
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.math.BigDecimal;
+import java.nio.ByteBuffer;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -54,10 +67,14 @@ import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.stream.Collectors;
 
+import static org.apache.nifi.util.db.JdbcProperties.DEFAULT_PRECISION;
+import static org.apache.nifi.util.db.JdbcProperties.DEFAULT_SCALE;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 
 public class TestQueryRecord {
 
@@ -75,14 +92,13 @@ public class TestQueryRecord {
 
         /*
          * we have to disable validation of expression language because the scope of the evaluation
-         * depends of the value of another property: if we are caching the schema/queries or not. If
+         * depends on the value of another property: if we are caching the schema/queries or not. If
          * we don't disable the validation, it'll throw an error saying that the scope is incorrect.
          */
         runner.setValidateExpressionUsage(false);
 
         return runner;
     }
-
 
     @Test
     public void testRecordPathFunctions() throws InitializationException {
@@ -120,14 +136,14 @@ public class TestQueryRecord {
         runner.assertTransferCount(REL_NAME, 1);
 
         final List<MockFlowFile> flowFiles = runner.getFlowFilesForRelationship(REL_NAME);
-        flowFiles.get(0).assertAttributeEquals(QueryRecord.ROUTE_ATTRIBUTE_KEY, REL_NAME);
+        flowFiles.getFirst().assertAttributeEquals(QueryRecord.ROUTE_ATTRIBUTE_KEY, REL_NAME);
         final List<MockFlowFile> flowFilesOriginal = runner.getFlowFilesForRelationship(QueryRecord.REL_ORIGINAL);
-        flowFilesOriginal.get(0).assertAttributeEquals(QueryRecord.ROUTE_ATTRIBUTE_KEY, QueryRecord.REL_ORIGINAL.getName());
+        flowFilesOriginal.getFirst().assertAttributeEquals(QueryRecord.ROUTE_ATTRIBUTE_KEY, QueryRecord.REL_ORIGINAL.getName());
 
         final List<Record> written = writer.getRecordsWritten();
         assertEquals(1, written.size());
 
-        final Record output = written.get(0);
+        final Record output = written.getFirst();
         assertEquals("John Doe", output.getValue("name"));
         assertEquals("John Doe", output.getValue("nameObj"));
         assertEquals(30, output.getValue("age"));
@@ -176,7 +192,7 @@ public class TestQueryRecord {
         runner.assertTransferCount(REL_NAME, 1);
 
         final List<MockFlowFile> flowFiles = runner.getFlowFilesForRelationship(REL_NAME);
-        flowFiles.get(0).assertAttributeEquals(QueryRecord.ROUTE_ATTRIBUTE_KEY, REL_NAME);
+        flowFiles.getFirst().assertAttributeEquals(QueryRecord.ROUTE_ATTRIBUTE_KEY, REL_NAME);
 
         final List<Record> written = writer.getRecordsWritten();
         assertEquals(50, written.size());
@@ -188,7 +204,6 @@ public class TestQueryRecord {
             i++;
         }
     }
-
 
     @Test
     public void testRecordPathWithArray() throws InitializationException {
@@ -219,12 +234,12 @@ public class TestQueryRecord {
         runner.assertTransferCount(REL_NAME, 1);
 
         final List<MockFlowFile> flowFiles = runner.getFlowFilesForRelationship(REL_NAME);
-        flowFiles.get(0).assertAttributeEquals(QueryRecord.ROUTE_ATTRIBUTE_KEY, REL_NAME);
+        flowFiles.getFirst().assertAttributeEquals(QueryRecord.ROUTE_ATTRIBUTE_KEY, REL_NAME);
 
         final List<Record> written = writer.getRecordsWritten();
         assertEquals(1, written.size());
 
-        final Record output = written.get(0);
+        final Record output = written.getFirst();
         assertEquals("John Doe", output.getValue("name"));
         assertEquals("Software Engineer", output.getValue("title"));
     }
@@ -257,12 +272,12 @@ public class TestQueryRecord {
         runner.assertTransferCount(REL_NAME, 1);
 
         final List<MockFlowFile> flowFiles = runner.getFlowFilesForRelationship(REL_NAME);
-        flowFiles.get(0).assertAttributeEquals(QueryRecord.ROUTE_ATTRIBUTE_KEY, REL_NAME);
+        flowFiles.getFirst().assertAttributeEquals(QueryRecord.ROUTE_ATTRIBUTE_KEY, REL_NAME);
 
         final List<Record> written = writer.getRecordsWritten();
         assertEquals(1, written.size());
 
-        final Record output = written.get(0);
+        final Record output = written.getFirst();
         assertEquals("John Doe", output.getValue("name"));
         assertEquals("Software Engineer", output.getValue("title"));
         assertEquals(JobLevel.IC2, output.getValue("jobLevel"));
@@ -299,12 +314,12 @@ public class TestQueryRecord {
         runner.assertTransferCount(REL_NAME, 1);
 
         final List<MockFlowFile> flowFiles = runner.getFlowFilesForRelationship(REL_NAME);
-        flowFiles.get(0).assertAttributeEquals(QueryRecord.ROUTE_ATTRIBUTE_KEY, REL_NAME);
+        flowFiles.getFirst().assertAttributeEquals(QueryRecord.ROUTE_ATTRIBUTE_KEY, REL_NAME);
 
         final List<Record> written = writer.getRecordsWritten();
         assertEquals(1, written.size());
 
-        final Record output = written.get(0);
+        final Record output = written.getFirst();
         assertEquals("John Doe", output.getValue("name"));
         assertEquals("Software Engineer", output.getValue("title"));
         assertEquals(new BigDecimal("90.500000000"), output.getValue("height_total"));
@@ -342,13 +357,13 @@ public class TestQueryRecord {
         runner.assertTransferCount(REL_NAME, 1);
 
         final List<MockFlowFile> flowFiles = runner.getFlowFilesForRelationship(REL_NAME);
-        flowFiles.get(0).assertAttributeEquals(QueryRecord.ROUTE_ATTRIBUTE_KEY, REL_NAME);
+        flowFiles.getFirst().assertAttributeEquals(QueryRecord.ROUTE_ATTRIBUTE_KEY, REL_NAME);
 
         final List<Record> written = writer.getRecordsWritten();
         assertEquals(1, written.size());
 
         final Number height = 121.0;
-        final Record output = written.get(0);
+        final Record output = written.getFirst();
         assertEquals("John Doe", output.getValue("name"));
         assertEquals("Software Engineer", output.getValue("title"));
         assertEquals(height.doubleValue(), output.getValue("height_total_double"));
@@ -388,13 +403,13 @@ public class TestQueryRecord {
         runner.assertTransferCount(REL_NAME, 1);
 
         final List<MockFlowFile> flowFiles = runner.getFlowFilesForRelationship(REL_NAME);
-        flowFiles.get(0).assertAttributeEquals(QueryRecord.ROUTE_ATTRIBUTE_KEY, REL_NAME);
+        flowFiles.getFirst().assertAttributeEquals(QueryRecord.ROUTE_ATTRIBUTE_KEY, REL_NAME);
 
         final List<Record> written = writer.getRecordsWritten();
         assertEquals(1, written.size());
 
         final Number height = 60;
-        final Record output = written.get(0);
+        final Record output = written.getFirst();
         assertEquals("John Doe", output.getValue("name"));
         assertEquals("Software Engineer", output.getValue("title"));
         assertEquals(height.longValue(), output.getValue("height_total_long"));
@@ -409,7 +424,6 @@ public class TestQueryRecord {
         recordReader.addRecord(createTaggedRecord("1", "a", "d", "g"));
         recordReader.addRecord(createTaggedRecord("2", "b", "e"));
         recordReader.addRecord(createTaggedRecord("3", "c", "f", "h"));
-
 
         final ArrayListRecordWriter writer = new ArrayListRecordWriter(sample.getSchema());
 
@@ -430,12 +444,12 @@ public class TestQueryRecord {
         runner.assertTransferCount(REL_NAME, 1);
 
         final List<MockFlowFile> flowFiles = runner.getFlowFilesForRelationship(REL_NAME);
-        flowFiles.get(0).assertAttributeEquals(QueryRecord.ROUTE_ATTRIBUTE_KEY, REL_NAME);
+        flowFiles.getFirst().assertAttributeEquals(QueryRecord.ROUTE_ATTRIBUTE_KEY, REL_NAME);
 
         final List<Record> written = writer.getRecordsWritten();
         assertEquals(2, written.size());
 
-        final Record output0 = written.get(0);
+        final Record output0 = written.getFirst();
         assertEquals("1", output0.getValue("id"));
         assertArrayEquals(new Object[]{"a", "d", "g"}, (Object[]) output0.getValue("tags"));
 
@@ -443,7 +457,6 @@ public class TestQueryRecord {
         assertEquals("2", output1.getValue("id"));
         assertArrayEquals(new Object[]{"b", "e"}, (Object[]) output1.getValue("tags"));
     }
-
 
     @Test
     public void testArrayColumnWithIndex() throws InitializationException {
@@ -453,7 +466,6 @@ public class TestQueryRecord {
         recordReader.addRecord(createTaggedRecord("1", "a", "d", "g"));
         recordReader.addRecord(createTaggedRecord("2", "b", "e"));
         recordReader.addRecord(createTaggedRecord("3", "c", "f", "h"));
-
 
         final ArrayListRecordWriter writer = new ArrayListRecordWriter(sample.getSchema());
 
@@ -474,12 +486,12 @@ public class TestQueryRecord {
         runner.assertTransferCount(REL_NAME, 1);
 
         final List<MockFlowFile> flowFiles = runner.getFlowFilesForRelationship(REL_NAME);
-        flowFiles.get(0).assertAttributeEquals(QueryRecord.ROUTE_ATTRIBUTE_KEY, REL_NAME);
+        flowFiles.getFirst().assertAttributeEquals(QueryRecord.ROUTE_ATTRIBUTE_KEY, REL_NAME);
 
         final List<Record> written = writer.getRecordsWritten();
         assertEquals(3, written.size());
 
-        final Record output0 = written.get(0);
+        final Record output0 = written.getFirst();
         assertEquals("1", output0.getValue("id"));
         assertEquals("a", output0.getValue("first"));
         assertEquals("d", output0.getValue("second"));
@@ -537,16 +549,126 @@ public class TestQueryRecord {
         runner.assertTransferCount(REL_NAME, 1);
 
         final List<MockFlowFile> flowFiles = runner.getFlowFilesForRelationship(REL_NAME);
-        flowFiles.get(0).assertAttributeEquals(QueryRecord.ROUTE_ATTRIBUTE_KEY, REL_NAME);
+        flowFiles.getFirst().assertAttributeEquals(QueryRecord.ROUTE_ATTRIBUTE_KEY, REL_NAME);
 
         final List<Record> written = writer.getRecordsWritten();
         assertEquals(1, written.size());
 
-        final Record output = written.get(0);
+        final Record output = written.getFirst();
         assertEquals("John Doe", output.getValue("name"));
         assertEquals("Software Engineer", output.getValue("title"));
     }
 
+    @Test
+    public void testSelectOrderRespected() throws InitializationException {
+        final MockRecordParser recordReader = new MockRecordParser();
+        recordReader.addSchemaField("ArticleCode", RecordFieldType.STRING);
+        recordReader.addSchemaField("ProductCode", RecordFieldType.STRING);
+        recordReader.addSchemaField("ArticleName", RecordFieldType.STRING);
+        recordReader.addSchemaField("ProductName", RecordFieldType.STRING);
+        recordReader.addSchemaField("Country", RecordFieldType.STRING);
+        recordReader.addRecord("12345", "10101", "Credit Card", "Porduct Credit", "RO");
+
+        final ArrayListRecordWriter writer = new ArrayListRecordWriter(null);
+
+        final TestRunner runner = getRunner();
+        runner.addControllerService("reader", recordReader);
+        runner.enableControllerService(recordReader);
+        runner.addControllerService("writer", writer);
+        runner.enableControllerService(writer);
+
+        runner.setProperty(QueryRecord.RECORD_READER_FACTORY, "reader");
+        runner.setProperty(QueryRecord.RECORD_WRITER_FACTORY, "writer");
+        runner.setProperty(REL_NAME,
+            "SELECT ArticleCode, ArticleName, ProductCode, ProductName, Country FROM FLOWFILE");
+
+        runner.enqueue(new byte[0]);
+        runner.run();
+
+        runner.assertTransferCount(REL_NAME, 1);
+        final List<Record> written = writer.getRecordsWritten();
+        assertEquals(1, written.size());
+
+        final Record out = written.getFirst();
+        assertEquals("12345", out.getAsString("ArticleCode"));
+        assertEquals("Credit Card", out.getAsString("ArticleName"));
+        assertEquals("10101", out.getAsString("ProductCode"));
+        assertEquals("Porduct Credit", out.getAsString("ProductName"));
+        assertEquals("RO", out.getAsString("Country"));
+    }
+
+    @Test
+    public void testUnionAllWithProjection() throws InitializationException {
+        final MockRecordParser recordReader = new MockRecordParser();
+        recordReader.addSchemaField("employeeId", RecordFieldType.STRING);
+        recordReader.addSchemaField("email", RecordFieldType.STRING);
+        recordReader.addSchemaField("englishTrainingTime", RecordFieldType.INT);
+        recordReader.addSchemaField("englishLastOverallProficiencyLevel", RecordFieldType.STRING);
+        recordReader.addSchemaField("frenchTrainingTime", RecordFieldType.INT);
+        recordReader.addSchemaField("frenchLastOverallProficiencyLevel", RecordFieldType.STRING);
+
+        recordReader.addRecord("1234", "xxx.yyyy@zzzz.com", 114828, "B2.1", 406, null);
+
+        final ArrayListRecordWriter writer = new ArrayListRecordWriter(null);
+
+        final TestRunner runner = getRunner();
+        runner.addControllerService("reader", recordReader);
+        runner.enableControllerService(recordReader);
+        runner.addControllerService("writer", writer);
+        runner.enableControllerService(writer);
+
+        runner.setProperty(QueryRecord.RECORD_READER_FACTORY, "reader");
+        runner.setProperty(QueryRecord.RECORD_WRITER_FACTORY, "writer");
+
+        final String sql = """
+                (
+                  SELECT employeeId,
+                         email,
+                         'en' AS lovCode,
+                         CAST(englishTrainingTime AS INTEGER) AS timeSpent,
+                         englishLastOverallProficiencyLevel AS proficiencyLevel
+                  FROM FLOWFILE
+                  WHERE CAST(englishTrainingTime AS INTEGER) <> 0
+                ) UNION ALL (
+                  SELECT employeeId,
+                         email,
+                         'fr' AS lovCode,
+                         CAST(frenchTrainingTime AS INTEGER) AS timeSpent,
+                         frenchLastOverallProficiencyLevel AS proficiencyLevel
+                  FROM FLOWFILE
+                  WHERE CAST(frenchTrainingTime AS INTEGER) <> 0
+                )
+                """;
+
+        runner.setProperty(REL_NAME, sql);
+
+        runner.enqueue(new byte[0]);
+        runner.run();
+
+        runner.assertTransferCount(REL_NAME, 1);
+        final List<Record> written = writer.getRecordsWritten();
+        assertEquals(2, written.size());
+
+        final Record first = written.get(0);
+        final Record second = written.get(1);
+
+        // Order of UNION ALL output rows may depend on planner, so verify both combinations
+        final boolean enFirst = "en".equals(first.getAsString("lovCode"));
+        final Record en = enFirst ? first : second;
+        final Record fr = enFirst ? second : first;
+
+        assertEquals("en", en.getAsString("lovCode"));
+        assertEquals("1234", en.getAsString("employeeId"));
+        assertEquals("xxx.yyyy@zzzz.com", en.getAsString("email"));
+        assertEquals(114828, en.getAsInt("timeSpent"));
+        assertEquals("B2.1", en.getAsString("proficiencyLevel"));
+
+        assertEquals("fr", fr.getAsString("lovCode"));
+        assertEquals("1234", fr.getAsString("employeeId"));
+        assertEquals("xxx.yyyy@zzzz.com", fr.getAsString("email"));
+        assertEquals(406, fr.getAsInt("timeSpent"));
+        assertNull(fr.getValue("proficiencyLevel"));
+    }
 
     @Test
     public void testRecordPathWithArrayAndOnlyOneElementMatchingRPath() throws InitializationException {
@@ -576,16 +698,15 @@ public class TestQueryRecord {
         runner.assertTransferCount(REL_NAME, 1);
 
         final List<MockFlowFile> flowFiles = runner.getFlowFilesForRelationship(REL_NAME);
-        flowFiles.get(0).assertAttributeEquals(QueryRecord.ROUTE_ATTRIBUTE_KEY, REL_NAME);
+        flowFiles.getFirst().assertAttributeEquals(QueryRecord.ROUTE_ATTRIBUTE_KEY, REL_NAME);
 
         final List<Record> written = writer.getRecordsWritten();
         assertEquals(1, written.size());
 
-        final Record output = written.get(0);
+        final Record output = written.getFirst();
         assertEquals("John Doe", output.getValue("name"));
         assertEquals("Software Engineer", output.getValue("title"));
     }
-
 
     @Test
     public void testLikeWithRecordPath() throws InitializationException {
@@ -615,16 +736,15 @@ public class TestQueryRecord {
         runner.assertTransferCount(REL_NAME, 1);
 
         final List<MockFlowFile> flowFiles = runner.getFlowFilesForRelationship(REL_NAME);
-        flowFiles.get(0).assertAttributeEquals(QueryRecord.ROUTE_ATTRIBUTE_KEY, REL_NAME);
+        flowFiles.getFirst().assertAttributeEquals(QueryRecord.ROUTE_ATTRIBUTE_KEY, REL_NAME);
 
         final List<Record> written = writer.getRecordsWritten();
         assertEquals(1, written.size());
 
-        final Record output = written.get(0);
+        final Record output = written.getFirst();
         assertEquals("John Doe", output.getValue("name"));
         assertEquals("Software Engineer", output.getValue("title"));
     }
-
 
     @Test
     public void testRecordPathWithMap() throws InitializationException {
@@ -655,40 +775,40 @@ public class TestQueryRecord {
         runner.assertTransferCount(REL_NAME, 1);
 
         final List<MockFlowFile> flowFiles = runner.getFlowFilesForRelationship(REL_NAME);
-        flowFiles.get(0).assertAttributeEquals(QueryRecord.ROUTE_ATTRIBUTE_KEY, REL_NAME);
+        flowFiles.getFirst().assertAttributeEquals(QueryRecord.ROUTE_ATTRIBUTE_KEY, REL_NAME);
 
         final List<Record> written = writer.getRecordsWritten();
         assertEquals(1, written.size());
 
-        final Record output = written.get(0);
+        final Record output = written.getFirst();
         assertEquals("basketball", output.getValue("sport"));
         assertEquals("John Doe", output.getValue("nameObj"));
     }
 
     /**
      * Returns a Record that, if written in JSON, would look like:
-     * <code><pre>
-     * {
-     *    "person": {
-     *        "name": "John Doe",
-     *        "age": 30,
-     *        "favoriteColors": [ "red", "green" ],
-     *        "dob": 598741575825,
-     *        "dobTimestamp": 598741575825,
-     *        "joinDate": "2018-02-04",
-     *        "weight": 180.8,
-     *        "mother": {
-     *          "name": "Jane Doe"
-     *        }
-     *    },
-     *    "favouriteThings": {
-     *       "sport": "basketball",
-     *       "color": "green",
-     *       "roses": "raindrops",
-     *       "kittens": "whiskers"
-     *    }
+     * {@snippet lang="json" :
+     *   {
+     *     "person": {
+     *         "name": "John Doe",
+     *         "age": 30,
+     *         "favoriteColors": [ "red", "green" ],
+     *         "dob": 598741575825,
+     *         "dobTimestamp": 598741575825,
+     *         "joinDate": "2018-02-04",
+     *         "weight": 180.8,
+     *         "mother": {
+     *           "name": "Jane Doe"
+     *         }
+     *     },
+     *     "favouriteThings": {
+     *         "sport": "basketball",
+     *         "color": "green",
+     *         "roses": "raindrops",
+     *         "kittens": "whiskers"
+     *     }
+     *   }
      * }
-     * </pre></code>
      *
      * @return the Record
      */
@@ -722,7 +842,6 @@ public class TestQueryRecord {
         favorites.put("roses", "raindrops");
         favorites.put("kittens", "whiskers");
 
-
         final Map<String, Object> map = new HashMap<>();
         map.put("name", "John Doe");
         map.put("age", 30);
@@ -742,15 +861,14 @@ public class TestQueryRecord {
         return new MapRecord(recordSchema, personValues);
     }
 
-
     /**
      * Returns a Record that, if written in JSON, would look like:
-     * <code><pre>
-     * {
-     *    "id": &gt;id&lt;,
-     *    "tags": [&gt;tag1&lt;,&gt;tag2&lt;...]
-     * }
-     * </pre></code>
+     * {@snippet lang="json":
+     *   {
+     *     "id": "someId",
+     *     "tags": ["someTag1","someTag2" ...]
+     *   }
+     *}
      *
      * @return the Record
      */
@@ -769,7 +887,7 @@ public class TestQueryRecord {
 
     /**
      * Returns a Record that, if written in JSON, would look like:
-     * <code><pre>
+     * {@snippet lang="json" :
      *          {
      *               "name": "John Doe",
      *               "title": "Software Engineer",
@@ -793,7 +911,7 @@ public class TestQueryRecord {
      *                   "label": "home"
      *               }]
      *             }
-     * </pre></code>
+     * }
      *
      * @return the Record
      */
@@ -814,7 +932,7 @@ public class TestQueryRecord {
         personFields.add(new RecordField("title", RecordFieldType.STRING.getDataType()));
         personFields.add(new RecordField("jobLevel", RecordFieldType.ENUM.getDataType()));
         personFields.add(new RecordField("height", RecordFieldType.CHOICE.getChoiceDataType(RecordFieldType.DOUBLE.getDataType(), RecordFieldType.INT.getDataType())));
-        personFields.add(new RecordField("addresses", RecordFieldType.ARRAY.getArrayDataType( RecordFieldType.RECORD.getRecordDataType(addressSchema)) ));
+        personFields.add(new RecordField("addresses", RecordFieldType.ARRAY.getArrayDataType(RecordFieldType.RECORD.getRecordDataType(addressSchema))));
         final RecordSchema personSchema = new SimpleRecordSchema(personFields);
 
         final Map<String, Object> workMap = new HashMap<>();
@@ -846,7 +964,6 @@ public class TestQueryRecord {
         map.put("addresses", new Record[] {homeAddress, workAddress});
         return new MapRecord(personSchema, map);
     }
-
 
     @Test
     public void testStreamClosedWhenBadData() throws InitializationException {
@@ -903,7 +1020,7 @@ public class TestQueryRecord {
         runner.run(2 * numIterations);
 
         runner.assertTransferCount(REL_NAME, 1);
-        final MockFlowFile out = runner.getFlowFilesForRelationship(REL_NAME).get(0);
+        final MockFlowFile out = runner.getFlowFilesForRelationship(REL_NAME).getFirst();
         out.assertAttributeEquals(QueryRecord.ROUTE_ATTRIBUTE_KEY, REL_NAME);
         out.assertContentEquals("\"name\",\"points\"\n\"Tom\",\"49\"\n");
     }
@@ -938,7 +1055,7 @@ public class TestQueryRecord {
         runner.run(2 * numIterations);
 
         runner.assertTransferCount(REL_NAME, 1);
-        final MockFlowFile out = runner.getFlowFilesForRelationship(REL_NAME).get(0);
+        final MockFlowFile out = runner.getFlowFilesForRelationship(REL_NAME).getFirst();
         out.assertAttributeEquals(QueryRecord.ROUTE_ATTRIBUTE_KEY, REL_NAME);
         out.assertContentEquals("\"name\",\"points\"\n\"Tom\",\"49\"\n\"Alice\",\n,\"36\"\n");
     }
@@ -971,7 +1088,7 @@ public class TestQueryRecord {
         runner.run(2 * numIterations);
 
         runner.assertTransferCount(REL_NAME, 1);
-        final MockFlowFile out = runner.getFlowFilesForRelationship(REL_NAME).get(0);
+        final MockFlowFile out = runner.getFlowFilesForRelationship(REL_NAME).getFirst();
         out.assertAttributeEquals(QueryRecord.ROUTE_ATTRIBUTE_KEY, REL_NAME);
         out.assertContentEquals("\"name\",\"points\"\n\"Tom\",\"49\"\n");
     }
@@ -999,11 +1116,10 @@ public class TestQueryRecord {
         runner.enqueue("name,age\n");
         runner.run();
         runner.assertTransferCount(REL_NAME, 1);
-        final MockFlowFile out = runner.getFlowFilesForRelationship(REL_NAME).get(0);
+        final MockFlowFile out = runner.getFlowFilesForRelationship(REL_NAME).getFirst();
         out.assertAttributeEquals(QueryRecord.ROUTE_ATTRIBUTE_KEY, REL_NAME);
         out.assertContentEquals("\"name\",\"age\"\n");
     }
-
 
     @Test
     public void testTransformCalc() throws InitializationException {
@@ -1034,7 +1150,7 @@ public class TestQueryRecord {
         runner.run();
 
         runner.assertTransferCount(REL_NAME, 1);
-        final MockFlowFile out = runner.getFlowFilesForRelationship(REL_NAME).get(0);
+        final MockFlowFile out = runner.getFlowFilesForRelationship(REL_NAME).getFirst();
         out.assertAttributeEquals(QueryRecord.ROUTE_ATTRIBUTE_KEY, REL_NAME);
 
         out.assertContentEquals("\"NAME\",\"POINTS\"\n\"100\",\"90.75\"\n");
@@ -1070,7 +1186,7 @@ public class TestQueryRecord {
 
         runner.assertAllFlowFilesTransferred(QueryRecord.REL_FAILURE, 1);
         final List<MockFlowFile> flowFiles = runner.getFlowFilesForRelationship(QueryRecord.REL_FAILURE);
-        flowFiles.get(0).assertAttributeEquals(QueryRecord.ROUTE_ATTRIBUTE_KEY, QueryRecord.REL_FAILURE.getName());
+        flowFiles.getFirst().assertAttributeEquals(QueryRecord.ROUTE_ATTRIBUTE_KEY, QueryRecord.REL_FAILURE.getName());
     }
 
     @Test
@@ -1090,7 +1206,7 @@ public class TestQueryRecord {
         runner.addControllerService("writer", writer);
         runner.enableControllerService(writer);
 
-        runner.setProperty(REL_NAME, "select name, sum(points) as points from FLOWFILE GROUP BY name");
+        runner.setProperty(REL_NAME, "select name, sum(points) as points from FLOWFILE GROUP BY name ORDER BY points DESC");
         runner.setProperty(QueryRecord.RECORD_READER_FACTORY, "parser");
         runner.setProperty(QueryRecord.RECORD_WRITER_FACTORY, "writer");
 
@@ -1098,7 +1214,7 @@ public class TestQueryRecord {
         runner.run();
 
         runner.assertTransferCount(REL_NAME, 1);
-        final MockFlowFile flowFileOut = runner.getFlowFilesForRelationship(REL_NAME).get(0);
+        final MockFlowFile flowFileOut = runner.getFlowFilesForRelationship(REL_NAME).getFirst();
         flowFileOut.assertAttributeEquals(QueryRecord.ROUTE_ATTRIBUTE_KEY, REL_NAME);
         flowFileOut.assertContentEquals("\"name\",\"points\"\n\"Tom\",\"100\"\n\"Jerry\",\"2\"\n");
     }
@@ -1131,11 +1247,11 @@ public class TestQueryRecord {
 
         runner.assertTransferCount(REL_NAME, 1);
         runner.assertTransferCount("count", 1);
-        final MockFlowFile flowFileOut = runner.getFlowFilesForRelationship(REL_NAME).get(0);
+        final MockFlowFile flowFileOut = runner.getFlowFilesForRelationship(REL_NAME).getFirst();
         flowFileOut.assertAttributeEquals(QueryRecord.ROUTE_ATTRIBUTE_KEY, REL_NAME);
         flowFileOut.assertContentEquals("1\n\n\n3\n");
 
-        final MockFlowFile countFlowFile = runner.getFlowFilesForRelationship("count").get(0);
+        final MockFlowFile countFlowFile = runner.getFlowFilesForRelationship("count").getFirst();
         countFlowFile.assertAttributeEquals(QueryRecord.ROUTE_ATTRIBUTE_KEY, "count");
         countFlowFile.assertContentEquals("2\n");
     }
@@ -1172,7 +1288,7 @@ public class TestQueryRecord {
 
         runner.assertTransferCount(REL_NAME, 1);
         final List<MockFlowFile> flowFiles = runner.getFlowFilesForRelationship(REL_NAME);
-        flowFiles.get(0).assertAttributeEquals(QueryRecord.ROUTE_ATTRIBUTE_KEY, REL_NAME);
+        flowFiles.getFirst().assertAttributeEquals(QueryRecord.ROUTE_ATTRIBUTE_KEY, REL_NAME);
     }
 
     @Test
@@ -1196,11 +1312,106 @@ public class TestQueryRecord {
         runner.run();
 
         runner.assertTransferCount(REL_NAME, 1);
-        final MockFlowFile flowFileOut = runner.getFlowFilesForRelationship(REL_NAME).get(0);
+        final MockFlowFile flowFileOut = runner.getFlowFilesForRelationship(REL_NAME).getFirst();
         flowFileOut.assertAttributeEquals(QueryRecord.ROUTE_ATTRIBUTE_KEY, REL_NAME);
         flowFileOut.assertContentEquals("[]");
     }
 
+    @Test
+    public void testAvroUnionFixedSizesUsesMatchingFixedSize() throws Exception {
+        final String avroSchemaText = """
+                {
+                  "type": "record",
+                  "name": "Foo",
+                  "fields": [
+                    {
+                      "name": "bar",
+                      "type": [
+                        {"type": "fixed", "name": "Bytes4", "size": 4},
+                        {"type": "fixed", "name": "Bytes8", "size": 8}
+                      ]
+                    }
+                  ]
+                }
+                """;
+
+        final Schema avroSchema = new Schema.Parser().parse(avroSchemaText);
+        final Schema bytes8Schema = avroSchema.getField("bar").schema().getTypes().stream()
+            .filter(schema -> "Bytes8".equals(schema.getName()))
+            .findFirst()
+            .orElseThrow(() -> new IllegalStateException("Bytes8 schema not found"));
+
+        final GenericRecord record = new GenericData.Record(avroSchema);
+        record.put("bar", new GenericData.Fixed(bytes8Schema, new byte[] {0, 1, 2, 3, 4, 5, 6, 7}));
+
+        final ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
+        try (DataFileWriter<GenericRecord> dataFileWriter = new DataFileWriter<>(new GenericDatumWriter<>(avroSchema))) {
+            dataFileWriter.create(avroSchema, outputStream);
+            dataFileWriter.append(record);
+        }
+
+        final TestRunner runner = getRunner();
+
+        final AvroReader avroReader = new AvroReader();
+        runner.addControllerService("reader", avroReader);
+        runner.setProperty(avroReader, SchemaAccessUtils.SCHEMA_ACCESS_STRATEGY, SchemaAccessUtils.SCHEMA_TEXT_PROPERTY);
+        runner.setProperty(avroReader, SchemaAccessUtils.SCHEMA_TEXT, avroSchemaText);
+        runner.enableControllerService(avroReader);
+
+        final AvroRecordSetWriter avroWriter = new AvroRecordSetWriter();
+        runner.addControllerService("writer", avroWriter);
+        runner.setProperty(avroWriter, SchemaAccessUtils.SCHEMA_ACCESS_STRATEGY, SchemaAccessUtils.SCHEMA_TEXT_PROPERTY);
+        runner.setProperty(avroWriter, SchemaAccessUtils.SCHEMA_TEXT, avroSchemaText);
+        runner.enableControllerService(avroWriter);
+
+        runner.setProperty(QueryRecord.RECORD_READER_FACTORY, "reader");
+        runner.setProperty(QueryRecord.RECORD_WRITER_FACTORY, "writer");
+        runner.setProperty(REL_NAME, "SELECT * FROM FLOWFILE");
+
+        runner.enqueue(outputStream.toByteArray());
+        runner.run();
+
+        runner.assertTransferCount(QueryRecord.REL_FAILURE, 0);
+        runner.assertTransferCount(REL_NAME, 1);
+
+        final MockFlowFile flowFile = runner.getFlowFilesForRelationship(REL_NAME).getFirst();
+        try (RecordReader recordReader = avroReader.createRecordReader(
+                flowFile.getAttributes(),
+                new ByteArrayInputStream(flowFile.toByteArray()),
+                flowFile.getSize(),
+                runner.getLogger())) {
+            final Record outputRecord = recordReader.nextRecord();
+            final Object barValue = outputRecord.getValue("bar");
+
+            final int barLength = switch (barValue) {
+                case byte[] bytes -> bytes.length;
+                case Byte[] bytes -> bytes.length;
+                case Object[] objects -> objects.length;
+                case ByteBuffer buffer -> buffer.remaining();
+                case null, default -> throw new AssertionError("Unexpected bar type: " + barValue.getClass());
+            };
+
+            assertEquals(8, barLength);
+        }
+    }
+
+    @Test
+    void testMigrateProperties() {
+        final TestRunner runner = getRunner();
+        final Map<String, String> expectedRenamed = Map.ofEntries(
+                Map.entry("record-reader", QueryRecord.RECORD_READER_FACTORY.getName()),
+                Map.entry("record-writer", QueryRecord.RECORD_WRITER_FACTORY.getName()),
+                Map.entry("include-zero-record-flowfiles", QueryRecord.INCLUDE_ZERO_RECORD_FLOWFILES.getName()),
+                Map.entry(JdbcProperties.OLD_DEFAULT_PRECISION_PROPERTY_NAME, DEFAULT_PRECISION.getName()),
+                Map.entry(JdbcProperties.OLD_DEFAULT_SCALE_PROPERTY_NAME, DEFAULT_SCALE.getName())
+        );
+
+        final PropertyMigrationResult propertyMigrationResult = runner.migrateProperties();
+        assertEquals(expectedRenamed, propertyMigrationResult.getPropertiesRenamed());
+
+        final Set<String> expectedRemoved = Set.of("cache-schema");
+        assertEquals(expectedRemoved, propertyMigrationResult.getPropertiesRemoved());
+    }
 
     private static class ResultSetValidatingRecordWriter extends AbstractControllerService implements RecordSetWriterFactory {
         private final List<String> columnNames;
@@ -1212,8 +1423,8 @@ public class TestQueryRecord {
         @Override
         public RecordSchema getSchema(Map<String, String> variables, RecordSchema readSchema) {
             final List<RecordField> recordFields = columnNames.stream()
-                .map(name -> new RecordField(name, RecordFieldType.STRING.getDataType()))
-                .collect(Collectors.toList());
+                    .map(name -> new RecordField(name, RecordFieldType.STRING.getDataType()))
+                    .collect(Collectors.toList());
             return new SimpleRecordSchema(recordFields);
         }
 
@@ -1239,7 +1450,7 @@ public class TestQueryRecord {
                     assertEquals(columnNames, colNames);
 
                     // Iterate over the rest of the records to ensure that we read the entire stream. If we don't
-                    // do this, we won't consume all of the data and as a result we will not close the stream properly
+                    // do this, we won't consume all the data and as a result we will not close the stream properly
                     while (rs.next() != null) {
                     }
 

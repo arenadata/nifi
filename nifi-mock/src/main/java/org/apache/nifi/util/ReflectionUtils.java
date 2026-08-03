@@ -16,15 +16,16 @@
  */
 package org.apache.nifi.util;
 
-import java.lang.annotation.Annotation;
-import java.lang.reflect.InvocationTargetException;
-import java.lang.reflect.Method;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.lang.annotation.Annotation;
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Method;
+
 public class ReflectionUtils {
 
-    private final static Logger LOG = LoggerFactory.getLogger(ReflectionUtils.class);
+    private static final Logger LOG = LoggerFactory.getLogger(ReflectionUtils.class);
 
     /**
      * Invokes all methods on the given instance that have been annotated with

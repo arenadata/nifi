@@ -25,10 +25,6 @@ import org.apache.nifi.security.util.TlsPlatform;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import javax.net.ssl.SSLContext;
-import javax.net.ssl.SSLException;
-import javax.net.ssl.SSLPeerUnverifiedException;
-import javax.net.ssl.SSLServerSocket;
 import java.io.BufferedInputStream;
 import java.io.BufferedOutputStream;
 import java.io.IOException;
@@ -44,6 +40,10 @@ import java.util.Collections;
 import java.util.Iterator;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicLong;
+import javax.net.ssl.SSLContext;
+import javax.net.ssl.SSLException;
+import javax.net.ssl.SSLPeerUnverifiedException;
+import javax.net.ssl.SSLServerSocket;
 
 public class ConnectionLoadBalanceServer {
     private static final Logger logger = LoggerFactory.getLogger(ConnectionLoadBalanceServer.class);
@@ -237,7 +237,6 @@ public class ConnectionLoadBalanceServer {
             }
         }
 
-
         /**
          * Returns {@code true} if any related exception (determined by TLS error status) has occurred within the last
          * {@link #EXCEPTION_THRESHOLD_MILLIS} milliseconds. Does not evaluate the error locally,
@@ -250,7 +249,6 @@ public class ConnectionLoadBalanceServer {
             return now - tlsErrorLastSeen < EXCEPTION_THRESHOLD_MILLIS;
         }
     }
-
 
     private class AcceptConnection implements Runnable {
         private final ServerSocket serverSocket;

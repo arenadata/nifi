@@ -27,8 +27,6 @@ import org.apache.hadoop.security.UserGroupInformation;
 import org.apache.nifi.annotation.behavior.InputRequirement;
 import org.apache.nifi.annotation.behavior.InputRequirement.Requirement;
 import org.apache.nifi.annotation.behavior.ReadsAttribute;
-import org.apache.nifi.annotation.behavior.Restricted;
-import org.apache.nifi.annotation.behavior.Restriction;
 import org.apache.nifi.annotation.behavior.WritesAttribute;
 import org.apache.nifi.annotation.behavior.WritesAttributes;
 import org.apache.nifi.annotation.documentation.CapabilityDescription;
@@ -37,7 +35,6 @@ import org.apache.nifi.annotation.documentation.Tags;
 import org.apache.nifi.annotation.lifecycle.OnScheduled;
 import org.apache.nifi.components.AllowableValue;
 import org.apache.nifi.components.PropertyDescriptor;
-import org.apache.nifi.components.RequiredPermission;
 import org.apache.nifi.expression.ExpressionLanguageScope;
 import org.apache.nifi.flowfile.FlowFile;
 import org.apache.nifi.flowfile.attributes.CoreAttributes;
@@ -83,14 +80,7 @@ import java.util.stream.Stream;
         @WritesAttribute(attribute = "hadoop.file.url", description = "The hadoop url for the file is stored in this attribute.")
 })
 @SeeAlso({PutHDFS.class, GetHDFS.class})
-@Restricted(restrictions = {
-    @Restriction(
-        requiredPermission = RequiredPermission.READ_DISTRIBUTED_FILESYSTEM,
-        explanation = "Provides operator the ability to retrieve any file that NiFi has access to in HDFS or the local filesystem."),
-    @Restriction(
-        requiredPermission = RequiredPermission.WRITE_DISTRIBUTED_FILESYSTEM,
-        explanation = "Provides operator the ability to delete any file that NiFi has access to in HDFS or the local filesystem.")
-})
+
 public class MoveHDFS extends AbstractHadoopProcessor {
 
     // static global
@@ -527,10 +517,10 @@ public class MoveHDFS extends AbstractHadoopProcessor {
 
     protected static class ProcessorConfiguration {
 
-        final private String conflictResolution;
-        final private String operation;
-        final private Pattern fileFilterPattern;
-        final private boolean ignoreDottedFiles;
+        private final String conflictResolution;
+        private final String operation;
+        private final Pattern fileFilterPattern;
+        private final boolean ignoreDottedFiles;
 
         ProcessorConfiguration(final ProcessContext context) {
             conflictResolution = context.getProperty(CONFLICT_RESOLUTION).getValue();

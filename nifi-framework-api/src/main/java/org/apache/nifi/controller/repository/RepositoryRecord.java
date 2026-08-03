@@ -16,10 +16,10 @@
  */
 package org.apache.nifi.controller.repository;
 
-import java.util.List;
-
 import org.apache.nifi.controller.queue.FlowFileQueue;
 import org.apache.nifi.controller.repository.claim.ContentClaim;
+
+import java.util.List;
 
 /**
  * Represents an abstraction of a FlowFile that can be used to track changing
@@ -81,6 +81,14 @@ public interface RepositoryRecord {
      * swapped out
      */
     String getSwapLocation();
+
+    /**
+     * @return For SWAP_FILE_RENAMED records, provides the original swap location before the rename.
+     * For other record types, returns <code>null</code>.
+     */
+    default String getOriginalSwapLocation() {
+        return null;
+    }
 
     /**
      * @return a List of Content Claims that are "transient," meaning that they existed only for the

@@ -17,9 +17,6 @@
 
 package org.apache.nifi.record.path;
 
-import static org.apache.nifi.record.path.RecordPathParser.PATH;
-import static org.apache.nifi.record.path.RecordPathParser.CHILD_REFERENCE;
-
 import org.antlr.runtime.ANTLRStringStream;
 import org.antlr.runtime.CharStream;
 import org.antlr.runtime.CommonTokenStream;
@@ -29,6 +26,9 @@ import org.apache.nifi.record.path.paths.RecordPathCompiler;
 import org.apache.nifi.record.path.paths.RecordPathSegment;
 import org.apache.nifi.record.path.paths.RootPath;
 import org.apache.nifi.serialization.record.Record;
+
+import static org.apache.nifi.record.path.RecordPathParser.CHILD_REFERENCE;
+import static org.apache.nifi.record.path.RecordPathParser.PATH;
 
 public interface RecordPath {
 
@@ -47,7 +47,6 @@ public interface RecordPath {
      * @return a RecordPathResult that contains a FieldValue for each field that matches
      */
     RecordPathResult evaluate(Record record);
-
 
     /**
      * Evaluates a RecordPath against the given context node. This allows a RecordPath to be evaluated

@@ -24,14 +24,11 @@ import org.apache.nifi.components.resource.ResourceReferences;
 import org.apache.nifi.context.PropertyContext;
 import org.apache.nifi.expression.ExpressionLanguageScope;
 import org.apache.nifi.logging.ComponentLog;
+import org.apache.nifi.migration.PropertyConfiguration;
 import org.apache.nifi.processor.exception.ProcessException;
 import org.apache.nifi.processors.script.ScriptRunner;
 import org.apache.nifi.util.StringUtils;
 
-import javax.script.Invocable;
-import javax.script.ScriptEngineFactory;
-import javax.script.ScriptEngineManager;
-import javax.script.ScriptException;
 import java.net.URL;
 import java.net.URLClassLoader;
 import java.nio.file.Files;
@@ -43,10 +40,16 @@ import java.util.HashSet;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.atomic.AtomicBoolean;
+import javax.script.Invocable;
+import javax.script.ScriptEngineFactory;
+import javax.script.ScriptEngineManager;
+import javax.script.ScriptException;
 
 import static org.apache.commons.lang3.StringUtils.defaultIfBlank;
 
@@ -56,7 +59,10 @@ import static org.apache.commons.lang3.StringUtils.defaultIfBlank;
 public class ScriptingComponentHelper {
     private static final String UNKNOWN_VERSION = "UNKNOWN";
 
-    public PropertyDescriptor SCRIPT_ENGINE;
+    private static final String SCRIPT_ENGINE_PROPERTY_NAME = "Script Engine";
+    private static final String SCRIPT_LANGUAGE_PROPERTY_NAME = "Script Language";
+
+    public PropertyDescriptor scriptEngine;
 
     public final AtomicBoolean isInitialized = new AtomicBoolean(false);
 
@@ -69,6 +75,34 @@ public class ScriptingComponentHelper {
     private ResourceReferences modules;
 
     public BlockingQueue<ScriptRunner> scriptRunnerQ = null;
+
+    /**
+     * Get Property Descriptor Builder for Script Engine with standard settings and no default value configured
+     *
+     * @return Property Descriptor Builder
+     */
+    public static PropertyDescriptor.Builder getScriptEnginePropertyBuilder() {
+        return new PropertyDescriptor.Builder()
+                .name("Script Engine")
+                .required(true)
+                .description("Language Engine for executing scripts")
+                .expressionLanguageSupported(ExpressionLanguageScope.NONE);
+    }
+
+    public static void migrateProperties(final PropertyConfiguration configuration) {
+        Objects.requireNonNull(configuration, "Property Configuration required");
+
+        final Optional<String> scriptEnginePropertyValueFound = configuration.getRawPropertyValue(SCRIPT_ENGINE_PROPERTY_NAME);
+        final String scriptEngineProperty = scriptEnginePropertyValueFound.orElse(null);
+
+        if (scriptEngineProperty == null || scriptEngineProperty.isEmpty()) {
+            // Revert Script Language property changes from NIFI-15108 when Script Engine property is not defined
+            configuration.renameProperty(SCRIPT_LANGUAGE_PROPERTY_NAME, SCRIPT_ENGINE_PROPERTY_NAME);
+        } else {
+            // Remove Script Language property when Script Engine property is defined from an earlier configuration
+            configuration.removeProperty(SCRIPT_LANGUAGE_PROPERTY_NAME);
+        }
+    }
 
     public String getScriptEngineName() {
         return scriptEngineName;
@@ -174,13 +208,7 @@ public class ScriptingComponentHelper {
             engineAllowableValues = engineList;
             AllowableValue[] engines = engineList.toArray(new AllowableValue[0]);
 
-            final PropertyDescriptor.Builder enginePropertyBuilder = new PropertyDescriptor.Builder()
-                    .name("Script Engine")
-                    .required(true)
-                    .description("Language Engine for executing scripts")
-                    .required(true)
-                    .expressionLanguageSupported(ExpressionLanguageScope.NONE);
-
+            final PropertyDescriptor.Builder enginePropertyBuilder = getScriptEnginePropertyBuilder();
             if (engineList.isEmpty()) {
                 enginePropertyBuilder.description("No Script Engines found");
             } else {
@@ -188,8 +216,8 @@ public class ScriptingComponentHelper {
                 enginePropertyBuilder.defaultValue(engines[0].getValue());
             }
 
-            SCRIPT_ENGINE = enginePropertyBuilder.build();
-            descriptors.add(SCRIPT_ENGINE);
+            scriptEngine = enginePropertyBuilder.build();
+            descriptors.add(scriptEngine);
         }
 
         descriptors.add(ScriptingComponentUtils.SCRIPT_FILE);
@@ -235,7 +263,6 @@ public class ScriptingComponentHelper {
             final String[] locations = (modules == null) ? new String[0] : modules.asLocations().toArray(new String[0]);
             final URL[] additionalClasspathURLs = ScriptRunnerFactory.getInstance().getModuleURLsForClasspath(scriptEngineName, locations, log);
 
-
             // Need the right classloader when the engine is created. This ensures the NAR's execution class loader
             // (plus the module path) becomes the parent for the script engine
             ClassLoader scriptEngineModuleClassLoader = additionalClasspathURLs != null
@@ -264,7 +291,7 @@ public class ScriptingComponentHelper {
     }
 
     public void setupVariables(final PropertyContext context) {
-        scriptEngineName = context.getProperty(SCRIPT_ENGINE).getValue();
+        scriptEngineName = context.getProperty(scriptEngine).getValue();
         scriptPath = context.getProperty(ScriptingComponentUtils.SCRIPT_FILE).evaluateAttributeExpressions().getValue();
         scriptBody = context.getProperty(ScriptingComponentUtils.SCRIPT_BODY).getValue();
         modules = context.getProperty(ScriptingComponentUtils.MODULES).evaluateAttributeExpressions().asResources().flattenRecursively();

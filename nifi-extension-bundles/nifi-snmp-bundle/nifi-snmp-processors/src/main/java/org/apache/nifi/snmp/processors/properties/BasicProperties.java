@@ -20,6 +20,8 @@ import org.apache.nifi.components.AllowableValue;
 import org.apache.nifi.components.PropertyDescriptor;
 import org.apache.nifi.processor.util.StandardValidators;
 
+import java.util.List;
+
 public class BasicProperties {
 
     private BasicProperties() {
@@ -30,10 +32,16 @@ public class BasicProperties {
     public static final AllowableValue SNMP_V2C = new AllowableValue("SNMPv2c", "v2c", "SNMP version 2c");
     public static final AllowableValue SNMP_V3 = new AllowableValue("SNMPv3", "v3", "SNMP version 3 with improved security");
 
+    public static final String OLD_SNMP_VERSION_PROPERTY_NAME = "snmp-version";
+    public static final String OLD_SNMP_COMMUNITY_PROPERTY_NAME = "snmp-community";
+    public static final String OLD_SNMP_RETRIES_PROPERTY_NAME = "snmp-retries";
+    public static final List<String> OLD_SNMP_TIMEOUT_PROPERTY_NAMES = List.of(
+            "snmp-timeout",
+            "Timeout (ms)"
+    );
 
     public static final PropertyDescriptor SNMP_VERSION = new PropertyDescriptor.Builder()
-            .name("snmp-version")
-            .displayName("SNMP Version")
+            .name("SNMP Version")
             .description("Three significant versions of SNMP have been developed and deployed. " +
                     "SNMPv1 is the original version of the protocol. More recent versions, " +
                     "SNMPv2c and SNMPv3, feature improvements in performance, flexibility and security.")
@@ -43,8 +51,7 @@ public class BasicProperties {
             .build();
 
     public static final PropertyDescriptor SNMP_COMMUNITY = new PropertyDescriptor.Builder()
-            .name("snmp-community")
-            .displayName("SNMP Community")
+            .name("SNMP Community")
             .description("SNMPv1 and SNMPv2 use communities to establish trust between managers and agents." +
                     " Most agents support three community names, one each for read-only, read-write and trap." +
                     " These three community strings control different types of activities. The read-only community" +
@@ -58,8 +65,7 @@ public class BasicProperties {
             .build();
 
     public static final PropertyDescriptor SNMP_RETRIES = new PropertyDescriptor.Builder()
-            .name("snmp-retries")
-            .displayName("Number of Retries")
+            .name("Number of Retries")
             .description("Set the number of retries when requesting the SNMP Agent.")
             .required(false)
             .defaultValue("0")
@@ -67,8 +73,7 @@ public class BasicProperties {
             .build();
 
     public static final PropertyDescriptor SNMP_TIMEOUT = new PropertyDescriptor.Builder()
-            .name("snmp-timeout")
-            .displayName("Timeout (ms)")
+            .name("Timeout")
             .description("Set the timeout in ms when requesting the SNMP Agent.")
             .required(false)
             .defaultValue("5000")

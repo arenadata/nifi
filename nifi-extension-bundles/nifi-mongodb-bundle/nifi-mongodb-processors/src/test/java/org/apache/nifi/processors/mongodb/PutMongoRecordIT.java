@@ -16,7 +16,6 @@
  */
 package org.apache.nifi.processors.mongodb;
 
-
 import org.apache.avro.Schema;
 import org.apache.nifi.avro.AvroTypeUtil;
 import org.apache.nifi.components.ValidationResult;
@@ -126,7 +125,6 @@ public class PutMongoRecordIT extends MongoWriteTestBase {
         // verify 1 doc inserted into the collection
         assertEquals(5, collection.countDocuments());
         //assertEquals(doc, collection.find().first());
-
 
         runner.clearTransferState();
 

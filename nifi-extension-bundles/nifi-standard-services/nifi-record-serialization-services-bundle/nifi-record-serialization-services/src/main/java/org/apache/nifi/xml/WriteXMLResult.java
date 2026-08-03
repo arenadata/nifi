@@ -37,9 +37,6 @@ import org.apache.nifi.serialization.record.type.MapDataType;
 import org.apache.nifi.serialization.record.type.RecordDataType;
 import org.apache.nifi.serialization.record.util.DataTypeUtils;
 
-import javax.xml.stream.XMLOutputFactory;
-import javax.xml.stream.XMLStreamException;
-import javax.xml.stream.XMLStreamWriter;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.util.ArrayDeque;
@@ -48,10 +45,12 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.regex.Pattern;
+import javax.xml.stream.XMLOutputFactory;
+import javax.xml.stream.XMLStreamException;
+import javax.xml.stream.XMLStreamWriter;
 
 import static org.apache.nifi.xml.XMLRecordSetWriter.RECORD_TAG_NAME;
 import static org.apache.nifi.xml.XMLRecordSetWriter.ROOT_TAG_NAME;
-
 
 public class WriteXMLResult extends AbstractRecordSetWriter implements RecordSetWriter, RawRecordWriter {
     private static final Pattern TAG_NAME_CHARS_TO_STRIP = Pattern.compile("[/<>!&'\"]");
@@ -186,8 +185,8 @@ public class WriteXMLResult extends AbstractRecordSetWriter implements RecordSet
 
     private void checkWritingMultipleRecords() throws IOException {
         if (!allowWritingMultipleRecords && hasWrittenRecord) {
-            final String message = "The writer attempts to write multiple record although property \'" + ROOT_TAG_NAME.getDisplayName() +
-                "\' has not been set. If the XMLRecordSetWriter is supposed to write multiple records into one FlowFile, this property is required to be configured.";
+            final String message = "The writer attempts to write multiple record although property '" + ROOT_TAG_NAME.getDisplayName() +
+                    "' has not been set. If the XMLRecordSetWriter is supposed to write multiple records into one FlowFile, this property is required to be configured.";
             throw new IOException(message);
         }
     }
@@ -633,7 +632,6 @@ public class WriteXMLResult extends AbstractRecordSetWriter implements RecordSet
         writer.writeEndElement();
         return true;
     }
-
 
     @Override
     public String getMimeType() {

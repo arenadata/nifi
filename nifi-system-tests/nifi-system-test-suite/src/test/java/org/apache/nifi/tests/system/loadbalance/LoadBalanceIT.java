@@ -47,7 +47,6 @@ import java.util.Map;
 import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertTrue;
 
 public class LoadBalanceIT extends NiFiSystemIT {
     private final Logger logger = LoggerFactory.getLogger(getClass());
@@ -101,14 +100,12 @@ public class LoadBalanceIT extends NiFiSystemIT {
         // Wait until load balancing is complete
         waitFor(() -> isConnectionDoneLoadBalancing(connection.getId()));
 
-        // Ensure that the FlowFiles are evenly distributed between the nodes.
-        final ConnectionStatusEntity statusEntity = getConnectionStatus(connection.getId());
-        assertTrue(isEvenlyDistributed(statusEntity));
+        // Wait for the FlowFiles to be evenly distributed between the nodes.
+        waitFor(() -> isEvenlyDistributed(getConnectionStatus(connection.getId())));
 
         assertEquals(20, getQueueSize(connection.getId()));
         assertEquals(20 * 1024 * 1024, getQueueBytes(connection.getId()));
     }
-
 
     @Test
     public void testSingleNodeStrategy() throws NiFiClientException, IOException, InterruptedException {
@@ -150,7 +147,7 @@ public class LoadBalanceIT extends NiFiSystemIT {
             final ConnectionStatusSnapshotDTO snapshotDto = nodeStatusDto.getStatusSnapshot();
             final int flowFilesQueued = snapshotDto.getFlowFilesQueued();
 
-            // Number of flowfiles should either be 0 or should be equal to the total number of FlowFiles in the queue.
+            // Number of FlowFiles should either be 0 or should be equal to the total number of FlowFiles in the queue.
             if (flowFilesQueued == 0) {
                 emptyNodes++;
             } else {
@@ -170,30 +167,27 @@ public class LoadBalanceIT extends NiFiSystemIT {
         final ConnectionEntity connection = getClientUtil().createConnection(generate, count, "success");
         getClientUtil().setAutoTerminatedRelationships(count, "success");
 
-        // Configure Processor to generate 10 FlowFiles, each 1 MB, on each node, for a total of 20 FlowFiles.
+        final int batchSize = 2;
+        final int distinctAttributeValues = 10;
+        final int expectedTotalFlowFiles = batchSize * distinctAttributeValues;
+
         final Map<String, String> generateProperties = new HashMap<>();
         generateProperties.put("File Size", "1 MB");
-        generateProperties.put("Batch Size", "10");
+        generateProperties.put("Batch Size", String.valueOf(batchSize));
         generateProperties.put("number", "0");
         getClientUtil().updateProcessorProperties(generate, generateProperties);
         getClientUtil().updateProcessorExecutionNode(generate, ExecutionNode.PRIMARY);
 
-        // Round Robin between nodes. This should result in 10 FlowFiles on each node.
         getClientUtil().updateConnectionLoadBalancing(connection, LoadBalanceStrategy.PARTITION_BY_ATTRIBUTE, LoadBalanceCompression.DO_NOT_COMPRESS, "number");
 
-        // Queue 100 FlowFiles. 10 with number=0, 10 with number=1, 10 with number=2, etc. to up 10 with number=9
-        for (int i = 1; i <= 10; i++) {
-            // Generate the data.
+        for (int i = 1; i <= distinctAttributeValues; i++) {
             getClientUtil().startProcessor(generate);
 
-            final int expectedQueueSize = 10 * i;
-
-            // Wait until all 10 FlowFiles are queued up.
+            final int expectedQueueSize = batchSize * i;
             waitFor(() -> {
                 final ConnectionStatusEntity statusEntity = getConnectionStatus(connection.getId());
                 return statusEntity.getConnectionStatus().getAggregateSnapshot().getFlowFilesQueued() == expectedQueueSize;
             });
-
 
             getNifiClient().getProcessorClient().stopProcessor(generate);
             getClientUtil().waitForStoppedProcessor(generate.getId());
@@ -202,18 +196,17 @@ public class LoadBalanceIT extends NiFiSystemIT {
             getClientUtil().updateProcessorProperties(generate, generateProperties);
         }
 
-        // Wait until load balancing is complete
         waitFor(() -> isConnectionDoneLoadBalancing(connection.getId()));
 
         final Map<String, Set<String>> nodesByAttribute = new HashMap<>();
-        for (int i = 0; i < 100; i++) {
+        for (int i = 0; i < expectedTotalFlowFiles; i++) {
             final FlowFileEntity flowFile = getClientUtil().getQueueFlowFile(connection.getId(), i);
             final String numberValue = flowFile.getFlowFile().getAttributes().get("number");
             final Set<String> nodes = nodesByAttribute.computeIfAbsent(numberValue, key -> new HashSet<>());
             nodes.add(flowFile.getFlowFile().getClusterNodeId());
         }
 
-        assertEquals(10, nodesByAttribute.size());
+        assertEquals(distinctAttributeValues, nodesByAttribute.size());
         for (final Map.Entry<String, Set<String>> entry : nodesByAttribute.entrySet()) {
             final Set<String> nodes = entry.getValue();
             assertEquals(1, nodes.size(), "FlowFile with attribute number=" + entry.getKey() + " went to nodes " + nodes);
@@ -315,7 +308,6 @@ public class LoadBalanceIT extends NiFiSystemIT {
         return stats.getMin() == stats.getMax();
     }
 
-
     @Test
     public void testRoundRobinWithRestartAndPortChange() throws NiFiClientException, IOException, InterruptedException {
         ProcessorEntity generate = getClientUtil().createProcessor("GenerateFlowFile");
@@ -346,14 +338,13 @@ public class LoadBalanceIT extends NiFiSystemIT {
         // Wait until load balancing is complete
         waitFor(() -> isConnectionDoneLoadBalancing(connection.getId()));
 
-        // Ensure that the FlowFiles are evenly distributed between the nodes.
-        final ConnectionStatusEntity statusEntity = getConnectionStatus(connection.getId());
-        assertTrue(isEvenlyDistributed(statusEntity));
+        // Wait for the FlowFiles to be evenly distributed between the nodes.
+        waitFor(() -> isEvenlyDistributed(getConnectionStatus(connection.getId())));
 
         assertEquals(20, getQueueSize(connection.getId()));
         assertEquals(20 * 1024 * 1024, getQueueBytes(connection.getId()));
 
-        getNifiClient().getProcessorClient().stopProcessor(generate);
+        getClientUtil().stopProcessor(generate);
 
         // Empty the queue because on restart, Node 2 will rebalance all of its data using the Load-Balance strategy, and we don't want
         // the data to start out lopsided.
@@ -388,16 +379,25 @@ public class LoadBalanceIT extends NiFiSystemIT {
             // Wait until load balancing is complete
             waitFor(() -> isConnectionDoneLoadBalancing(connection.getId()));
 
-            // Log the distribution of data between nodes for easier troubleshooting in case there's a failure.
-            final ConnectionStatusEntity afterSecondDataGenerationStatusEntity = getConnectionStatus(connection.getId());
-            final List<NodeConnectionStatusSnapshotDTO> nodeSnapshots = afterSecondDataGenerationStatusEntity.getConnectionStatus().getNodeSnapshots();
-            logger.info("FlowFiles Queued Per Node:");
-            nodeSnapshots.forEach(snapshot ->
-                logger.info("{}:{} - {}", snapshot.getAddress(), snapshot.getApiPort(), snapshot.getStatusSnapshot().getFlowFilesQueued())
-            );
+            // Wait for the FlowFiles to be evenly distributed between the nodes, allowing time for status snapshot convergence.
+            boolean evenlyDistributed = false;
+            for (int attempt = 0; attempt < 30; attempt++) {
+                final ConnectionStatusEntity afterSecondDataGenerationStatusEntity = getConnectionStatus(connection.getId());
+                evenlyDistributed = isEvenlyDistributed(afterSecondDataGenerationStatusEntity);
 
-            // Check if the FlowFiles are evenly distributed between the nodes. If so, we're done.
-            final boolean evenlyDistributed = isEvenlyDistributed(afterSecondDataGenerationStatusEntity);
+                final List<NodeConnectionStatusSnapshotDTO> nodeSnapshots = afterSecondDataGenerationStatusEntity.getConnectionStatus().getNodeSnapshots();
+                logger.info("FlowFiles Queued Per Node (attempt {}):", attempt);
+                nodeSnapshots.forEach(snapshot ->
+                    logger.info("{}:{} - {}", snapshot.getAddress(), snapshot.getApiPort(), snapshot.getStatusSnapshot().getFlowFilesQueued())
+                );
+
+                if (evenlyDistributed) {
+                    break;
+                }
+
+                Thread.sleep(1000);
+            }
+
             if (evenlyDistributed) {
                 break;
             }
@@ -406,8 +406,9 @@ public class LoadBalanceIT extends NiFiSystemIT {
             // the local partition. There's nothing we can do about that in this test. However, we can verify that NiFi recovers
             // from this and continues to distribute data. To do that, we will stop the processor so that it can be started again
             // (and produce more data) and we can empty the queue so that we know how much data to expect.
-            getNifiClient().getProcessorClient().stopProcessor(generate);
+            getClientUtil().stopProcessor(generate);
             getClientUtil().emptyQueue(connection.getId());
+            generate = getNifiClient().getProcessorClient().getProcessor(generate.getId());
         }
 
         assertEquals(20, getQueueSize(connection.getId()));

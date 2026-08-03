@@ -18,8 +18,8 @@
 package org.apache.nifi.web.api.dto;
 
 import io.swagger.v3.oas.annotations.media.Schema;
-
 import jakarta.xml.bind.annotation.XmlType;
+
 import java.util.Set;
 
 @XmlType(name = "runStatusDetails")
@@ -29,7 +29,6 @@ public class ProcessorRunStatusDetailsDTO {
     public static final String INVALID = "Invalid";
     public static final String VALIDATING = "Validating";
     public static final String DISABLED = "Disabled";
-
 
     private String id;
     private String name;
@@ -74,7 +73,6 @@ public class ProcessorRunStatusDetailsDTO {
     public void setActiveThreadCount(final int activeThreads) {
         this.activeThreads = activeThreads;
     }
-
 
     @Schema(description = "The processor's validation errors")
     public Set<String> getValidationErrors() {

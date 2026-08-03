@@ -59,6 +59,7 @@ import org.apache.nifi.components.AllowableValue;
 import org.apache.nifi.components.PropertyDescriptor;
 import org.apache.nifi.expression.ExpressionLanguageScope;
 import org.apache.nifi.flowfile.FlowFile;
+import org.apache.nifi.migration.PropertyConfiguration;
 import org.apache.nifi.processor.ProcessContext;
 import org.apache.nifi.processor.ProcessSession;
 import org.apache.nifi.processor.exception.ProcessException;
@@ -96,7 +97,7 @@ import java.util.concurrent.atomic.AtomicReference;
     "are skipped. Exactly once delivery semantics are achieved via stream offsets.")
 @InputRequirement(InputRequirement.Requirement.INPUT_REQUIRED)
 @WritesAttributes({
-    @WritesAttribute(attribute = BigQueryAttributes.JOB_NB_RECORDS_ATTR, description = BigQueryAttributes.JOB_NB_RECORDS_DESC)
+    @WritesAttribute(attribute = PutBigQuery.JOB_NB_RECORDS_ATTR, description = "Number of records successfully inserted")
 })
 public class PutBigQuery extends AbstractBigQueryProcessor {
 
@@ -104,11 +105,11 @@ public class PutBigQuery extends AbstractBigQueryProcessor {
     static final String BATCH = "BATCH";
     static final AllowableValue STREAM_TYPE = new AllowableValue(STREAM, STREAM, "Use streaming record handling strategy");
     static final AllowableValue BATCH_TYPE = new AllowableValue(BATCH, BATCH, "Use batching record handling strategy");
+    static final String JOB_NB_RECORDS_ATTR = "bq.records.count";
 
-    private static final String APPEND_RECORD_COUNT_NAME = "bq.append.record.count";
     private static final String APPEND_RECORD_COUNT_DESC = "The number of records to be appended to the write stream at once. Applicable for both batch and stream types";
-    private static final String TRANSFER_TYPE_NAME = "bq.transfer.type";
     private static final String TRANSFER_TYPE_DESC = "Defines the preferred transfer type streaming or batching";
+    private static final String SKIP_INVALID_ROWS_ATTR = "Skip Invalid Rows";
 
     private static final List<Status.Code> RETRYABLE_ERROR_CODES = Arrays.asList(Status.Code.INTERNAL, Status.Code.ABORTED, Status.Code.CANCELLED);
 
@@ -128,8 +129,7 @@ public class PutBigQuery extends AbstractBigQueryProcessor {
         .build();
 
     public static final PropertyDescriptor BIGQUERY_API_ENDPOINT = new PropertyDescriptor.Builder()
-        .name("bigquery-api-endpoint")
-        .displayName("BigQuery API Endpoint")
+        .name("BigQuery API Endpoint")
         .description("Can be used to override the default BigQuery endpoint. Default is "
                 + BigQueryWriteStubSettings.getDefaultEndpoint() + ". "
                 + "Format must be hostname:port.")
@@ -140,8 +140,7 @@ public class PutBigQuery extends AbstractBigQueryProcessor {
         .build();
 
     static final PropertyDescriptor TRANSFER_TYPE = new PropertyDescriptor.Builder()
-        .name(TRANSFER_TYPE_NAME)
-        .displayName("Transfer Type")
+        .name("Transfer Type")
         .description(TRANSFER_TYPE_DESC)
         .required(true)
         .defaultValue(STREAM_TYPE.getValue())
@@ -149,8 +148,7 @@ public class PutBigQuery extends AbstractBigQueryProcessor {
         .build();
 
     static final PropertyDescriptor APPEND_RECORD_COUNT = new PropertyDescriptor.Builder()
-        .name(APPEND_RECORD_COUNT_NAME)
-        .displayName("Append Record Count")
+        .name("Append Record Count")
         .description(APPEND_RECORD_COUNT_DESC)
         .required(true)
         .defaultValue("20")
@@ -158,21 +156,28 @@ public class PutBigQuery extends AbstractBigQueryProcessor {
         .build();
 
     public static final PropertyDescriptor RECORD_READER = new PropertyDescriptor.Builder()
-        .name(BigQueryAttributes.RECORD_READER_ATTR)
-        .displayName("Record Reader")
-        .description(BigQueryAttributes.RECORD_READER_DESC)
+        .name("Record Reader")
+        .description("Specifies the Controller Service to use for parsing incoming data.")
         .identifiesControllerService(RecordReaderFactory.class)
         .required(true)
         .build();
 
     public static final PropertyDescriptor SKIP_INVALID_ROWS = new PropertyDescriptor.Builder()
-        .name(BigQueryAttributes.SKIP_INVALID_ROWS_ATTR)
-        .displayName("Skip Invalid Rows")
-        .description(BigQueryAttributes.SKIP_INVALID_ROWS_DESC)
+        .name(SKIP_INVALID_ROWS_ATTR)
+        .description("Sets whether to insert all valid rows of a request, even if invalid "
+                + "rows exist. If not set the entire insert request will fail if it contains an invalid row.")
         .required(true)
         .addValidator(StandardValidators.BOOLEAN_VALIDATOR)
         .expressionLanguageSupported(ExpressionLanguageScope.FLOWFILE_ATTRIBUTES)
         .defaultValue("false")
+        .build();
+
+    public static final PropertyDescriptor UNMATCHED_FIELD_BEHAVIOR = new PropertyDescriptor.Builder()
+        .name("Unmatched Field Behavior")
+        .description("Specifies how to handle fields in the incoming record that do not exist in the destination BigQuery table schema.")
+        .required(true)
+        .allowableValues(UnmatchedFieldBehavior.class)
+        .defaultValue(UnmatchedFieldBehavior.IGNORE)
         .build();
 
     private static final List<PropertyDescriptor> DESCRIPTORS = List.of(
@@ -186,6 +191,7 @@ public class PutBigQuery extends AbstractBigQueryProcessor {
         APPEND_RECORD_COUNT,
         RETRY_COUNT,
         SKIP_INVALID_ROWS,
+        UNMATCHED_FIELD_BEHAVIOR,
         PROXY_CONFIGURATION_SERVICE
     );
 
@@ -238,15 +244,16 @@ public class PutBigQuery extends AbstractBigQueryProcessor {
         }
 
         final boolean skipInvalidRows = context.getProperty(SKIP_INVALID_ROWS).evaluateAttributeExpressions(flowFile).asBoolean();
+        final UnmatchedFieldBehavior unmatchedFieldBehavior = context.getProperty(UNMATCHED_FIELD_BEHAVIOR).asAllowableValue(UnmatchedFieldBehavior.class);
         final RecordReaderFactory readerFactory = context.getProperty(RECORD_READER).asControllerService(RecordReaderFactory.class);
 
         int recordNumWritten;
         try {
             try (InputStream in = session.read(flowFile);
                     RecordReader reader = readerFactory.createRecordReader(flowFile, in, getLogger())) {
-                recordNumWritten = writeRecordsToStream(reader, protoDescriptor, skipInvalidRows, tableSchema);
+                recordNumWritten = writeRecordsToStream(reader, protoDescriptor, skipInvalidRows, tableSchema, unmatchedFieldBehavior, tableName);
             }
-            flowFile = session.putAttribute(flowFile, BigQueryAttributes.JOB_NB_RECORDS_ATTR, Integer.toString(recordNumWritten));
+            flowFile = session.putAttribute(flowFile, JOB_NB_RECORDS_ATTR, Integer.toString(recordNumWritten));
         } catch (Exception e) {
             error.set(e);
         } finally {
@@ -254,13 +261,24 @@ public class PutBigQuery extends AbstractBigQueryProcessor {
         }
     }
 
-    private int writeRecordsToStream(RecordReader reader, Descriptors.Descriptor descriptor, boolean skipInvalidRows, TableSchema tableSchema) throws Exception {
+    @Override
+    public void migrateProperties(PropertyConfiguration config) {
+        super.migrateProperties(config);
+        config.renameProperty("bigquery-api-endpoint", BIGQUERY_API_ENDPOINT.getName());
+        config.renameProperty("bq.transfer.type", TRANSFER_TYPE.getName());
+        config.renameProperty("bq.append.record.count", APPEND_RECORD_COUNT.getName());
+        config.renameProperty("bq.record.reader", RECORD_READER.getName());
+        config.renameProperty("bq.skip.invalid.rows", SKIP_INVALID_ROWS.getName());
+    }
+
+    private int writeRecordsToStream(final RecordReader reader, final Descriptors.Descriptor descriptor, final boolean skipInvalidRows, final TableSchema tableSchema,
+                                     final UnmatchedFieldBehavior unmatchedFieldBehavior, final TableName tableName) throws Exception {
         Record currentRecord;
         int offset = 0;
         int recordNum = 0;
         ProtoRows.Builder rowsBuilder = ProtoRows.newBuilder();
         while ((currentRecord = reader.nextRecord()) != null) {
-            DynamicMessage message = recordToProtoMessage(currentRecord, descriptor, skipInvalidRows, tableSchema);
+            final DynamicMessage message = recordToProtoMessage(currentRecord, descriptor, skipInvalidRows, tableSchema, unmatchedFieldBehavior, tableName);
 
             if (message == null) {
                 continue;
@@ -282,12 +300,30 @@ public class PutBigQuery extends AbstractBigQueryProcessor {
         return recordNum;
     }
 
-    private DynamicMessage recordToProtoMessage(Record record, Descriptors.Descriptor descriptor, boolean skipInvalidRows, TableSchema tableSchema) {
-        Map<String, Object> valueMap = convertMapRecord(record.toMap(), tableSchema.getFieldsList());
+    private DynamicMessage recordToProtoMessage(final Record record, final Descriptors.Descriptor descriptor, final boolean skipInvalidRows, final TableSchema tableSchema,
+                                                final UnmatchedFieldBehavior unmatchedFieldBehavior, final TableName tableName) {
+        final Map<String, Object> rawMap = record.toMap();
+
+        if (unmatchedFieldBehavior != UnmatchedFieldBehavior.IGNORE) {
+            final List<String> unmatchedFields = new ArrayList<>();
+            collectUnmatchedFields(rawMap, tableSchema.getFieldsList(), null, unmatchedFields);
+
+            if (!unmatchedFields.isEmpty()) {
+                if (unmatchedFieldBehavior == UnmatchedFieldBehavior.WARN) {
+                    getLogger().warn("Record contains {} field(s) not present in BigQuery table schema for table {}: {}",
+                            unmatchedFields.size(), tableName, unmatchedFields);
+                } else {
+                    throw new ProcessException("Record contains fields not present in BigQuery table schema for table %s: %s"
+                            .formatted(tableName, unmatchedFields));
+                }
+            }
+        }
+
+        final Map<String, Object> valueMap = convertMapRecord(rawMap, tableSchema.getFieldsList());
         DynamicMessage message = null;
         try {
             message = ProtoUtils.createMessage(descriptor, valueMap, tableSchema);
-        } catch (RuntimeException e) {
+        } catch (final RuntimeException e) {
             getLogger().error("Cannot convert record to message", e);
             if (!skipInvalidRows) {
                 throw e;
@@ -295,6 +331,33 @@ public class PutBigQuery extends AbstractBigQueryProcessor {
         }
 
         return message;
+    }
+
+    private static void collectUnmatchedFields(final Map<String, Object> recordMap, final List<TableFieldSchema> tableFields,
+                                               final String parentPath, final List<String> unmatchedFields) {
+        for (final Map.Entry<String, Object> entry : recordMap.entrySet()) {
+            final String key = entry.getKey();
+            final Object value = entry.getValue();
+            final String fieldPath = parentPath == null ? key : parentPath + "." + key;
+            final TableFieldSchema fieldSchema = findFieldSchema(tableFields, key);
+
+            if (fieldSchema == null) {
+                unmatchedFields.add(fieldPath);
+                continue;
+            }
+
+            if (fieldSchema.getType() == TableFieldSchema.Type.STRUCT) {
+                if (value instanceof MapRecord mapRecord) {
+                    collectUnmatchedFields(mapRecord.toMap(), fieldSchema.getFieldsList(), fieldPath, unmatchedFields);
+                } else if (value instanceof Object[] arrayValue) {
+                    for (final Object item : arrayValue) {
+                        if (item instanceof MapRecord mapRecordItem) {
+                            collectUnmatchedFields(mapRecordItem.toMap(), fieldSchema.getFieldsList(), fieldPath, unmatchedFields);
+                        }
+                    }
+                }
+            }
+        }
     }
 
     private void append(AppendContext appendContext) throws Exception {
@@ -321,7 +384,7 @@ public class PutBigQuery extends AbstractBigQueryProcessor {
         // Verify that no error occurred in the stream.
         if (error.get() != null) {
             getLogger().error("Stream processing failed", error.get());
-            flowFile = session.putAttribute(flowFile, BigQueryAttributes.JOB_NB_RECORDS_ATTR, isBatch() ? "0" : String.valueOf(appendSuccessCount.get() * recordBatchCount));
+            flowFile = session.putAttribute(flowFile, JOB_NB_RECORDS_ATTR, isBatch() ? "0" : String.valueOf(appendSuccessCount.get() * recordBatchCount));
             session.penalize(flowFile);
             session.transfer(flowFile, REL_FAILURE);
             error.set(null); // set error to null for next execution
@@ -349,6 +412,7 @@ public class PutBigQuery extends AbstractBigQueryProcessor {
                 getLogger().info("Appended and committed all records successfully.");
             }
 
+            session.getProvenanceReporter().send(flowFile, "bigquery://%s".formatted(parentTable));
             session.transfer(flowFile, REL_SUCCESS);
         }
     }

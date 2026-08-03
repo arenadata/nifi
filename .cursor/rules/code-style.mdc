@@ -1,0 +1,158 @@
+---
+description: Java code style conventions for the NiFi codebase
+globs: "**/*.java"
+alwaysApply: false
+---
+
+# Code Style
+
+NiFi adheres to a few code styles that are not necessarily common. Please ensure that you
+observe these code styles.
+
+1. Any variable that can be marked `final` must be marked `final`. This includes
+   declarations of Exceptions, method arguments, local variables, member variables, etc.
+2. Short-hand is highly discouraged in names of variables, classes, methods, etc., as well
+   as in documentation. Exceptions to this include in the framework, you may see references to
+   `procNode` for `ProcessorNode` or other such short-hand that is very difficult to confuse with
+   other terms, and it is used only when clearly defined such as `final ProcessorNode procNode = ...`.
+   Even though, however, we would not abbreviate `ControllerService` as `cs` because `cs` is too vague
+   and easily misunderstood. Instead, a value of `serviceNode` might be used.
+3. Private / helper methods should not be placed before the first public/protected method
+   that calls it.
+4. Unless the method is to be heavily reused, avoid creating trivial 1-2 line methods and
+   instead just place the code inline.
+5. Code is allowed to be up to 200 characters wide. Avoid breaking lines into many short lines.
+6. Avoid creating private methods that are called only once unless they are at least 10
+   lines long or are complex.
+7. It is never acceptable to use star imports. Import each individual class that is to be used.
+8. Never use underscores in class names, variables, or filenames.
+9. Never use System.out.println but instead use SLF4J Loggers.
+10. Avoid excessive whitespace in method invocations. For example, instead of writing:
+
+```java
+myObject.doSomething(
+    arg1,
+    arg2,
+    arg3,
+    arg4,
+    arg5
+);
+```
+
+Write this instead:
+
+```java
+myObject.doSomething(arg1, arg2, arg3, arg4, arg5);
+```
+
+It is okay to use many newlines in a builder pattern, such as:
+```java
+final MyObject myObject = MyObject.builder()
+    .arg1(arg1)
+    .arg2(arg2)
+    .arg3(arg3)
+    .build();
+```
+
+It is also acceptable when chaining methods in a functional style such as:
+```java
+final List<String> result = myList.stream()
+    .filter(s -> s.startsWith("A"))
+    .map(String::toUpperCase)
+    .toList();
+```
+
+11. When possible, prefer importing a class, rather than using fully qualified classname
+    inline in the code.
+12. Avoid statically importing methods, except in methods that are frequently used in testing
+    frameworks, such as the `Assertions` and `Mockito` classes.
+13. Avoid trailing whitespace at the end of lines, especially in blank lines.
+14. The `var` keyword is never allowed in the codebase. Always explicitly declare the type of variables.
+15. Prefer procedural code over functional code. For example, prefer using a for loop instead of a stream
+    when the logic is not simple and straightforward. The stream API is powerful but can be difficult to
+    read when overused or used in complex scenarios. Functional style is best used when the logic is simple
+    and chains together no more than 3-4 operations.
+16. Never use single-element arrays such as `final int[] counter = new int[]{0}` or
+    `final boolean[] flag = new boolean[]{false}` as a workaround for capturing a mutable primitive in a
+    lambda or anonymous class. This pattern is unidiomatic and confusing. When a lambda needs to mutate a
+    captured primitive, use the appropriate `java.util.concurrent.atomic` type (`AtomicInteger`,
+    `AtomicLong`, `AtomicBoolean`, `AtomicReference`, etc.). When a lambda needs to mutate a captured
+    object, hold the object in a final reference and mutate the object's state. The same applies to
+    `final Object[] holder = new Object[1]` for capturing a single reference; use `AtomicReference`
+    instead.
+17. Always place a blank line after a closing brace (`}`) that ends a control-flow construct (such as an
+    `if`, `else`, `for`, `while`, `switch`, or `try` / `catch` / `finally` block) when the next line is a
+    new statement or another control-flow construct at the same indentation level. This also applies to
+    the line following the closing brace of a nested block within a method. The goal is to clearly
+    separate logical sections of code. Exceptions:
+      - No blank line is required immediately before a closing brace of the enclosing block.
+      - No blank line is required between `} else {`, `} else if (...) {`, `} catch (...) {`, or
+        `} finally {` on the same chain.
+
+    Bad:
+    ```java
+    for (final Connector connector : connectors) {
+        if (connector.getCurrentState() != ConnectorState.TROUBLESHOOTING) {
+            continue;
+        }
+        final FrameworkFlowContext flowContext = connector.getActiveFlowContext();
+        if (flowContext != null && flowContext.getManagedProcessGroup().findFunnel(funnelId) != null) {
+            return true;
+        }
+    }
+    return false;
+    ```
+
+    Good:
+    ```java
+    for (final Connector connector : connectors) {
+        if (connector.getCurrentState() != ConnectorState.TROUBLESHOOTING) {
+            continue;
+        }
+
+        final FrameworkFlowContext flowContext = connector.getActiveFlowContext();
+        if (flowContext != null && flowContext.getManagedProcessGroup().findFunnel(funnelId) != null) {
+            return true;
+        }
+    }
+
+    return false;
+    ```
+18. Rule #11 (prefer importing a class rather than using a fully qualified classname inline) is not
+    optional. Even when a class is referenced only a single time, add an `import` statement rather than
+    referring to it by fully qualified name inline. The only acceptable use of a fully qualified
+    classname is when there is an unavoidable naming conflict with another imported class in the same
+    file. Fully qualified references scattered throughout code make it much harder to read and maintain.
+19. Never combine a negative condition such as `if (x != null)`, `if (!collection.isEmpty())`, or
+    `if (!flag)` with an `else` clause. Negated conditions are harder to read, and pairing them with an
+    `else` branch forces the reader to mentally invert the predicate for the "happy path". Instead,
+    rewrite the condition in the positive form (for example, swap the branches so the `if` tests the
+    positive condition), or use an early `return`/`continue`/`throw` to eliminate the `else` entirely.
+
+    Bad:
+    ```java
+    if (persistedManagedGroup != null) {
+        restore(persistedManagedGroup);
+    } else {
+        logger.warn("No snapshot was persisted; leaving Managed Process Group unchanged");
+    }
+    ```
+
+    Good (positive predicate):
+    ```java
+    if (persistedManagedGroup == null) {
+        logger.warn("No snapshot was persisted; leaving Managed Process Group unchanged");
+    } else {
+        restore(persistedManagedGroup);
+    }
+    ```
+
+    Or, preferably, use an early action and drop the `else`:
+    ```java
+    if (persistedManagedGroup == null) {
+        logger.warn("No snapshot was persisted; leaving Managed Process Group unchanged");
+        return;
+    }
+
+    restore(persistedManagedGroup);
+    ```

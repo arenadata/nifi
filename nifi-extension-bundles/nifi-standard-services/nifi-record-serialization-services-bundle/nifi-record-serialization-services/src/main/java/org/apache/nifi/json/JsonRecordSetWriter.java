@@ -67,6 +67,15 @@ public class JsonRecordSetWriter extends DateTimeTextRecordSetWriter implements 
     public static final AllowableValue OUTPUT_ONELINE = new AllowableValue("output-oneline", "One Line Per Object",
             "Output records with one JSON object per line, delimited by a newline character");
 
+    public static final AllowableValue HANDLING_ENABLED = new AllowableValue("ENABLED", "Enabled",
+            """
+                    The writer may emit the input reader's original JSON bytes verbatim when it can do so safely, as a throughput optimization. \
+                    Timestamp Format, Date Format, Time Format, and Suppress Null Values may not be applied to those records.""");
+    public static final AllowableValue HANDLING_DISABLED = new AllowableValue("DISABLED", "Disabled",
+            """
+                    The writer re-serializes every record from typed field values, so Timestamp Format, Date Format, Time Format, and Suppress Null \
+                    Values are honored uniformly.""");
+
     public static final String COMPRESSION_FORMAT_GZIP = "gzip";
     public static final String COMPRESSION_FORMAT_BZIP2 = "bzip2";
     public static final String COMPRESSION_FORMAT_XZ_LZMA2 = "xz-lzma2";
@@ -76,8 +85,7 @@ public class JsonRecordSetWriter extends DateTimeTextRecordSetWriter implements 
     public static final String COMPRESSION_FORMAT_ZSTD = "zstd";
 
     public static final PropertyDescriptor SUPPRESS_NULLS = new PropertyDescriptor.Builder()
-            .name("suppress-nulls")
-            .displayName("Suppress Null Values")
+            .name("Suppress Null Values")
             .description("Specifies how the writer should handle a null field")
             .allowableValues(NEVER_SUPPRESS, ALWAYS_SUPPRESS, SUPPRESS_MISSING)
             .defaultValue(NEVER_SUPPRESS.getValue())
@@ -100,8 +108,7 @@ public class JsonRecordSetWriter extends DateTimeTextRecordSetWriter implements 
             .required(true)
             .build();
     public static final PropertyDescriptor OUTPUT_GROUPING = new PropertyDescriptor.Builder()
-            .name("output-grouping")
-            .displayName("Output Grouping")
+            .name("Output Grouping")
             .description("Specifies how the writer should output the JSON records (as an array or one object per line, e.g.) Note that if 'One Line Per Object' is "
                     + "selected, then Pretty Print JSON must be false.")
             .allowableValues(OUTPUT_ARRAY, OUTPUT_ONELINE)
@@ -109,8 +116,7 @@ public class JsonRecordSetWriter extends DateTimeTextRecordSetWriter implements 
             .required(true)
             .build();
     public static final PropertyDescriptor COMPRESSION_FORMAT = new PropertyDescriptor.Builder()
-            .name("compression-format")
-            .displayName("Compression Format")
+            .name("Compression Format")
             .description("The compression format to use. Valid values are: GZIP, BZIP2, ZSTD, XZ-LZMA2, LZMA, Snappy, and Snappy Framed")
             .allowableValues(COMPRESSION_FORMAT_NONE, COMPRESSION_FORMAT_GZIP, COMPRESSION_FORMAT_BZIP2, COMPRESSION_FORMAT_XZ_LZMA2,
                     COMPRESSION_FORMAT_SNAPPY, COMPRESSION_FORMAT_SNAPPY_FRAMED, COMPRESSION_FORMAT_ZSTD)
@@ -118,14 +124,24 @@ public class JsonRecordSetWriter extends DateTimeTextRecordSetWriter implements 
             .required(true)
             .build();
     public static final PropertyDescriptor COMPRESSION_LEVEL = new PropertyDescriptor.Builder()
-            .name("compression-level")
-            .displayName("Compression Level")
+            .name("Compression Level")
             .description("The compression level to use; this is valid only when using GZIP compression. A lower value results in faster processing "
                     + "but less compression; a value of 0 indicates no compression but simply archiving")
             .defaultValue("1")
             .required(true)
             .allowableValues("0", "1", "2", "3", "4", "5", "6", "7", "8", "9")
             .dependsOn(COMPRESSION_FORMAT, COMPRESSION_FORMAT_GZIP)
+            .build();
+    public static final PropertyDescriptor SERIALIZED_JSON_INPUT_HANDLING = new PropertyDescriptor.Builder()
+            .name("Serialized JSON Input Handling")
+            .description("""
+                    When enabled, the writer may emit the input reader's original JSON bytes verbatim when it can do so safely, as a \
+                    throughput optimization. In that case, the Timestamp Format, Date Format, Time Format, and Suppress Null Values properties may not be \
+                    applied to those records. When disabled, the writer re-serializes every record so that these properties are honored uniformly.""")
+            .expressionLanguageSupported(ExpressionLanguageScope.NONE)
+            .allowableValues(HANDLING_ENABLED, HANDLING_DISABLED)
+            .defaultValue(HANDLING_ENABLED.getValue())
+            .required(true)
             .build();
 
     private volatile boolean prettyPrint;
@@ -134,6 +150,7 @@ public class JsonRecordSetWriter extends DateTimeTextRecordSetWriter implements 
     private volatile OutputGrouping outputGrouping;
     private volatile String compressionFormat;
     private volatile int compressionLevel;
+    private volatile boolean serializedInputHandlingEnabled;
 
     @Override
     protected List<PropertyDescriptor> getSupportedPropertyDescriptors() {
@@ -144,6 +161,7 @@ public class JsonRecordSetWriter extends DateTimeTextRecordSetWriter implements 
         properties.add(OUTPUT_GROUPING);
         properties.add(COMPRESSION_FORMAT);
         properties.add(COMPRESSION_LEVEL);
+        properties.add(SERIALIZED_JSON_INPUT_HANDLING);
         return properties;
     }
 
@@ -156,6 +174,11 @@ public class JsonRecordSetWriter extends DateTimeTextRecordSetWriter implements 
         if (!propertyConfiguration.hasProperty(ALLOW_SCIENTIFIC_NOTATION.getName())) {
             propertyConfiguration.setProperty(ALLOW_SCIENTIFIC_NOTATION, "true");
         }
+
+        propertyConfiguration.renameProperty("suppress-nulls", SUPPRESS_NULLS.getName());
+        propertyConfiguration.renameProperty("output-grouping", OUTPUT_GROUPING.getName());
+        propertyConfiguration.renameProperty("compression-format", COMPRESSION_FORMAT.getName());
+        propertyConfiguration.renameProperty("compression-level", COMPRESSION_LEVEL.getName());
     }
 
     @Override
@@ -196,6 +219,7 @@ public class JsonRecordSetWriter extends DateTimeTextRecordSetWriter implements 
 
         this.compressionFormat = context.getProperty(COMPRESSION_FORMAT).getValue();
         this.compressionLevel = context.getProperty(COMPRESSION_LEVEL).asInteger();
+        this.serializedInputHandlingEnabled = HANDLING_ENABLED.getValue().equals(context.getProperty(SERIALIZED_JSON_INPUT_HANDLING).getValue());
     }
 
     @Override
@@ -240,7 +264,7 @@ public class JsonRecordSetWriter extends DateTimeTextRecordSetWriter implements 
         }
 
         return new WriteJsonResult(logger, schema, getSchemaAccessWriter(schema, variables), compressionOut, prettyPrint, nullSuppression, outputGrouping,
-                getDateFormat().orElse(null), getTimeFormat().orElse(null), getTimestampFormat().orElse(null), mimeType, allowScientificNotation);
+                getDateFormat().orElse(null), getTimeFormat().orElse(null), getTimestampFormat().orElse(null), mimeType, allowScientificNotation, serializedInputHandlingEnabled);
     }
 
 }

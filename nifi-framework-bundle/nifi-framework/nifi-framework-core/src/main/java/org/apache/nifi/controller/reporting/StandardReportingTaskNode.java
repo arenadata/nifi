@@ -16,12 +16,12 @@
  */
 package org.apache.nifi.controller.reporting;
 
-import org.apache.nifi.annotation.behavior.Restricted;
 import org.apache.nifi.annotation.documentation.DeprecationNotice;
 import org.apache.nifi.authorization.Resource;
 import org.apache.nifi.authorization.resource.Authorizable;
 import org.apache.nifi.authorization.resource.ResourceFactory;
 import org.apache.nifi.authorization.resource.ResourceType;
+import org.apache.nifi.components.ValidationContext;
 import org.apache.nifi.components.ValidationResult;
 import org.apache.nifi.components.validation.ValidationTrigger;
 import org.apache.nifi.controller.FlowController;
@@ -71,11 +71,6 @@ public class StandardReportingTaskNode extends AbstractReportingTaskNode impleme
     }
 
     @Override
-    public boolean isRestricted() {
-        return getReportingTask().getClass().isAnnotationPresent(Restricted.class);
-    }
-
-    @Override
     public Class<?> getComponentClass() {
         return getReportingTask().getClass();
     }
@@ -91,7 +86,7 @@ public class StandardReportingTaskNode extends AbstractReportingTaskNode impleme
     }
 
     @Override
-    protected List<ValidationResult> validateConfig() {
+    protected List<ValidationResult> validateConfig(final ValidationContext validationContext) {
         return Collections.emptyList();
     }
 

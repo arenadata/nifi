@@ -61,7 +61,6 @@ public abstract class PythonProcessorProxy<T extends PythonProcessor> extends Ab
     private volatile PythonProcessorAdapter currentAdapter;
     private volatile ProcessContext currentProcessContext;
 
-
     protected static final Relationship REL_ORIGINAL = new Relationship.Builder()
         .name("original")
         .description("The original FlowFile will be routed to this relationship when it has been successfully transformed")
@@ -116,7 +115,6 @@ public abstract class PythonProcessorProxy<T extends PythonProcessor> extends Ab
         }
     }
 
-
     protected synchronized T getTransform() {
         final PythonProcessorBridge bridge = getBridge().orElseThrow(() -> new IllegalStateException(this + " is not finished initializing"));
         final Optional<PythonProcessorAdapter> optionalAdapter = bridge.getProcessorAdapter();
@@ -147,6 +145,14 @@ public abstract class PythonProcessorProxy<T extends PythonProcessor> extends Ab
         }
 
         return bridge.getLoadState();
+    }
+
+    @Override
+    public void cancelLoading() {
+        final PythonProcessorBridge currentBridge = this.bridge;
+        if (currentBridge != null) {
+            currentBridge.cancel();
+        }
     }
 
     @Override
@@ -219,7 +225,6 @@ public abstract class PythonProcessorProxy<T extends PythonProcessor> extends Ab
         }
     }
 
-
     @Override
     protected PropertyDescriptor getSupportedDynamicPropertyDescriptor(final String propertyDescriptorName) {
         if (!isSupportsDynamicPropertyDescriptor()) {
@@ -281,7 +286,6 @@ public abstract class PythonProcessorProxy<T extends PythonProcessor> extends Ab
         this.cachedDynamicDescriptors = dynamicDescriptors;
     }
 
-
     @Override
     public Set<Relationship> getRelationships() {
         final Set<Relationship> cached = cachedRelationships;
@@ -310,7 +314,6 @@ public abstract class PythonProcessorProxy<T extends PythonProcessor> extends Ab
         processorRelationships.addAll(getImplicitRelationships());
         return processorRelationships;
     }
-
 
     @OnScheduled
     public void onScheduled(final ProcessContext context) {

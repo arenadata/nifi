@@ -42,6 +42,7 @@ import java.sql.Date;
 import java.sql.Time;
 import java.sql.Timestamp;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
@@ -69,6 +70,7 @@ import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 @SuppressWarnings({"SameParameterValue"})
 public class TestRecordPath {
@@ -963,7 +965,6 @@ public class TestRecordPath {
                 assertEquals("123.45", added.getValue("balance"));
             }
 
-
             @Test
             public void testAppendMultipleValues() {
                 final RecordPath recordPath = RecordPath.compile("arrayOf( /accounts[*], recordOf('id', '5555', 'balance', '123.45'), /accounts[0] )");
@@ -1169,9 +1170,9 @@ public class TestRecordPath {
             public void yieldsOneForReferencesToASingleFieldRegardlessOfItsValue() {
                 assertAll(Stream.of("id", "name", "missing", "attributes", "friends", "mainAccount")
                         .map(fieldName -> () -> {
-                                    FieldValue fieldValue = evaluateSingleFieldValue("count(/%s)".formatted(fieldName), record);
-                                    assertEquals(1L, fieldValue.getValue());
-                                }
+                            FieldValue fieldValue = evaluateSingleFieldValue("count(/%s)".formatted(fieldName), record);
+                            assertEquals(1L, fieldValue.getValue());
+                        }
                         ));
             }
 
@@ -1264,8 +1265,13 @@ public class TestRecordPath {
 
                 record.setValue("id", Instant.parse(instantFormatted).toEpochMilli());
 
-                assertEquals(localDate, evaluateSingleFieldValue("format(/id, 'yyyy-MM-dd')", record).getValue());
-                assertEquals(instantFormatted, evaluateSingleFieldValue("format(/id, \"yyyy-MM-dd'T'HH:mm:ss'Z'\", 'GMT')", record).getValue());
+                final FieldValue dateResult = evaluateSingleFieldValue("format(/id, 'yyyy-MM-dd')", record);
+                assertEquals(localDate, dateResult.getValue());
+                assertEquals(RecordFieldType.STRING.getDataType(), dateResult.getField().getDataType());
+
+                final FieldValue dateTimeResult = evaluateSingleFieldValue("format(/id, \"yyyy-MM-dd'T'HH:mm:ss'Z'\", 'GMT')", record);
+                assertEquals(instantFormatted, dateTimeResult.getValue());
+                assertEquals(RecordFieldType.STRING.getDataType(), dateTimeResult.getField().getDataType());
             }
 
             @Test
@@ -1275,8 +1281,13 @@ public class TestRecordPath {
 
                 record.setValue("id", new Date(Instant.parse(instantFormatted).toEpochMilli()));
 
-                assertEquals(localDate, evaluateSingleFieldValue("format(/id, 'yyyy-MM-dd')", record).getValue());
-                assertEquals(instantFormatted, evaluateSingleFieldValue("format(/id, \"yyyy-MM-dd'T'HH:mm:ss'Z'\", 'GMT')", record).getValue());
+                final FieldValue dateResult = evaluateSingleFieldValue("format(/id, 'yyyy-MM-dd')", record);
+                assertEquals(localDate, dateResult.getValue());
+                assertEquals(RecordFieldType.STRING.getDataType(), dateResult.getField().getDataType());
+
+                final FieldValue dateTimeResult = evaluateSingleFieldValue("format(/id, \"yyyy-MM-dd'T'HH:mm:ss'Z'\", 'GMT')", record);
+                assertEquals(instantFormatted, dateTimeResult.getValue());
+                assertEquals(RecordFieldType.STRING.getDataType(), dateTimeResult.getField().getDataType());
             }
 
             @Test
@@ -1284,7 +1295,9 @@ public class TestRecordPath {
                 record.setValue("id", Date.valueOf("2024-08-18"));
                 record.setValue("name", "yyyy-MM-dd");
 
-                assertEquals("2024-08-18", evaluateSingleFieldValue("format(/id, /name)", record).getValue());
+                final FieldValue result = evaluateSingleFieldValue("format(/id, /name)", record);
+                assertEquals("2024-08-18", result.getValue());
+                assertEquals(RecordFieldType.STRING.getDataType(), result.getField().getDataType());
             }
 
             @Test
@@ -1293,7 +1306,9 @@ public class TestRecordPath {
                 record.setValue("id", new Date(Instant.parse(instantFormatted).toEpochMilli()));
                 record.setValue("name", "GMT");
 
-                assertEquals(instantFormatted, evaluateSingleFieldValue("format(/id, \"yyyy-MM-dd'T'HH:mm:ss'Z'\", /name)", record).getValue());
+                final FieldValue result = evaluateSingleFieldValue("format(/id, \"yyyy-MM-dd'T'HH:mm:ss'Z'\", /name)", record);
+                assertEquals(instantFormatted, result.getValue());
+                assertEquals(RecordFieldType.STRING.getDataType(), result.getField().getDataType());
             }
 
             @Test
@@ -1301,7 +1316,11 @@ public class TestRecordPath {
                 final Date originalValue = Date.valueOf("2024-08-18");
                 record.setValue("id", originalValue);
 
-                assertEquals(originalValue, evaluateSingleFieldValue("format(/id, 'INVALID')", record).getValue());
+                final FieldValue result = evaluateSingleFieldValue("format(/id, 'INVALID')", record);
+                final DataType originalDataType = record.getSchema().getField("id").orElseThrow().getDataType();
+
+                assertEquals(originalValue, result.getValue());
+                assertEquals(originalDataType, result.getField().getDataType());
             }
 
             @Test
@@ -1310,8 +1329,18 @@ public class TestRecordPath {
 
                 assertAll(nonLongOrDateFields.stream().map(fieldName -> () -> {
                     final FieldValue fieldValue = evaluateSingleFieldValue("format(/%s, 'yyyy-MM-dd')".formatted(fieldName), record);
+                    final DataType originalDataType = record.getSchema().getField(fieldName).orElseThrow().getDataType();
+
                     assertEquals(record.getValue(fieldName), fieldValue.getValue());
+                    assertEquals(originalDataType, fieldValue.getField().getDataType());
                 }));
+            }
+
+            @Test
+            public void handlesLiteralValue() {
+                final FieldValue result = evaluateSingleFieldValue("format(0, 'yyyy-MM-dd', 'GMT')", record);
+                assertEquals("1970-01-01", result.getValue());
+                assertEquals(RecordFieldType.STRING.getDataType(), result.getField().getDataType());
             }
         }
 
@@ -1993,7 +2022,9 @@ public class TestRecordPath {
                 final String originalValue = "Hello World!";
                 record.setValue("name", originalValue);
 
-                assertArrayEquals(originalValue.getBytes(StandardCharsets.UTF_16LE), (byte[]) evaluateSingleFieldValue("toBytes(/name, 'UTF-16LE')", record).getValue());
+                final FieldValue result = evaluateSingleFieldValue("toBytes(/name, 'UTF-16LE')", record);
+                assertArrayEquals(originalValue.getBytes(StandardCharsets.UTF_16LE), (byte[]) result.getValue());
+                assertEquals(RecordFieldType.ARRAY.getArrayDataType(RecordFieldType.BYTE.getDataType()), result.getField().getDataType());
             }
 
             @Test
@@ -2002,12 +2033,21 @@ public class TestRecordPath {
                 record.setValue("name", originalValue);
                 record.setValue("firstName", "UTF-8");
 
-                assertArrayEquals(originalValue.getBytes(StandardCharsets.UTF_8), (byte[]) evaluateSingleFieldValue("toBytes(/name, /firstName)", record).getValue());
+                final FieldValue result = evaluateSingleFieldValue("toBytes(/name, /firstName)", record);
+                assertArrayEquals(originalValue.getBytes(StandardCharsets.UTF_8), (byte[]) result.getValue());
+                assertEquals(RecordFieldType.ARRAY.getArrayDataType(RecordFieldType.BYTE.getDataType()), result.getField().getDataType());
             }
 
             @Test
             public void throwsExceptionWhenPassedAnNonExistingCharset() {
                 assertThrows(IllegalCharsetNameException.class, () -> evaluateSingleFieldValue("toBytes(/name, 'NOT A REAL CHARSET')", record));
+            }
+
+            @Test
+            public void handlesLiteralValue() {
+                final FieldValue result = evaluateSingleFieldValue("toBytes('Hello', 'UTF-8')", record);
+                assertArrayEquals("Hello".getBytes(StandardCharsets.UTF_8), (byte[]) result.getValue());
+                assertEquals(RecordFieldType.ARRAY.getArrayDataType(RecordFieldType.BYTE.getDataType()), result.getField().getDataType());
             }
         }
 
@@ -2022,6 +2062,7 @@ public class TestRecordPath {
 
                 final FieldValue fieldValue = evaluateSingleFieldValue("toDate(/date, \"yyyy-MM-dd'T'HH:mm:ss\")", record);
                 assertEquals(expectedValue, fieldValue.getValue());
+                assertEquals(RecordFieldType.TIMESTAMP.getDataType(), fieldValue.getField().getDataType());
             }
 
             @Test
@@ -2035,6 +2076,7 @@ public class TestRecordPath {
 
                 final FieldValue fieldValue = evaluateSingleFieldValue("toDate(/date, \"yyyy-MM-dd'T'HH:mm:ss\", 'GMT+8:00')", record);
                 assertEquals(expectedValue, fieldValue.getValue());
+                assertEquals(RecordFieldType.TIMESTAMP.getDataType(), fieldValue.getField().getDataType());
             }
 
             @Test
@@ -2047,6 +2089,7 @@ public class TestRecordPath {
 
                 final FieldValue fieldValue = evaluateSingleFieldValue("toDate(/date, /name)", record);
                 assertEquals(expectedValue, fieldValue.getValue());
+                assertEquals(RecordFieldType.TIMESTAMP.getDataType(), fieldValue.getField().getDataType());
             }
 
             @Test
@@ -2062,6 +2105,7 @@ public class TestRecordPath {
 
                 final FieldValue fieldValue = evaluateSingleFieldValue("toDate(/date, \"yyyy-MM-dd'T'HH:mm:ss\", /name)", record);
                 assertEquals(expectedValue, fieldValue.getValue());
+                assertEquals(RecordFieldType.TIMESTAMP.getDataType(), fieldValue.getField().getDataType());
             }
 
             @Test
@@ -2086,6 +2130,15 @@ public class TestRecordPath {
                     final FieldValue fieldValue = evaluateSingleFieldValue("toDate(/%s, 'yyyy-MM-dd')".formatted(fieldName), record);
                     assertEquals(record.getValue(fieldName), fieldValue.getValue());
                 }));
+            }
+
+            @Test
+            public void handlesLiteralValue() {
+                final Date expectedValue = new Date(LocalDate.parse("2017-10-20").atStartOfDay(TEST_ZONE_ID).toInstant().toEpochMilli());
+
+                final FieldValue fieldValue = evaluateSingleFieldValue("toDate('2017-10-20', 'yyyy-MM-dd')", record);
+                assertEquals(expectedValue, fieldValue.getValue());
+                assertEquals(RecordFieldType.TIMESTAMP.getDataType(), fieldValue.getField().getDataType());
             }
         }
 
@@ -2129,7 +2182,9 @@ public class TestRecordPath {
             public void decodesBytesAsStringUsingTheDefinedCharset() {
                 record.setValue("bytes", "Hello World!".getBytes(StandardCharsets.UTF_16));
 
-                assertEquals("Hello World!", evaluateSingleFieldValue("toString(/bytes, 'UTF-16')", record).getValue());
+                final FieldValue result = evaluateSingleFieldValue("toString(/bytes, 'UTF-16')", record);
+                assertEquals("Hello World!", result.getValue());
+                assertEquals(RecordFieldType.STRING.getDataType(), result.getField().getDataType());
             }
 
             @Test
@@ -2137,12 +2192,21 @@ public class TestRecordPath {
                 record.setValue("bytes", "Hello World!".getBytes(StandardCharsets.UTF_8));
                 record.setValue("name", "UTF-8");
 
-                assertEquals("Hello World!", evaluateSingleFieldValue("toString(/bytes, /name)", record).getValue());
+                final FieldValue result = evaluateSingleFieldValue("toString(/bytes, /name)", record);
+                assertEquals("Hello World!", result.getValue());
+                assertEquals(RecordFieldType.STRING.getDataType(), result.getField().getDataType());
             }
 
             @Test
             public void throwsExceptionWhenPassedAnNonExistingCharset() {
                 assertThrows(IllegalCharsetNameException.class, () -> evaluateSingleFieldValue("toString(/bytes, 'NOT A REAL CHARSET')", record));
+            }
+
+            @Test
+            public void handlesLiteralValue() {
+                final FieldValue result = evaluateSingleFieldValue("toString('literalValue', 'UTF-8')", record);
+                assertEquals("literalValue", result.getValue());
+                assertEquals(RecordFieldType.STRING.getDataType(), result.getField().getDataType());
             }
         }
 
@@ -2346,6 +2410,440 @@ public class TestRecordPath {
 
                 final String value = fieldValue.getValue().toString();
                 assertEquals(Uuid5Util.fromString(input, namespace.toString()), value);
+            }
+        }
+    }
+
+    @Nested
+    class MathFunctions {
+        @Test
+        public void supportsPromoteByteToLong() {
+            final FieldValue fieldValue = evaluateSingleFieldValue("multiply(2, /bytes[0])", record);
+
+            assertEquals(RecordFieldType.LONG, fieldValue.getField().getDataType().getFieldType());
+            assertEquals("144", fieldValue.getValue().toString());
+        }
+        @Test
+        public void supportsPromoteByteToDouble() {
+            final FieldValue fieldValue = evaluateSingleFieldValue("multiply('2.0', /bytes[0])", record);
+
+            assertEquals(RecordFieldType.DOUBLE, fieldValue.getField().getDataType().getFieldType());
+            assertEquals("144.0", fieldValue.getValue().toString());
+        }
+        @Test
+        public void supportsPromoteShortToLong() {
+            final FieldValue fieldValue = evaluateSingleFieldValue("multiply(2, /shortNumber)", record);
+
+            assertEquals(RecordFieldType.LONG, fieldValue.getField().getDataType().getFieldType());
+            assertEquals("246", fieldValue.getValue().toString());
+        }
+        @Test
+        public void supportsPromoteShortToDouble() {
+            final FieldValue fieldValue = evaluateSingleFieldValue("multiply('2.0', /shortNumber)", record);
+
+            assertEquals(RecordFieldType.DOUBLE, fieldValue.getField().getDataType().getFieldType());
+            assertEquals("246.0", fieldValue.getValue().toString());
+        }
+        @Test
+        public void supportsPromoteIntToLong() {
+            final FieldValue fieldValue = evaluateSingleFieldValue("multiply(2, /longNumber)", record);
+
+            assertEquals(RecordFieldType.LONG, fieldValue.getField().getDataType().getFieldType());
+            assertEquals("2469135780246913578", fieldValue.getValue().toString());
+        }
+        @Test
+        public void supportsPromoteIntToDouble() {
+            final FieldValue fieldValue = evaluateSingleFieldValue("multiply(2, /mainAccount/balance)", record);
+
+            assertEquals(RecordFieldType.DOUBLE, fieldValue.getField().getDataType().getFieldType());
+            assertEquals("246.9", fieldValue.getValue().toString());
+        }
+        @Test
+        public void supportsPromoteLongToDouble() {
+            final FieldValue fieldValue = evaluateSingleFieldValue("multiply('2.0', /longNumber)", record);
+
+            assertEquals(RecordFieldType.DOUBLE, fieldValue.getField().getDataType().getFieldType());
+            assertEquals("2.4691357802469135E18", fieldValue.getValue().toString());
+        }
+        @Test
+        public void supportsPromoteFloatToDouble() {
+            final FieldValue fieldValue = evaluateSingleFieldValue("multiply('2.0', /floatNumber)", record);
+
+            assertEquals(RecordFieldType.DOUBLE, fieldValue.getField().getDataType().getFieldType());
+            assertEquals("246.89999389648438", fieldValue.getValue().toString());
+        }
+        @Test
+        public void throwsExceptionOnUnsupportedLhsType() {
+            Exception exception =
+                    assertThrows(Exception.class, () -> evaluateSingleFieldValue("multiply(/numbers, 2)", record));
+            assertEquals("Cannot coerce field 'numbers' to number", exception.getMessage());
+        }
+        @Test
+        public void throwsExceptionOnUnsupportedRhsType() {
+            Exception exception =
+                    assertThrows(Exception.class, () -> evaluateSingleFieldValue("multiply(2, /firstName)", record));
+            assertEquals("Cannot coerce field 'firstName' to number", exception.getMessage());
+        }
+        @Test
+        public void throwsExceptionOnUnsupportedTypeWithAnonymousField() {
+            Exception exception =
+                    assertThrows(Exception.class, () -> evaluateSingleFieldValue("multiply(2, 'hello')", record));
+            assertEquals("Cannot coerce field '<Anonymous Inner Field>' to number", exception.getMessage());
+        }
+
+        @Nested
+        class Multiply {
+            @Test
+            public void supportsLhsLiteralRhsLiteral() {
+                final FieldValue fieldValue = evaluateSingleFieldValue("multiply(2, 2)", record);
+
+                assertEquals("multiply", fieldValue.getField().getFieldName());
+                assertEquals(RecordFieldType.LONG, fieldValue.getField().getDataType().getFieldType());
+                assertEquals("4", fieldValue.getValue().toString());
+            }
+            @Test
+            public void supportsLhsPathRhsLiteral() {
+                final FieldValue fieldValue = evaluateSingleFieldValue("multiply(/id, 2)", record);
+
+                assertEquals(RecordFieldType.LONG, fieldValue.getField().getDataType().getFieldType());
+                assertEquals("96", fieldValue.getValue().toString());
+            }
+            @Test
+            public void supportsLhsLiteralRhsPath() {
+                final FieldValue fieldValue = evaluateSingleFieldValue("multiply(2, /id)", record);
+
+                assertEquals(RecordFieldType.LONG, fieldValue.getField().getDataType().getFieldType());
+                assertEquals("96", fieldValue.getValue().toString());
+            }
+            @Test
+            public void supportsLhsPathRhsPath() {
+                final FieldValue fieldValue = evaluateSingleFieldValue("multiply(/id, /id)", record);
+
+                assertEquals(RecordFieldType.LONG, fieldValue.getField().getDataType().getFieldType());
+                assertEquals("2304", fieldValue.getValue().toString());
+            }
+            @Test
+            public void supportsLongOverflow() {
+                final FieldValue fieldValue = evaluateSingleFieldValue("multiply(/longNumber, /longNumber)", record);
+
+                assertEquals(RecordFieldType.LONG, fieldValue.getField().getDataType().getFieldType());
+                assertEquals("-8736265215553819719", fieldValue.getValue().toString());
+            }
+            @Test
+            public void supportsDoubleOverflow() {
+                final FieldValue fieldValue = evaluateSingleFieldValue("multiply('-1.0e308', /mainAccount/balance)", record);
+
+                assertEquals(RecordFieldType.DOUBLE, fieldValue.getField().getDataType().getFieldType());
+                assertEquals("-Infinity", fieldValue.getValue().toString());
+            }
+            @Test
+            public void supportsLhsNull() {
+                final List<FieldValue> fieldValues = evaluateMultiFieldValue("multiply(/notAField, 0)", record);
+                assertTrue(fieldValues.isEmpty());
+            }
+            @Test
+            public void supportsRhsNull() {
+                final List<FieldValue> fieldValues = evaluateMultiFieldValue("multiply(0, /notAField)", record);
+                assertTrue(fieldValues.isEmpty());
+            }
+            @Test
+            public void throwsExceptionOnInvalidArityMissingLhs() {
+                Exception exception =
+                        assertThrows(Exception.class, () -> evaluateSingleFieldValue("multiply(multiply(/notAField, 0), multiply(/notAField, 0))", record));
+                assertEquals("multiply function requires a left-hand operand", exception.getMessage());
+            }
+            @Test
+            public void throwsExceptionOnInvalidArityMissingRhs() {
+                Exception exception =
+                        assertThrows(Exception.class, () -> evaluateSingleFieldValue("multiply(0, multiply(/notAField, 0))", record));
+                assertEquals("multiply function requires a right-hand operand", exception.getMessage());
+            }
+        }
+
+        @Nested
+        class Divide {
+            @Test
+            public void supportsLhsLiteralRhsLiteral() {
+                final FieldValue fieldValue = evaluateSingleFieldValue("divide(3, 2)", record);
+
+                assertEquals("divide", fieldValue.getField().getFieldName());
+                assertEquals(RecordFieldType.LONG, fieldValue.getField().getDataType().getFieldType());
+                assertEquals("1", fieldValue.getValue().toString());
+            }
+            @Test
+            public void supportsLhsPathRhsLiteral() {
+                final FieldValue fieldValue = evaluateSingleFieldValue("divide(/id, 2)", record);
+
+                assertEquals(RecordFieldType.LONG, fieldValue.getField().getDataType().getFieldType());
+                assertEquals("24", fieldValue.getValue().toString());
+            }
+            @Test
+            public void supportsLhsLiteralRhsPath() {
+                final FieldValue fieldValue = evaluateSingleFieldValue("divide(2, /id)", record);
+
+                assertEquals(RecordFieldType.LONG, fieldValue.getField().getDataType().getFieldType());
+                assertEquals("0", fieldValue.getValue().toString());
+            }
+            @Test
+            public void supportsLhsPathRhsPath() {
+                final FieldValue fieldValue = evaluateSingleFieldValue("divide(/id, /id)", record);
+
+                assertEquals(RecordFieldType.LONG, fieldValue.getField().getDataType().getFieldType());
+                assertEquals("1", fieldValue.getValue().toString());
+            }
+            @Test
+            public void supportsLongOverflow() {
+                final FieldValue fieldValue = evaluateSingleFieldValue("divide(-9223372036854775808, -1)", record);
+
+                assertEquals(RecordFieldType.LONG, fieldValue.getField().getDataType().getFieldType());
+                assertEquals("-9223372036854775808", fieldValue.getValue().toString());
+            }
+            @Test
+            public void supportsDoubleOverflow() {
+                final FieldValue fieldValue = evaluateSingleFieldValue("divide('1.0e300', '1.0e-300')", record);
+
+                assertEquals(RecordFieldType.DOUBLE, fieldValue.getField().getDataType().getFieldType());
+                assertEquals("Infinity", fieldValue.getValue().toString());
+            }
+            @Test
+            public void supportsLhsNull() {
+                final List<FieldValue> fieldValues = evaluateMultiFieldValue("divide(/notAField, 0)", record);
+                assertTrue(fieldValues.isEmpty());
+            }
+            @Test
+            public void supportsRhsNull() {
+                final List<FieldValue> fieldValues = evaluateMultiFieldValue("divide(0, /notAField)", record);
+                assertTrue(fieldValues.isEmpty());
+            }
+            @Test
+            public void throwsExceptionOnDivideByZeroLong() {
+                Exception exception =
+                        assertThrows(Exception.class, () -> evaluateSingleFieldValue("divide(2, 0)", record));
+                assertEquals("Division by zero in RecordPath divide function", exception.getMessage());
+            }
+            @Test
+            public void throwsExceptionOnDivideByZeroDouble() {
+                Exception exception =
+                        assertThrows(Exception.class, () -> evaluateSingleFieldValue("divide('2.0', 0)", record));
+                assertEquals("Division by zero in RecordPath divide function", exception.getMessage());
+            }
+            @Test
+            public void throwsExceptionOnInvalidArityMissingLhs() {
+                Exception exception =
+                        assertThrows(Exception.class, () -> evaluateSingleFieldValue("divide(divide(/notAField, 0), divide(/notAField, 0))", record));
+                assertEquals("divide function requires a left-hand operand", exception.getMessage());
+            }
+            @Test
+            public void throwsExceptionOnInvalidArityMissingRhs() {
+                Exception exception =
+                        assertThrows(Exception.class, () -> evaluateSingleFieldValue("divide(0, divide(/notAField, 0))", record));
+                assertEquals("divide function requires a right-hand operand", exception.getMessage());
+            }
+        }
+
+        @Nested
+        class Add {
+            @Test
+            public void supportsLhsLiteralRhsLiteral() {
+                final FieldValue fieldValue = evaluateSingleFieldValue("add(3, 2)", record);
+
+                assertEquals("add", fieldValue.getField().getFieldName());
+                assertEquals(RecordFieldType.LONG, fieldValue.getField().getDataType().getFieldType());
+                assertEquals("5", fieldValue.getValue().toString());
+            }
+            @Test
+            public void supportsLhsPathRhsLiteral() {
+                final FieldValue fieldValue = evaluateSingleFieldValue("add(/id, 2)", record);
+
+                assertEquals(RecordFieldType.LONG, fieldValue.getField().getDataType().getFieldType());
+                assertEquals("50", fieldValue.getValue().toString());
+            }
+            @Test
+            public void supportsLhsLiteralRhsPath() {
+                final FieldValue fieldValue = evaluateSingleFieldValue("add(2, /id)", record);
+
+                assertEquals(RecordFieldType.LONG, fieldValue.getField().getDataType().getFieldType());
+                assertEquals("50", fieldValue.getValue().toString());
+            }
+            @Test
+            public void supportsLhsPathRhsPath() {
+                final FieldValue fieldValue = evaluateSingleFieldValue("add(/id, /id)", record);
+
+                assertEquals(RecordFieldType.LONG, fieldValue.getField().getDataType().getFieldType());
+                assertEquals("96", fieldValue.getValue().toString());
+            }
+            @Test
+            public void supportsLongOverflow() {
+                final String addWithLongOverflow = "add(%s, 1)".formatted(Long.MAX_VALUE);
+                final FieldValue fieldValue = evaluateSingleFieldValue(addWithLongOverflow, record);
+
+                assertEquals(RecordFieldType.LONG, fieldValue.getField().getDataType().getFieldType());
+                final String expected = "%s".formatted(Long.MIN_VALUE);
+                assertEquals(expected, fieldValue.getValue().toString());
+            }
+            @Test
+            public void supportsDoubleOverflow() {
+                final String addWithDoubleOverflow = "add('%s', '1e292')".formatted(Double.MAX_VALUE);
+                final FieldValue fieldValue = evaluateSingleFieldValue(addWithDoubleOverflow, record);
+
+                assertEquals(RecordFieldType.DOUBLE, fieldValue.getField().getDataType().getFieldType());
+                assertEquals("Infinity", fieldValue.getValue().toString());
+            }
+            @Test
+            public void supportsLhsNull() {
+                final List<FieldValue> fieldValues = evaluateMultiFieldValue("add(/notAField, 0)", record);
+                assertTrue(fieldValues.isEmpty());
+            }
+            @Test
+            public void supportsRhsNull() {
+                final List<FieldValue> fieldValues = evaluateMultiFieldValue("add(0, /notAField)", record);
+                assertTrue(fieldValues.isEmpty());
+            }
+            @Test
+            public void throwsExceptionOnInvalidArityMissingLhs() {
+                Exception exception =
+                        assertThrows(Exception.class, () -> evaluateSingleFieldValue("add(add(/notAField, 0), add(/notAField, 0))", record));
+                assertEquals("add function requires a left-hand operand", exception.getMessage());
+            }
+            @Test
+            public void throwsExceptionOnInvalidArityMissingRhs() {
+                Exception exception =
+                        assertThrows(Exception.class, () -> evaluateSingleFieldValue("add(0, add(/notAField, 0))", record));
+                assertEquals("add function requires a right-hand operand", exception.getMessage());
+            }
+        }
+
+        @Nested
+        class Subtract {
+            @Test
+            public void supportsLhsLiteralRhsLiteral() {
+                final FieldValue fieldValue = evaluateSingleFieldValue("subtract(3, 2)", record);
+
+                assertEquals("subtract", fieldValue.getField().getFieldName());
+                assertEquals(RecordFieldType.LONG, fieldValue.getField().getDataType().getFieldType());
+                assertEquals("1", fieldValue.getValue().toString());
+            }
+            @Test
+            public void supportsLhsPathRhsLiteral() {
+                final FieldValue fieldValue = evaluateSingleFieldValue("subtract(/id, 2)", record);
+
+                assertEquals(RecordFieldType.LONG, fieldValue.getField().getDataType().getFieldType());
+                assertEquals("46", fieldValue.getValue().toString());
+            }
+            @Test
+            public void supportsLhsLiteralRhsPath() {
+                final FieldValue fieldValue = evaluateSingleFieldValue("subtract(2, /id)", record);
+
+                assertEquals(RecordFieldType.LONG, fieldValue.getField().getDataType().getFieldType());
+                assertEquals("-46", fieldValue.getValue().toString());
+            }
+            @Test
+            public void supportsLhsPathRhsPath() {
+                final FieldValue fieldValue = evaluateSingleFieldValue("subtract(/id, /id)", record);
+
+                assertEquals(RecordFieldType.LONG, fieldValue.getField().getDataType().getFieldType());
+                assertEquals("0", fieldValue.getValue().toString());
+            }
+            @Test
+            public void supportsPositiveLongOverflow() {
+                final String subtractWithPositiveLongOverflow = "subtract(%s, -1)".formatted(Long.MAX_VALUE);
+                final FieldValue fieldValue = evaluateSingleFieldValue(subtractWithPositiveLongOverflow, record);
+
+                assertEquals(RecordFieldType.LONG, fieldValue.getField().getDataType().getFieldType());
+                final String expected = "%s".formatted(Long.MIN_VALUE);
+                assertEquals(expected, fieldValue.getValue().toString());
+            }
+            @Test
+            public void supportsNegativeLongOverflow() {
+                final String subtractWithNegativeLongOverflow = "subtract(%s, 1)".formatted(Long.MIN_VALUE);
+                final FieldValue fieldValue = evaluateSingleFieldValue(subtractWithNegativeLongOverflow, record);
+
+                assertEquals(RecordFieldType.LONG, fieldValue.getField().getDataType().getFieldType());
+                final String expected = "%s".formatted(Long.MAX_VALUE);
+                assertEquals(expected, fieldValue.getValue().toString());
+            }
+            @Test
+            public void supportsPostiveDoubleOverflow() {
+                final String subtractionWithPostiveDoubleOverflow = "subtract('%s', '%s')".formatted(Double.MAX_VALUE, -1.0e308);
+                final FieldValue fieldValue = evaluateSingleFieldValue(subtractionWithPostiveDoubleOverflow, record);
+
+                assertEquals(RecordFieldType.DOUBLE, fieldValue.getField().getDataType().getFieldType());
+                assertEquals("Infinity", fieldValue.getValue().toString());
+            }
+            @Test
+            public void supportsNegativeDoubleOverflow() {
+                final String subtractionWithNegativeDoubleOverflow = "subtract('%s', '1e308')".formatted(-Double.MAX_VALUE);
+                final FieldValue fieldValue = evaluateSingleFieldValue(subtractionWithNegativeDoubleOverflow, record);
+
+                assertEquals(RecordFieldType.DOUBLE, fieldValue.getField().getDataType().getFieldType());
+                assertEquals("-Infinity", fieldValue.getValue().toString());
+            }
+            @Test
+            public void supportsLhsNull() {
+                final List<FieldValue> fieldValues = evaluateMultiFieldValue("subtract(/notAField, 0)", record);
+                assertTrue(fieldValues.isEmpty());
+            }
+            @Test
+            public void supportsRhsNull() {
+                final List<FieldValue> fieldValues = evaluateMultiFieldValue("subtract(0, /notAField)", record);
+                assertTrue(fieldValues.isEmpty());
+            }
+            @Test
+            public void throwsExceptionOnInvalidArityMissingLhs() {
+                Exception exception =
+                        assertThrows(Exception.class, () -> evaluateSingleFieldValue("subtract(subtract(/notAField, 0), subtract(/notAField, 0))", record));
+                assertEquals("subtract function requires a left-hand operand", exception.getMessage());
+            }
+            @Test
+            public void throwsExceptionOnInvalidArityMissingRhs() {
+                Exception exception =
+                        assertThrows(Exception.class, () -> evaluateSingleFieldValue("subtract(0, subtract(/notAField, 0))", record));
+                assertEquals("subtract function requires a right-hand operand", exception.getMessage());
+            }
+        }
+
+        @Nested
+        class ToNumber {
+            @Test
+            public void supportsLiteral() {
+                final FieldValue fieldValue = evaluateSingleFieldValue("toNumber('1e1')", record);
+
+                assertEquals("toNumber", fieldValue.getField().getFieldName());
+                assertEquals(RecordFieldType.DOUBLE, fieldValue.getField().getDataType().getFieldType());
+                assertEquals("10.0", fieldValue.getValue().toString());
+            }
+            @Test
+            public void supportsPath() {
+                record.setValue("id", new Date(Instant.parse("1970-01-01T00:00:00Z").toEpochMilli()));
+                final FieldValue fieldValue = evaluateSingleFieldValue("toNumber(/id)", record);
+
+                assertEquals(RecordFieldType.LONG, fieldValue.getField().getDataType().getFieldType());
+                assertEquals("0", fieldValue.getValue().toString());
+            }
+            @Test
+            public void supportsNumber() {
+                final FieldValue fieldValue = evaluateSingleFieldValue("toNumber(/id)", record);
+
+                // preserves type
+                assertEquals(RecordFieldType.INT, fieldValue.getField().getDataType().getFieldType());
+                assertEquals("48", fieldValue.getValue().toString());
+            }
+            @Test
+            public void supportsNull() {
+                final FieldValue fieldValue = evaluateSingleFieldValue("toNumber(/notAField)", record);
+                assertEquals(null, fieldValue.getValue());
+            }
+            @Test
+            public void throwsExceptionOnUnsupportedType() {
+                Exception exception =
+                        assertThrows(Exception.class, () -> evaluateSingleFieldValue("toNumber(/firstName)", record));
+                assertEquals("Cannot coerce field 'firstName' to number", exception.getMessage());
+            }
+            @Test
+            public void throwsExceptionOnInvalidArityMissingOperand() {
+                Exception exception =
+                        assertThrows(Exception.class, () -> evaluateSingleFieldValue("toNumber(multiply(/notAField, 0))", record));
+                assertEquals("toNumber function requires an operand", exception.getMessage());
             }
         }
     }
@@ -3148,7 +3646,9 @@ public class TestRecordPath {
                 recordFieldOf("numbers", arrayTypeOf(RecordFieldType.INT)),
                 recordFieldOf("friends", arrayTypeOf(RecordFieldType.STRING)),
                 recordFieldOf("bytes", arrayTypeOf(RecordFieldType.BYTE)),
-                recordFieldOf("longNumber", RecordFieldType.LONG)
+                recordFieldOf("shortNumber", RecordFieldType.SHORT),
+                recordFieldOf("longNumber", RecordFieldType.LONG),
+                recordFieldOf("floatNumber", RecordFieldType.FLOAT)
         );
     }
 
@@ -3187,7 +3687,9 @@ public class TestRecordPath {
                 entry("numbers", new Integer[]{0, 1, 2, 3, 4, 5, 6, 7, 8, 9}),
                 entry("friends", new String[]{"John", "Jane", "Jacob", "Judy"}),
                 entry("bytes", boxBytes("Hello World!".getBytes(StandardCharsets.UTF_8))),
-                entry("longNumber", 1234567890123456789L)
+                entry("shortNumber", (short) 123),
+                entry("longNumber", 1234567890123456789L),
+                entry("floatNumber", 123.45f)
         );
 
         return new MapRecord(getExampleSchema(), new HashMap<>(values));

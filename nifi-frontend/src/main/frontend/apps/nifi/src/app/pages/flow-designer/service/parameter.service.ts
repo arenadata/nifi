@@ -15,22 +15,18 @@
  * limitations under the License.
  */
 
-import { Injectable } from '@angular/core';
+import { Injectable, inject } from '@angular/core';
 import { Observable } from 'rxjs';
 import { HttpClient, HttpParams } from '@angular/common/http';
-import { NiFiCommon } from '@nifi/shared';
-import { ParameterContextUpdateRequest, SubmitParameterContextUpdate } from '../../../state/shared';
+import { SubmitParameterContextUpdate } from '../../../state/shared';
 import { ClusterConnectionService } from '../../../service/cluster-connection.service';
 
 @Injectable({ providedIn: 'root' })
 export class ParameterService {
-    private static readonly API: string = '../nifi-api';
+    private httpClient = inject(HttpClient);
+    private clusterConnectionService = inject(ClusterConnectionService);
 
-    constructor(
-        private httpClient: HttpClient,
-        private nifiCommon: NiFiCommon,
-        private clusterConnectionService: ClusterConnectionService
-    ) {}
+    private static readonly API: string = '../nifi-api';
 
     getParameterContext(id: string, includeInheritedParameters: boolean): Observable<any> {
         return this.httpClient.get(`${ParameterService.API}/parameter-contexts/${id}`, {
@@ -47,16 +43,21 @@ export class ParameterService {
         );
     }
 
-    pollParameterContextUpdate(updateRequest: ParameterContextUpdateRequest): Observable<any> {
-        return this.httpClient.get(this.nifiCommon.stripProtocol(updateRequest.uri));
+    pollParameterContextUpdate(parameterContextId: string, requestId: string): Observable<any> {
+        return this.httpClient.get(
+            `${ParameterService.API}/parameter-contexts/${parameterContextId}/update-requests/${requestId}`
+        );
     }
 
-    deleteParameterContextUpdate(updateRequest: ParameterContextUpdateRequest): Observable<any> {
+    deleteParameterContextUpdate(parameterContextId: string, requestId: string): Observable<any> {
         const params = new HttpParams({
             fromObject: {
                 disconnectedNodeAcknowledged: this.clusterConnectionService.isDisconnectionAcknowledged()
             }
         });
-        return this.httpClient.delete(this.nifiCommon.stripProtocol(updateRequest.uri), { params });
+        return this.httpClient.delete(
+            `${ParameterService.API}/parameter-contexts/${parameterContextId}/update-requests/${requestId}`,
+            { params }
+        );
     }
 }

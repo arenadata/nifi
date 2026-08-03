@@ -50,6 +50,7 @@ import org.apache.nifi.components.resource.ResourceType;
 import org.apache.nifi.expression.ExpressionLanguageScope;
 import org.apache.nifi.flowfile.FlowFile;
 import org.apache.nifi.flowfile.attributes.CoreAttributes;
+import org.apache.nifi.migration.PropertyConfiguration;
 import org.apache.nifi.processor.AbstractProcessor;
 import org.apache.nifi.processor.ProcessContext;
 import org.apache.nifi.processor.ProcessSession;
@@ -64,6 +65,7 @@ import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.StringReader;
 import java.io.UncheckedIOException;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
@@ -71,8 +73,6 @@ import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
-import static org.apache.nifi.processors.jslt.JSLTTransformJSON.TransformationStrategy.EACH_OBJECT;
-import static org.apache.nifi.processors.jslt.JSLTTransformJSON.TransformationStrategy.ENTIRE_FLOWFILE;
 
 @SideEffectFree
 @SupportsBatching
@@ -85,11 +85,67 @@ import static org.apache.nifi.processors.jslt.JSLTTransformJSON.TransformationSt
         + "fails, the original FlowFile is routed to the 'failure' relationship.")
 public class JSLTTransformJSON extends AbstractProcessor {
 
-    public static String JSLT_FILTER_DEFAULT = ". != null and . != {} and . != []";
+    enum InputFormat implements DescribedValue {
+        FLOW_FILE("FlowFile", "Transformation applied to FlowFile content containing JSON"),
+        JSON_LINES("JSON Lines", "Transformation applied to each line of FlowFile content containing JSON Lines or NDJSON");
+
+        private final String displayName;
+        private final String description;
+
+        InputFormat(final String displayName, final String description) {
+            this.displayName = displayName;
+            this.description = description;
+        }
+
+        @Override
+        public String getValue() {
+            return name();
+        }
+
+        @Override
+        public String getDisplayName() {
+            return displayName;
+        }
+
+        @Override
+        public String getDescription() {
+            return description;
+        }
+    }
+
+    enum TransformationStrategy implements DescribedValue {
+        ENTIRE_FLOWFILE("Entire FlowFile", "Apply transformation to entire FlowFile content JSON"),
+        EACH_OBJECT("Each JSON Object", "Apply transformation to each JSON object in an array");
+
+        private final String displayName;
+
+        private final String description;
+
+        TransformationStrategy(final String displayName, final String description) {
+            this.displayName = displayName;
+            this.description = description;
+        }
+
+        @Override
+        public String getValue() {
+            return name();
+        }
+
+        @Override
+        public String getDisplayName() {
+            return displayName;
+        }
+
+        @Override
+        public String getDescription() {
+            return description;
+        }
+    }
+
+    public static final String JSLT_FILTER_DEFAULT = ". != null and . != {} and . != []";
 
     public static final PropertyDescriptor JSLT_TRANSFORM = new PropertyDescriptor.Builder()
-            .name("jslt-transform-transformation")
-            .displayName("JSLT Transformation")
+            .name("JSLT Transformation")
             .description("JSLT Transformation for transform of JSON data. Any NiFi Expression Language present will be evaluated first to get the final transform to be applied. " +
                     "The JSLT Tutorial provides an overview of supported expressions: https://github.com/schibsted/jslt/blob/master/tutorial.md")
             .expressionLanguageSupported(ExpressionLanguageScope.FLOWFILE_ATTRIBUTES)
@@ -98,27 +154,34 @@ public class JSLTTransformJSON extends AbstractProcessor {
             .required(true)
             .build();
 
+    public static final PropertyDescriptor INPUT_FORMAT = new PropertyDescriptor.Builder()
+            .name("Input Format")
+            .description("Specifies the expected format of FlowFile content containing one or more JSON elements")
+            .allowableValues(InputFormat.class)
+            .defaultValue(InputFormat.FLOW_FILE)
+            .required(true)
+            .build();
+
     public static final PropertyDescriptor TRANSFORMATION_STRATEGY = new PropertyDescriptor.Builder()
-            .name("jslt-transform-transformation-strategy")
-            .displayName("Transformation Strategy")
+            .name("Transformation Strategy")
             .description("Whether to apply the JSLT transformation to the entire FlowFile contents or each JSON object in the root-level array")
             .required(true)
             .allowableValues(TransformationStrategy.class)
-            .defaultValue(EACH_OBJECT.getValue())
+            .defaultValue(TransformationStrategy.EACH_OBJECT)
+            .dependsOn(INPUT_FORMAT, InputFormat.FLOW_FILE)
             .build();
 
     public static final PropertyDescriptor PRETTY_PRINT = new PropertyDescriptor.Builder()
-            .name("jslt-transform-pretty_print")
-            .displayName("Pretty Print")
+            .name("Pretty Print")
             .description("Apply pretty-print formatting to the output of the JSLT transform")
             .required(true)
             .allowableValues("true", "false")
             .defaultValue("false")
+            .dependsOn(INPUT_FORMAT, InputFormat.FLOW_FILE)
             .build();
 
     public static final PropertyDescriptor TRANSFORM_CACHE_SIZE = new PropertyDescriptor.Builder()
-            .name("jslt-transform-cache-size")
-            .displayName("Transform Cache Size")
+            .name("Transform Cache Size")
             .description("Compiling a JSLT Transform can be fairly expensive. Ideally, this will be done only once. However, if the Expression Language is used in the transform, we may need "
                     + "a new Transform for each FlowFile. This value controls how many of those Transforms we cache in memory in order to avoid having to compile the Transform each time.")
             .expressionLanguageSupported(ExpressionLanguageScope.NONE)
@@ -128,8 +191,7 @@ public class JSLTTransformJSON extends AbstractProcessor {
             .build();
 
     public static final PropertyDescriptor RESULT_FILTER = new PropertyDescriptor.Builder()
-            .name("jslt-transform-result-filter")
-            .displayName("Transform Result Filter")
+            .name("Transform Result Filter")
             .description("A filter for output JSON results using a JSLT expression. This property supports changing the default filter,"
                     + " which removes JSON objects with null values, empty objects and empty arrays from the output JSON."
                     + " This JSLT must return true for each JSON object to be included and false for each object to be removed."
@@ -150,6 +212,7 @@ public class JSLTTransformJSON extends AbstractProcessor {
 
     private static final List<PropertyDescriptor> PROPERTY_DESCRIPTORS = List.of(
             JSLT_TRANSFORM,
+            INPUT_FORMAT,
             TRANSFORMATION_STRATEGY,
             PRETTY_PRINT,
             TRANSFORM_CACHE_SIZE,
@@ -173,6 +236,15 @@ public class JSLTTransformJSON extends AbstractProcessor {
     @Override
     public final List<PropertyDescriptor> getSupportedPropertyDescriptors() {
         return PROPERTY_DESCRIPTORS;
+    }
+
+    @Override
+    public void migrateProperties(PropertyConfiguration config) {
+        config.renameProperty("jslt-transform-transformation", JSLT_TRANSFORM.getName());
+        config.renameProperty("jslt-transform-transformation-strategy", TRANSFORMATION_STRATEGY.getName());
+        config.renameProperty("jslt-transform-pretty_print", PRETTY_PRINT.getName());
+        config.renameProperty("jslt-transform-cache-size", TRANSFORM_CACHE_SIZE.getName());
+        config.renameProperty("jslt-transform-result-filter", RESULT_FILTER.getName());
     }
 
     @Override
@@ -232,71 +304,19 @@ public class JSLTTransformJSON extends AbstractProcessor {
             return;
         }
 
-        final TransformationStrategy transformationStrategy = TransformationStrategy.valueOf(context.getProperty(TRANSFORMATION_STRATEGY).getValue());
+        final PropertyValue transformProperty = context.getProperty(JSLT_TRANSFORM);
+        final String transform = readTransform(transformProperty, original);
+        final PropertyValue filterProperty = context.getProperty(RESULT_FILTER);
+        final Expression jsltExpression = transformCache.get(transform, currString -> getJstlExpression(transform, filterProperty.getValue()));
+        final InputFormat inputFormat = context.getProperty(INPUT_FORMAT).asAllowableValue(InputFormat.class);
         final StopWatch stopWatch = new StopWatch(true);
 
-        final PropertyValue transformProperty = context.getProperty(JSLT_TRANSFORM);
-        final PropertyValue filterProperty = context.getProperty(RESULT_FILTER);
-        FlowFile transformed;
-        final JsonFactory jsonFactory = new JsonFactory();
-
         try {
-            final String transform = readTransform(transformProperty, original);
-            final Expression jsltExpression = transformCache.get(transform, currString -> getJstlExpression(transform, filterProperty.getValue()));
-            final boolean prettyPrint = context.getProperty(PRETTY_PRINT).asBoolean();
+            final FlowFile transformed = switch (inputFormat) {
+                case FLOW_FILE -> transformFlowFile(jsltExpression, original, context, session);
+                case JSON_LINES -> transformJsonLines(jsltExpression, original, session);
+            };
 
-            transformed = session.write(original, (inputStream, outputStream) -> {
-                boolean topLevelArray = false;
-                JsonParser jsonParser;
-                JsonNode firstJsonNode;
-                if (EACH_OBJECT.equals(transformationStrategy)) {
-                    jsonParser = jsonFactory.createParser(inputStream);
-                    jsonParser.setCodec(JSON_OBJECT_MAPPER);
-
-                    JsonToken token = jsonParser.nextToken();
-                    if (token == JsonToken.START_ARRAY) {
-                        token = jsonParser.nextToken(); // advance to START_OBJECT token
-                        topLevelArray = true;
-                    }
-                    if (token == JsonToken.START_OBJECT) { // could be END_ARRAY also
-                        firstJsonNode = jsonParser.readValueAsTree();
-                    } else {
-                        firstJsonNode = null;
-                    }
-                } else {
-                    firstJsonNode = readJson(inputStream);
-                    jsonParser = null; // This will not be used when applying the transform to the entire FlowFile
-                }
-
-                final ObjectWriter writer = prettyPrint ? JSON_OBJECT_MAPPER.writerWithDefaultPrettyPrinter() : JSON_OBJECT_MAPPER.writer();
-                final JsonGenerator jsonGenerator = writer.createGenerator(outputStream);
-
-                Object outputObject;
-                JsonNode nextNode;
-
-                if (topLevelArray) {
-                    jsonGenerator.writeStartArray();
-                }
-                nextNode = firstJsonNode;
-                do {
-                    final JsonNode transformedJson = jsltExpression.apply(nextNode);
-                    if (transformedJson == null || transformedJson.isNull()) {
-                        getLogger().warn("JSLT Transform resulted in no data {}", original);
-                        outputObject = null;
-                    } else {
-                        outputObject = transformedJson;
-                    }
-                    if (outputObject != null) {
-                        jsonGenerator.writeObject(outputObject);
-                    }
-                } while ((nextNode = getNextJsonNode(transformationStrategy, jsonParser)) != null);
-                if (topLevelArray) {
-                    jsonGenerator.writeEndArray();
-                }
-                jsonGenerator.flush();
-            });
-
-            transformed = session.putAttribute(transformed, CoreAttributes.MIME_TYPE.key(), "application/json");
             session.transfer(transformed, REL_SUCCESS);
             session.getProvenanceReporter().modifyContent(transformed, "Modified With " + transform, stopWatch.getElapsed(TimeUnit.MILLISECONDS));
             stopWatch.stop();
@@ -305,6 +325,66 @@ public class JSLTTransformJSON extends AbstractProcessor {
             getLogger().error("JSLT Transform failed {}", original, e);
             session.transfer(original, REL_FAILURE);
         }
+    }
+
+    private FlowFile transformFlowFile(final Expression jsltExpression, final FlowFile original, final ProcessContext context, final ProcessSession session) {
+        final TransformationStrategy transformationStrategy = TransformationStrategy.valueOf(context.getProperty(TRANSFORMATION_STRATEGY).getValue());
+        final boolean prettyPrint = context.getProperty(PRETTY_PRINT).asBoolean();
+        final JsonFactory jsonFactory = new JsonFactory();
+
+        FlowFile transformed = session.write(original, (inputStream, outputStream) -> {
+            boolean topLevelArray = false;
+            JsonParser jsonParser;
+            JsonNode firstJsonNode;
+            if (TransformationStrategy.EACH_OBJECT.equals(transformationStrategy)) {
+                jsonParser = jsonFactory.createParser(inputStream);
+                jsonParser.setCodec(JSON_OBJECT_MAPPER);
+
+                JsonToken token = jsonParser.nextToken();
+                if (token == JsonToken.START_ARRAY) {
+                    token = jsonParser.nextToken(); // advance to START_OBJECT token
+                    topLevelArray = true;
+                }
+                if (token == JsonToken.START_OBJECT) { // could be END_ARRAY also
+                    firstJsonNode = jsonParser.readValueAsTree();
+                } else {
+                    firstJsonNode = null;
+                }
+            } else {
+                firstJsonNode = readJson(inputStream);
+                jsonParser = null; // This will not be used when applying the transform to the entire FlowFile
+            }
+
+            final ObjectWriter writer = prettyPrint ? JSON_OBJECT_MAPPER.writerWithDefaultPrettyPrinter() : JSON_OBJECT_MAPPER.writer();
+            final JsonGenerator jsonGenerator = writer.createGenerator(outputStream);
+
+            Object outputObject;
+            JsonNode nextNode;
+
+            if (topLevelArray) {
+                jsonGenerator.writeStartArray();
+            }
+            nextNode = firstJsonNode;
+            do {
+                final JsonNode transformedJson = jsltExpression.apply(nextNode);
+                if (transformedJson == null || transformedJson.isNull()) {
+                    getLogger().warn("JSLT Transform resulted in no data {}", original);
+                    outputObject = null;
+                } else {
+                    outputObject = transformedJson;
+                }
+                if (outputObject != null) {
+                    jsonGenerator.writeObject(outputObject);
+                }
+            } while ((nextNode = getNextJsonNode(transformationStrategy, jsonParser)) != null);
+            if (topLevelArray) {
+                jsonGenerator.writeEndArray();
+            }
+            jsonGenerator.flush();
+        });
+
+        transformed = session.putAttribute(transformed, CoreAttributes.MIME_TYPE.key(), "application/json");
+        return transformed;
     }
 
     @OnStopped
@@ -356,10 +436,9 @@ public class JSLTTransformJSON extends AbstractProcessor {
         }
     }
 
+    private JsonNode getNextJsonNode(final TransformationStrategy transformationStrategy, final JsonParser jsonParser) throws IOException {
 
-    protected JsonNode getNextJsonNode(final TransformationStrategy transformationStrategy, final JsonParser jsonParser) throws IOException {
-
-        if (ENTIRE_FLOWFILE.equals(transformationStrategy)) {
+        if (TransformationStrategy.ENTIRE_FLOWFILE.equals(transformationStrategy)) {
             return null;
         }
         return getJsonNode(jsonParser);
@@ -385,32 +464,25 @@ public class JSLTTransformJSON extends AbstractProcessor {
         }
     }
 
-    enum TransformationStrategy implements DescribedValue {
-        ENTIRE_FLOWFILE("Entire FlowFile", "Apply transformation to entire FlowFile content JSON"),
-        EACH_OBJECT("Each JSON Object", "Apply transformation each JSON Object in an array");
+    private FlowFile transformJsonLines(final Expression jsltExpression, final FlowFile original, final ProcessSession session) {
+        final ObjectWriter writer = JSON_OBJECT_MAPPER.writer().withRootValueSeparator("\n");
+        FlowFile transformed = session.write(original, (inputStream, outputStream) -> {
+            try (final BufferedReader reader = new BufferedReader(new InputStreamReader(inputStream, StandardCharsets.UTF_8));
+                 final JsonGenerator jsonGenerator = writer.createGenerator(outputStream)) {
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    if (line.isBlank()) {
+                        continue;
+                    }
 
-        private final String displayName;
+                    final JsonNode jsonNode = JSON_OBJECT_MAPPER.readTree(line);
+                    final JsonNode transformedJson = jsltExpression.apply(jsonNode);
+                    jsonGenerator.writeObject(transformedJson);
+                }
+            }
+        });
 
-        private final String description;
-
-        TransformationStrategy(final String displayName, final String description) {
-            this.displayName = displayName;
-            this.description = description;
-        }
-
-        @Override
-        public String getValue() {
-            return name();
-        }
-
-        @Override
-        public String getDisplayName() {
-            return displayName;
-        }
-
-        @Override
-        public String getDescription() {
-            return description;
-        }
+        transformed = session.putAttribute(transformed, CoreAttributes.MIME_TYPE.key(), "application/jsonl");
+        return transformed;
     }
 }

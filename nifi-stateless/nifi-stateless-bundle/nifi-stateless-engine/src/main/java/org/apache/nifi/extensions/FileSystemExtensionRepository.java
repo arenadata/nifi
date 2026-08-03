@@ -23,8 +23,8 @@ import org.apache.nifi.bundle.BundleDetails;
 import org.apache.nifi.nar.ExtensionDiscoveringManager;
 import org.apache.nifi.nar.NarClassLoaders;
 import org.apache.nifi.nar.NarLoadResult;
-import org.apache.nifi.nar.NarUnpacker;
 import org.apache.nifi.nar.NarUnpackMode;
+import org.apache.nifi.nar.NarUnpacker;
 import org.apache.nifi.stateless.engine.NarUnpackLock;
 import org.apache.nifi.stateless.engine.StatelessEngineConfiguration;
 import org.slf4j.Logger;
@@ -53,7 +53,6 @@ public class FileSystemExtensionRepository implements ExtensionRepository {
     private final Set<File> readOnlyExtensionDirectories;
     private final File workingDirectory;
     private final List<ExtensionClient> clients;
-
 
     public FileSystemExtensionRepository(final ExtensionDiscoveringManager extensionManager, final StatelessEngineConfiguration engineConfiguration, final NarClassLoaders narClassLoaders,
                                          final List<ExtensionClient> clients) {

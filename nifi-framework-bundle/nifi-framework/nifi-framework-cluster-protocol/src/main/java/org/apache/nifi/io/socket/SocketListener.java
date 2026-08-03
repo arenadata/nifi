@@ -16,6 +16,10 @@
  */
 package org.apache.nifi.io.socket;
 
+import org.apache.nifi.security.util.TlsException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.io.IOException;
 import java.net.ServerSocket;
 import java.net.Socket;
@@ -27,9 +31,6 @@ import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
-import org.apache.nifi.security.util.TlsException;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 /**
  * Implements a listener for TCP/IP messages sent over unicast socket.
@@ -144,12 +145,12 @@ public abstract class SocketListener {
     }
 
     public boolean isRunning() {
-        return (executorService != null && executorService.isShutdown() == false);
+        return (executorService != null && !executorService.isShutdown());
     }
 
     public void stop() throws IOException {
 
-        if (isRunning() == false) {
+        if (!isRunning()) {
             return;
         }
 

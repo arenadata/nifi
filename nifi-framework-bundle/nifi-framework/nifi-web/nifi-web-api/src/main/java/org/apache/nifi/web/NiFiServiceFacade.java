@@ -17,12 +17,15 @@
 package org.apache.nifi.web;
 
 import io.prometheus.client.CollectorRegistry;
+import org.apache.nifi.asset.Asset;
 import org.apache.nifi.authorization.AuthorizeAccess;
 import org.apache.nifi.authorization.RequestAction;
 import org.apache.nifi.authorization.user.NiFiUser;
 import org.apache.nifi.bundle.BundleCoordinate;
+import org.apache.nifi.c2.protocol.component.api.ConnectorDefinition;
 import org.apache.nifi.c2.protocol.component.api.ControllerServiceDefinition;
 import org.apache.nifi.c2.protocol.component.api.FlowAnalysisRuleDefinition;
+import org.apache.nifi.c2.protocol.component.api.FlowRegistryClientDefinition;
 import org.apache.nifi.c2.protocol.component.api.ParameterProviderDefinition;
 import org.apache.nifi.c2.protocol.component.api.ProcessorDefinition;
 import org.apache.nifi.c2.protocol.component.api.ReportingTaskDefinition;
@@ -56,7 +59,9 @@ import org.apache.nifi.web.api.dto.ClusterDTO;
 import org.apache.nifi.web.api.dto.ComponentHistoryDTO;
 import org.apache.nifi.web.api.dto.ComponentStateDTO;
 import org.apache.nifi.web.api.dto.ConfigVerificationResultDTO;
+import org.apache.nifi.web.api.dto.ConfigurationStepConfigurationDTO;
 import org.apache.nifi.web.api.dto.ConnectionDTO;
+import org.apache.nifi.web.api.dto.ConnectorDTO;
 import org.apache.nifi.web.api.dto.ControllerConfigurationDTO;
 import org.apache.nifi.web.api.dto.ControllerDTO;
 import org.apache.nifi.web.api.dto.ControllerServiceDTO;
@@ -69,6 +74,7 @@ import org.apache.nifi.web.api.dto.FlowFileDTO;
 import org.apache.nifi.web.api.dto.FlowRegistryClientDTO;
 import org.apache.nifi.web.api.dto.FunnelDTO;
 import org.apache.nifi.web.api.dto.LabelDTO;
+import org.apache.nifi.web.api.dto.ListenPortDTO;
 import org.apache.nifi.web.api.dto.ListingRequestDTO;
 import org.apache.nifi.web.api.dto.NodeDTO;
 import org.apache.nifi.web.api.dto.ParameterContextDTO;
@@ -100,11 +106,17 @@ import org.apache.nifi.web.api.entity.ActivateControllerServicesEntity;
 import org.apache.nifi.web.api.entity.AffectedComponentEntity;
 import org.apache.nifi.web.api.entity.AssetEntity;
 import org.apache.nifi.web.api.entity.BulletinEntity;
+import org.apache.nifi.web.api.entity.ClearBulletinsForGroupResultsEntity;
+import org.apache.nifi.web.api.entity.ClearBulletinsResultEntity;
 import org.apache.nifi.web.api.entity.ComponentValidationResultEntity;
 import org.apache.nifi.web.api.entity.ConfigurationAnalysisEntity;
+import org.apache.nifi.web.api.entity.ConfigurationStepEntity;
+import org.apache.nifi.web.api.entity.ConfigurationStepNamesEntity;
 import org.apache.nifi.web.api.entity.ConnectionEntity;
 import org.apache.nifi.web.api.entity.ConnectionStatisticsEntity;
 import org.apache.nifi.web.api.entity.ConnectionStatusEntity;
+import org.apache.nifi.web.api.entity.ConnectorEntity;
+import org.apache.nifi.web.api.entity.ConnectorPropertyAllowableValuesEntity;
 import org.apache.nifi.web.api.entity.ControllerBulletinsEntity;
 import org.apache.nifi.web.api.entity.ControllerConfigurationEntity;
 import org.apache.nifi.web.api.entity.ControllerServiceEntity;
@@ -145,6 +157,7 @@ import org.apache.nifi.web.api.entity.RemoteProcessGroupPortEntity;
 import org.apache.nifi.web.api.entity.RemoteProcessGroupStatusEntity;
 import org.apache.nifi.web.api.entity.ReportingTaskEntity;
 import org.apache.nifi.web.api.entity.ScheduleComponentsEntity;
+import org.apache.nifi.web.api.entity.SecretsEntity;
 import org.apache.nifi.web.api.entity.SnippetEntity;
 import org.apache.nifi.web.api.entity.StartVersionControlRequestEntity;
 import org.apache.nifi.web.api.entity.StatusHistoryEntity;
@@ -157,13 +170,16 @@ import org.apache.nifi.web.api.entity.VersionedFlowEntity;
 import org.apache.nifi.web.api.entity.VersionedFlowSnapshotMetadataEntity;
 import org.apache.nifi.web.api.entity.VersionedReportingTaskImportResponseEntity;
 import org.apache.nifi.web.api.request.FlowMetricsRegistry;
+import org.apache.nifi.web.api.request.FlowMetricsReportingStrategy;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.time.Instant;
 import java.util.Collection;
 import java.util.Date;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.function.Function;
 import java.util.function.Supplier;
@@ -172,6 +188,104 @@ import java.util.function.Supplier;
  * Defines the NiFiServiceFacade interface.
  */
 public interface NiFiServiceFacade {
+    // ----------------------------------------
+    // Connector methods
+    // ----------------------------------------
+
+    void verifyCreateConnector(ConnectorDTO connectorDTO);
+
+    ConnectorEntity createConnector(Revision revision, ConnectorDTO connectorDTO);
+
+    Set<ConnectorEntity> getConnectors();
+
+    ConnectorEntity getConnector(String id);
+
+    ConnectorEntity getConnector(String id, boolean clusterNodeRequest);
+
+    void verifyUpdateConnector(ConnectorDTO connectorDTO);
+
+    ConnectorEntity updateConnector(Revision revision, ConnectorDTO connectorDTO);
+
+    void verifyDeleteConnector(String id);
+
+    ConnectorEntity deleteConnector(Revision revision, String id);
+
+    ConnectorEntity scheduleConnector(Revision revision, String id, ScheduledState state);
+
+    void verifyDrainConnector(String id);
+
+    ConnectorEntity drainConnector(Revision revision, String id);
+
+    void verifyCancelConnectorDrain(String id);
+
+    ConnectorEntity cancelConnectorDrain(Revision revision, String id);
+
+    void verifyEnterConnectorTroubleshooting(String id);
+
+    ConnectorEntity enterConnectorTroubleshooting(Revision revision, String id);
+
+    void verifyEndConnectorTroubleshooting(String id);
+
+    ConnectorEntity endConnectorTroubleshooting(Revision revision, String id);
+
+    ConfigurationStepNamesEntity getConnectorConfigurationSteps(String id);
+
+    ConfigurationStepEntity getConnectorConfigurationStep(String id, String configurationStepName);
+
+    ConfigurationStepEntity updateConnectorConfigurationStep(Revision revision, String id, String configurationStepName, ConfigurationStepConfigurationDTO configurationStepConfiguration);
+
+    ConnectorEntity applyConnectorUpdate(Revision revision, String connectorId);
+
+    ConnectorEntity discardConnectorUpdate(Revision revision, String connectorId);
+
+    ProcessGroupFlowEntity getConnectorFlow(String connectorId, String processGroupId, boolean uiOnly);
+
+    ProcessGroupStatusEntity getConnectorProcessGroupStatus(String id, Boolean recursive);
+
+    Set<ControllerServiceEntity> getConnectorControllerServices(String connectorId, String processGroupId, boolean includeAncestorGroups,
+                                                                boolean includeDescendantGroups, boolean includeReferencingComponents);
+
+    /**
+     * Returns the parameter context bound to the specified process group within the connector's hierarchy. Sensitive parameter values are masked
+     * by the underlying DTO factory.
+     *
+     * @param connectorId the connector id
+     * @param processGroupId the process group id within the connector's hierarchy
+     * @return the parameter context entity with effective parameters (inherited included), or {@code null} if the process group has no bound parameter context
+     */
+    ParameterContextEntity getConnectorParameterContext(String connectorId, String processGroupId);
+
+    void verifyCanVerifyConnectorConfigurationStep(String connectorId, String configurationStepName);
+
+    List<ConfigVerificationResultDTO> performConnectorConfigurationStepVerification(String connectorId, String configurationStepName, ConfigurationStepConfigurationDTO configurationStepConfiguration);
+
+    SearchResultsDTO searchConnector(String connectorId, String query);
+
+    ConnectorPropertyAllowableValuesEntity getConnectorPropertyAllowableValues(String connectorId, String stepName, String groupName, String propertyName, String filter);
+
+    void verifyCreateConnectorAsset(String connectorId);
+
+    AssetEntity createConnectorAsset(String connectorId, String assetId, String assetName, InputStream content) throws IOException;
+
+    List<AssetEntity> getConnectorAssets(String connectorId);
+
+    Optional<Asset> getConnectorAsset(String assetId);
+
+    /**
+     * Verifies that the connector is in a state where FlowFiles can be purged.
+     *
+     * @param connectorId the connector ID
+     * @throws IllegalStateException if the connector is not in a state where FlowFiles can be purged
+     */
+    void verifyPurgeConnectorFlowFiles(String connectorId);
+
+    /**
+     * Purges all FlowFiles from the connector.
+     *
+     * @param connectorId the connector ID
+     * @param requestor the identity of the user requesting the purge (used for provenance events)
+     */
+    void purgeConnectorFlowFiles(String connectorId, String requestor);
 
     // ----------------------------------------
     // Synchronization methods
@@ -218,8 +332,6 @@ public interface NiFiServiceFacade {
      * @return component revisions from the snippet
      */
     Set<Revision> getRevisionsFromSnippet(String snippetId);
-
-
 
     // ----------------------------------------
     // Controller methods
@@ -402,9 +514,10 @@ public interface NiFiServiceFacade {
      * Generate metrics for the flow and return selected registries
      *
      * @param includeRegistries Set of Flow Metrics Registries to be returned
+     * @param flowMetricsStrategy Flow metrics reporting strategy limits collected metrics
      * @return Collector Registries
      */
-    Collection<CollectorRegistry> generateFlowMetrics(Set<FlowMetricsRegistry> includeRegistries);
+    Collection<CollectorRegistry> generateFlowMetrics(Set<FlowMetricsRegistry> includeRegistries, FlowMetricsReportingStrategy flowMetricsStrategy);
 
     /**
      * Updates the configuration for this controller.
@@ -471,6 +584,16 @@ public interface NiFiServiceFacade {
     Set<DocumentedTypeDTO> getProcessorTypes(final String bundleGroupFilter, final String bundleArtifactFilter, final String typeFilter);
 
     /**
+     * Returns the list of connector types.
+     *
+     * @param bundleGroupFilter if specified, must be member of bundle group
+     * @param bundleArtifactFilter if specified, must be member of bundle artifact
+     * @param typeFilter if specified, type must match
+     * @return The list of available connector types matching specified criteria
+     */
+    Set<DocumentedTypeDTO> getConnectorTypes(final String bundleGroupFilter, final String bundleArtifactFilter, final String typeFilter);
+
+    /**
      * Returns the list of controller service types.
      *
      * @param serviceType Filters only service types that implement this type
@@ -501,6 +624,8 @@ public interface NiFiServiceFacade {
      * @return The list of available flow registry client types matching specified criteria
      */
     Set<DocumentedTypeDTO> getFlowRegistryTypes();
+
+    FlowRegistryClientDefinition getFlowRegistryClientDefinition(String group, String artifact, String version, String type);
 
     /**
      * Returns the RuntimeManifest for this NiFi instance.
@@ -565,6 +690,17 @@ public interface NiFiServiceFacade {
     FlowAnalysisRuleDefinition getFlowAnalysisRuleDefinition(String group, String artifact, String version, String type);
 
     /**
+     * Return the ConnectorDefinition for the specified Connector.
+     *
+     * @param group The bundle group
+     * @param artifact The bundle artifact
+     * @param version The bundle version
+     * @param type The Connector type
+     * @return The ConnectorDefinition
+     */
+    ConnectorDefinition getConnectorDefinition(String group, String artifact, String version, String type);
+
+    /**
      * Return the additionalDetails for the specified component.
      *
      * @param group The bundle group
@@ -574,6 +710,18 @@ public interface NiFiServiceFacade {
      * @return The additional details
      */
     String getAdditionalDetails(String group, String artifact, String version, String type);
+
+    /**
+     * Return the step documentation for the specified Connector configuration step.
+     *
+     * @param group The bundle group
+     * @param artifact The bundle artifact
+     * @param version The bundle version
+     * @param connectorType The fully qualified class name of the Connector
+     * @param stepName The name of the configuration step
+     * @return The step documentation markdown content
+     */
+    String getStepDocumentation(String group, String artifact, String version, String connectorType, String stepName);
 
     /**
      * Returns the list of parameter provider types.
@@ -762,6 +910,13 @@ public interface NiFiServiceFacade {
      * @return snapshot
      */
     ProcessorEntity deleteProcessor(Revision revision, String processorId);
+
+    /**
+     * Reloads the underlying processor if the additional classpath resources have changed.
+     *
+     * @param processorId the id of the processor to reload
+     */
+    void reloadProcessor(String processorId);
 
     // ----------------------------------------
     // Connections methods
@@ -1311,7 +1466,7 @@ public interface NiFiServiceFacade {
     void verifyDeleteProcessGroup(String groupId);
 
     /**
-     * Creates a request to drop flowfiles in all connections in a process group (recursively).
+     * Creates a request to drop FlowFiles in all connections in a process group (recursively).
      *
      * @param processGroupId The ID of the process group
      * @param dropRequestId The ID of the drop request
@@ -1320,7 +1475,7 @@ public interface NiFiServiceFacade {
     DropRequestDTO createDropAllFlowFilesInProcessGroup(final String processGroupId, final String dropRequestId);
 
     /**
-     * Gets the specified request for dropping all flowfiles in a process group (recursively).
+     * Gets the specified request for dropping all FlowFiles in a process group (recursively).
      *
      * @param processGroupId The ID of the process group
      * @param dropRequestId The ID of the drop request
@@ -1329,7 +1484,7 @@ public interface NiFiServiceFacade {
     DropRequestDTO getDropAllFlowFilesRequest(final String processGroupId, final String dropRequestId);
 
     /**
-     * Cancels/removes the specified request for dropping all flowfiles in a process group (recursively).
+     * Cancels/removes the specified request for dropping all FlowFiles in a process group (recursively).
      *
      * @param processGroupId The ID of the process group
      * @param dropRequestId The ID of the drop request
@@ -1402,7 +1557,6 @@ public interface NiFiServiceFacade {
      * @return history
      */
     StatusHistoryEntity getRemoteProcessGroupStatusHistory(String id);
-
 
     /**
      * Verifies that transmission state of all remote process groups within the specified process group can be updated.
@@ -1479,7 +1633,6 @@ public interface NiFiServiceFacade {
      */
     RemoteProcessGroupEntity deleteRemoteProcessGroup(Revision revision, String remoteProcessGroupId);
 
-
     /**
      * Create a system bulletin
      *
@@ -1541,7 +1694,6 @@ public interface NiFiServiceFacade {
      * @return snapshot
      */
     FunnelEntity deleteFunnel(Revision revision, String funnelId);
-
 
     // ----------------------------------------
     // Version Control methods
@@ -1654,6 +1806,18 @@ public interface NiFiServiceFacade {
         Map<String, String> versionedComponentMapping);
 
     /**
+     * Creates a new branch in the associated Flow Registry for the specified Process Group and updates the local Version Control information to track the new branch.
+     *
+     * @param revision the revision for the Process Group
+     * @param processGroupId the Process Group identifier
+     * @param newBranchName the name of the new branch to create
+     * @param sourceBranch the branch to branch from
+     * @param sourceVersion the commit/version on the source branch to branch from
+     * @return the updated Version Control information
+     */
+    VersionControlInformationEntity createFlowBranch(Revision revision, String processGroupId, String newBranchName, String sourceBranch, String sourceVersion);
+
+    /**
      * Disconnects the specified Process Group from version control.
      *
      * @param revision revision
@@ -1710,6 +1874,18 @@ public interface NiFiServiceFacade {
      * @return the current Process Group converted to a Versioned Flow Snapshot for download
      */
     RegisteredFlowSnapshot getCurrentFlowSnapshotByGroupIdWithReferencedControllerServices(String processGroupId);
+
+    /**
+     * Get the current state of the Process Group with the given ID, converted to a Versioned Flow Snapshot for download.
+     * Optionally includes referenced controller services from parent groups and component state.
+     *
+     * @param processGroupId the ID of the Process Group
+     * @param includeReferencedServices whether to include referenced controller services from parent groups
+     * @param includeComponentState whether to include component state in the export. When true, all processors must be stopped
+     *                              and all controller services must be disabled.
+     * @return the current Process Group converted to a Versioned Flow Snapshot for download
+     */
+    RegisteredFlowSnapshot getCurrentFlowSnapshotByGroupId(String processGroupId, boolean includeReferencedServices, boolean includeComponentState);
 
     /**
      * Returns the name of the Flow Registry that is registered with the given ID. If no Flow Registry exists with the given ID, will return
@@ -1769,6 +1945,12 @@ public interface NiFiServiceFacade {
      * @param parameterProviderId the ID of the service
      */
     void verifyCanVerifyParameterProviderConfig(String parameterProviderId);
+
+    /**
+     * Verifies that the Flow Registry Client with the given identifier is in a state where its configuration can be verified
+     * @param registryClientId the ID of the registry client
+     */
+    void verifyCanVerifyFlowRegistryClientConfig(String registryClientId);
 
     /**
      * Verifies that the Process Group with the given identifier can be saved to the flow registry
@@ -1958,6 +2140,59 @@ public interface NiFiServiceFacade {
      */
     ComponentStateDTO getRemoteProcessGroupState(String remoteProcessGroupId);
 
+    /**
+     * Gets the state for a processor within a connector's managed process group.
+     *
+     * @param connectorId the connector id
+     * @param processorId the processor id
+     * @return the component state
+     */
+    ComponentStateDTO getConnectorProcessorState(String connectorId, String processorId);
+
+    /**
+     * Verifies the processor state within a connector could be cleared.
+     *
+     * @param connectorId the connector id
+     * @param processorId the processor id
+     */
+    void verifyCanClearConnectorProcessorState(String connectorId, String processorId);
+
+    /**
+     * Clears the state for a processor within a connector's managed process group.
+     *
+     * @param connectorId       the connector id
+     * @param processorId       the processor id
+     * @param componentStateDTO the state of the processor
+     * @return the cleared component state
+     */
+    ComponentStateDTO clearConnectorProcessorState(String connectorId, String processorId, ComponentStateDTO componentStateDTO);
+
+    /**
+     * Gets the state for a controller service within a connector's managed process group.
+     *
+     * @param connectorId         the connector id
+     * @param controllerServiceId the controller service id
+     * @return the component state
+     */
+    ComponentStateDTO getConnectorControllerServiceState(String connectorId, String controllerServiceId);
+
+    /**
+     * Verifies the controller service state within a connector could be cleared.
+     *
+     * @param connectorId         the connector id
+     * @param controllerServiceId the controller service id
+     */
+    void verifyCanClearConnectorControllerServiceState(String connectorId, String controllerServiceId);
+
+    /**
+     * Clears the state for a controller service within a connector's managed process group.
+     *
+     * @param connectorId         the connector id
+     * @param controllerServiceId the controller service id
+     * @param componentStateDTO   the state of the controller service
+     * @return the cleared component state
+     */
+    ComponentStateDTO clearConnectorControllerServiceState(String connectorId, String controllerServiceId, ComponentStateDTO componentStateDTO);
 
     // ----------------------------------------
     // Label methods
@@ -2269,6 +2504,13 @@ public interface NiFiServiceFacade {
      */
     void verifyDeleteControllerService(String controllerServiceId);
 
+    /**
+     * Reloads the underlying controller service if the additional classpath resources have changed.
+     *
+     * @param controllerServiceId the id of the controller service to reload
+     */
+    void reloadControllerService(String controllerServiceId);
+
     // ----------------------------------------
     // Parameter Provider methods
     // ----------------------------------------
@@ -2564,6 +2806,10 @@ public interface NiFiServiceFacade {
      */
     Set<FlowRegistryBucketEntity> getBucketsForUser(String registryClientId, String branch);
 
+    List<ConfigVerificationResultDTO> performFlowRegistryClientConfigVerification(String registryClientId, Map<String, String> properties, Map<String, String> variables);
+
+    ConfigurationAnalysisEntity analyzeFlowRegistryClientConfiguration(String registryClientId, Map<String, String> properties);
+
     /**
      * Gets the flows for the current user for the specified registry and bucket.
      *
@@ -2573,7 +2819,6 @@ public interface NiFiServiceFacade {
      * @return the flows
      */
     Set<VersionedFlowEntity> getFlowsForUser(String registryClientId, String branch, String bucketId);
-
 
     /**
      * Returns the details of a versioned flow from a given bucket of a given registry.
@@ -3063,4 +3308,59 @@ public interface NiFiServiceFacade {
      */
     AssetEntity deleteAsset(String parameterContextId, String assetId);
 
+    // -----------------------------------------
+    // Bulletin methods
+    // -----------------------------------------
+
+    /**
+     * Clears bulletins for the specified component.
+     *
+     * @param componentId the component id
+     * @param fromTimestamp the timestamp from which to clear bulletins (inclusive), must not be null
+     * @return the clear bulletin result entity
+     */
+    ClearBulletinsResultEntity clearBulletinsForComponent(String componentId, Instant fromTimestamp);
+
+    /**
+     * Clears bulletins for the specified components.
+     *
+     * @param processGroupId the process group id
+     * @param fromTimestamp the timestamp from which to clear bulletins (inclusive), must not be null
+     * @param componentIds the component IDs for which to clear bulletins
+     * @return the results of clearing bulletins for each component
+     */
+    ClearBulletinsForGroupResultsEntity clearBulletinsForComponents(String processGroupId, Instant fromTimestamp, Set<String> componentIds);
+
+    /**
+     * Filters components within the specified process group using the provided function.
+     *
+     * @param groupId the id of the process group
+     * @param getComponents function that takes a ProcessGroup and returns a set of component IDs
+     * @return set of component IDs returned by the function
+     */
+    Set<String> filterComponents(String groupId, Function<ProcessGroup, Set<String>> getComponents);
+
+    // ----------------------------------------
+    // Listen Port methods
+    // ----------------------------------------
+
+    /**
+     * Get all dynamically defined data ingress ports provided by Listen Components (e.g., Processors and Controller Services)
+     *
+     * @param user the user performing the lookup
+     * @return the list of listen Ports accessible to the current user
+     */
+    Set<ListenPortDTO> getListenPorts(NiFiUser user);
+
+    // ----------------------------------------
+    // Secrets methods
+    // ----------------------------------------
+
+    /**
+     * Gets all secrets available from all secret providers. Note: The actual secret values are not included
+     * in the response for security reasons; only metadata is returned.
+     *
+     * @return the secrets entity containing metadata for all available secrets
+     */
+    SecretsEntity getSecrets();
 }

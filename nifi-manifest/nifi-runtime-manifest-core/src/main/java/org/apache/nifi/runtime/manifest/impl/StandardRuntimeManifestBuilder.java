@@ -20,10 +20,18 @@ import org.apache.nifi.annotation.behavior.InputRequirement;
 import org.apache.nifi.c2.protocol.component.api.BuildInfo;
 import org.apache.nifi.c2.protocol.component.api.Bundle;
 import org.apache.nifi.c2.protocol.component.api.ConfigurableComponentDefinition;
+import org.apache.nifi.c2.protocol.component.api.ConfigurationStep;
+import org.apache.nifi.c2.protocol.component.api.ConfigurationStepDependency;
+import org.apache.nifi.c2.protocol.component.api.ConnectorDefinition;
+import org.apache.nifi.c2.protocol.component.api.ConnectorPropertyDependency;
+import org.apache.nifi.c2.protocol.component.api.ConnectorPropertyDescriptor;
+import org.apache.nifi.c2.protocol.component.api.ConnectorPropertyGroup;
+import org.apache.nifi.c2.protocol.component.api.ConnectorPropertyType;
 import org.apache.nifi.c2.protocol.component.api.ControllerServiceDefinition;
 import org.apache.nifi.c2.protocol.component.api.DefinedType;
 import org.apache.nifi.c2.protocol.component.api.ExtensionComponent;
 import org.apache.nifi.c2.protocol.component.api.FlowAnalysisRuleDefinition;
+import org.apache.nifi.c2.protocol.component.api.FlowRegistryClientDefinition;
 import org.apache.nifi.c2.protocol.component.api.MultiProcessorUseCase;
 import org.apache.nifi.c2.protocol.component.api.ParameterProviderDefinition;
 import org.apache.nifi.c2.protocol.component.api.ProcessorConfiguration;
@@ -31,10 +39,10 @@ import org.apache.nifi.c2.protocol.component.api.ProcessorDefinition;
 import org.apache.nifi.c2.protocol.component.api.PropertyAllowableValue;
 import org.apache.nifi.c2.protocol.component.api.PropertyDependency;
 import org.apache.nifi.c2.protocol.component.api.PropertyDescriptor;
+import org.apache.nifi.c2.protocol.component.api.PropertyListenPortDefinition;
 import org.apache.nifi.c2.protocol.component.api.PropertyResourceDefinition;
 import org.apache.nifi.c2.protocol.component.api.Relationship;
 import org.apache.nifi.c2.protocol.component.api.ReportingTaskDefinition;
-import org.apache.nifi.c2.protocol.component.api.Restriction;
 import org.apache.nifi.c2.protocol.component.api.RuntimeManifest;
 import org.apache.nifi.c2.protocol.component.api.SchedulingDefaults;
 import org.apache.nifi.c2.protocol.component.api.UseCase;
@@ -44,6 +52,7 @@ import org.apache.nifi.components.state.Scope;
 import org.apache.nifi.expression.ExpressionLanguageScope;
 import org.apache.nifi.extension.manifest.AllowableValue;
 import org.apache.nifi.extension.manifest.Attribute;
+import org.apache.nifi.extension.manifest.ConnectorProperty;
 import org.apache.nifi.extension.manifest.DefaultSchedule;
 import org.apache.nifi.extension.manifest.DefaultSettings;
 import org.apache.nifi.extension.manifest.Dependency;
@@ -53,10 +62,11 @@ import org.apache.nifi.extension.manifest.DynamicProperty;
 import org.apache.nifi.extension.manifest.DynamicRelationship;
 import org.apache.nifi.extension.manifest.Extension;
 import org.apache.nifi.extension.manifest.ExtensionManifest;
+import org.apache.nifi.extension.manifest.ExtensionType;
+import org.apache.nifi.extension.manifest.ListenPortDefinition;
 import org.apache.nifi.extension.manifest.Property;
 import org.apache.nifi.extension.manifest.ProvidedServiceAPI;
 import org.apache.nifi.extension.manifest.ResourceDefinition;
-import org.apache.nifi.extension.manifest.Restricted;
 import org.apache.nifi.extension.manifest.Stateful;
 import org.apache.nifi.extension.manifest.SystemResourceConsideration;
 import org.apache.nifi.logging.LogLevel;
@@ -64,14 +74,14 @@ import org.apache.nifi.runtime.manifest.ComponentManifestBuilder;
 import org.apache.nifi.runtime.manifest.ExtensionManifestContainer;
 import org.apache.nifi.runtime.manifest.RuntimeManifestBuilder;
 import org.apache.nifi.scheduling.SchedulingStrategy;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
 import java.util.Collection;
-import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.TreeSet;
 import java.util.stream.Collectors;
 
@@ -83,6 +93,8 @@ public class StandardRuntimeManifestBuilder implements RuntimeManifestBuilder {
     private static final String DEFAULT_YIELD_PERIOD = "1 sec";
     private static final String DEFAULT_PENALIZATION_PERIOD = "30 sec";
     private static final String DEFAULT_BULLETIN_LEVEL = LogLevel.WARN.name();
+
+    private static final Logger logger = LoggerFactory.getLogger(StandardRuntimeManifestBuilder.class);
 
     private String identifier;
     private String version;
@@ -193,7 +205,13 @@ public class StandardRuntimeManifestBuilder implements RuntimeManifestBuilder {
             throw new IllegalArgumentException("Extension cannot be null");
         }
 
-        switch (extension.getType()) {
+        final ExtensionType extensionType = extension.getType();
+        if (extensionType == null) {
+            logger.warn("Extension Type not found: Component Manifest Definition not added for [{}]", extension.getName());
+            return;
+        }
+
+        switch (extensionType) {
             case PROCESSOR:
                 addProcessorDefinition(extensionManifest, extension, additionalDetails, componentManifestBuilder);
                 break;
@@ -208,6 +226,12 @@ public class StandardRuntimeManifestBuilder implements RuntimeManifestBuilder {
                 break;
             case PARAMETER_PROVIDER:
                 addParameterProviderDefinition(extensionManifest, extension, additionalDetails, componentManifestBuilder);
+                break;
+            case FLOW_REGISTRY_CLIENT:
+                addFlowRegistryClientDefinition(extensionManifest, extension, additionalDetails, componentManifestBuilder);
+                break;
+            case CONNECTOR:
+                addConnectorDefinition(extensionManifest, extension, additionalDetails, componentManifestBuilder);
                 break;
         }
     }
@@ -384,6 +408,130 @@ public class StandardRuntimeManifestBuilder implements RuntimeManifestBuilder {
         componentManifestBuilder.addParameterProvider(parameterProviderDefinition);
     }
 
+    private void addFlowRegistryClientDefinition(final ExtensionManifest extensionManifest, final Extension extension, final String additionalDetails,
+                                                 final ComponentManifestBuilder componentManifestBuilder) {
+        final FlowRegistryClientDefinition flowRegistryClientDefinition = new FlowRegistryClientDefinition();
+        populateDefinedType(extensionManifest, extension, flowRegistryClientDefinition);
+        populateExtensionComponent(extensionManifest, extension, additionalDetails, flowRegistryClientDefinition);
+        populateConfigurableComponent(extension, flowRegistryClientDefinition);
+        componentManifestBuilder.addFlowRegistryClient(flowRegistryClientDefinition);
+    }
+
+    private void addConnectorDefinition(final ExtensionManifest extensionManifest, final Extension extension, final String additionalDetails,
+                                        final ComponentManifestBuilder componentManifestBuilder) {
+        final ConnectorDefinition connectorDefinition = new ConnectorDefinition();
+        populateDefinedType(extensionManifest, extension, connectorDefinition);
+        populateExtensionComponent(extensionManifest, extension, additionalDetails, connectorDefinition);
+
+        // Populate configuration steps
+        final List<org.apache.nifi.extension.manifest.ConfigurationStep> manifestSteps = extension.getConfigurationSteps();
+        if (isNotEmpty(manifestSteps)) {
+            connectorDefinition.setConfigurationSteps(
+                    manifestSteps.stream()
+                            .map(this::getConfigurationStep)
+                            .collect(Collectors.toList())
+            );
+        }
+
+        componentManifestBuilder.addConnector(connectorDefinition);
+    }
+
+    private ConfigurationStep getConfigurationStep(final org.apache.nifi.extension.manifest.ConfigurationStep manifestStep) {
+        final ConfigurationStep step = new ConfigurationStep();
+        step.setName(manifestStep.getName());
+        step.setDescription(manifestStep.getDescription());
+
+        // Convert step dependencies
+        final List<org.apache.nifi.extension.manifest.ConfigurationStepDependency> manifestDeps = manifestStep.getStepDependencies();
+        if (isNotEmpty(manifestDeps)) {
+            step.setStepDependencies(
+                    manifestDeps.stream()
+                            .map(this::getConfigurationStepDependency)
+                            .collect(Collectors.toList())
+            );
+        }
+
+        // Convert property groups
+        final List<org.apache.nifi.extension.manifest.ConnectorPropertyGroup> manifestGroups = manifestStep.getPropertyGroups();
+        if (isNotEmpty(manifestGroups)) {
+            step.setPropertyGroups(
+                    manifestGroups.stream()
+                            .map(this::getConnectorPropertyGroup)
+                            .collect(Collectors.toList())
+            );
+        }
+
+        return step;
+    }
+
+    private ConfigurationStepDependency getConfigurationStepDependency(
+            final org.apache.nifi.extension.manifest.ConfigurationStepDependency manifestDep) {
+        final ConfigurationStepDependency dep = new ConfigurationStepDependency();
+        dep.setStepName(manifestDep.getStepName());
+        dep.setPropertyName(manifestDep.getPropertyName());
+        dep.setDependentValues(manifestDep.getDependentValues());
+        return dep;
+    }
+
+    private ConnectorPropertyGroup getConnectorPropertyGroup(
+            final org.apache.nifi.extension.manifest.ConnectorPropertyGroup manifestGroup) {
+        final ConnectorPropertyGroup group = new ConnectorPropertyGroup();
+        group.setName(manifestGroup.getName());
+        group.setDescription(manifestGroup.getDescription());
+
+        final List<ConnectorProperty> manifestProps = manifestGroup.getProperties();
+        if (isNotEmpty(manifestProps)) {
+            group.setProperties(
+                    manifestProps.stream()
+                            .map(this::getConnectorPropertyDescriptor)
+                            .collect(Collectors.toList())
+            );
+        }
+
+        return group;
+    }
+
+    private ConnectorPropertyDescriptor getConnectorPropertyDescriptor(final ConnectorProperty manifestProp) {
+        final ConnectorPropertyDescriptor prop = new ConnectorPropertyDescriptor();
+        prop.setName(manifestProp.getName());
+        prop.setDescription(manifestProp.getDescription());
+        prop.setDefaultValue(manifestProp.getDefaultValue());
+        prop.setRequired(manifestProp.isRequired());
+        prop.setAllowableValuesFetchable(manifestProp.isAllowableValuesFetchable());
+
+        // Convert property type
+        final org.apache.nifi.extension.manifest.ConnectorPropertyType manifestType = manifestProp.getPropertyType();
+        if (manifestType != null) {
+            prop.setPropertyType(ConnectorPropertyType.valueOf(manifestType.name()));
+        }
+
+        // Convert allowable values
+        final List<AllowableValue> manifestValues = manifestProp.getAllowableValues();
+        if (isNotEmpty(manifestValues)) {
+            prop.setAllowableValues(getPropertyAllowableValues(manifestValues));
+        }
+
+        // Convert property dependencies
+        final List<org.apache.nifi.extension.manifest.ConnectorPropertyDependency> manifestDeps = manifestProp.getDependencies();
+        if (isNotEmpty(manifestDeps)) {
+            prop.setDependencies(
+                    manifestDeps.stream()
+                            .map(this::getConnectorPropertyDependency)
+                            .collect(Collectors.toList())
+            );
+        }
+
+        return prop;
+    }
+
+    private ConnectorPropertyDependency getConnectorPropertyDependency(
+            final org.apache.nifi.extension.manifest.ConnectorPropertyDependency manifestDep) {
+        final ConnectorPropertyDependency dep = new ConnectorPropertyDependency();
+        dep.setPropertyName(manifestDep.getPropertyName());
+        dep.setDependentValues(manifestDep.getDependentValues());
+        return dep;
+    }
+
     private void addFlowAnalysisRuleDefinition(final ExtensionManifest extensionManifest, final Extension extension, final String additionalDetails,
                                                 final ComponentManifestBuilder componentManifestBuilder) {
         final FlowAnalysisRuleDefinition flowAnalysisRuleDefinition = new FlowAnalysisRuleDefinition();
@@ -471,17 +619,6 @@ public class StandardRuntimeManifestBuilder implements RuntimeManifestBuilder {
             extensionComponent.setProvidedApiImplementations(providedApiTypes);
         }
 
-        final Restricted restricted = extension.getRestricted();
-        if (restricted != null) {
-            extensionComponent.setRestricted(true);
-            extensionComponent.setRestrictedExplanation(restricted.getGeneralRestrictionExplanation());
-            if (restricted.getRestrictions() != null) {
-                final Set<Restriction> explicitRestrictions = new HashSet<>();
-                restricted.getRestrictions().forEach(r -> explicitRestrictions.add(createRestriction(r)));
-                extensionComponent.setExplicitRestrictions(explicitRestrictions);
-            }
-        }
-
         final Stateful stateful = extension.getStateful();
         if (stateful != null) {
             final org.apache.nifi.c2.protocol.component.api.Stateful componentStateful = new org.apache.nifi.c2.protocol.component.api.Stateful();
@@ -522,13 +659,6 @@ public class StandardRuntimeManifestBuilder implements RuntimeManifestBuilder {
             case LOCAL -> Scope.LOCAL;
             case CLUSTER -> Scope.CLUSTER;
         };
-    }
-
-    private Restriction createRestriction(final org.apache.nifi.extension.manifest.Restriction extensionRestriction) {
-        final Restriction restriction = new Restriction();
-        restriction.setExplanation(extensionRestriction.getExplanation());
-        restriction.setRequiredPermission(extensionRestriction.getRequiredPermission());
-        return restriction;
     }
 
     private DefinedType createProvidedApiType(final ProvidedServiceAPI providedServiceApi) {
@@ -587,6 +717,7 @@ public class StandardRuntimeManifestBuilder implements RuntimeManifestBuilder {
         descriptor.setAllowableValues(getPropertyAllowableValues(property.getAllowableValues()));
         descriptor.setTypeProvidedByValue(getControllerServiceDefinedType(property.getControllerServiceDefinition()));
         descriptor.setResourceDefinition(getPropertyResourceDefinition(property.getResourceDefinition()));
+        descriptor.setListenPortDefinition(getPropertyListenPortDefinition(property.getListenPortDefinition()));
         descriptor.setDependencies(getPropertyDependencies(property.getDependencies()));
         return descriptor;
     }
@@ -640,6 +771,19 @@ public class StandardRuntimeManifestBuilder implements RuntimeManifestBuilder {
             case TEXT -> ResourceType.TEXT;
             case DIRECTORY -> ResourceType.DIRECTORY;
         };
+    }
+
+    private PropertyListenPortDefinition getPropertyListenPortDefinition(final ListenPortDefinition listenPortDefinition) {
+        if (listenPortDefinition == null || listenPortDefinition.getTransportProtocol() == null) {
+            return null;
+        }
+
+        final PropertyListenPortDefinition propertyListenPortDefinition = new PropertyListenPortDefinition();
+        final PropertyListenPortDefinition.TransportProtocol transportProtocol = PropertyListenPortDefinition.TransportProtocol.valueOf(listenPortDefinition.getTransportProtocol().name());
+        propertyListenPortDefinition.setTransportProtocol(transportProtocol);
+        propertyListenPortDefinition.setApplicationProtocols(listenPortDefinition.getApplicationProtocols());
+
+        return propertyListenPortDefinition;
     }
 
     private ExpressionLanguageScope getELScope(final org.apache.nifi.extension.manifest.ExpressionLanguageScope elScope) {

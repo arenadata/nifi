@@ -30,10 +30,10 @@ import org.apache.nifi.toolkit.client.NiFiClientConfig;
 import org.apache.nifi.toolkit.client.impl.JerseyNiFiClient;
 import org.apache.nifi.web.api.entity.ControllerServiceEntity;
 import org.apache.nifi.web.api.entity.ProcessorEntity;
-import org.junit.function.ThrowingRunnable;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.TestInfo;
+import org.junit.jupiter.api.function.Executable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testcontainers.shaded.org.awaitility.Awaitility;
@@ -105,10 +105,10 @@ public class NifiSystemContainerizedIT extends NiFiSystemIT {
     }
 
     @Step("Assert with polling")
-    protected void assertWithPooling(ThrowingRunnable assertion) {
+    protected void assertWithPooling(Executable assertion) {
         Awaitility.waitAtMost(Duration.ofSeconds(getTestConfig().getGeneralTimeout()))
                 .pollInterval(Duration.ofSeconds(getTestConfig().getPollInterval()))
-                .untilAsserted(assertion::run);
+                .untilAsserted(assertion::execute);
     }
 
     @Step("Assert error message")

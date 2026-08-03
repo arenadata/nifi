@@ -16,15 +16,6 @@
  */
 package org.apache.nifi.processors.email;
 
-import java.io.BufferedInputStream;
-import java.io.IOException;
-import java.io.InputStream;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Properties;
-import java.util.Set;
 import jakarta.activation.DataSource;
 import jakarta.mail.Address;
 import jakarta.mail.BodyPart;
@@ -34,7 +25,6 @@ import jakarta.mail.Session;
 import jakarta.mail.internet.MimeBodyPart;
 import jakarta.mail.internet.MimeMessage;
 import jakarta.mail.internet.MimePart;
-
 import org.apache.nifi.annotation.behavior.InputRequirement;
 import org.apache.nifi.annotation.behavior.InputRequirement.Requirement;
 import org.apache.nifi.annotation.behavior.SideEffectFree;
@@ -53,11 +43,21 @@ import org.apache.nifi.processor.Relationship;
 import org.apache.nifi.processor.exception.FlowFileHandlingException;
 import org.apache.nifi.stream.io.StreamUtils;
 
+import java.io.BufferedInputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Properties;
+import java.util.Set;
+
 @SupportsBatching
 @SideEffectFree
 @Tags({"split", "email"})
 @InputRequirement(Requirement.INPUT_REQUIRED)
-@CapabilityDescription("Extract attachments from a mime formatted email file, splitting them into individual flowfiles.")
+@CapabilityDescription("Extract attachments from a mime formatted email file, splitting them into individual FlowFiles.")
 @WritesAttributes({
         @WritesAttribute(attribute = "filename ", description = "The filename of the attachment"),
         @WritesAttribute(attribute = "email.attachment.parent.filename ", description = "The filename of the parent FlowFile"),

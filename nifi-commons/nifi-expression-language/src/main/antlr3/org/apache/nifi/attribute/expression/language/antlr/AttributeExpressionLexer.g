@@ -173,6 +173,8 @@ BASE64_DECODE : 'base64Decode';
 GET_STATE_VALUE: 'getStateValue';
 EVALUATE_EL_STRING: 'evaluateELString';
 IS_JSON: 'isJson';
+IS_VALID_INSTANT: 'isValidInstant';
+IS_VALID_DATE: 'isValidDate';
 
 // 1 arg functions
 SUBSTRING_AFTER	: 'substringAfter';
@@ -200,6 +202,10 @@ LESS_THAN_OR_EQUAL		: 'le';
 FORMAT			: 'format'; // takes string date format; uses DateTimeFormatter
 FORMAT_INSTANT  : 'formatInstant';
 TO_DATE			: 'toDate'; // takes string date format; converts the subject to a Long based on the date format
+MINUS_DURATION          : 'minusDuration';
+MINUS_INSTANT_DURATION  : 'minusInstantDuration';
+PLUS_DURATION           : 'plusDuration';
+PLUS_INSTANT_DURATION   : 'plusInstantDuration';
 TO_INSTANT		: 'toInstant';
 MOD : 'mod';
 PLUS : 'plus';
@@ -219,6 +225,9 @@ REPEAT : 'repeat';
 UUID3 : 'UUID3';
 UUID5 : 'UUID5';
 HASH : 'hash';
+UNIQUE : 'unique';
+COMPACT_DELIMITED_LIST : 'compactDelimitedList';
+TRIM_DELIMITED_LIST    : 'trimDelimitedList';
 
 // 2 arg functions
 SUBSTRING	: 'substring';

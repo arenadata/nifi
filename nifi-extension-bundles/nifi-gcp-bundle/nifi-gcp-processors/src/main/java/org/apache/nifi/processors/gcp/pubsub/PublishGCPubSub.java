@@ -21,8 +21,8 @@ import com.google.api.core.ApiFutureCallback;
 import com.google.api.core.ApiFutures;
 import com.google.api.gax.batching.BatchingSettings;
 import com.google.api.gax.core.FixedCredentialsProvider;
-import com.google.api.gax.rpc.ApiException;
 import com.google.api.gax.core.FixedExecutorProvider;
+import com.google.api.gax.rpc.ApiException;
 import com.google.cloud.pubsub.v1.Publisher;
 import com.google.cloud.pubsub.v1.stub.GrpcPublisherStub;
 import com.google.cloud.pubsub.v1.stub.PublisherStubSettings;
@@ -51,6 +51,7 @@ import org.apache.nifi.components.PropertyDescriptor;
 import org.apache.nifi.expression.ExpressionLanguageScope;
 import org.apache.nifi.flowfile.FlowFile;
 import org.apache.nifi.logging.ComponentLog;
+import org.apache.nifi.migration.PropertyConfiguration;
 import org.apache.nifi.processor.DataUnit;
 import org.apache.nifi.processor.ProcessContext;
 import org.apache.nifi.processor.ProcessSession;
@@ -82,8 +83,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.Executor;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
 
 import static org.apache.nifi.processors.gcp.pubsub.PubSubAttributes.MESSAGE_ID_ATTRIBUTE;
 import static org.apache.nifi.processors.gcp.pubsub.PubSubAttributes.MESSAGE_ID_DESCRIPTION;
@@ -95,7 +96,7 @@ import static org.apache.nifi.processors.gcp.pubsub.PubSubAttributes.TOPIC_NAME_
 @SeeAlso({ConsumeGCPubSub.class})
 @InputRequirement(Requirement.INPUT_REQUIRED)
 @Tags({"google", "google-cloud", "gcp", "message", "pubsub", "publish"})
-@CapabilityDescription("Publishes the content of the incoming flowfile to the configured Google Cloud PubSub topic. The processor supports dynamic properties." +
+@CapabilityDescription("Publishes the content of the incoming FlowFile to the configured Google Cloud PubSub topic. The processor supports dynamic properties." +
         " If any dynamic properties are present, they will be sent along with the message in the form of 'attributes'.")
 @DynamicProperty(name = "Attribute name", value = "Value to be set to the attribute",
         description = "Attributes to be set for the outgoing Google Cloud PubSub message", expressionLanguageScope = ExpressionLanguageScope.FLOWFILE_ATTRIBUTES)
@@ -155,8 +156,7 @@ public class PublishGCPubSub extends AbstractGCPubSubProcessor {
             .build();
 
     public static final PropertyDescriptor TOPIC_NAME = new PropertyDescriptor.Builder()
-            .name("gcp-pubsub-topic")
-            .displayName("Topic Name")
+            .name("Topic Name")
             .description("Name of the Google Cloud PubSub Topic")
             .required(true)
             .addValidator(StandardValidators.NON_EMPTY_VALIDATOR)
@@ -307,6 +307,12 @@ public class PublishGCPubSub extends AbstractGCPubSubProcessor {
         } else {
             throw new IllegalStateException(inputStrategy.getValue());
         }
+    }
+
+    @Override
+    public void migrateProperties(PropertyConfiguration config) {
+        super.migrateProperties(config);
+        config.renameProperty("gcp-pubsub-topic", TOPIC_NAME.getName());
     }
 
     private void onTriggerFlowFileStrategy(
@@ -474,9 +480,9 @@ public class PublishGCPubSub extends AbstractGCPubSubProcessor {
 
     private Publisher.Builder getPublisherBuilder(ProcessContext context) {
         final Long batchSizeThreshold = context.getProperty(BATCH_SIZE_THRESHOLD).asLong();
-        final long batchBytesThreshold = context.getProperty(BATCH_BYTES_THRESHOLD).asDataSize(DataUnit.B).longValue();
+        final long batchBytesThreshold = context.getProperty(BATCH_BYTES_THRESHOLD).evaluateAttributeExpressions().asDataSize(DataUnit.B).longValue();
         final Long batchDelayThreshold = context.getProperty(BATCH_DELAY_THRESHOLD).asTimePeriod(TimeUnit.MILLISECONDS);
-        final String endpoint = context.getProperty(API_ENDPOINT).getValue();
+        final String endpoint = context.getProperty(API_ENDPOINT).evaluateAttributeExpressions().getValue();
 
         final Publisher.Builder publisherBuilder = Publisher.newBuilder(getTopicName(context))
                 .setCredentialsProvider(FixedCredentialsProvider.create(getGoogleCredentials(context)))

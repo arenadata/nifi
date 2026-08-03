@@ -22,8 +22,10 @@ import org.apache.nifi.reporting.InitializationException;
 import org.apache.nifi.security.cert.builder.StandardCertificateBuilder;
 import org.apache.nifi.security.ssl.EphemeralKeyStoreBuilder;
 import org.apache.nifi.util.MockProcessContext;
+import org.apache.nifi.util.MockPropertyConfiguration;
 import org.apache.nifi.util.MockValidationContext;
 import org.apache.nifi.util.NoOpProcessor;
+import org.apache.nifi.util.PropertyMigrationResult;
 import org.apache.nifi.util.TestRunner;
 import org.apache.nifi.util.TestRunners;
 import org.junit.jupiter.api.BeforeAll;
@@ -33,10 +35,6 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.io.TempDir;
 import org.mockito.junit.jupiter.MockitoExtension;
 
-import javax.net.ssl.SSLContext;
-import javax.net.ssl.X509ExtendedKeyManager;
-import javax.net.ssl.X509TrustManager;
-import javax.security.auth.x500.X500Principal;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.nio.file.Files;
@@ -53,7 +51,12 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import javax.net.ssl.SSLContext;
+import javax.net.ssl.X509ExtendedKeyManager;
+import javax.net.ssl.X509TrustManager;
+import javax.security.auth.x500.X500Principal;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -349,5 +352,22 @@ public class StandardSSLContextServiceTest {
 
         final SSLContext sslContext = service.createContext();
         assertNotNull(sslContext);
+    }
+
+    @Test
+    void testMigrateProperties() {
+        final Map<String, String> expectedRenamed = Map.ofEntries(
+                Map.entry("key-password", StandardSSLContextService.KEY_PASSWORD.getName()),
+                Map.entry("SSL Protocol", StandardSSLContextService.SSL_ALGORITHM.getName())
+        );
+
+        final Map<String, String> propertyValues = Map.of();
+        final MockPropertyConfiguration configuration = new MockPropertyConfiguration(propertyValues);
+        service.migrateProperties(configuration);
+
+        final PropertyMigrationResult result = configuration.toPropertyMigrationResult();
+        final Map<String, String> propertiesRenamed = result.getPropertiesRenamed();
+
+        assertEquals(expectedRenamed, propertiesRenamed);
     }
 }

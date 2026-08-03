@@ -58,7 +58,6 @@ public class ProcessGroupStatusDataSource implements ResettableDataSource {
         new ColumnSchema("garbageCollectionDuration", long.class, false)
     ));
 
-
     private final ReportingContext reportingContext;
     private final GroupStatusCache groupStatusCache;
     private ProcessGroupStatus lastFetchedStatus = null;
@@ -82,7 +81,8 @@ public class ProcessGroupStatusDataSource implements ResettableDataSource {
         if (groupStatus == lastFetchedStatus) {
             groupStatuses = lastStatuses;
         } else {
-            groupStatuses = lastStatuses = gatherProcessGroupStatuses(groupStatus);
+            lastStatuses = gatherProcessGroupStatuses(groupStatus);
+            groupStatuses = lastStatuses;
         }
 
         lastFetchedStatus = groupStatus;
@@ -123,10 +123,10 @@ public class ProcessGroupStatusDataSource implements ResettableDataSource {
             status.getInputCount(),
             status.getOutputContentSize(),
             status.getOutputCount(),
+            status.getQueuedCount(),
             status.getQueuedContentSize(),
             status.getActiveThreadCount(),
             status.getTerminatedThreadCount(),
-            status.getQueuedCount(),
             status.getVersionedFlowState() == null ? null : status.getVersionedFlowState().name(),
             status.getProcessingNanos(),
             status.getProcessingPerformanceStatus() == null ? -1 : status.getProcessingPerformanceStatus().getCpuDuration(),

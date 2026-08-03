@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-import { Component, OnDestroy, OnInit } from '@angular/core';
+import { Component, OnDestroy, OnInit, inject } from '@angular/core';
 import { Store } from '@ngrx/store';
 import {
     selectRegistryClient,
@@ -30,7 +30,8 @@ import {
     openNewRegistryClientDialog,
     promptRegistryClientDeletion,
     resetRegistryClientsState,
-    selectClient
+    selectClient,
+    clearRegistryClientBulletins
 } from '../../state/registry-clients/registry-clients.actions';
 import { RegistryClientsState } from '../../state/registry-clients';
 import { initialState } from '../../state/registry-clients/registry-clients.reducer';
@@ -43,6 +44,8 @@ import { AsyncPipe } from '@angular/common';
 import { NgxSkeletonLoaderComponent } from 'ngx-skeleton-loader';
 import { MatIconButton } from '@angular/material/button';
 import { RegistryClientTable } from './registry-client-table/registry-client-table.component';
+import { ComponentType, NiFiCommon } from '@nifi/shared';
+import { navigateToComponentDocumentation } from '../../../../state/documentation/documentation.actions';
 
 @Component({
     selector: 'registry-clients',
@@ -51,11 +54,14 @@ import { RegistryClientTable } from './registry-client-table/registry-client-tab
     styleUrls: ['./registry-clients.component.scss']
 })
 export class RegistryClients implements OnInit, OnDestroy {
+    private store = inject<Store<NiFiState>>(Store);
+    private nifiCommon = inject(NiFiCommon);
+
     registryClientsState$ = this.store.select(selectRegistryClientsState);
     selectedRegistryClientId$ = this.store.select(selectRegistryClientIdFromRoute);
     currentUser$ = this.store.select(selectCurrentUser);
 
-    constructor(private store: Store<NiFiState>) {
+    constructor() {
         this.store
             .select(selectSingleEditedRegistryClient)
             .pipe(
@@ -121,6 +127,47 @@ export class RegistryClients implements OnInit, OnDestroy {
             promptRegistryClientDeletion({
                 request: {
                     registryClient: entity
+                }
+            })
+        );
+    }
+
+    viewRegistryClientDocumentation(entity: RegistryClientEntity): void {
+        this.store.dispatch(
+            navigateToComponentDocumentation({
+                request: {
+                    backNavigation: {
+                        route: ['/settings', 'registry-clients', entity.id],
+                        routeBoundary: ['/documentation'],
+                        context: 'Registry Client'
+                    },
+                    parameters: {
+                        componentType: ComponentType.FlowRegistryClient,
+                        type: entity.component.type,
+                        group: entity.component.bundle.group,
+                        artifact: entity.component.bundle.artifact,
+                        version: entity.component.bundle.version
+                    }
+                }
+            })
+        );
+    }
+
+    clearBulletinsRegistryClient(entity: RegistryClientEntity): void {
+        // Get the most recent bulletin timestamp from the entity's bulletins
+        // This will be reconstructed from the time-only string to a full timestamp
+        const fromTimestamp = this.nifiCommon.getMostRecentBulletinTimestamp(entity.bulletins || []);
+        if (fromTimestamp === null) {
+            return; // no bulletins to clear
+        }
+
+        this.store.dispatch(
+            clearRegistryClientBulletins({
+                request: {
+                    uri: entity.uri,
+                    fromTimestamp,
+                    componentId: entity.id,
+                    componentType: ComponentType.FlowRegistryClient
                 }
             })
         );

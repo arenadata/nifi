@@ -18,20 +18,18 @@ package org.apache.nifi.reporting.script;
 
 import org.apache.commons.io.IOUtils;
 import org.apache.nifi.annotation.behavior.DynamicProperty;
-import org.apache.nifi.annotation.behavior.Restricted;
-import org.apache.nifi.annotation.behavior.Restriction;
 import org.apache.nifi.annotation.behavior.SupportsSensitiveDynamicProperties;
 import org.apache.nifi.annotation.documentation.CapabilityDescription;
 import org.apache.nifi.annotation.documentation.Tags;
 import org.apache.nifi.annotation.lifecycle.OnScheduled;
 import org.apache.nifi.components.PropertyDescriptor;
-import org.apache.nifi.components.RequiredPermission;
 import org.apache.nifi.components.ValidationContext;
 import org.apache.nifi.components.ValidationResult;
 import org.apache.nifi.controller.ConfigurationContext;
 import org.apache.nifi.expression.ExpressionLanguageScope;
 import org.apache.nifi.logging.ComponentLog;
 import org.apache.nifi.metrics.jvm.JmxJvmMetrics;
+import org.apache.nifi.migration.PropertyConfiguration;
 import org.apache.nifi.processor.exception.ProcessException;
 import org.apache.nifi.processor.util.StandardValidators;
 import org.apache.nifi.processors.script.ScriptRunner;
@@ -39,11 +37,6 @@ import org.apache.nifi.reporting.AbstractReportingTask;
 import org.apache.nifi.reporting.ReportingContext;
 import org.apache.nifi.script.ScriptingComponentHelper;
 
-import javax.script.Bindings;
-import javax.script.ScriptContext;
-import javax.script.ScriptEngine;
-import javax.script.ScriptException;
-import javax.script.SimpleBindings;
 import java.io.FileInputStream;
 import java.io.IOException;
 import java.nio.charset.Charset;
@@ -51,6 +44,11 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import javax.script.Bindings;
+import javax.script.ScriptContext;
+import javax.script.ScriptEngine;
+import javax.script.ScriptException;
+import javax.script.SimpleBindings;
 
 /**
  * A Reporting task whose body is provided by a script (via supported JSR-223 script engines)
@@ -66,18 +64,17 @@ import java.util.Map;
         expressionLanguageScope = ExpressionLanguageScope.ENVIRONMENT,
         description = "Updates a script engine property specified by the Dynamic Property's key with the value "
                 + "specified by the Dynamic Property's value")
-@Restricted(
-        restrictions = {
-                @Restriction(
-                        requiredPermission = RequiredPermission.EXECUTE_CODE,
-                        explanation = "Provides operator the ability to execute arbitrary code assuming all permissions that NiFi has.")
-        }
-)
+
 public class ScriptedReportingTask extends AbstractReportingTask {
 
     protected volatile ScriptingComponentHelper scriptingComponentHelper = new ScriptingComponentHelper();
     private volatile String scriptToRun = null;
     private volatile JmxJvmMetrics vmMetrics;
+
+    @Override
+    public void migrateProperties(final PropertyConfiguration config) {
+        ScriptingComponentHelper.migrateProperties(config);
+    }
 
     /**
      * Returns a list of property descriptors supported by this processor. The list always includes properties such as

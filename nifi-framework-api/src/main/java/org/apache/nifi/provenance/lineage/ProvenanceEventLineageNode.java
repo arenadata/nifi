@@ -16,13 +16,18 @@
  */
 package org.apache.nifi.provenance.lineage;
 
-import java.util.List;
-
 import org.apache.nifi.provenance.ProvenanceEventType;
+
+import java.util.List;
 
 public interface ProvenanceEventLineageNode extends LineageNode {
 
     ProvenanceEventType getEventType();
+
+    /**
+     * @return the type of the component that generated this event
+     */
+    String getComponentType();
 
     long getEventIdentifier();
 

@@ -31,6 +31,7 @@ import org.apache.nifi.annotation.lifecycle.OnScheduled;
 import org.apache.nifi.avro.AvroTypeUtil;
 import org.apache.nifi.components.PropertyDescriptor;
 import org.apache.nifi.flowfile.FlowFile;
+import org.apache.nifi.migration.PropertyConfiguration;
 import org.apache.nifi.processor.AbstractProcessor;
 import org.apache.nifi.processor.ProcessContext;
 import org.apache.nifi.processor.ProcessSession;
@@ -60,16 +61,14 @@ public class ExtractRecordSchema extends AbstractProcessor {
     public static final String SCHEMA_ATTRIBUTE_NAME = "avro.schema";
 
     static final PropertyDescriptor RECORD_READER = new PropertyDescriptor.Builder()
-            .name("record-reader")
-            .displayName("Record Reader")
+            .name("Record Reader")
             .description("Specifies the Controller Service to use for reading incoming data")
             .identifiesControllerService(RecordReaderFactory.class)
             .required(true)
             .build();
 
     static final PropertyDescriptor SCHEMA_CACHE_SIZE = new PropertyDescriptor.Builder()
-            .name("cache-size")
-            .displayName("Schema Cache Size")
+            .name("Schema Cache Size")
             .description("Specifies the number of schemas to cache. This value should reflect the expected number of different schemas "
                     + "that may be in the incoming FlowFiles. This ensures more efficient retrieval of the schemas and thus the processor performance.")
             .defaultValue("10")
@@ -133,7 +132,7 @@ public class ExtractRecordSchema extends AbstractProcessor {
 
         } catch (final Exception e) {
             getLogger().error("Failed to process {}; will route to failure", flowFile, e);
-            // Since we are wrapping the exceptions above there should always be a cause
+            // Since we are wrapping the exceptions above there should always be a cause,
             // but it's possible it might not have a message. This handles that by logging
             // the name of the class thrown.
             Throwable c = e.getCause();
@@ -148,5 +147,11 @@ public class ExtractRecordSchema extends AbstractProcessor {
 
         session.putAttribute(flowFile, SCHEMA_ATTRIBUTE_NAME, avroSchemaTextCache.get(recordSchema));
         session.transfer(flowFile, REL_SUCCESS);
+    }
+
+    @Override
+    public void migrateProperties(PropertyConfiguration config) {
+        config.renameProperty("record-reader", RECORD_READER.getName());
+        config.renameProperty("cache-size", SCHEMA_CACHE_SIZE.getName());
     }
 }

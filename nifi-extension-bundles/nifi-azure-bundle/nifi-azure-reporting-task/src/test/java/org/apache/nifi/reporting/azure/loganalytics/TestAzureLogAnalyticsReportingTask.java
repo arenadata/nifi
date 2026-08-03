@@ -70,7 +70,6 @@ public class TestAzureLogAnalyticsReportingTask {
         reportingContextStub.setProperty(AzureLogAnalyticsReportingTask.LOG_ANALYTICS_WORKSPACE_ID.getName(), TEST_TASK_ID);
         reportingContextStub.setProperty(AzureLogAnalyticsReportingTask.LOG_ANALYTICS_WORKSPACE_KEY.getName(), MOCK_KEY);
 
-
         rootGroupStatus.setId("1234");
         rootGroupStatus.setFlowFilesReceived(5);
         rootGroupStatus.setBytesReceived(10000);
@@ -213,12 +212,11 @@ public class TestAzureLogAnalyticsReportingTask {
         ArgumentCaptor<String> captorAuthorization = ArgumentCaptor.forClass(String.class);
         ArgumentCaptor<String> captorXMsDate = ArgumentCaptor.forClass(String.class);
         ArgumentCaptor<String> captorTimeGeneratedField = ArgumentCaptor.forClass(String.class);
-        verify(postRequest, atLeast(1)).addHeader( eq("Authorization"), captorAuthorization.capture());
-        verify(postRequest, atLeast(1)).addHeader( eq("x-ms-date"), captorXMsDate.capture());
-        verify(postRequest, atLeast(1)).addHeader( eq("time-generated-field"), captorTimeGeneratedField.capture());
+        verify(postRequest, atLeast(1)).addHeader(eq("Authorization"), captorAuthorization.capture());
+        verify(postRequest, atLeast(1)).addHeader(eq("x-ms-date"), captorXMsDate.capture());
+        verify(postRequest, atLeast(1)).addHeader(eq("time-generated-field"), captorTimeGeneratedField.capture());
         assertTrue(captorAuthorization.getValue().contains("SharedKey"));
     }
-
 
     private final class TestableAzureLogAnalyticsReportingTask extends AzureLogAnalyticsReportingTask {
 

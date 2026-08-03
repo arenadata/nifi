@@ -34,6 +34,12 @@ import { currentUserFeatureKey } from '../../../state/current-user';
 import { navigationFeatureKey } from '../../../state/navigation';
 import { MockComponent } from 'ng-mocks';
 import { Navigation } from '../navigation/navigation.component';
+import { initialState as initialErrorState } from '../../../state/error/error.reducer';
+import { errorFeatureKey } from '../../../state/error';
+import { aboutFeatureKey } from '../../../state/about';
+import { initialState as aboutInitialState } from '../../../state/about/about.reducer';
+import { clusterSummaryFeatureKey } from '../../../state/cluster-summary';
+import { selectRouteData } from '@nifi/shared';
 
 describe('AdvancedUi', () => {
     let component: AdvancedUi;
@@ -45,8 +51,11 @@ describe('AdvancedUi', () => {
             providers: [
                 provideMockStore({
                     initialState: {
+                        [errorFeatureKey]: initialErrorState,
+                        [aboutFeatureKey]: aboutInitialState,
                         [currentUserFeatureKey]: fromUser.initialState,
-                        [navigationFeatureKey]: fromNavigation.initialState
+                        [navigationFeatureKey]: fromNavigation.initialState,
+                        [clusterSummaryFeatureKey]: fromClusterSummary.initialState
                     },
                     selectors: [
                         {
@@ -55,7 +64,7 @@ describe('AdvancedUi', () => {
                         },
                         {
                             selector: selectClusterSummary,
-                            value: fromClusterSummary.initialState
+                            value: fromClusterSummary.initialState.clusterSummary
                         },
                         {
                             selector: selectFlowConfiguration,
@@ -64,6 +73,10 @@ describe('AdvancedUi', () => {
                         {
                             selector: selectLoginConfiguration,
                             value: fromLoginConfiguration.initialState.loginConfiguration
+                        },
+                        {
+                            selector: selectRouteData,
+                            value: {}
                         }
                     ]
                 })

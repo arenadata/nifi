@@ -92,8 +92,11 @@ import { MapTableEntry, MapTableItem } from '../../types';
     ]
 })
 export class MapTable implements AfterViewInit, ControlValueAccessor {
+    private changeDetector = inject(ChangeDetectorRef);
+    private nifiCommon = inject(NiFiCommon);
+
     @Input() createNew!: (existingEntries: string[]) => Observable<MapTableEntry>;
-    @Input() reportChangesOnly: boolean = false;
+    @Input() reportChangesOnly = false;
 
     private destroyRef = inject(DestroyRef);
 
@@ -124,11 +127,6 @@ export class MapTable implements AfterViewInit, ControlValueAccessor {
         overlayY: 'center'
     };
     public editorPositions: ConnectionPositionPair[] = [];
-
-    constructor(
-        private changeDetector: ChangeDetectorRef,
-        private nifiCommon: NiFiCommon
-    ) {}
 
     ngAfterViewInit(): void {
         this.initFilter();

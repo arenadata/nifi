@@ -17,10 +17,10 @@
 package org.apache.nifi.web.api.entity;
 
 import io.swagger.v3.oas.annotations.media.Schema;
+import jakarta.xml.bind.annotation.XmlRootElement;
 import org.apache.nifi.web.api.dto.ComponentRestrictionPermissionDTO;
 import org.apache.nifi.web.api.dto.PermissionsDTO;
 
-import jakarta.xml.bind.annotation.XmlRootElement;
 import java.util.Set;
 
 /**
@@ -40,6 +40,7 @@ public class CurrentUserEntity extends Entity {
     private PermissionsDTO policiesPermissions;
     private PermissionsDTO systemPermissions;
     private PermissionsDTO parameterContextPermissions;
+    private PermissionsDTO connectorsPermissions;
     private PermissionsDTO restrictedComponentsPermissions;
     private Set<ComponentRestrictionPermissionDTO> componentRestrictionPermissions;
 
@@ -163,6 +164,18 @@ public class CurrentUserEntity extends Entity {
 
     public void setParameterContextPermissions(PermissionsDTO parameterContextPermissions) {
         this.parameterContextPermissions = parameterContextPermissions;
+    }
+
+    /**
+     * @return permissions for accessing connectors
+     */
+    @Schema(description = "Permissions for accessing connectors.")
+    public PermissionsDTO getConnectorsPermissions() {
+        return connectorsPermissions;
+    }
+
+    public void setConnectorsPermissions(PermissionsDTO connectorsPermissions) {
+        this.connectorsPermissions = connectorsPermissions;
     }
 
     /**

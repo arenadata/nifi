@@ -52,12 +52,12 @@ import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
 
+import static java.nio.file.Files.newDirectoryStream;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
-import static java.nio.file.Files.newDirectoryStream;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 @ExtendWith(MockitoExtension.class)
@@ -210,9 +210,9 @@ public class TestExcelStartingRowSchemaInference {
         final String dateColumnName = "Date";
         final Object[] columnNames = {dateColumnName, "Something", "Name"};
         final Object[][] firstSheet =
-                {columnNames, {LocalDate.of(2025, 2, 1), "test1", "Sheet1"}, {LocalDate.of(2024, 2, 12), "test2", "Sheet1"}};
+            {columnNames, {LocalDate.of(2025, 2, 1), "test1", "Sheet1"}, {LocalDate.of(2024, 2, 12), "test2", "Sheet1"}};
         Object[][] secondSheet =
-                {columnNames, {LocalDate.of(1976, 9, 11), "test1", "Sheet2"}, {LocalDate.of(1987, 2, 12), "test2", "Sheet2"}};
+            {columnNames, {LocalDate.of(1976, 9, 11), "test1", "Sheet2"}, {LocalDate.of(1987, 2, 12), "test2", "Sheet2"}};
         final ByteArrayOutputStream outputStream = createWorkbook(firstSheet, secondSheet);
 
         try (final InputStream inputStream = new ByteArrayInputStream(outputStream.toByteArray())) {

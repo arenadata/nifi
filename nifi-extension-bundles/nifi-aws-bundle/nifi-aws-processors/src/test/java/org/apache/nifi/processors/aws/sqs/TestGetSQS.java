@@ -39,17 +39,15 @@ import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
-
 public class TestGetSQS {
 
     private TestRunner runner = null;
-    private GetSQS mockGetSQS = null;
     private SqsClient mockSQSClient = null;
 
     @BeforeEach
     public void setUp() {
         mockSQSClient = Mockito.mock(SqsClient.class);
-        mockGetSQS = new GetSQS() {
+        GetSQS mockGetSQS = new GetSQS() {
             @Override
             protected SqsClient getClient(ProcessContext context) {
                 return mockSQSClient;

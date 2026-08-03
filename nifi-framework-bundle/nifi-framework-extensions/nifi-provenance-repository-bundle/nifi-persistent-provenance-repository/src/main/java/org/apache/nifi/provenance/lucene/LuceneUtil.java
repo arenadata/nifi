@@ -73,12 +73,12 @@ public class LuceneUtil {
         for (final Path path : allProvenanceLogs) {
             if (path.toFile().getName().startsWith(searchString)) {
                 final File file = path.toFile();
-                if ( file.exists() ) {
+                if (file.exists()) {
                     matchingFiles.add(file);
                 } else {
                     final File dir = file.getParentFile();
                     final File gzFile = new File(dir, file.getName() + ".gz");
-                    if ( gzFile.exists() ) {
+                    if (gzFile.exists()) {
                         matchingFiles.add(gzFile);
                     }
                 }
@@ -90,7 +90,7 @@ public class LuceneUtil {
 
     public static org.apache.lucene.search.Query convertQuery(final org.apache.nifi.provenance.search.Query query) {
         if (query.getStartDate() == null && query.getEndDate() == null && query.getSearchTerms().isEmpty()) {
-            return new MatchAllDocsQuery();
+            return MatchAllDocsQuery.INSTANCE;
         }
 
         final BooleanQuery.Builder queryBuilder = new BooleanQuery.Builder();
@@ -134,7 +134,7 @@ public class LuceneUtil {
         }
 
         if (!occurMust) {
-            queryBuilder.add(new MatchAllDocsQuery(), Occur.SHOULD);
+            queryBuilder.add(MatchAllDocsQuery.INSTANCE, Occur.SHOULD);
         }
 
         return queryBuilder.build();

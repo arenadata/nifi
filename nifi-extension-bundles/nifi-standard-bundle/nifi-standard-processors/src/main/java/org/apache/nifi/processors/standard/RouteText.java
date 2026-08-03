@@ -241,7 +241,7 @@ public class RouteText extends AbstractProcessor {
     private volatile Map<Relationship, PropertyValue> propertyMap = new HashMap<>();
     private volatile Pattern groupingRegex = null;
 
-    final static int PATTERNS_CACHE_MAXIMUM_ENTRIES = 1024;
+    static final int PATTERNS_CACHE_MAXIMUM_ENTRIES = 1024;
 
     /**
      * LRU cache for the compiled patterns. The size of the cache is determined by the value of
@@ -527,14 +527,13 @@ public class RouteText extends AbstractProcessor {
             }
         }
 
-        // now transfer the original flow file
+        // now transfer the original FlowFile
         FlowFile flowFile = originalFlowFile;
         logger.info("Routing {} to {}", flowFile, REL_ORIGINAL);
         session.getProvenanceReporter().route(originalFlowFile, REL_ORIGINAL);
         flowFile = session.putAttribute(flowFile, ROUTE_ATTRIBUTE_KEY, REL_ORIGINAL.getName());
         session.transfer(flowFile, REL_ORIGINAL);
     }
-
 
     private Group getGroup(final String line, final Pattern groupPattern) {
         if (groupPattern == null) {
@@ -567,7 +566,6 @@ public class RouteText extends AbstractProcessor {
 
         groupToFlowFileMap.put(group, flowFile);
     }
-
 
     protected static boolean lineMatches(final String line, final Object comparison, final String matchingStrategy, final boolean ignoreCase,
         final FlowFile flowFile, final Map<String, String> variables) {
@@ -608,7 +606,6 @@ public class RouteText extends AbstractProcessor {
 
         return false;
     }
-
 
     private static class Group {
         private final List<String> capturedValues;
@@ -651,7 +648,9 @@ public class RouteText extends AbstractProcessor {
             Group other = (Group) obj;
             if (capturedValues == null) {
                 return other.capturedValues == null;
-            } else return capturedValues.equals(other.capturedValues);
+            } else {
+                return capturedValues.equals(other.capturedValues);
+            }
 
         }
     }

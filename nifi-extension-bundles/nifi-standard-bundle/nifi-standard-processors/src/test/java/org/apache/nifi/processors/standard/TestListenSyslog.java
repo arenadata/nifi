@@ -16,6 +16,8 @@
  */
 package org.apache.nifi.processors.standard;
 
+import org.apache.nifi.components.listen.ListenPort;
+import org.apache.nifi.controller.ConfigurationContext;
 import org.apache.nifi.event.transport.EventSender;
 import org.apache.nifi.event.transport.configuration.LineEnding;
 import org.apache.nifi.event.transport.configuration.ShutdownQuietPeriod;
@@ -26,6 +28,8 @@ import org.apache.nifi.flowfile.attributes.CoreAttributes;
 import org.apache.nifi.provenance.ProvenanceEventRecord;
 import org.apache.nifi.provenance.ProvenanceEventType;
 import org.apache.nifi.syslog.attributes.SyslogAttributes;
+import org.apache.nifi.util.EmptyControllerServiceLookup;
+import org.apache.nifi.util.MockConfigurationContext;
 import org.apache.nifi.util.MockFlowFile;
 import org.apache.nifi.util.TestRunner;
 import org.apache.nifi.util.TestRunners;
@@ -37,9 +41,11 @@ import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.List;
+import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 public class TestListenSyslog {
@@ -50,6 +56,7 @@ public class TestListenSyslog {
     private static final String VALID_MESSAGE = String.format("<%s>%s %s %s", PRIORITY, TIMESTAMP, HOST, BODY);
     private static final String MIME_TYPE = "text/plain";
 
+    private static final int POLL_ITERATIONS = 10;
     private static final boolean STOP_ON_FINISH_DISABLED = false;
     private static final boolean STOP_ON_FINISH_ENABLED = true;
     private static final boolean INITIALIZE_DISABLED = false;
@@ -77,8 +84,7 @@ public class TestListenSyslog {
     public void testRunTcp() throws Exception {
         final TransportProtocol protocol = TransportProtocol.TCP;
         runner.setProperty(ListenSyslog.PROTOCOL, protocol.toString());
-        runner.setProperty(ListenSyslog.PORT, "0");
-        runner.setProperty(ListenSyslog.SOCKET_KEEP_ALIVE, Boolean.FALSE.toString());
+        runner.setProperty(ListenSyslog.TCP_PORT, "0");
 
         assertSendSuccess(protocol);
     }
@@ -87,8 +93,7 @@ public class TestListenSyslog {
     public void testRunTcpBatchParseDisabled() throws Exception {
         final TransportProtocol protocol = TransportProtocol.TCP;
         runner.setProperty(ListenSyslog.PROTOCOL, protocol.toString());
-        runner.setProperty(ListenSyslog.PORT, "0");
-        runner.setProperty(ListenSyslog.SOCKET_KEEP_ALIVE, Boolean.FALSE.toString());
+        runner.setProperty(ListenSyslog.TCP_PORT, "0");
         runner.setProperty(ListenSyslog.PARSE_MESSAGES, Boolean.FALSE.toString());
         runner.setProperty(ListenSyslog.MAX_BATCH_SIZE, "2");
 
@@ -104,7 +109,7 @@ public class TestListenSyslog {
         final List<MockFlowFile> successFlowFiles = runner.getFlowFilesForRelationship(ListenSyslog.REL_SUCCESS);
         assertEquals(1, successFlowFiles.size(), "Success FlowFiles not matched");
 
-        final MockFlowFile flowFile = successFlowFiles.iterator().next();
+        final MockFlowFile flowFile = successFlowFiles.getFirst();
 
         final String batchedMessages = String.format("%s\n%s", VALID_MESSAGE, VALID_MESSAGE);
         flowFile.assertContentEquals(batchedMessages);
@@ -114,7 +119,7 @@ public class TestListenSyslog {
     public void testRunUdp() throws Exception {
         final TransportProtocol protocol = TransportProtocol.UDP;
         runner.setProperty(ListenSyslog.PROTOCOL, protocol.toString());
-        runner.setProperty(ListenSyslog.PORT, "0");
+        runner.setProperty(ListenSyslog.UDP_PORT, "0");
 
         assertSendSuccess(protocol);
     }
@@ -123,7 +128,7 @@ public class TestListenSyslog {
     public void testRunUdpBatch() throws Exception {
         final TransportProtocol protocol = TransportProtocol.UDP;
         runner.setProperty(ListenSyslog.PROTOCOL, protocol.toString());
-        runner.setProperty(ListenSyslog.PORT, "0");
+        runner.setProperty(ListenSyslog.UDP_PORT, "0");
 
         final String[] messages = new String[]{VALID_MESSAGE, VALID_MESSAGE};
 
@@ -149,18 +154,18 @@ public class TestListenSyslog {
     public void testRunUdpInvalid() throws Exception {
         final TransportProtocol protocol = TransportProtocol.UDP;
         runner.setProperty(ListenSyslog.PROTOCOL, protocol.toString());
-        runner.setProperty(ListenSyslog.PORT, "0");
+        runner.setProperty(ListenSyslog.UDP_PORT, "0");
 
         runner.run(1, STOP_ON_FINISH_DISABLED);
         final int listeningPort = ((ListenSyslog) runner.getProcessor()).getListeningPort();
 
         sendMessages(protocol, listeningPort, LineEnding.NONE, TIMESTAMP);
-        runner.run(1, STOP_ON_FINISH_ENABLED, INITIALIZE_DISABLED);
+        runner.run(POLL_ITERATIONS, STOP_ON_FINISH_ENABLED, INITIALIZE_DISABLED);
 
         final List<MockFlowFile> invalidFlowFiles = runner.getFlowFilesForRelationship(ListenSyslog.REL_INVALID);
         assertEquals(1, invalidFlowFiles.size(), "Invalid FlowFiles not matched");
 
-        final MockFlowFile flowFile = invalidFlowFiles.iterator().next();
+        final MockFlowFile flowFile = invalidFlowFiles.getFirst();
         flowFile.assertAttributeEquals(SyslogAttributes.SYSLOG_SENDER.key(), LOCALHOST_ADDRESS);
         flowFile.assertAttributeEquals(SyslogAttributes.SYSLOG_PROTOCOL.key(), protocol.toString());
         flowFile.assertAttributeEquals(SyslogAttributes.SYSLOG_PORT.key(), Integer.toString(listeningPort));
@@ -175,7 +180,7 @@ public class TestListenSyslog {
         final int port = ((ListenSyslog) runner.getProcessor()).getListeningPort();
 
         sendMessages(protocol, port, LineEnding.UNIX, VALID_MESSAGE);
-        runner.run(1, STOP_ON_FINISH_ENABLED, INITIALIZE_DISABLED);
+        runner.run(POLL_ITERATIONS, STOP_ON_FINISH_ENABLED, INITIALIZE_DISABLED);
 
         final List<MockFlowFile> invalidFlowFiles = runner.getFlowFilesForRelationship(ListenSyslog.REL_INVALID);
         assertTrue(invalidFlowFiles.isEmpty(), "Invalid FlowFiles found");
@@ -183,7 +188,7 @@ public class TestListenSyslog {
         final List<MockFlowFile> successFlowFiles = runner.getFlowFilesForRelationship(ListenSyslog.REL_SUCCESS);
         assertEquals(1, successFlowFiles.size(), "Success FlowFiles not matched");
 
-        final MockFlowFile flowFile = successFlowFiles.iterator().next();
+        final MockFlowFile flowFile = successFlowFiles.getFirst();
         flowFile.assertAttributeEquals(CoreAttributes.MIME_TYPE.key(), MIME_TYPE);
         flowFile.assertAttributeEquals(SyslogAttributes.SYSLOG_SENDER.key(), LOCALHOST_ADDRESS);
         flowFile.assertAttributeEquals(SyslogAttributes.SYSLOG_PROTOCOL.key(), protocol.toString());
@@ -203,7 +208,7 @@ public class TestListenSyslog {
 
         final List<ProvenanceEventRecord> events = runner.getProvenanceEvents();
         assertFalse(events.isEmpty(), "Provenance Events not found");
-        final ProvenanceEventRecord eventRecord = events.iterator().next();
+        final ProvenanceEventRecord eventRecord = events.getFirst();
         assertEquals(ProvenanceEventType.RECEIVE, eventRecord.getEventType());
         final String transitUri = String.format("%s://%s:%d", protocol.toString().toLowerCase(), LOCALHOST_ADDRESS, port);
         assertEquals(transitUri, eventRecord.getTransitUri(), "Provenance Transit URI not matched");
@@ -219,5 +224,65 @@ public class TestListenSyslog {
                 eventSender.sendEvent(message);
             }
         }
+    }
+
+    @Test
+    public void testGetListenPortsTcp() {
+        tesGetListenPorts(TransportProtocol.TCP, 1);
+    }
+
+    @Test
+    public void testGetListenPortsUdp() {
+        tesGetListenPorts(TransportProtocol.UDP, 2);
+    }
+
+    @Test
+    public void testGetListenPortsTcpPortNotConfigured() {
+        runner.setProperty(ListenSyslog.PROTOCOL, TransportProtocol.TCP.toString());
+
+        final ConfigurationContext configurationContext = new MockConfigurationContext(runner.getProcessContext().getProperties(), new EmptyControllerServiceLookup(), Map.of());
+        final List<ListenPort> listenPorts = processor.getListenPorts(configurationContext);
+
+        assertNotNull(listenPorts);
+        assertTrue(listenPorts.isEmpty());
+    }
+
+    @Test
+    public void testGetListenPortsUdpPortNotConfigured() {
+        runner.setProperty(ListenSyslog.PROTOCOL, TransportProtocol.UDP.toString());
+
+        final ConfigurationContext configurationContext = new MockConfigurationContext(runner.getProcessContext().getProperties(), new EmptyControllerServiceLookup(), Map.of());
+        final List<ListenPort> listenPorts = processor.getListenPorts(configurationContext);
+
+        assertNotNull(listenPorts);
+        assertTrue(listenPorts.isEmpty());
+    }
+
+    private void tesGetListenPorts(final TransportProtocol protocol, final int portNumber) {
+        runner.setProperty(ListenSyslog.TCP_PORT, "0");
+        runner.setProperty(ListenSyslog.UDP_PORT, "0");
+
+        runner.setProperty(ListenSyslog.PROTOCOL, protocol.toString());
+        if (protocol == TransportProtocol.TCP) {
+            runner.setProperty(ListenSyslog.TCP_PORT, String.valueOf(portNumber));
+        } else {
+            runner.setProperty(ListenSyslog.UDP_PORT, String.valueOf(portNumber));
+        }
+
+        final ConfigurationContext configurationContext = new MockConfigurationContext(runner.getProcessContext().getProperties(), new EmptyControllerServiceLookup(), Map.of());
+        final List<ListenPort> listenPorts = processor.getListenPorts(configurationContext);
+
+        assertNotNull(listenPorts);
+        assertEquals(1, listenPorts.size());
+        final ListenPort listenPort = listenPorts.getFirst();
+        assertEquals(portNumber, listenPort.getPortNumber());
+        assertEquals(convertProtocol(protocol), listenPort.getTransportProtocol());
+        assertEquals(List.of("syslog"), listenPort.getApplicationProtocols());
+    }
+
+    private org.apache.nifi.components.listen.TransportProtocol convertProtocol(final TransportProtocol protocol) {
+        return protocol == TransportProtocol.TCP
+                ? org.apache.nifi.components.listen.TransportProtocol.TCP
+                : org.apache.nifi.components.listen.TransportProtocol.UDP;
     }
 }

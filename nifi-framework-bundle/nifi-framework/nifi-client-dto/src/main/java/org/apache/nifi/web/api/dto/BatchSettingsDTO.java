@@ -17,7 +17,6 @@
 package org.apache.nifi.web.api.dto;
 
 import io.swagger.v3.oas.annotations.media.Schema;
-
 import jakarta.xml.bind.annotation.XmlType;
 
 /**
@@ -31,9 +30,9 @@ public class BatchSettingsDTO {
     private String duration;
 
     /**
-     * @return preferred number of flow files to include in a transaction
+     * @return preferred number of FlowFiles to include in a transaction
      */
-    @Schema(description = "Preferred number of flow files to include in a transaction."
+    @Schema(description = "Preferred number of FlowFiles to include in a transaction."
     )
     public Integer getCount() {
         return count;
@@ -68,6 +67,5 @@ public class BatchSettingsDTO {
     public void setDuration(String duration) {
         this.duration = duration;
     }
-
 
 }

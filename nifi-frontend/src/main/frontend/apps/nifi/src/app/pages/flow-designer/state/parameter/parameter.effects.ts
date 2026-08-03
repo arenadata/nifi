@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-import { Injectable } from '@angular/core';
+import { Injectable, inject } from '@angular/core';
 import { Actions, createEffect, ofType } from '@ngrx/effects';
 import { concatLatestFrom } from '@ngrx/operators';
 import * as ParameterActions from './parameter.actions';
@@ -37,7 +37,7 @@ import {
 } from 'rxjs';
 import { isDefinedAndNotNull, MEDIUM_DIALOG, NiFiCommon, Parameter, Storage, XL_DIALOG } from '@nifi/shared';
 import { EditParameterRequest, EditParameterResponse, ParameterContextUpdateRequest } from '../../../../state/shared';
-import { selectSaving, selectUpdateRequest } from './parameter.selectors';
+import { selectSaving, selectUpdateRequest, selectUpdateRequestParameterContextId } from './parameter.selectors';
 import { ParameterService } from '../../service/parameter.service';
 import { HttpErrorResponse } from '@angular/common/http';
 import { ErrorHelper } from '../../../../service/error-helper.service';
@@ -50,17 +50,15 @@ import { ErrorContextKey } from '../../../../state/error';
 
 @Injectable()
 export class ParameterEffects {
-    private parameterContextDialogRef: MatDialogRef<EditParameterContext, any> | undefined;
+    private actions$ = inject(Actions);
+    private store = inject<Store<CanvasState>>(Store);
+    private parameterService = inject(ParameterService);
+    private parameterContextService = inject(ParameterContextService);
+    private errorHelper = inject(ErrorHelper);
+    private storage = inject(Storage);
+    private dialog = inject(MatDialog);
 
-    constructor(
-        private actions$: Actions,
-        private store: Store<CanvasState>,
-        private parameterService: ParameterService,
-        private parameterContextService: ParameterContextService,
-        private errorHelper: ErrorHelper,
-        private storage: Storage,
-        private dialog: MatDialog
-    ) {}
+    private parameterContextDialogRef: MatDialogRef<EditParameterContext, any> | undefined;
 
     submitParameterContextUpdateRequest$ = createEffect(() =>
         this.actions$.pipe(
@@ -117,9 +115,17 @@ export class ParameterEffects {
     pollParameterContextUpdateRequest$ = createEffect(() =>
         this.actions$.pipe(
             ofType(ParameterActions.pollParameterContextUpdateRequest),
-            concatLatestFrom(() => this.store.select(selectUpdateRequest).pipe(isDefinedAndNotNull())),
-            switchMap(([, updateRequest]) =>
-                from(this.parameterService.pollParameterContextUpdate(updateRequest.request)).pipe(
+            concatLatestFrom(() => [
+                this.store.select(selectUpdateRequestParameterContextId).pipe(isDefinedAndNotNull()),
+                this.store.select(selectUpdateRequest).pipe(isDefinedAndNotNull())
+            ]),
+            switchMap(([, parameterContextId, updateRequest]) =>
+                from(
+                    this.parameterService.pollParameterContextUpdate(
+                        parameterContextId,
+                        updateRequest.request.requestId
+                    )
+                ).pipe(
                     map((response) =>
                         ParameterActions.pollParameterContextUpdateRequestSuccess({
                             response: {
@@ -158,10 +164,18 @@ export class ParameterEffects {
     deleteParameterContextUpdateRequest$ = createEffect(() =>
         this.actions$.pipe(
             ofType(ParameterActions.deleteParameterContextUpdateRequest),
-            concatLatestFrom(() => this.store.select(selectUpdateRequest)),
-            switchMap(([, updateRequest]) => {
-                if (updateRequest) {
-                    return from(this.parameterService.deleteParameterContextUpdate(updateRequest.request)).pipe(
+            concatLatestFrom(() => [
+                this.store.select(selectUpdateRequestParameterContextId),
+                this.store.select(selectUpdateRequest)
+            ]),
+            switchMap(([, parameterContextId, updateRequest]) => {
+                if (parameterContextId && updateRequest) {
+                    return from(
+                        this.parameterService.deleteParameterContextUpdate(
+                            parameterContextId,
+                            updateRequest.request.requestId
+                        )
+                    ).pipe(
                         map(() => ParameterActions.editParameterContextComplete()),
                         catchError((errorResponse: HttpErrorResponse) =>
                             of(

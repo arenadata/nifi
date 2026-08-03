@@ -36,6 +36,7 @@ import org.apache.nifi.components.Validator;
 import org.apache.nifi.context.PropertyContext;
 import org.apache.nifi.flowfile.FlowFile;
 import org.apache.nifi.logging.ComponentLog;
+import org.apache.nifi.migration.PropertyConfiguration;
 import org.apache.nifi.processor.ProcessContext;
 import org.apache.nifi.processor.ProcessSession;
 import org.apache.nifi.processor.Relationship;
@@ -61,8 +62,7 @@ import java.util.stream.Stream;
 })
 public class GetMongo extends AbstractMongoQueryProcessor {
     public static final PropertyDescriptor SEND_EMPTY_RESULTS = new PropertyDescriptor.Builder()
-        .name("get-mongo-send-empty")
-        .displayName("Send Empty Result")
+        .name("Send Empty Result")
         .description("If a query executes successfully, but returns no results, send an empty JSON document " +
                 "signifying no result.")
         .allowableValues("true", "false")
@@ -75,8 +75,7 @@ public class GetMongo extends AbstractMongoQueryProcessor {
     static final AllowableValue NO_PP  = new AllowableValue("false", "False");
 
     static final PropertyDescriptor USE_PRETTY_PRINTING = new PropertyDescriptor.Builder()
-            .name("use-pretty-printing")
-            .displayName("Pretty Print Results JSON")
+            .name("Pretty Print Results JSON")
             .description("Choose whether or not to pretty print the JSON from the results of the query. " +
                     "Choosing 'True' can greatly increase the space requirements on disk depending on the complexity of the JSON document")
             .required(true)
@@ -85,13 +84,13 @@ public class GetMongo extends AbstractMongoQueryProcessor {
             .addValidator(Validator.VALID)
             .build();
 
-    private final static Set<Relationship> RELATIONSHIPS = Set.of(
+    private static final Set<Relationship> RELATIONSHIPS = Set.of(
             REL_SUCCESS,
             REL_FAILURE,
             REL_ORIGINAL
     );
 
-    private final static List<PropertyDescriptor> PROPERTY_DESCRIPTORS = Stream.concat(
+    private static final List<PropertyDescriptor> PROPERTY_DESCRIPTORS = Stream.concat(
             getCommonPropertyDescriptors().stream(),
             Stream.of(
                     JSON_TYPE,
@@ -110,8 +109,8 @@ public class GetMongo extends AbstractMongoQueryProcessor {
     ).toList();
 
     private ComponentLog logger;
-
     private boolean sendEmpty;
+
     @OnScheduled
     public void onScheduled(PropertyContext context) {
         sendEmpty = context.getProperty(SEND_EMPTY_RESULTS).asBoolean();
@@ -127,6 +126,13 @@ public class GetMongo extends AbstractMongoQueryProcessor {
         return PROPERTY_DESCRIPTORS;
     }
 
+    @Override
+    public void migrateProperties(PropertyConfiguration config) {
+        super.migrateProperties(config);
+        config.renameProperty("get-mongo-send-empty", SEND_EMPTY_RESULTS.getName());
+        config.renameProperty("use-pretty-printing", USE_PRETTY_PRINTING.getName());
+    }
+
     //Turn a list of Mongo result documents into a String representation of a JSON array
     private String buildBatch(List<Document> documents, String jsonTypeSetting, String prettyPrintSetting) throws IOException {
         StringBuilder builder = new StringBuilder();
@@ -140,7 +146,7 @@ public class GetMongo extends AbstractMongoQueryProcessor {
             }
             builder
                     .append(asJson)
-                    .append( (documents.size() > 1 && index + 1 < documents.size()) ? ", " : "" );
+                    .append((documents.size() > 1 && index + 1 < documents.size()) ? ", " : "");
         }
 
         return "[" + builder.toString() + "]";
@@ -178,7 +184,6 @@ public class GetMongo extends AbstractMongoQueryProcessor {
         final String jsonTypeSetting = context.getProperty(JSON_TYPE).getValue();
         final String usePrettyPrint  = context.getProperty(USE_PRETTY_PRINTING).getValue();
         final Charset charset = Charset.forName(context.getProperty(CHARSET).evaluateAttributeExpressions(input).getValue());
-
 
         final Document projection = context.getProperty(PROJECTION).isSet()
                 ? Document.parse(context.getProperty(PROJECTION).evaluateAttributeExpressions(input).getValue()) : null;

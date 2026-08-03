@@ -17,19 +17,20 @@
 
 package org.apache.nifi.minifi.bootstrap.configuration.differentiators;
 
-import static java.util.Optional.ofNullable;
-
-import java.nio.ByteBuffer;
-import java.util.concurrent.atomic.AtomicReference;
 import org.apache.nifi.minifi.bootstrap.ConfigurationFileHolder;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import java.nio.ByteBuffer;
+import java.util.concurrent.atomic.AtomicReference;
+
+import static java.util.Optional.ofNullable;
 
 public abstract class WholeConfigDifferentiator {
 
     public static final String WHOLE_CONFIG_KEY = "Whole Config";
 
-    private final static Logger logger = LoggerFactory.getLogger(WholeConfigDifferentiator.class);
+    private static final Logger logger = LoggerFactory.getLogger(WholeConfigDifferentiator.class);
 
     protected volatile ConfigurationFileHolder configurationFileHolder;
 

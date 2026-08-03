@@ -48,6 +48,7 @@ import org.apache.nifi.json.JsonParserFactory;
 import org.apache.nifi.json.JsonTreeRowRecordReader;
 import org.apache.nifi.json.SchemaApplicationStrategy;
 import org.apache.nifi.json.StartingFieldStrategy;
+import org.apache.nifi.migration.PropertyConfiguration;
 import org.apache.nifi.oauth2.OAuth2AccessTokenProvider;
 import org.apache.nifi.processor.AbstractProcessor;
 import org.apache.nifi.processor.ProcessContext;
@@ -97,6 +98,10 @@ import java.util.function.BiPredicate;
 import java.util.stream.Collectors;
 
 import static org.apache.nifi.processors.salesforce.util.CommonSalesforceProperties.API_VERSION;
+import static org.apache.nifi.processors.salesforce.util.CommonSalesforceProperties.OLD_API_VERSION_PROPERTY_NAME;
+import static org.apache.nifi.processors.salesforce.util.CommonSalesforceProperties.OLD_READ_TIMEOUT_PROPERTY_NAME;
+import static org.apache.nifi.processors.salesforce.util.CommonSalesforceProperties.OLD_SALESFORCE_INSTANCE_URL_PROPERTY_NAME;
+import static org.apache.nifi.processors.salesforce.util.CommonSalesforceProperties.OLD_TOKEN_PROVIDER_PROPERTY_NAME;
 import static org.apache.nifi.processors.salesforce.util.CommonSalesforceProperties.READ_TIMEOUT;
 import static org.apache.nifi.processors.salesforce.util.CommonSalesforceProperties.SALESFORCE_INSTANCE_URL;
 import static org.apache.nifi.processors.salesforce.util.CommonSalesforceProperties.TOKEN_PROVIDER;
@@ -131,8 +136,7 @@ public class QuerySalesforceObject extends AbstractProcessor {
     static final AllowableValue CUSTOM_QUERY = new AllowableValue("custom-query", "Custom Query", "Provide custom SOQL query.");
 
     static final PropertyDescriptor QUERY_TYPE = new PropertyDescriptor.Builder()
-            .name("query-type")
-            .displayName("Query Type")
+            .name("Query Type")
             .description("Choose to provide the query by parameters or a full custom query.")
             .required(true)
             .defaultValue(PROPERTY_BASED_QUERY.getValue())
@@ -140,8 +144,7 @@ public class QuerySalesforceObject extends AbstractProcessor {
             .build();
 
     static final PropertyDescriptor CUSTOM_SOQL_QUERY = new PropertyDescriptor.Builder()
-            .name("custom-soql-query")
-            .displayName("Custom SOQL Query")
+            .name("Custom SOQL Query")
             .description("Specify the SOQL query to run.")
             .required(true)
             .addValidator(StandardValidators.NON_BLANK_VALIDATOR)
@@ -150,8 +153,7 @@ public class QuerySalesforceObject extends AbstractProcessor {
             .build();
 
     static final PropertyDescriptor SOBJECT_NAME = new PropertyDescriptor.Builder()
-            .name("sobject-name")
-            .displayName("sObject Name")
+            .name("sObject Name")
             .description("The Salesforce sObject to be queried")
             .required(true)
             .expressionLanguageSupported(ExpressionLanguageScope.ENVIRONMENT)
@@ -160,8 +162,7 @@ public class QuerySalesforceObject extends AbstractProcessor {
             .build();
 
     static final PropertyDescriptor FIELD_NAMES = new PropertyDescriptor.Builder()
-            .name("field-names")
-            .displayName("Field Names")
+            .name("Field Names")
             .description("Comma-separated list of field names requested from the sObject to be queried. When this field is left empty, all fields are queried.")
             .required(false)
             .expressionLanguageSupported(ExpressionLanguageScope.ENVIRONMENT)
@@ -170,8 +171,7 @@ public class QuerySalesforceObject extends AbstractProcessor {
             .build();
 
     static final PropertyDescriptor RECORD_WRITER = new PropertyDescriptor.Builder()
-            .name("record-writer")
-            .displayName("Record Writer")
+            .name("Record Writer")
             .description("Service used for writing records returned from the Salesforce REST API")
             .identifiesControllerService(RecordSetWriterFactory.class)
             .required(true)
@@ -179,8 +179,7 @@ public class QuerySalesforceObject extends AbstractProcessor {
             .build();
 
     static final PropertyDescriptor CREATE_ZERO_RECORD_FILES = new PropertyDescriptor.Builder()
-            .name("create-zero-record-files")
-            .displayName("Create Zero Record FlowFiles")
+            .name("Create Zero Record FlowFiles")
             .description("Specifies whether or not to create a FlowFile when the Salesforce REST API does not return any records")
             .expressionLanguageSupported(ExpressionLanguageScope.NONE)
             .allowableValues("true", "false")
@@ -190,8 +189,7 @@ public class QuerySalesforceObject extends AbstractProcessor {
             .build();
 
     public static final PropertyDescriptor AGE_FIELD = new PropertyDescriptor.Builder()
-            .name("age-field")
-            .displayName("Age Field")
+            .name("Age Field")
             .description("The name of a TIMESTAMP field that will be used to filter records using a bounded time window."
                     + "The processor will return only those records with a timestamp value newer than the timestamp recorded after the last processor run."
             )
@@ -202,8 +200,7 @@ public class QuerySalesforceObject extends AbstractProcessor {
             .build();
 
     public static final PropertyDescriptor AGE_DELAY = new PropertyDescriptor.Builder()
-            .name("age-delay")
-            .displayName("Age Delay")
+            .name("Age Delay")
             .description("The ending timestamp of the time window will be adjusted earlier by the amount configured in this property." +
                     " For example, with a property value of 10 seconds, an ending timestamp of 12:30:45 would be changed to 12:30:35.")
             .required(false)
@@ -214,8 +211,7 @@ public class QuerySalesforceObject extends AbstractProcessor {
             .build();
 
     public static final PropertyDescriptor INITIAL_AGE_FILTER = new PropertyDescriptor.Builder()
-            .name("initial-age-filter")
-            .displayName("Initial Age Start Time")
+            .name("Initial Age Start Time")
             .description("This property specifies the start time that the processor applies when running the first query.")
             .required(false)
             .expressionLanguageSupported(ExpressionLanguageScope.ENVIRONMENT)
@@ -225,8 +221,7 @@ public class QuerySalesforceObject extends AbstractProcessor {
             .build();
 
     static final PropertyDescriptor CUSTOM_WHERE_CONDITION = new PropertyDescriptor.Builder()
-            .name("custom-where-condition")
-            .displayName("Custom WHERE Condition")
+            .name("Custom WHERE Condition")
             .description("A custom expression to be added in the WHERE clause of the query")
             .required(false)
             .expressionLanguageSupported(ExpressionLanguageScope.FLOWFILE_ATTRIBUTES)
@@ -235,8 +230,7 @@ public class QuerySalesforceObject extends AbstractProcessor {
             .build();
 
     static final PropertyDescriptor INCLUDE_DELETED_RECORDS = new PropertyDescriptor.Builder()
-            .name("include-deleted-records")
-            .displayName("Include Deleted Records")
+            .name("Include Deleted Records")
             .description("If true, the processor will include deleted records (IsDeleted = true) in the query results. When enabled, the processor will use the 'queryAll' API.")
             .required(true)
             .defaultValue("false")
@@ -264,8 +258,8 @@ public class QuerySalesforceObject extends AbstractProcessor {
     public static final String LAST_AGE_FILTER = "last_age_filter";
     private static final String STARTING_FIELD_NAME = "records";
     private static final String DATE_FORMAT = "yyyy-MM-dd";
-    private static final String TIME_FORMAT = "HH:mm:ss.SSSZ";
-    private static final String DATE_TIME_FORMAT = "yyyy-MM-dd'T'HH:mm:ss.SSSZ";
+    private static final String TIME_FORMAT = "HH:mm:ss.SSSX";
+    private static final String DATE_TIME_FORMAT = "yyyy-MM-dd'T'HH:mm:ss.SSSX";
     private static final String NEXT_RECORDS_URL = "nextRecordsUrl";
     private static final String TOTAL_SIZE = "totalSize";
     private static final String RECORDS = "records";
@@ -293,8 +287,8 @@ public class QuerySalesforceObject extends AbstractProcessor {
                 TIME_FORMAT
         );
 
-        String salesforceVersion = context.getProperty(API_VERSION).getValue();
-        String instanceUrl = context.getProperty(SALESFORCE_INSTANCE_URL).getValue();
+        String salesforceVersion = context.getProperty(API_VERSION).evaluateAttributeExpressions().getValue();
+        String instanceUrl = context.getProperty(SALESFORCE_INSTANCE_URL).evaluateAttributeExpressions().getValue();
         OAuth2AccessTokenProvider accessTokenProvider = context.getProperty(TOKEN_PROVIDER).asControllerService(OAuth2AccessTokenProvider.class);
 
         SalesforceConfiguration salesforceConfiguration = SalesforceConfiguration.create(
@@ -304,7 +298,12 @@ public class QuerySalesforceObject extends AbstractProcessor {
                 context.getProperty(READ_TIMEOUT).evaluateAttributeExpressions().asTimePeriod(TimeUnit.MILLISECONDS).intValue()
         );
 
-        salesforceRestService = new SalesforceRestClient(salesforceConfiguration);
+        salesforceRestService = getSalesforceRestClient(salesforceConfiguration);
+    }
+
+    // visible for testing
+    SalesforceRestClient getSalesforceRestClient(SalesforceConfiguration salesforceConfiguration) {
+        return new SalesforceRestClient(salesforceConfiguration);
     }
 
     private static final List<PropertyDescriptor> PROPERTY_DESCRIPTORS = List.of(
@@ -365,6 +364,25 @@ public class QuerySalesforceObject extends AbstractProcessor {
     }
 
     @Override
+    public void migrateProperties(PropertyConfiguration config) {
+        config.renameProperty("query-type", QUERY_TYPE.getName());
+        config.renameProperty("custom-soql-query", CUSTOM_SOQL_QUERY.getName());
+        config.renameProperty("sobject-name", SOBJECT_NAME.getName());
+        config.renameProperty("field-names", FIELD_NAMES.getName());
+        config.renameProperty("record-writer", RECORD_WRITER.getName());
+        config.renameProperty("create-zero-record-files", CREATE_ZERO_RECORD_FILES.getName());
+        config.renameProperty("age-field", AGE_FIELD.getName());
+        config.renameProperty("age-delay", AGE_DELAY.getName());
+        config.renameProperty("initial-age-filter", INITIAL_AGE_FILTER.getName());
+        config.renameProperty("custom-where-condition", CUSTOM_WHERE_CONDITION.getName());
+        config.renameProperty("include-deleted-records", INCLUDE_DELETED_RECORDS.getName());
+        config.renameProperty(OLD_SALESFORCE_INSTANCE_URL_PROPERTY_NAME, SALESFORCE_INSTANCE_URL.getName());
+        config.renameProperty(OLD_API_VERSION_PROPERTY_NAME, API_VERSION.getName());
+        config.renameProperty(OLD_READ_TIMEOUT_PROPERTY_NAME, READ_TIMEOUT.getName());
+        config.renameProperty(OLD_TOKEN_PROVIDER_PROPERTY_NAME, TOKEN_PROVIDER.getName());
+    }
+
+    @Override
     public void onTrigger(ProcessContext context, ProcessSession session) throws ProcessException {
         boolean isCustomQuery = CUSTOM_QUERY.getValue().equals(context.getProperty(QUERY_TYPE).getValue());
         FlowFile flowFile = session.get();
@@ -377,8 +395,8 @@ public class QuerySalesforceObject extends AbstractProcessor {
 
     private void processQuery(ProcessContext context, ProcessSession session, FlowFile originalFlowFile) {
         AtomicReference<String> nextRecordsUrl = new AtomicReference<>();
-        String sObject = context.getProperty(SOBJECT_NAME).getValue();
-        String fields = context.getProperty(FIELD_NAMES).getValue();
+        String sObject = context.getProperty(SOBJECT_NAME).evaluateAttributeExpressions().getValue();
+        String fields = context.getProperty(FIELD_NAMES).evaluateAttributeExpressions().getValue();
         String customWhereClause = context.getProperty(CUSTOM_WHERE_CONDITION).evaluateAttributeExpressions(originalFlowFile).getValue();
         RecordSetWriterFactory writerFactory = context.getProperty(RECORD_WRITER).asControllerService(RecordSetWriterFactory.class);
         boolean createZeroRecordFlowFiles = context.getProperty(CREATE_ZERO_RECORD_FILES).asBoolean();

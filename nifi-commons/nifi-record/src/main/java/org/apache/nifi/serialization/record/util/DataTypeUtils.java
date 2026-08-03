@@ -200,7 +200,16 @@ public class DataTypeUtils {
             case DATE:
                 final FieldConverter<Object, LocalDate> localDateConverter = StandardFieldConverterRegistry.getRegistry().getFieldConverter(LocalDate.class);
                 final LocalDate localDate = localDateConverter.convertField(value, dateFormat, fieldName);
-                return localDate == null ? null : Date.valueOf(localDate);
+                if (localDate == null) {
+                    return null;
+                }
+
+                // Convert to ZonedDateTime using system default zone to allow for later conversion to Instant
+                final ZonedDateTime zonedDate = localDate.atStartOfDay(ZoneId.systemDefault());
+
+                // Create Date from Instant epoch millis to preserve proleptic Gregorian calendar for pre-1582 dates
+                final long epochMillis = zonedDate.toInstant().toEpochMilli();
+                return new Date(epochMillis);
             case DECIMAL:
                 return toBigDecimal(value, fieldName);
             case DOUBLE:
@@ -260,7 +269,7 @@ public class DataTypeUtils {
             }
             case String string -> {
                 try {
-                    return UUID.fromString(string);
+                    return UUID.fromString(string.trim());
                 } catch (Exception ex) {
                     throw new IllegalTypeConversionException(String.format("Could not parse %s into a UUID", value), ex);
                 }
@@ -313,13 +322,13 @@ public class DataTypeUtils {
             case TIME -> isTimeTypeCompatible(value, dataType.getFormat());
             case TIMESTAMP -> isTimestampTypeCompatible(value, dataType.getFormat());
             case STRING -> isStringTypeCompatible(value);
+            case UUID -> isUUIDTypeCompatible(value);
             case ENUM -> isEnumTypeCompatible(value, (EnumDataType) dataType);
             case MAP -> isMapTypeCompatible(value);
             case CHOICE -> {
                 final DataType chosenDataType = chooseDataType(value, (ChoiceDataType) dataType);
                 yield chosenDataType != null;
             }
-            default -> false;
         };
     }
 
@@ -812,7 +821,7 @@ public class DataTypeUtils {
         if (value instanceof final Object[] array) {
             for (final Object element : array) {
                 // Check each element to ensure its type is the same or can be coerced (if need be)
-                if (!isCompatibleDataType(element, elementDataType, strict)) {
+                if (element != null && !isCompatibleDataType(element, elementDataType, strict)) {
                     return false;
                 }
             }
@@ -1190,6 +1199,40 @@ public class DataTypeUtils {
         return isDateTypeCompatible(value, format);
     }
 
+    public static boolean isUUIDTypeCompatible(final Object value) {
+        if (value == null) {
+            return false;
+        }
+
+        if (value instanceof UUID) {
+            return true;
+        }
+
+        if (value instanceof byte[] bytes) {
+            return bytes.length == 16;
+        }
+
+        if (value instanceof Byte[] array) {
+            return array.length == 16;
+        }
+
+        if (value instanceof String stringValue) {
+            final String trimmed = stringValue.trim();
+            if (trimmed.isEmpty()) {
+                return false;
+            }
+
+            try {
+                UUID.fromString(trimmed);
+                return true;
+            } catch (final IllegalArgumentException e) {
+                return false;
+            }
+        }
+
+        return false;
+    }
+
     public static BigInteger toBigInt(final Object value, final String fieldName) {
         switch (value) {
             case null -> {
@@ -1491,7 +1534,6 @@ public class DataTypeUtils {
         return isNumberTypeCompatible(value, s -> isIntegral(s, Integer.MIN_VALUE, Integer.MAX_VALUE));
     }
 
-
     public static Short toShort(final Object value, final String fieldName) {
         return switch (value) {
             case null -> null;
@@ -1521,7 +1563,6 @@ public class DataTypeUtils {
     public static boolean isByteTypeCompatible(final Object value) {
         return isNumberTypeCompatible(value, s -> isIntegral(s, Byte.MIN_VALUE, Byte.MAX_VALUE));
     }
-
 
     public static Character toCharacter(final Object value, final String fieldName) {
         switch (value) {
@@ -1617,7 +1658,6 @@ public class DataTypeUtils {
         return new SimpleRecordSchema(fields);
     }
 
-
     private static boolean isMergeRequired(final RecordField thisField, final RecordField otherField) {
         if (!thisField.getDataType().equals(otherField.getDataType())) {
             return true;
@@ -1664,6 +1704,34 @@ public class DataTypeUtils {
             final Optional<DataType> widerType = getWiderType(thisDataType, otherDataType);
             if (widerType.isPresent()) {
                 return widerType.get();
+            }
+
+            final RecordFieldType thisFieldType = thisDataType.getFieldType();
+            final RecordFieldType otherFieldType = otherDataType.getFieldType();
+
+            // When both types are RECORD but neither is strictly wider, merge schemas into a single RECORD containing all fields
+            // from both schemas. Creating a CHOICE of RECORDs leads to combinatorial explosion as the number of permutations of
+            // optional fields grows with each new record observed during schema inference.
+            if (thisFieldType == RecordFieldType.RECORD && otherFieldType == RecordFieldType.RECORD) {
+                final RecordSchema thisSchema = ((RecordDataType) thisDataType).getChildSchema();
+                final RecordSchema otherSchema = ((RecordDataType) otherDataType).getChildSchema();
+                final RecordSchema mergedSchema = merge(thisSchema, otherSchema);
+                return RecordFieldType.RECORD.getRecordDataType(mergedSchema);
+            }
+
+            // When both types are ARRAY with RECORD element types, merge the element schemas into a single RECORD rather than
+            // creating a CHOICE of two ARRAY types. This prevents the same combinatorial explosion that affects top-level
+            // RECORD merging. Only RECORD elements are merged this way; arrays with fundamentally different element types
+            // (e.g., ARRAY(RECORD) vs ARRAY(INT)) fall through to the CHOICE path, which is correct since non-RECORD
+            // CHOICEs have bounded size.
+            if (thisFieldType == RecordFieldType.ARRAY && otherFieldType == RecordFieldType.ARRAY) {
+                final DataType thisElementType = ((ArrayDataType) thisDataType).getElementType();
+                final DataType otherElementType = ((ArrayDataType) otherDataType).getElementType();
+                if (thisElementType != null && otherElementType != null
+                        && thisElementType.getFieldType() == RecordFieldType.RECORD && otherElementType.getFieldType() == RecordFieldType.RECORD) {
+                    final DataType mergedElementType = mergeDataTypes(thisElementType, otherElementType);
+                    return RecordFieldType.ARRAY.getArrayDataType(mergedElementType);
+                }
             }
 
             final DataTypeSet dataTypeSet = new DataTypeSet();

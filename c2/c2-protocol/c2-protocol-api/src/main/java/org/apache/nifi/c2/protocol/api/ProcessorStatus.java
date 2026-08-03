@@ -37,6 +37,7 @@ public class ProcessorStatus implements Serializable {
     private long processingNanos;
     private int activeThreadCount;
     private int terminatedThreadCount;
+    private RunStatus runStatus;
 
     @Schema(description = "The id of the processor")
     public String getId() {
@@ -74,7 +75,7 @@ public class ProcessorStatus implements Serializable {
         this.bytesWritten = bytesWritten;
     }
 
-    @Schema(description = "The number of accepted flow files")
+    @Schema(description = "The number of accepted FlowFiles")
     public long getFlowFilesIn() {
         return flowFilesIn;
     }
@@ -83,7 +84,7 @@ public class ProcessorStatus implements Serializable {
         this.flowFilesIn = flowFilesIn;
     }
 
-    @Schema(description = "The number of transferred flow files")
+    @Schema(description = "The number of transferred FlowFiles")
     public long getFlowFilesOut() {
         return flowFilesOut;
     }
@@ -92,7 +93,7 @@ public class ProcessorStatus implements Serializable {
         this.flowFilesOut = flowFilesOut;
     }
 
-    @Schema(description = "The size of accepted flow files")
+    @Schema(description = "The size of accepted FlowFiles")
     public long getBytesIn() {
         return bytesIn;
     }
@@ -101,7 +102,7 @@ public class ProcessorStatus implements Serializable {
         this.bytesIn = bytesIn;
     }
 
-    @Schema(description = "The size of transferred flow files")
+    @Schema(description = "The size of transferred FlowFiles")
     public long getBytesOut() {
         return bytesOut;
     }
@@ -144,5 +145,14 @@ public class ProcessorStatus implements Serializable {
 
     public void setTerminatedThreadCount(int terminatedThreadCount) {
         this.terminatedThreadCount = terminatedThreadCount;
+    }
+
+    @Schema(description = "The run status of the processor (e.g. RUNNING or STOPPED)")
+    public RunStatus getRunStatus() {
+        return runStatus;
+    }
+
+    public void setRunStatus(RunStatus runStatus) {
+        this.runStatus = runStatus;
     }
 }

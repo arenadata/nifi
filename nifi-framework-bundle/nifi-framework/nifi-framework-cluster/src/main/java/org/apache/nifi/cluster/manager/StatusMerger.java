@@ -43,10 +43,13 @@ import org.apache.nifi.web.api.dto.diagnostics.JVMSystemDiagnosticsSnapshotDTO;
 import org.apache.nifi.web.api.dto.status.ConnectionStatusDTO;
 import org.apache.nifi.web.api.dto.status.ConnectionStatusPredictionsSnapshotDTO;
 import org.apache.nifi.web.api.dto.status.ConnectionStatusSnapshotDTO;
+import org.apache.nifi.web.api.dto.status.ConnectorStatusDTO;
+import org.apache.nifi.web.api.dto.status.ConnectorStatusSnapshotDTO;
 import org.apache.nifi.web.api.dto.status.ControllerServiceStatusDTO;
 import org.apache.nifi.web.api.dto.status.ControllerStatusDTO;
 import org.apache.nifi.web.api.dto.status.FlowAnalysisRuleStatusDTO;
 import org.apache.nifi.web.api.dto.status.NodeConnectionStatusSnapshotDTO;
+import org.apache.nifi.web.api.dto.status.NodeConnectorStatusSnapshotDTO;
 import org.apache.nifi.web.api.dto.status.NodePortStatusSnapshotDTO;
 import org.apache.nifi.web.api.dto.status.NodeProcessGroupStatusSnapshotDTO;
 import org.apache.nifi.web.api.dto.status.NodeProcessorStatusSnapshotDTO;
@@ -217,7 +220,6 @@ public class StatusMerger {
         }
         target.setProcessorStatusSnapshots(mergedProcessorMap.values());
 
-
         // input ports
         final Map<String, PortStatusSnapshotEntity> mergedInputPortMap = new HashMap<>();
         for (final PortStatusSnapshotEntity status : replaceNull(target.getInputPortStatusSnapshots())) {
@@ -290,7 +292,6 @@ public class StatusMerger {
     private static <T> Collection<T> replaceNull(final Collection<T> collection) {
         return (collection == null) ? Collections.emptyList() : collection;
     }
-
 
     /**
      * Updates the fields that are "pretty printed" based on the raw values currently set. For example,
@@ -583,7 +584,6 @@ public class StatusMerger {
         target.setOutput(prettyPrint(target.getFlowFilesOut(), target.getBytesOut()));
     }
 
-
     public static void merge(final RemoteProcessGroupStatusSnapshotEntity target, RemoteProcessGroupStatusSnapshotEntity toMerge) {
         if (target == null || toMerge == null) {
             return;
@@ -625,7 +625,6 @@ public class StatusMerger {
         target.setSent(prettyPrint(target.getFlowFilesSent(), target.getBytesSent()));
     }
 
-
     public static void merge(final PortStatusSnapshotEntity target, PortStatusSnapshotEntity toMerge) {
         if (target == null || toMerge == null) {
             return;
@@ -665,7 +664,6 @@ public class StatusMerger {
         target.setInput(prettyPrint(target.getFlowFilesIn(), target.getBytesIn()));
         target.setOutput(prettyPrint(target.getFlowFilesOut(), target.getBytesOut()));
     }
-
 
     public static void merge(final SystemDiagnosticsDTO target, final SystemDiagnosticsDTO toMerge, final String nodeId, final String nodeAddress, final Integer nodeApiPort) {
         merge(target.getAggregateSnapshot(), toMerge.getAggregateSnapshot());
@@ -827,7 +825,6 @@ public class StatusMerger {
         return gcDiagnosticsDtos;
     }
 
-
     private static void merge(final List<GarbageCollectionDiagnosticsDTO> toMerge, final Map<String, Map<Date, GCDiagnosticsSnapshotDTO>> metricsByMemoryMgr, final long numMillis) {
         for (final GarbageCollectionDiagnosticsDTO gcDiagnostics : toMerge) {
             final String memoryManagerName = gcDiagnostics.getMemoryManagerName();
@@ -844,7 +841,6 @@ public class StatusMerger {
             }
         }
     }
-
 
     private static Integer add(final Integer a, final Integer b) {
         if (a == null) {
@@ -932,7 +928,6 @@ public class StatusMerger {
         }
     }
 
-
     public static void mergeGarbageCollection(final Set<GarbageCollectionDTO> targetSet, final Set<GarbageCollectionDTO> toMerge) {
         final Map<String, GarbageCollectionDTO> storageById = new HashMap<>();
         for (final GarbageCollectionDTO targetUsage : targetSet) {
@@ -1004,7 +999,6 @@ public class StatusMerger {
         target.setValueCount(target.getValueCount() + toMerge.getValueCount());
         target.setValue(FormatUtils.formatCount(target.getValueCount()));
     }
-
 
     public static int getUtilization(final double used, final double total) {
         return (int) Math.round((used / total) * 100);
@@ -1082,6 +1076,98 @@ public class StatusMerger {
             target.setValidationStatus(ValidationStatus.VALIDATING.name());
         } else if (ValidationStatus.INVALID.name().equalsIgnoreCase(toMerge.getRunStatus())) {
             target.setValidationStatus(ValidationStatus.INVALID.name());
+        }
+    }
+
+    public static void merge(final ConnectorStatusDTO target, final boolean targetReadablePermission, final ConnectorStatusDTO toMerge, final boolean toMergeReadablePermission,
+                             final String nodeId, final String nodeAddress, final Integer nodeApiPort) {
+        if (target == null || toMerge == null) {
+            return;
+        }
+
+        if (targetReadablePermission && !toMergeReadablePermission) {
+            target.setGroupId(toMerge.getGroupId());
+            target.setId(toMerge.getId());
+            target.setName(toMerge.getName());
+            target.setType(toMerge.getType());
+        }
+
+        if (ValidationStatus.VALIDATING.name().equalsIgnoreCase(toMerge.getValidationStatus())) {
+            target.setValidationStatus(ValidationStatus.VALIDATING.name());
+        } else if (ValidationStatus.INVALID.name().equalsIgnoreCase(toMerge.getValidationStatus())) {
+            target.setValidationStatus(ValidationStatus.INVALID.name());
+        }
+
+        merge(target.getAggregateSnapshot(), targetReadablePermission, toMerge.getAggregateSnapshot(), toMergeReadablePermission);
+
+        if (target.getNodeSnapshots() != null) {
+            final NodeConnectorStatusSnapshotDTO nodeSnapshot = new NodeConnectorStatusSnapshotDTO();
+            nodeSnapshot.setStatusSnapshot(toMerge.getAggregateSnapshot());
+            nodeSnapshot.setAddress(nodeAddress);
+            nodeSnapshot.setApiPort(nodeApiPort);
+            nodeSnapshot.setNodeId(nodeId);
+
+            target.getNodeSnapshots().add(nodeSnapshot);
+        }
+    }
+
+    public static void merge(final ConnectorStatusSnapshotDTO target, final boolean targetReadablePermission,
+                             final ConnectorStatusSnapshotDTO toMerge, final boolean toMergeReadablePermission) {
+        if (target == null || toMerge == null) {
+            return;
+        }
+
+        if (targetReadablePermission && !toMergeReadablePermission) {
+            target.setId(toMerge.getId());
+            target.setGroupId(toMerge.getGroupId());
+            target.setName(toMerge.getName());
+            target.setType(toMerge.getType());
+        }
+
+        target.setFlowFilesSent(target.getFlowFilesSent() + toMerge.getFlowFilesSent());
+        target.setBytesSent(target.getBytesSent() + toMerge.getBytesSent());
+        target.setFlowFilesReceived(target.getFlowFilesReceived() + toMerge.getFlowFilesReceived());
+        target.setBytesReceived(target.getBytesReceived() + toMerge.getBytesReceived());
+        target.setBytesRead(target.getBytesRead() + toMerge.getBytesRead());
+        target.setBytesWritten(target.getBytesWritten() + toMerge.getBytesWritten());
+
+        target.setFlowFilesQueued(target.getFlowFilesQueued() + toMerge.getFlowFilesQueued());
+        target.setBytesQueued(target.getBytesQueued() + toMerge.getBytesQueued());
+
+        target.setActiveThreadCount(target.getActiveThreadCount() + toMerge.getActiveThreadCount());
+
+        // For idle status, the connector is considered idle only if ALL nodes report it as idle.
+        // The idle duration is the minimum across nodes (the most recently active node determines the duration).
+        if (Boolean.TRUE.equals(target.getIdle()) && Boolean.TRUE.equals(toMerge.getIdle())) {
+            if (target.getIdleDurationMillis() != null && toMerge.getIdleDurationMillis() != null) {
+                target.setIdleDurationMillis(Math.min(target.getIdleDurationMillis(), toMerge.getIdleDurationMillis()));
+            } else if (toMerge.getIdleDurationMillis() != null) {
+                target.setIdleDurationMillis(toMerge.getIdleDurationMillis());
+            }
+        } else {
+            target.setIdle(false);
+            target.setIdleDurationMillis(null);
+            target.setIdleDuration(null);
+        }
+
+        ProcessingPerformanceStatusMerger.mergeStatus(target.getProcessingPerformanceStatus(), toMerge.getProcessingPerformanceStatus());
+
+        updatePrettyPrintedFields(target);
+    }
+
+    public static void updatePrettyPrintedFields(final ConnectorStatusSnapshotDTO target) {
+        target.setSent(prettyPrint(target.getFlowFilesSent(), target.getBytesSent()));
+        target.setReceived(prettyPrint(target.getFlowFilesReceived(), target.getBytesReceived()));
+        target.setRead(formatDataSize(target.getBytesRead()));
+        target.setWritten(formatDataSize(target.getBytesWritten()));
+        target.setQueued(prettyPrint(target.getFlowFilesQueued(), target.getBytesQueued()));
+        target.setQueuedCount(formatCount(target.getFlowFilesQueued()));
+        target.setQueuedSize(formatDataSize(target.getBytesQueued()));
+
+        if (Boolean.TRUE.equals(target.getIdle()) && target.getIdleDurationMillis() != null) {
+            target.setIdleDuration(FormatUtils.formatHoursMinutesSeconds(target.getIdleDurationMillis(), TimeUnit.MILLISECONDS));
+        } else {
+            target.setIdleDuration(null);
         }
     }
 }

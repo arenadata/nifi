@@ -16,15 +16,6 @@
  */
 package org.apache.nifi.jms.processors;
 
-import org.apache.nifi.jms.processors.MessageBodyToBytesConverter.MessageConversionException;
-import org.apache.nifi.logging.ComponentLog;
-import org.apache.nifi.processor.exception.ProcessException;
-import org.springframework.jms.connection.CachingConnectionFactory;
-import org.springframework.jms.core.JmsTemplate;
-import org.springframework.jms.core.SessionCallback;
-import org.springframework.jms.support.JmsHeaders;
-import org.springframework.jms.support.JmsUtils;
-
 import jakarta.jms.BytesMessage;
 import jakarta.jms.Destination;
 import jakarta.jms.JMSException;
@@ -37,6 +28,15 @@ import jakarta.jms.Session;
 import jakarta.jms.StreamMessage;
 import jakarta.jms.TextMessage;
 import jakarta.jms.Topic;
+import org.apache.nifi.jms.processors.MessageBodyToBytesConverter.MessageConversionException;
+import org.apache.nifi.logging.ComponentLog;
+import org.apache.nifi.processor.exception.ProcessException;
+import org.springframework.jms.connection.CachingConnectionFactory;
+import org.springframework.jms.core.JmsTemplate;
+import org.springframework.jms.core.SessionCallback;
+import org.springframework.jms.support.JmsHeaders;
+import org.springframework.jms.support.JmsUtils;
+
 import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
@@ -56,7 +56,6 @@ class JMSConsumer extends JMSWorker {
         super(connectionFactory, jmsTemplate, logger);
         logger.debug("Created Message Consumer for '{}'", jmsTemplate);
     }
-
 
     private MessageConsumer createMessageConsumer(final Session session, final String destinationName, final boolean durable, final boolean shared, final String subscriptionName,
                                                   final String messageSelector) throws JMSException {
@@ -217,7 +216,6 @@ class JMSConsumer extends JMSWorker {
         return properties;
     }
 
-
     private Map<String, String> extractMessageHeaders(final Message message) throws JMSException {
         final Map<String, String> messageHeaders = new HashMap<>();
 
@@ -243,7 +241,6 @@ class JMSConsumer extends JMSWorker {
         return messageHeaders;
     }
 
-
     private String retrieveDestinationName(Destination destination, String headerName) {
         String destinationName = null;
         if (destination != null) {
@@ -256,7 +253,6 @@ class JMSConsumer extends JMSWorker {
         }
         return destinationName;
     }
-
 
     static class JMSResponse {
         private final Message message;

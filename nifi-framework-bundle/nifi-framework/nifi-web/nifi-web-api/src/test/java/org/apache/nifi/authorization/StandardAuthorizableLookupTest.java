@@ -22,21 +22,29 @@ import org.apache.nifi.authorization.resource.DataAuthorizable;
 import org.apache.nifi.authorization.resource.DataTransferAuthorizable;
 import org.apache.nifi.authorization.resource.OperationAuthorizable;
 import org.apache.nifi.authorization.resource.ProvenanceDataAuthorizable;
+import org.apache.nifi.connectable.Connectable;
+import org.apache.nifi.connectable.Connection;
 import org.apache.nifi.controller.FlowAnalysisRuleNode;
 import org.apache.nifi.controller.ProcessorNode;
+import org.apache.nifi.groups.ProcessGroup;
 import org.apache.nifi.nar.ExtensionDiscoveringManager;
 import org.apache.nifi.nar.ExtensionManager;
 import org.apache.nifi.registry.flow.FlowRegistryClientNode;
 import org.apache.nifi.web.controller.ControllerFacade;
+import org.apache.nifi.web.dao.ConnectionDAO;
+import org.apache.nifi.web.dao.ConnectorManagedComponentLookup;
 import org.apache.nifi.web.dao.FlowAnalysisRuleDAO;
 import org.apache.nifi.web.dao.FlowRegistryDAO;
+import org.apache.nifi.web.dao.ProcessGroupDAO;
 import org.apache.nifi.web.dao.ProcessorDAO;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 public class StandardAuthorizableLookupTest {
@@ -101,6 +109,74 @@ public class StandardAuthorizableLookupTest {
 
         final Authorizable authorizable = lookup.getAuthorizableFromResource("/controller/flow-analysis-rules/id");
         assertEquals(flowAnalysisRuleNode, authorizable);
+    }
+
+    @Test
+    void testGetConnectionResolvesThroughConnectionDAO() {
+        final StandardAuthorizableLookup lookup = getLookup();
+        final ConnectionDAO connectionDAO = mock(ConnectionDAO.class);
+        final Connection connection = mock(Connection.class);
+        final Connectable sourceConnectable = mock(Connectable.class);
+
+        when(connectionDAO.getConnection(eq(COMPONENT_ID))).thenReturn(connection);
+        when(connection.getSource()).thenReturn(sourceConnectable);
+        when(connection.getDestination()).thenReturn(sourceConnectable);
+        when(connection.getSourceAuthorizable()).thenReturn(sourceConnectable);
+        lookup.setConnectionDAO(connectionDAO);
+
+        final ConnectionAuthorizable result = lookup.getConnection(COMPONENT_ID);
+
+        assertNotNull(result);
+        verify(connectionDAO).getConnection(eq(COMPONENT_ID));
+    }
+
+    @Test
+    void testGetConnectionThroughConnectorManagedFlowFacade() {
+        final StandardAuthorizableLookup lookup = getLookup();
+        final ConnectorManagedComponentLookup connectorManagedComponentLookup = mock(ConnectorManagedComponentLookup.class);
+        final Connection connection = mock(Connection.class);
+        final Connectable sourceConnectable = mock(Connectable.class);
+
+        when(connectorManagedComponentLookup.getConnection(eq(COMPONENT_ID))).thenReturn(connection);
+        when(connection.getSource()).thenReturn(sourceConnectable);
+        when(connection.getDestination()).thenReturn(sourceConnectable);
+        when(connection.getSourceAuthorizable()).thenReturn(sourceConnectable);
+        lookup.setConnectorManagedComponentLookup(connectorManagedComponentLookup);
+
+        final ConnectionAuthorizable result = lookup.forConnectorManagedFlow().getConnection(COMPONENT_ID);
+
+        assertNotNull(result);
+        verify(connectorManagedComponentLookup).getConnection(eq(COMPONENT_ID));
+    }
+
+    @Test
+    void testGetProcessGroupResolvesThroughProcessGroupDAO() {
+        final StandardAuthorizableLookup lookup = getLookup();
+        final ProcessGroupDAO processGroupDAO = mock(ProcessGroupDAO.class);
+        final ProcessGroup processGroup = mock(ProcessGroup.class);
+
+        when(processGroupDAO.getProcessGroup(eq(COMPONENT_ID))).thenReturn(processGroup);
+        lookup.setProcessGroupDAO(processGroupDAO);
+
+        final ProcessGroupAuthorizable result = lookup.getProcessGroup(COMPONENT_ID);
+
+        assertNotNull(result);
+        verify(processGroupDAO).getProcessGroup(eq(COMPONENT_ID));
+    }
+
+    @Test
+    void testGetProcessGroupThroughConnectorManagedFlowFacade() {
+        final StandardAuthorizableLookup lookup = getLookup();
+        final ConnectorManagedComponentLookup connectorManagedComponentLookup = mock(ConnectorManagedComponentLookup.class);
+        final ProcessGroup processGroup = mock(ProcessGroup.class);
+
+        when(connectorManagedComponentLookup.getProcessGroup(eq(COMPONENT_ID))).thenReturn(processGroup);
+        lookup.setConnectorManagedComponentLookup(connectorManagedComponentLookup);
+
+        final ProcessGroupAuthorizable result = lookup.forConnectorManagedFlow().getProcessGroup(COMPONENT_ID);
+
+        assertNotNull(result);
+        verify(connectorManagedComponentLookup).getProcessGroup(eq(COMPONENT_ID));
     }
 
     private StandardAuthorizableLookup getLookup() {

@@ -92,6 +92,7 @@ import java.util.UUID;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
@@ -119,10 +120,12 @@ public class StandardFlowService implements FlowService, ProtocolHandler {
     private final AtomicBoolean running = new AtomicBoolean(false);
     private final AtomicReference<ScheduledExecutorService> executor = new AtomicReference<>(null);
     private final AtomicReference<SaveHolder> saveHolder = new AtomicReference<>(null);
+    private final AtomicLong connectionGeneration = new AtomicLong(0);
     private final ClusterCoordinator clusterCoordinator;
     private final RevisionManager revisionManager;
     private final NarManager narManager;
-    private final AssetSynchronizer assetSynchronizer;
+    private final AssetSynchronizer parameterContextAssetSynchronizer;
+    private final AssetSynchronizer connectorAssetSynchronizer;
     private volatile SaveReportingTask saveReportingTask;
 
     /**
@@ -153,10 +156,12 @@ public class StandardFlowService implements FlowService, ProtocolHandler {
             final NiFiProperties nifiProperties,
             final RevisionManager revisionManager,
             final NarManager narManager,
-            final AssetSynchronizer assetSynchronizer,
+            final AssetSynchronizer parameterContextAssetSynchronizer,
+            final AssetSynchronizer connectorAssetSynchronizer,
             final Authorizer authorizer) throws IOException {
 
-        return new StandardFlowService(controller, nifiProperties, null, false, null, revisionManager, narManager, assetSynchronizer, authorizer);
+        return new StandardFlowService(controller, nifiProperties, null, false, null, revisionManager, narManager,
+                parameterContextAssetSynchronizer, connectorAssetSynchronizer, authorizer);
     }
 
     public static StandardFlowService createClusteredInstance(
@@ -166,10 +171,12 @@ public class StandardFlowService implements FlowService, ProtocolHandler {
             final ClusterCoordinator coordinator,
             final RevisionManager revisionManager,
             final NarManager narManager,
-            final AssetSynchronizer assetSynchronizer,
+            final AssetSynchronizer parameterContextAssetSynchronizer,
+            final AssetSynchronizer connectorAssetSynchronizer,
             final Authorizer authorizer) throws IOException {
 
-        return new StandardFlowService(controller, nifiProperties, senderListener, true, coordinator, revisionManager, narManager, assetSynchronizer, authorizer);
+        return new StandardFlowService(controller, nifiProperties, senderListener, true, coordinator, revisionManager,
+                narManager, parameterContextAssetSynchronizer, connectorAssetSynchronizer, authorizer);
     }
 
     private StandardFlowService(
@@ -180,7 +187,8 @@ public class StandardFlowService implements FlowService, ProtocolHandler {
             final ClusterCoordinator clusterCoordinator,
             final RevisionManager revisionManager,
             final NarManager narManager,
-            final AssetSynchronizer assetSynchronizer,
+            final AssetSynchronizer parameterContextAssetSynchronizer,
+            final AssetSynchronizer connectorAssetSynchronizer,
             final Authorizer authorizer) throws IOException {
 
         this.nifiProperties = nifiProperties;
@@ -196,7 +204,8 @@ public class StandardFlowService implements FlowService, ProtocolHandler {
         }
         this.revisionManager = revisionManager;
         this.narManager = narManager;
-        this.assetSynchronizer = assetSynchronizer;
+        this.parameterContextAssetSynchronizer = parameterContextAssetSynchronizer;
+        this.connectorAssetSynchronizer = connectorAssetSynchronizer;
         this.authorizer = authorizer;
 
         if (configuredForClustering) {
@@ -311,6 +320,19 @@ public class StandardFlowService implements FlowService, ProtocolHandler {
                 return;
             }
 
+            // Flush any pending save while processors are still running, preserving their
+            // RUNNING states in flow.json.gz. This must happen before controller.shutdown()
+            // which sets all processor desired states to STOPPED.
+            final SaveHolder pendingSave = saveHolder.getAndSet(null);
+            if (pendingSave != null) {
+                try {
+                    dao.save(controller, pendingSave.shouldArchive);
+                    logger.info("Flushed pending flow save before shutdown");
+                } catch (final Exception e) {
+                    logger.error("Failed to flush pending flow save before shutdown", e);
+                }
+            }
+
             running.set(false);
 
             // Stop Cluster Coordinator before Node Protocol Sender
@@ -334,6 +356,10 @@ public class StandardFlowService implements FlowService, ProtocolHandler {
             if (!controller.isTerminated()) {
                 controller.shutdown(force);
             }
+
+            // Clear any save requests triggered during shutdown (e.g. by stopping processors).
+            // These would contain incorrect processor states (STOPPED mapped to ENABLED).
+            saveHolder.set(null);
         } finally {
             writeLock.unlock();
         }
@@ -357,9 +383,6 @@ public class StandardFlowService implements FlowService, ProtocolHandler {
                 logger.warn("Scheduling service did not gracefully shutdown within configured {} second window", gracefulShutdownSeconds);
             }
         }
-
-        // Ensure that our background save reporting task has a chance to run, because we've now shut down the executor, which could cause the save reporting task to get canceled.
-        saveReportingTask.run();
     }
 
     @Override
@@ -398,14 +421,15 @@ public class StandardFlowService implements FlowService, ProtocolHandler {
                         } catch (InterruptedException e) {
                             throw new ProtocolException("Could not complete offload request", e);
                         }
-                    }, "Offload Flow Files from Node");
+                    }, "Offload FlowFiles from Node");
                     t.setDaemon(true);
                     t.start();
 
                     return null;
                 }
                 case DISCONNECTION_REQUEST: {
-                    final Thread t = new Thread(() -> handleDisconnectionRequest((DisconnectMessage) request), "Disconnect from Cluster");
+                    final long generationAtDisconnect = connectionGeneration.get();
+                    final Thread t = new Thread(() -> handleDisconnectionRequest((DisconnectMessage) request, generationAtDisconnect), "Disconnect from Cluster");
                     t.setDaemon(true);
                     t.start();
 
@@ -570,7 +594,6 @@ public class StandardFlowService implements FlowService, ProtocolHandler {
         return new StandardDataFlow(flowBytes, snippetBytes, authorizerFingerprint, missingComponents);
     }
 
-
     private NodeIdentifier getNodeId() {
         readLock.lock();
         try {
@@ -578,6 +601,11 @@ public class StandardFlowService implements FlowService, ProtocolHandler {
         } finally {
             readLock.unlock();
         }
+    }
+
+    // Visible for testing
+    long getConnectionGeneration() {
+        return connectionGeneration.get();
     }
 
     private void handleReconnectionRequest(final ReconnectionRequestMessage request) {
@@ -673,7 +701,7 @@ public class StandardFlowService implements FlowService, ProtocolHandler {
             final EventAccess eventAccess = controller.getEventAccess();
             ProcessGroupStatus controllerStatus;
 
-            // wait for rebalance of flowfiles on all queues
+            // wait for rebalance of FlowFiles on all queues
             while (true) {
                 controllerStatus = eventAccess.getControllerStatus();
                 if (controllerStatus.getQueuedCount() <= 0) {
@@ -699,32 +727,35 @@ public class StandardFlowService implements FlowService, ProtocolHandler {
         }
     }
 
-    private void handleDisconnectionRequest(final DisconnectMessage request) {
+    // Visible for testing
+    void handleDisconnectionRequest(final DisconnectMessage request, final long expectedConnectionGeneration) {
         logger.info("Received disconnection request message from cluster coordinator with explanation: {}", request.getExplanation());
-        disconnect(request.getExplanation());
+
+        writeLock.lock();
+        try {
+            if (connectionGeneration.get() != expectedConnectionGeneration) {
+                logger.info("Ignoring disconnection request [{}] because the node has reconnected since the request was issued", request.getExplanation());
+                return;
+            }
+
+            disconnect(request.getExplanation());
+        } finally {
+            writeLock.unlock();
+        }
     }
 
     private void disconnect(final String explanation) {
         writeLock.lock();
         try {
-
             logger.info("Disconnecting node due to {}", explanation);
 
-            // mark node as not connected
             controller.setConnectionStatus(new NodeConnectionStatus(nodeId, DisconnectionCode.UNKNOWN, explanation));
-
-            // turn off primary flag
             controller.setPrimary(false);
-
-            // stop heartbeating
             controller.stopHeartbeating();
-
-            // set node to not clustered
             controller.setClustered(false, null);
             clusterCoordinator.setConnected(false);
 
             logger.info("Node disconnected due to {}", explanation);
-
         } finally {
             writeLock.unlock();
         }
@@ -892,6 +923,8 @@ public class StandardFlowService implements FlowService, ProtocolHandler {
     private void loadFromConnectionResponse(final ConnectionResponse response) throws ConnectionException {
         writeLock.lock();
         try {
+            connectionGeneration.incrementAndGet();
+
             if (response.getNodeConnectionStatuses() != null) {
                 clusterCoordinator.resetNodeStatuses(response.getNodeConnectionStatuses().stream()
                     .collect(Collectors.toMap(NodeConnectionStatus::getNodeIdentifier, status -> status)));
@@ -913,8 +946,13 @@ public class StandardFlowService implements FlowService, ProtocolHandler {
             // load new controller state
             loadFromBytes(dataFlow, true, BundleUpdateStrategy.USE_SPECIFIED_OR_COMPATIBLE_OR_GHOST);
 
-            // sync assets after loading the flow so that parameter contexts exist first
-            assetSynchronizer.synchronize();
+            // sync assets after loading the flow so that parameter contexts and connectors exist first
+            if (parameterContextAssetSynchronizer != null) {
+                parameterContextAssetSynchronizer.synchronize();
+            }
+            if (connectorAssetSynchronizer != null) {
+                connectorAssetSynchronizer.synchronize();
+            }
 
             // set node ID on controller before we start heartbeating because heartbeat needs node ID
             clusterCoordinator.setLocalNodeIdentifier(nodeId);
@@ -1026,6 +1064,16 @@ public class StandardFlowService implements FlowService, ProtocolHandler {
                     }
                     writeLock.lock();
                     try {
+                        // Skip saving during shutdown to preserve RUNNING processor states in flow.json.gz.
+                        // During graceful shutdown, processor desired states are set to STOPPED before this
+                        // save executes. Saving at that point would persist ENABLED states instead of RUNNING,
+                        // which prevents auto-resume of processors on the next startup.
+                        if (!running.get()) {
+                            StandardFlowService.this.saveHolder.set(null);
+                            logger.info("Skipping flow controller save because service is no longer running");
+                            return;
+                        }
+
                         dao.save(controller, holder.shouldArchive);
                         // Nulling it out if it is still set to our current SaveHolder.  Otherwise leave it alone because it means
                         // another save is already pending.

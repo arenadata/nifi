@@ -112,7 +112,6 @@ public class FileSystemSwapManager implements FlowFileSwapManager {
         }
     }
 
-
     @Override
     public synchronized void initialize(final SwapManagerInitializationContext initializationContext) {
         this.claimManager = initializationContext.getResourceClaimManager();
@@ -214,6 +213,15 @@ public class FileSystemSwapManager implements FlowFileSwapManager {
                 warn("Failed to delete Swap File " + file + " when purging FlowFile Swap Manager");
             }
         }
+    }
+
+    @Override
+    public void deleteSwapFile(final String swapLocation) throws IOException {
+        final File swapFile = new File(swapLocation);
+        if (swapFile.exists() && !swapFile.delete()) {
+            throw new IOException("Failed to delete swap file " + swapLocation);
+        }
+        logger.debug("Deleted swap file {}", swapLocation);
     }
 
     @Override
@@ -353,7 +361,6 @@ public class FileSystemSwapManager implements FlowFileSwapManager {
         }
     }
 
-
     private SwapDeserializer createSwapDeserializer(final DataInputStream dis) throws IOException {
         dis.mark(MAGIC_HEADER.length);
 
@@ -377,7 +384,6 @@ public class FileSystemSwapManager implements FlowFileSwapManager {
             return new SimpleSwapDeserializer();
         }
     }
-
 
     private void error(final String error) {
         logger.error(error);

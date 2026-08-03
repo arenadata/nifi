@@ -30,6 +30,7 @@ import org.apache.nifi.components.PropertyDescriptor;
 import org.apache.nifi.components.PropertyValue;
 import org.apache.nifi.flowfile.FlowFile;
 import org.apache.nifi.flowfile.attributes.CoreAttributes;
+import org.apache.nifi.migration.PropertyConfiguration;
 import org.apache.nifi.processor.ProcessContext;
 import org.apache.nifi.processor.ProcessSession;
 import org.apache.nifi.processor.ProcessorInitializationContext;
@@ -68,70 +69,62 @@ import java.util.concurrent.atomic.AtomicReference;
 @DefaultSettings(yieldDuration = "100 ms") // decrease the default yield since we are triggering when empty
 public abstract class AbstractPutHDFSRecord extends AbstractHadoopProcessor {
 
-
     public static final PropertyDescriptor COMPRESSION_TYPE = new PropertyDescriptor.Builder()
-            .name("compression-type")
-            .displayName("Compression Type")
+            .name("Compression Type")
             .description("The type of compression for the file being written.")
             .required(true)
             .build();
 
     public static final PropertyDescriptor OVERWRITE = new PropertyDescriptor.Builder()
-            .name("overwrite")
-            .displayName("Overwrite Files")
+            .name("Overwrite Files")
             .description("Whether or not to overwrite existing files in the same directory with the same name. When set to false, " +
-                    "flow files will be routed to failure when a file exists in the same directory with the same name.")
+                    "FlowFiles will be routed to failure when a file exists in the same directory with the same name.")
             .allowableValues("true", "false")
             .defaultValue("false")
             .required(true)
             .build();
 
     public static final PropertyDescriptor UMASK = new PropertyDescriptor.Builder()
-            .name("permissions-umask")
-            .displayName("Permissions umask")
+            .name("Permissions Umask")
             .description("A umask represented as an octal number which determines the permissions of files written to HDFS. " +
                     "This overrides the Hadoop Configuration dfs.umaskmode")
             .addValidator(HadoopValidators.UMASK_VALIDATOR)
             .build();
 
     public static final PropertyDescriptor REMOTE_OWNER = new PropertyDescriptor.Builder()
-            .name("remote-owner")
-            .displayName("Remote Owner")
+            .name("Remote Owner")
             .description("Changes the owner of the HDFS file to this value after it is written. " +
                     "This only works if NiFi is running as a user that has HDFS super user privilege to change owner")
             .addValidator(StandardValidators.NON_EMPTY_VALIDATOR)
             .build();
 
     public static final PropertyDescriptor REMOTE_GROUP = new PropertyDescriptor.Builder()
-            .name("remote-group")
-            .displayName("Remote Group")
+            .name("Remote Group")
             .description("Changes the group of the HDFS file to this value after it is written. " +
                     "This only works if NiFi is running as a user that has HDFS super user privilege to change group")
             .addValidator(StandardValidators.NON_EMPTY_VALIDATOR)
             .build();
 
     public static final PropertyDescriptor RECORD_READER = new PropertyDescriptor.Builder()
-            .name("record-reader")
-            .displayName("Record Reader")
-            .description("The service for reading records from incoming flow files.")
+            .name("Record Reader")
+            .description("The service for reading records from incoming FlowFiles.")
             .identifiesControllerService(RecordReaderFactory.class)
             .required(true)
             .build();
 
-
     public static final Relationship REL_SUCCESS = new Relationship.Builder()
             .name("success")
-            .description("Flow Files that have been successfully processed are transferred to this relationship")
+            .description("FlowFiles that have been successfully processed are transferred to this relationship")
             .build();
 
     public static final Relationship REL_RETRY = new Relationship.Builder()
             .name("retry")
-            .description("Flow Files that could not be processed due to issues that can be retried are transferred to this relationship")
+            .description("FlowFiles that could not be processed due to issues that can be retried are transferred to this relationship")
             .build();
 
     public static final Relationship REL_FAILURE = new Relationship.Builder()
             .name("failure")
-            .description("Flow Files that could not be processed due to issue that cannot be retried are transferred to this relationship")
+            .description("FlowFiles that could not be processed due to issue that cannot be retried are transferred to this relationship")
             .build();
 
     public static final String RECORD_COUNT_ATTR = "record.count";
@@ -141,7 +134,6 @@ public abstract class AbstractPutHDFSRecord extends AbstractHadoopProcessor {
 
     private volatile Set<Relationship> putHdfsRecordRelationships;
     private volatile List<PropertyDescriptor> putHdfsRecordProperties;
-
 
     @Override
     protected final void init(final ProcessorInitializationContext context) {
@@ -204,7 +196,7 @@ public abstract class AbstractPutHDFSRecord extends AbstractHadoopProcessor {
 
     @Override
     public final List<PropertyDescriptor> getSupportedPropertyDescriptors() {
-       return putHdfsRecordProperties;
+        return putHdfsRecordProperties;
     }
 
     @Override
@@ -233,7 +225,7 @@ public abstract class AbstractPutHDFSRecord extends AbstractHadoopProcessor {
      * Sub-classes provide the appropriate HDFSRecordWriter.
      *
      * @param context the process context to obtain additional configuration
-     * @param flowFile the flow file being written
+     * @param flowFile the FlowFile being written
      * @param conf the Configuration instance
      * @param path the path to write to
      * @param schema the schema for writing
@@ -249,7 +241,7 @@ public abstract class AbstractPutHDFSRecord extends AbstractHadoopProcessor {
 
     @Override
     public void onTrigger(final ProcessContext context, final ProcessSession session) throws ProcessException {
-        // do this before getting a flow file so that we always get a chance to attempt Kerberos relogin
+        // do this before getting a FlowFile so that we always get a chance to attempt Kerberos relogin
         final FileSystem fileSystem = getFileSystem();
         final Configuration configuration = getConfiguration();
         final UserGroupInformation ugi = getUserGroupInformation();
@@ -279,13 +271,13 @@ public abstract class AbstractPutHDFSRecord extends AbstractHadoopProcessor {
                 // write to tempFile first and on success rename to destFile
                 final Path tempFile = new Path(directoryPath, "." + filenameValue) {
                     @Override
-                    public FileSystem getFileSystem(Configuration conf) throws IOException {
+                    public FileSystem getFileSystem(Configuration conf) {
                         return fileSystem;
                     }
                 };
                 final Path destFile = new Path(directoryPath, filenameValue) {
                     @Override
-                    public FileSystem getFileSystem(Configuration conf) throws IOException {
+                    public FileSystem getFileSystem(Configuration conf) {
                         return fileSystem;
                     }
                 };
@@ -394,13 +386,24 @@ public abstract class AbstractPutHDFSRecord extends AbstractHadoopProcessor {
         });
     }
 
+    @Override
+    public void migrateProperties(PropertyConfiguration config) {
+        super.migrateProperties(config);
+        config.renameProperty("compression-type", COMPRESSION_TYPE.getName());
+        config.renameProperty("overwrite", OVERWRITE.getName());
+        config.renameProperty("permissions-umask", UMASK.getName());
+        config.renameProperty("remote-owner", REMOTE_OWNER.getName());
+        config.renameProperty("remote-group", REMOTE_GROUP.getName());
+        config.renameProperty("record-reader", RECORD_READER.getName());
+    }
+
     /**
      * This method will be called after successfully writing to the destination file and renaming the file to it's final name
      * in order to give sub-classes a chance to take action before transferring to success.
      *
      * @param context the context
      * @param session the session
-     * @param flowFile the flow file being processed
+     * @param flowFile the FlowFile being processed
      * @param destFile the destination file written to
      * @return an updated FlowFile reference
      */

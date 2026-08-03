@@ -16,6 +16,7 @@
  */
 package org.apache.nifi.jms.cf;
 
+import jakarta.jms.ConnectionFactory;
 import org.apache.nifi.components.PropertyDescriptor;
 import org.apache.nifi.context.PropertyContext;
 import org.apache.nifi.controller.ConfigurationContext;
@@ -23,14 +24,13 @@ import org.apache.nifi.logging.ComponentLog;
 import org.apache.nifi.processor.ProcessContext;
 import org.apache.nifi.processor.exception.ProcessException;
 
-import jakarta.jms.ConnectionFactory;
-import javax.naming.Context;
-import javax.naming.InitialContext;
-import javax.naming.NamingException;
 import java.lang.reflect.InvocationHandler;
 import java.lang.reflect.Proxy;
 import java.util.Hashtable;
 import java.util.Set;
+import javax.naming.Context;
+import javax.naming.InitialContext;
+import javax.naming.NamingException;
 
 import static org.apache.nifi.jms.cf.JndiJmsConnectionFactoryProperties.JNDI_CONNECTION_FACTORY_NAME;
 import static org.apache.nifi.jms.cf.JndiJmsConnectionFactoryProperties.JNDI_CREDENTIALS;
@@ -90,7 +90,6 @@ public class JndiJmsConnectionFactoryHandler extends CachedJMSConnectionFactoryH
             throw new ProcessException("Could not obtain JMS Connection Factory from JNDI", ne);
         }
     }
-
 
     private Context createInitialContext() throws NamingException {
         final Hashtable<String, String> env = new Hashtable<>(); //NOPMD

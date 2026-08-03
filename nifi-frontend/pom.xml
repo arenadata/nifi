@@ -22,7 +22,7 @@
     <parent>
         <groupId>org.apache.nifi</groupId>
         <artifactId>nifi</artifactId>
-        <version>2.6.0</version>
+        <version>2.10.0.1</version>
     </parent>
 
     <artifactId>nifi-frontend</artifactId>
@@ -386,7 +386,10 @@
                         </configuration>
                     </execution>
                     <!--
-                        Run the unit tests
+                        Run the unit tests.
+                        NOTE: Single-worker mode (maxWorkers=1) is unsupported. Angular's
+                        TestBed lifecycle and vi.mock() module isolation require at least 2
+                        workers. Using 3 for CI throughput.
                     -->
                     <execution>
                         <id>unit-tests</id>
@@ -395,7 +398,7 @@
                         </goals>
                         <phase>test</phase>
                         <configuration>
-                            <arguments>env-cmd -f .build.env nx run-many -t test --maxWorkers=2</arguments>
+                            <arguments>env-cmd -f .build.env nx run-many -t test --maxWorkers=3</arguments>
                             <workingDirectory>${frontend.working.dir}</workingDirectory>
                             <skip>${frontend.skipTests}</skip>
                         </configuration>
@@ -429,6 +432,10 @@
                         <exclude>src/main/frontend/README.md</exclude>
                         <exclude>src/main/frontend/.prettierrc</exclude>
                         <exclude>src/main/frontend/.prettierignore</exclude>
+                        <exclude>src/main/frontend/.npmrc</exclude>
+                        <exclude>src/main/frontend/.nvmrc</exclude>
+                        <exclude>src/main/frontend/.nxignore</exclude>
+                        <exclude>src/main/frontend/.tool-versions</exclude>
                         <exclude>src/main/frontend/dist/**/*</exclude>
                         <exclude>src/main/frontend/.angular/**/*</exclude>
                         <exclude>src/main/frontend/.nx/**/*</exclude>

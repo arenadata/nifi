@@ -22,6 +22,14 @@
 }
 
 .rule-listing {
+    .cdk-drop-list-dragging {
+        background-color: unset !important;
+    }
+
+    .cdk-drop-list {
+        background: unset;
+    }
+
     .reorder-header {
         mat-panel-title {
             overflow: hidden;
@@ -31,7 +39,9 @@
         }
 
         mat-panel-description {
-            @apply truncate;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
             display: block;
             margin-top: auto;
             margin-bottom: auto;
@@ -40,7 +50,9 @@
 
     .editable-header {
         mat-panel-title {
-            @apply truncate;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
             display: block;
             margin-top: auto;
             margin-bottom: auto;

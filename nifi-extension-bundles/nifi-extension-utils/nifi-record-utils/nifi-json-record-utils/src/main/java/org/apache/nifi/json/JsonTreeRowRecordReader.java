@@ -19,7 +19,6 @@ package org.apache.nifi.json;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.ArrayNode;
-
 import org.apache.nifi.logging.ComponentLog;
 import org.apache.nifi.serialization.MalformedRecordException;
 import org.apache.nifi.serialization.SimpleRecordSchema;
@@ -99,8 +98,9 @@ public class JsonTreeRowRecordReader extends AbstractJsonRowRecordReader {
             return ((RecordDataType) ((ArrayDataType) recordField.getDataType()).getElementType()).getChildSchema();
         } else if (recordField.getDataType() instanceof RecordDataType) {
             return ((RecordDataType) recordField.getDataType()).getChildSchema();
-        } else
+        } else {
             throw new RuntimeException(String.format("Selected schema field [%s] is not record or array type.", recordField.getFieldName()));
+        }
     }
 
     @Override
@@ -192,7 +192,6 @@ public class JsonTreeRowRecordReader extends AbstractJsonRowRecordReader {
         final Supplier<String> supplier = jsonNode::toString;
         return new MapRecord(schema, values, SerializedForm.of(supplier, "application/json"), false, dropUnknown);
     }
-
 
     protected Object convertField(final JsonNode fieldNode, final String fieldName, final DataType desiredType, final boolean dropUnknown) throws IOException, MalformedRecordException {
         if (fieldNode == null || fieldNode.isNull()) {

@@ -20,11 +20,13 @@ import org.apache.nifi.flow.VersionedReportingTaskSnapshot;
 import org.apache.nifi.web.api.entity.ActivateControllerServicesEntity;
 import org.apache.nifi.web.api.entity.ClusterSummaryEntity;
 import org.apache.nifi.web.api.entity.ConnectionStatusEntity;
+import org.apache.nifi.web.api.entity.ConnectorsEntity;
 import org.apache.nifi.web.api.entity.ControllerServiceTypesEntity;
 import org.apache.nifi.web.api.entity.ControllerServicesEntity;
 import org.apache.nifi.web.api.entity.CurrentUserEntity;
 import org.apache.nifi.web.api.entity.FlowRegistryBranchesEntity;
 import org.apache.nifi.web.api.entity.FlowRegistryBucketsEntity;
+import org.apache.nifi.web.api.entity.HistoryEntity;
 import org.apache.nifi.web.api.entity.ParameterProvidersEntity;
 import org.apache.nifi.web.api.entity.ProcessGroupFlowEntity;
 import org.apache.nifi.web.api.entity.ProcessGroupStatusEntity;
@@ -229,4 +231,20 @@ public interface FlowClient {
      * @return list of flows
      */
     VersionedFlowsEntity getFlowRegistryFlows(String registryClientId, String branch, String bucket) throws NiFiClientException, IOException;
+
+    /**
+     * Retrieves all of the Connectors.
+     *
+     * @return the list of Connectors
+     */
+    ConnectorsEntity getConnectors() throws NiFiClientException, IOException;
+
+    /**
+     * Retrieves a page of the flow configuration history.
+     *
+     * @param offset the offset into the result set
+     * @param count  the number of actions to return
+     * @return the history entity
+     */
+    HistoryEntity getHistory(int offset, int count) throws NiFiClientException, IOException;
 }

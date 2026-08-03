@@ -27,13 +27,13 @@ import org.apache.nifi.context.PropertyContext;
 import org.apache.nifi.controller.AbstractControllerService;
 import org.apache.nifi.controller.ConfigurationContext;
 import org.apache.nifi.expression.ExpressionLanguageScope;
+import org.apache.nifi.migration.PropertyConfiguration;
 import org.apache.nifi.pgp.service.api.KeyIdentifierConverter;
 import org.apache.nifi.pgp.service.api.PGPPrivateKeyService;
 import org.apache.nifi.pgp.service.standard.exception.PGPConfigurationException;
 import org.apache.nifi.processor.util.StandardValidators;
 import org.apache.nifi.reporting.InitializationException;
 import org.apache.nifi.util.StringUtils;
-
 import org.bouncycastle.openpgp.PGPException;
 import org.bouncycastle.openpgp.PGPPrivateKey;
 import org.bouncycastle.openpgp.PGPSecretKey;
@@ -66,8 +66,7 @@ import java.util.stream.Collectors;
 @CapabilityDescription("PGP Private Key Service provides Private Keys loaded from files or properties")
 public class StandardPGPPrivateKeyService extends AbstractControllerService implements PGPPrivateKeyService {
     public static final PropertyDescriptor KEYRING_FILE = new PropertyDescriptor.Builder()
-            .name("keyring-file")
-            .displayName("Keyring File")
+            .name("Keyring File")
             .description("File path to PGP Keyring or Secret Key encoded in binary or ASCII Armor")
             .required(false)
             .expressionLanguageSupported(ExpressionLanguageScope.ENVIRONMENT)
@@ -75,8 +74,7 @@ public class StandardPGPPrivateKeyService extends AbstractControllerService impl
             .build();
 
     public static final PropertyDescriptor KEYRING = new PropertyDescriptor.Builder()
-            .name("keyring")
-            .displayName("Keyring")
+            .name("Keyring")
             .description("PGP Keyring or Secret Key encoded in ASCII Armor")
             .required(false)
             .sensitive(true)
@@ -84,8 +82,7 @@ public class StandardPGPPrivateKeyService extends AbstractControllerService impl
             .build();
 
     public static final PropertyDescriptor KEY_PASSWORD = new PropertyDescriptor.Builder()
-            .name("key-password")
-            .displayName("Key Password")
+            .name("Key Password")
             .description("Password used for decrypting Private Keys")
             .required(true)
             .sensitive(true)
@@ -117,7 +114,7 @@ public class StandardPGPPrivateKeyService extends AbstractControllerService impl
 
             privateKeys = extractedPrivateKeys.stream().collect(
                     Collectors.toMap(
-                            privateKey -> privateKey.getKeyID(),
+                            PGPPrivateKey::getKeyID,
                             privateKey -> privateKey
                     )
             );
@@ -144,6 +141,13 @@ public class StandardPGPPrivateKeyService extends AbstractControllerService impl
     public Optional<PGPPrivateKey> findPrivateKey(final long keyIdentifier) {
         getLogger().debug("Find Private Key [{}]", KeyIdentifierConverter.format(keyIdentifier));
         return Optional.ofNullable(privateKeys.get(keyIdentifier));
+    }
+
+    @Override
+    public void migrateProperties(PropertyConfiguration config) {
+        config.renameProperty("keyring-file", KEYRING_FILE.getName());
+        config.renameProperty("keyring", KEYRING.getName());
+        config.renameProperty("key-password", KEY_PASSWORD.getName());
     }
 
     /**
@@ -259,6 +263,9 @@ public class StandardPGPPrivateKeyService extends AbstractControllerService impl
                 final String keyIdentifier = KeyIdentifierConverter.format(keyId);
                 try {
                     final PGPPrivateKey privateKey = secretKey.extractPrivateKey(keyDecryptor);
+                    if (privateKey == null) {
+                        throw new PGPConfigurationException("Private Key empty for Secret Key [%s]".formatted(keyId));
+                    }
                     extractedPrivateKeys.add(privateKey);
                     getLogger().debug("Extracted Private Key [{}]", keyIdentifier);
                 } catch (final PGPException e) {

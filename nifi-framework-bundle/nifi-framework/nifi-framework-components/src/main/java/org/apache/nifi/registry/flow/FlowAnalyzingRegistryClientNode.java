@@ -19,6 +19,7 @@ package org.apache.nifi.registry.flow;
 import org.apache.nifi.authorization.Resource;
 import org.apache.nifi.authorization.resource.Authorizable;
 import org.apache.nifi.bundle.BundleCoordinate;
+import org.apache.nifi.components.ConfigVerificationResult;
 import org.apache.nifi.components.ConfigurableComponent;
 import org.apache.nifi.components.PropertyDescriptor;
 import org.apache.nifi.components.ValidationContext;
@@ -37,11 +38,14 @@ import org.apache.nifi.flow.VersionedParameterContext;
 import org.apache.nifi.flow.VersionedProcessGroup;
 import org.apache.nifi.flowanalysis.EnforcementPolicy;
 import org.apache.nifi.groups.ProcessGroup;
+import org.apache.nifi.logging.ComponentLog;
+import org.apache.nifi.migration.ControllerServiceFactory;
+import org.apache.nifi.nar.ExtensionManager;
 import org.apache.nifi.parameter.ParameterContext;
 import org.apache.nifi.parameter.ParameterLookup;
 import org.apache.nifi.parameter.ParameterUpdate;
 import org.apache.nifi.registry.flow.mapping.InstantiatedVersionedProcessGroup;
-import org.apache.nifi.registry.flow.mapping.NiFiRegistryFlowMapper;
+import org.apache.nifi.registry.flow.mapping.VersionedComponentFlowMapper;
 import org.apache.nifi.validation.RuleViolation;
 import org.apache.nifi.validation.RuleViolationsManager;
 import org.slf4j.Logger;
@@ -66,7 +70,7 @@ public final class FlowAnalyzingRegistryClientNode implements FlowRegistryClient
     private final FlowAnalyzer flowAnalyzer;
     private final RuleViolationsManager ruleViolationsManager;
     private final FlowManager flowManager;
-    private final NiFiRegistryFlowMapper flowMapper;
+    private final VersionedComponentFlowMapper flowMapper;
 
     public FlowAnalyzingRegistryClientNode(
             final FlowRegistryClientNode node,
@@ -74,7 +78,7 @@ public final class FlowAnalyzingRegistryClientNode implements FlowRegistryClient
             final FlowAnalyzer flowAnalyzer,
             final RuleViolationsManager ruleViolationsManager,
             final FlowManager flowManager,
-            final NiFiRegistryFlowMapper flowMapper
+            final VersionedComponentFlowMapper flowMapper
     ) {
         this.node = Objects.requireNonNull(node);
         this.serviceProvider = Objects.requireNonNull(serviceProvider);
@@ -108,7 +112,8 @@ public final class FlowAnalyzingRegistryClientNode implements FlowRegistryClient
     }
 
     private boolean analyzeProcessGroupToRegister(final VersionedProcessGroup snapshot) {
-        final InstantiatedVersionedProcessGroup nonVersionedProcessGroup = flowMapper.mapNonVersionedProcessGroup(flowManager.getGroup(snapshot.getInstanceIdentifier()), serviceProvider);
+        final ProcessGroup group = flowManager.getGroup(snapshot.getInstanceIdentifier(), null);
+        final InstantiatedVersionedProcessGroup nonVersionedProcessGroup = flowMapper.mapNonVersionedProcessGroup(group, serviceProvider);
 
         flowAnalyzer.analyzeProcessGroup(nonVersionedProcessGroup);
         final List<RuleViolation> ruleViolations = ruleViolationsManager.getRuleViolationsForGroup(snapshot.getInstanceIdentifier()).stream()
@@ -173,6 +178,13 @@ public final class FlowAnalyzingRegistryClientNode implements FlowRegistryClient
     @Override
     public void verifyCanUpdateProperties(final Map<String, String> properties) {
         node.verifyCanUpdateProperties(properties);
+    }
+
+    @Override
+    public ValidationContext createValidationContext(final Map<String, String> propertyValues, final String annotationData,
+            final ParameterLookup parameterLookup, final boolean validateConnections) {
+
+        return node.createValidationContext(propertyValues, annotationData, parameterLookup, validateConnections);
     }
 
     @Override
@@ -321,11 +333,6 @@ public final class FlowAnalyzingRegistryClientNode implements FlowRegistryClient
     }
 
     @Override
-    public boolean isRestricted() {
-        return node.isRestricted();
-    }
-
-    @Override
     public boolean isDeprecated() {
         return node.isDeprecated();
     }
@@ -446,9 +453,21 @@ public final class FlowAnalyzingRegistryClientNode implements FlowRegistryClient
     }
 
     @Override
+    public void createBranch(final FlowRegistryClientUserContext context, final FlowVersionLocation sourceLocation, final String newBranchName)
+            throws FlowRegistryException, IOException {
+        node.createBranch(context, sourceLocation, newBranchName);
+    }
+
+    @Override
     public FlowSnapshotContainer getFlowContents(final FlowRegistryClientUserContext context, final FlowVersionLocation flowVersionLocation, final boolean fetchRemoteFlows)
             throws FlowRegistryException, IOException {
         return node.getFlowContents(context, flowVersionLocation, fetchRemoteFlows);
+    }
+
+    @Override
+    public List<ConfigVerificationResult> verifyConfiguration(final Map<String, String> properties, final Map<String, String> variables,
+                                                               final ComponentLog logger, final ExtensionManager extensionManager) {
+        return node.verifyConfiguration(properties, variables, logger, extensionManager);
     }
 
     @Override
@@ -469,5 +488,10 @@ public final class FlowAnalyzingRegistryClientNode implements FlowRegistryClient
     @Override
     public void setComponent(final LoggableComponent<FlowRegistryClient> component) {
         node.setComponent(component);
+    }
+
+    @Override
+    public void migrateConfiguration(final Map<String, String> originalPropertyValues, final ControllerServiceFactory controllerServiceFactory) {
+        node.migrateConfiguration(originalPropertyValues, controllerServiceFactory);
     }
 }

@@ -16,6 +16,7 @@
  */
 package org.apache.nifi.registry.client.impl;
 
+import jakarta.ws.rs.client.WebTarget;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.nifi.registry.bucket.BucketItem;
 import org.apache.nifi.registry.client.ItemsClient;
@@ -23,7 +24,6 @@ import org.apache.nifi.registry.client.NiFiRegistryException;
 import org.apache.nifi.registry.client.RequestConfig;
 import org.apache.nifi.registry.field.Fields;
 
-import jakarta.ws.rs.client.WebTarget;
 import java.io.IOException;
 import java.util.Arrays;
 import java.util.Collections;
@@ -44,8 +44,6 @@ public class JerseyItemsClient extends AbstractJerseyClient implements ItemsClie
         super(requestConfig);
         this.itemsTarget = baseTarget.path("/items");
     }
-
-
 
     @Override
     public List<BucketItem> getAll() throws NiFiRegistryException, IOException {

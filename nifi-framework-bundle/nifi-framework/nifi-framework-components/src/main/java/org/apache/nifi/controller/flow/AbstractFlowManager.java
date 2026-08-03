@@ -21,10 +21,12 @@ import org.apache.nifi.annotation.lifecycle.OnRemoved;
 import org.apache.nifi.authorization.resource.Authorizable;
 import org.apache.nifi.bundle.BundleCoordinate;
 import org.apache.nifi.components.PropertyDescriptor;
+import org.apache.nifi.components.listen.ListenComponent;
 import org.apache.nifi.connectable.Connectable;
 import org.apache.nifi.connectable.Connection;
 import org.apache.nifi.connectable.Funnel;
 import org.apache.nifi.connectable.Port;
+import org.apache.nifi.controller.ComponentNode;
 import org.apache.nifi.controller.FlowAnalysisRuleNode;
 import org.apache.nifi.controller.ParameterProviderNode;
 import org.apache.nifi.controller.ProcessScheduler;
@@ -55,10 +57,13 @@ import org.apache.nifi.validation.RuleViolationsManager;
 
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -116,6 +121,21 @@ public abstract class AbstractFlowManager implements FlowManager {
     @Override
     public ProcessGroup getGroup(final String id) {
         return allProcessGroups.get(requireNonNull(id));
+    }
+
+    @Override
+    public ProcessGroup getGroup(final String groupId, final String connectorId) {
+        final ProcessGroup group = allProcessGroups.get(requireNonNull(groupId));
+        if (group == null) {
+            return null;
+        }
+
+        // If we found the group, return it only if it has the correct connector ID
+        if (Objects.equals(group.getConnectorIdentifier().orElse(null), connectorId)) {
+            return group;
+        }
+
+        return null;
     }
 
     @Override
@@ -220,7 +240,6 @@ public abstract class AbstractFlowManager implements FlowManager {
     public Set<Connection> findAllConnections() {
         return new HashSet<>(allConnections.values());
     }
-
 
     public void setRootGroup(final ProcessGroup rootGroup) {
         if (this.rootGroup != null && this.rootGroup.isEmpty()) {
@@ -625,16 +644,27 @@ public abstract class AbstractFlowManager implements FlowManager {
 
     @Override
     public ParameterContext createParameterContext(final String id, final String name, final String description,
-                                                   final Map<String, Parameter> parameters, final List<String> inheritedContextIds,
-                                                   final ParameterProviderConfiguration parameterProviderConfiguration) {
-        final boolean namingConflict = parameterContextManager.getParameterContexts().stream()
+               final Map<String, Parameter> parameters, final List<String> inheritedContextIds,
+               final ParameterProviderConfiguration parameterProviderConfiguration) {
+
+        final ParameterReferenceManager referenceManager = new StandardParameterReferenceManager(this::getRootGroup);
+        return createParameterContext(id, name, description, parameters, inheritedContextIds, parameterProviderConfiguration, referenceManager, true);
+    }
+
+    protected ParameterContext createParameterContext(final String id, final String name, final String description,
+                final Map<String, Parameter> parameters, final List<String> inheritedContextIds,
+                final ParameterProviderConfiguration parameterProviderConfiguration, final ParameterReferenceManager referenceManager,
+                final boolean register) {
+
+        if (register) {
+            final boolean namingConflict = parameterContextManager.getParameterContexts().stream()
                 .anyMatch(paramContext -> paramContext.getName().equals(name));
 
-        if (namingConflict) {
-            throw new IllegalStateException("Cannot create Parameter Context with name '" + name + "' because a Parameter Context already exists with that name");
+            if (namingConflict) {
+                throw new IllegalStateException("Cannot create Parameter Context with name '" + name + "' because a Parameter Context already exists with that name");
+            }
         }
 
-        final ParameterReferenceManager referenceManager = new StandardParameterReferenceManager(this);
         final ParameterContext parameterContext = new StandardParameterContext.Builder()
                 .id(id)
                 .name(name)
@@ -657,8 +687,21 @@ public abstract class AbstractFlowManager implements FlowManager {
             parameterContext.setInheritedParameterContexts(parameterContextList);
         }
 
-        parameterContextManager.addParameterContext(parameterContext);
+        if (register) {
+            parameterContextManager.addParameterContext(parameterContext);
+        }
+
         return parameterContext;
+    }
+
+    @Override
+    public ParameterContext createEmptyParameterContext(final String id, final String name, final String description, final ProcessGroup rootGroup) {
+        final Map<String, Parameter> parameterMap = new HashMap<>();
+        final List<String> inheritedContextIds = new ArrayList<>();
+
+        final ParameterReferenceManager parameterReferenceManager = new StandardParameterReferenceManager(() -> rootGroup);
+        return createParameterContext(id, name, description,
+            parameterMap, inheritedContextIds, null, parameterReferenceManager, false);
     }
 
     @Override
@@ -731,5 +774,23 @@ public abstract class AbstractFlowManager implements FlowManager {
         if (ruleViolationsManager != null) {
             ruleViolationsManager.removeRuleViolationsForSubject(identifier);
         }
+    }
+
+    @Override
+    public Set<ComponentNode> getAllListenComponents() {
+
+        final Set<ComponentNode> allListenComponents = new LinkedHashSet<>();
+
+        // Search Processors
+        allProcessors.values().stream()
+            .filter(processorNode -> processorNode.getComponent() instanceof ListenComponent)
+            .forEach(allListenComponents::add);
+
+        // Search Controller Services
+        getAllControllerServices().stream()
+            .filter(csNode -> csNode.getComponent() instanceof ListenComponent)
+            .forEach(allListenComponents::add);
+
+        return allListenComponents;
     }
 }

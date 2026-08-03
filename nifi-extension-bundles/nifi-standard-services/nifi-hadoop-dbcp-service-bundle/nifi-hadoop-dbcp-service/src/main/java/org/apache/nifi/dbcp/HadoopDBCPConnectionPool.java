@@ -22,14 +22,11 @@ import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.Path;
 import org.apache.nifi.annotation.behavior.DynamicProperty;
 import org.apache.nifi.annotation.behavior.RequiresInstanceClassLoading;
-import org.apache.nifi.annotation.behavior.Restricted;
-import org.apache.nifi.annotation.behavior.Restriction;
 import org.apache.nifi.annotation.documentation.CapabilityDescription;
 import org.apache.nifi.annotation.documentation.Tags;
 import org.apache.nifi.annotation.lifecycle.OnDisabled;
 import org.apache.nifi.annotation.lifecycle.OnEnabled;
 import org.apache.nifi.components.PropertyDescriptor;
-import org.apache.nifi.components.RequiredPermission;
 import org.apache.nifi.components.ValidationContext;
 import org.apache.nifi.components.ValidationResult;
 import org.apache.nifi.components.resource.ResourceCardinality;
@@ -42,7 +39,6 @@ import org.apache.nifi.migration.PropertyConfiguration;
 import org.apache.nifi.processor.exception.ProcessException;
 import org.apache.nifi.processor.util.StandardValidators;
 
-import javax.security.auth.login.LoginException;
 import java.sql.Connection;
 import java.sql.Driver;
 import java.sql.DriverManager;
@@ -52,6 +48,7 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicReference;
+import javax.security.auth.login.LoginException;
 
 import static org.apache.nifi.dbcp.utils.DBCPProperties.DATABASE_URL;
 import static org.apache.nifi.dbcp.utils.DBCPProperties.DB_DRIVERNAME;
@@ -80,14 +77,7 @@ import static org.apache.nifi.dbcp.utils.DBCPProperties.extractMillisWithInfinit
 @DynamicProperty(name = "The name of a Hadoop configuration property.", value = "The value of the given Hadoop configuration property.",
         description = "These properties will be set on the Hadoop configuration after loading any provided configuration files.",
         expressionLanguageScope = ExpressionLanguageScope.ENVIRONMENT)
-@Restricted(
-        restrictions = {
-                @Restriction(
-                        requiredPermission = RequiredPermission.REFERENCE_REMOTE_RESOURCES,
-                        explanation = "Database Driver Location can reference resources over HTTP"
-                )
-        }
-)
+
 public class HadoopDBCPConnectionPool extends AbstractDBCPConnectionPool {
 
     private static final String HADOOP_CONFIGURATION_CLASS = "org.apache.hadoop.conf.Configuration";
@@ -102,8 +92,7 @@ public class HadoopDBCPConnectionPool extends AbstractDBCPConnectionPool {
             .build();
 
     public static final PropertyDescriptor HADOOP_CONFIGURATION_RESOURCES = new PropertyDescriptor.Builder()
-            .name("hadoop-config-resources")
-            .displayName("Hadoop Configuration Resources")
+            .name("Hadoop Configuration Resources")
             .description("A file, or comma separated list of files, which contain the Hadoop configuration (core-site.xml, etc.). Without this, Hadoop "
                     + "will search the classpath, or will revert to a default configuration. Note that to enable authentication with Kerberos, "
                     + "the appropriate properties must be set in the configuration files.")
@@ -143,6 +132,18 @@ public class HadoopDBCPConnectionPool extends AbstractDBCPConnectionPool {
         config.removeProperty("Kerberos Password");
         config.removeProperty("Kerberos Keytab");
         config.removeProperty("kerberos-credentials-service");
+        config.renameProperty("hadoop-config-resources", HADOOP_CONFIGURATION_RESOURCES.getName());
+        DBCPProperties.OLD_DB_DRIVER_LOCATION_PROPERTY_NAMES.forEach(oldPropertyName ->
+                config.renameProperty(oldPropertyName, DB_DRIVER_LOCATION.getName())
+        );
+        config.renameProperty(DBCPProperties.OLD_VALIDATION_QUERY_PROPERTY_NAME, VALIDATION_QUERY.getName());
+        config.renameProperty(DBCPProperties.OLD_MIN_IDLE_PROPERTY_NAME, MIN_IDLE.getName());
+        config.renameProperty(DBCPProperties.OLD_MAX_IDLE_PROPERTY_NAME, MAX_IDLE.getName());
+        config.renameProperty(DBCPProperties.OLD_MAX_CONN_LIFETIME_PROPERTY_NAME, MAX_CONN_LIFETIME.getName());
+        config.renameProperty(DBCPProperties.OLD_EVICTION_RUN_PERIOD_PROPERTY_NAME, EVICTION_RUN_PERIOD.getName());
+        config.renameProperty(DBCPProperties.OLD_MIN_EVICTABLE_IDLE_TIME_PROPERTY_NAME, MIN_EVICTABLE_IDLE_TIME.getName());
+        config.renameProperty(DBCPProperties.OLD_SOFT_MIN_EVICTABLE_IDLE_TIME_PROPERTY_NAME, SOFT_MIN_EVICTABLE_IDLE_TIME.getName());
+        config.renameProperty(DBCPProperties.OLD_KERBEROS_USER_SERVICE_PROPERTY_NAME, KERBEROS_USER_SERVICE.getName());
     }
 
     @Override

@@ -36,15 +36,13 @@ import java.util.stream.Collectors;
  */
 abstract class AbstractGraphExecutor extends AbstractProcessor {
     public static final PropertyDescriptor CLIENT_SERVICE = new PropertyDescriptor.Builder()
-        .name("graph-client-service")
-        .displayName("Client Service")
+        .name("Client Service")
         .description("The graph client service for connecting to the graph database.")
         .required(true)
         .identifiesControllerService(GraphClientService.class)
         .build();
     public static final PropertyDescriptor QUERY = new PropertyDescriptor.Builder()
-        .name("graph-query")
-        .displayName("Graph Query")
+        .name("Graph Query")
         .description("Specifies the graph query. If it is left blank, the processor will attempt " +
                 "to get the query from body.")
         .required(false)
@@ -59,7 +57,7 @@ abstract class AbstractGraphExecutor extends AbstractProcessor {
             .description("Failed FlowFiles are routed to this relationship").build();
 
     static final Relationship REL_ORIGINAL = new Relationship.Builder().name("original")
-            .description("If there is an input flowfile, the original input flowfile will be " +
+            .description("If there is an input FlowFile, the original input FlowFile will be " +
                     "written to this relationship if the operation succeeds.")
             .build();
 

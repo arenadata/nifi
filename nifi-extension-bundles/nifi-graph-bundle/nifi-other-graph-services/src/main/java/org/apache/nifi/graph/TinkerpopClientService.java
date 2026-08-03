@@ -65,7 +65,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
-
 @Tags({"graph", "gremlin"})
 @CapabilityDescription("This service interacts with a tinkerpop-compliant graph service, providing both script submission and bytecode submission capabilities. " +
         "Script submission is the default, with the script command being sent to the gremlin server as text. This should only be used for simple interactions with a tinkerpop-compliant server " +
@@ -73,6 +72,7 @@ import java.util.concurrent.ConcurrentHashMap;
         "Bytecode submission allows much more flexibility. When providing a jar, custom serializers can be used and pre-compiled graph logic can be utilized by groovy scripts" +
         "provided by processors such as the ExecuteGraphQueryRecord.")
 @RequiresInstanceClassLoading
+
 public class TinkerpopClientService extends AbstractControllerService implements GraphClientService {
     public static final String NOT_SUPPORTED = "NOT_SUPPORTED";
     private static final AllowableValue BYTECODE_SUBMISSION = new AllowableValue("bytecode-submission", "ByteCode Submission",
@@ -352,7 +352,6 @@ public class TinkerpopClientService extends AbstractControllerService implements
         return builder;
     }
 
-
     public void loadClasses(ConfigurationContext context) {
         String path = context.getProperty(EXTRA_RESOURCE).getValue();
         String classList = context.getProperty(EXTENSION_CLASSES).getValue();
@@ -371,7 +370,6 @@ public class TinkerpopClientService extends AbstractControllerService implements
             }
         }
     }
-
 
     protected Cluster buildCluster(ConfigurationContext context) {
 
@@ -520,14 +518,13 @@ public class TinkerpopClientService extends AbstractControllerService implements
         GraphTraversalSource traversal;
         try {
             if (StringUtils.isEmpty(traversalSourceName)) {
-                traversal = AnonymousTraversalSource.traversal().withRemote(DriverRemoteConnection.using(cluster));
+                traversal = AnonymousTraversalSource.traversal().with(DriverRemoteConnection.using(cluster));
             } else {
-                traversal = AnonymousTraversalSource.traversal().withRemote(DriverRemoteConnection.using(cluster, traversalSourceName));
+                traversal = AnonymousTraversalSource.traversal().with(DriverRemoteConnection.using(cluster, traversalSourceName));
             }
         } catch (Exception e) {
             throw new ProcessException(e);
         }
-
 
         return traversal;
     }

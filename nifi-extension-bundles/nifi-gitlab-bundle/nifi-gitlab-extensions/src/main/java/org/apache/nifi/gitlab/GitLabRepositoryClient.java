@@ -21,12 +21,14 @@ import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.json.JsonMapper;
 import org.apache.commons.io.IOUtils;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.builder.ToStringBuilder;
 import org.apache.nifi.logging.ComponentLog;
 import org.apache.nifi.registry.flow.FlowRegistryException;
 import org.apache.nifi.registry.flow.git.client.GitCommit;
 import org.apache.nifi.registry.flow.git.client.GitCreateContentRequest;
 import org.apache.nifi.registry.flow.git.client.GitRepositoryClient;
+import org.apache.nifi.ssl.SSLContextProvider;
 import org.gitlab4j.api.CommitsApi;
 import org.gitlab4j.api.GitLabApi;
 import org.gitlab4j.api.GitLabApiException;
@@ -43,6 +45,7 @@ import org.gitlab4j.api.models.RepositoryFile;
 import org.gitlab4j.api.models.TreeItem;
 import org.gitlab4j.models.Constants;
 import org.gitlab4j.models.Constants.Encoding;
+import org.glassfish.jersey.client.ClientProperties;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -52,12 +55,17 @@ import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.Base64;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
+import javax.net.ssl.HttpsURLConnection;
+import javax.net.ssl.SSLContext;
 
 /**
  * Implementation of {@link GitRepositoryClient} for GitLab.
@@ -88,6 +96,7 @@ public class GitLabRepositoryClient implements GitRepositoryClient {
 
     private final int connectTimeout;
     private final int readTimeout;
+    private final SSLContextProvider sslContextProvider;
 
     private final GitLabApi gitLab;
     private final boolean canRead;
@@ -110,8 +119,17 @@ public class GitLabRepositoryClient implements GitRepositoryClient {
 
         connectTimeout = builder.connectTimeout;
         readTimeout = builder.readTimeout;
+        sslContextProvider = builder.sslContextProvider;
 
-        gitLab = new GitLabApi(apiVersion, apiUrl, tokenType, authToken);
+        // Configure client properties for SSL context if provided
+        final Map<String, Object> clientConfigProperties = new HashMap<>();
+        if (sslContextProvider != null) {
+            // Jersey client property for SSL context supplier
+            final Supplier<SSLContext> sslContextSupplier = () -> sslContextProvider.createContext();
+            clientConfigProperties.put(ClientProperties.SSL_CONTEXT_SUPPLIER, sslContextSupplier);
+        }
+
+        gitLab = new GitLabApi(apiVersion, apiUrl, tokenType, authToken, null, clientConfigProperties);
         gitLab.setRequestTimeout(builder.connectTimeout, builder.readTimeout);
         gitLab.setDefaultPerPage(DEFAULT_ITEMS_PER_PAGE);
 
@@ -236,6 +254,13 @@ public class GitLabRepositoryClient implements GitRepositoryClient {
             commitAction.setFilePath(resolvedPath);
             commitAction.setEncoding(Encoding.BASE64);
 
+            // Set the expected commit SHA for atomic operation - GitLab will reject if the file
+            // has been modified since this commit
+            final String expectedCommitSha = request.getExpectedCommitSha();
+            if (expectedCommitSha != null) {
+                commitAction.setLastCommitId(expectedCommitSha);
+            }
+
             // Encode content to Base64
             final String encodedContent = Base64.getEncoder().encodeToString(request.getContent().getBytes(StandardCharsets.UTF_8));
             commitAction.setContent(encodedContent);
@@ -246,9 +271,9 @@ public class GitLabRepositoryClient implements GitRepositoryClient {
                             projectPath,
                             branch,
                             request.getMessage(),
-                            null, // start_branch - null means use the branch parameter
-                            null, // author_email - null means use the authenticated user
-                            null, // author_name - null means use the authenticated user
+                            null,
+                            request.getAuthorEmail(),
+                            request.getAuthorName(),
                             List.of(commitAction));
 
             final String commitId = commit.getId();
@@ -260,12 +285,57 @@ public class GitLabRepositoryClient implements GitRepositoryClient {
 
     @Override
     public InputStream deleteContent(final String filePath, final String commitMessage, final String branch) throws FlowRegistryException {
+        return deleteContent(filePath, commitMessage, branch, null, null);
+    }
+
+    @Override
+    public InputStream deleteContent(final String filePath, final String commitMessage, final String branch,
+                                     final String authorName, final String authorEmail) throws FlowRegistryException {
         final String resolvedPath = getResolvedPath(filePath);
         logger.debug("Deleting content at path [{}] on branch [{}] in repository [{}] ", resolvedPath, branch, projectPath);
         return execute(() -> {
             final InputStream content = gitLab.getRepositoryFileApi().getRawFile(projectPath, branch, resolvedPath);
-            gitLab.getRepositoryFileApi().deleteFile(projectPath, resolvedPath, branch, commitMessage);
+
+            final CommitAction commitAction = new CommitAction();
+            commitAction.setAction(CommitAction.Action.DELETE);
+            commitAction.setFilePath(resolvedPath);
+
+            gitLab.getCommitsApi().createCommit(projectPath, branch, commitMessage, null, authorEmail, authorName, List.of(commitAction));
             return content;
+        });
+    }
+
+    @Override
+    public void createBranch(final String newBranchName, final String sourceBranch, final Optional<String> sourceCommitSha)
+            throws IOException, FlowRegistryException {
+        if (StringUtils.isBlank(newBranchName)) {
+            throw new IllegalArgumentException("Branch name must be specified");
+        }
+        if (StringUtils.isBlank(sourceBranch)) {
+            throw new IllegalArgumentException("Source branch must be specified");
+        }
+
+        final String trimmedNewBranch = newBranchName.trim();
+        final String trimmedSourceBranch = sourceBranch.trim();
+        final RepositoryApi repositoryApi = gitLab.getRepositoryApi();
+
+        try {
+            repositoryApi.getBranch(projectPath, trimmedNewBranch);
+            throw new FlowRegistryException("Branch [%s] already exists".formatted(trimmedNewBranch));
+        } catch (final GitLabApiException e) {
+            if (e.getHttpStatus() != HttpURLConnection.HTTP_NOT_FOUND) {
+                throw new FlowRegistryException("Failed to check existence of branch [%s]".formatted(trimmedNewBranch), e);
+            }
+            logger.debug("Branch [{}] does not exist and will be created", trimmedNewBranch);
+        }
+
+        final String ref = sourceCommitSha.filter(sha -> !sha.isBlank()).orElse(trimmedSourceBranch);
+
+        logger.info("Creating branch [{}] from ref [{}] in repository [{}]", trimmedNewBranch, ref, projectPath);
+
+        execute(() -> {
+            repositoryApi.createBranch(projectPath, trimmedNewBranch, ref);
+            return null;
         });
     }
 
@@ -378,6 +448,12 @@ public class GitLabRepositoryClient implements GitRepositoryClient {
         connection.setRequestProperty(PRIVATE_TOKEN_HEADER, gitLab.getAuthToken());
         connection.setConnectTimeout(connectTimeout);
         connection.setReadTimeout(readTimeout);
+
+        // Configure SSL context for HTTPS connections
+        if (sslContextProvider != null && connection instanceof HttpsURLConnection httpsConnection) {
+            httpsConnection.setSSLSocketFactory(sslContextProvider.createContext().getSocketFactory());
+        }
+
         return connection;
     }
 
@@ -455,6 +531,7 @@ public class GitLabRepositoryClient implements GitRepositoryClient {
         private int connectTimeout;
         private int readTimeout;
         private ComponentLog logger;
+        private SSLContextProvider sslContextProvider;
 
         public Builder clientId(final String clientId) {
             this.clientId = clientId;
@@ -508,6 +585,11 @@ public class GitLabRepositoryClient implements GitRepositoryClient {
 
         public Builder logger(final ComponentLog logger) {
             this.logger = logger;
+            return this;
+        }
+
+        public Builder sslContext(final SSLContextProvider sslContextProvider) {
+            this.sslContextProvider = sslContextProvider;
             return this;
         }
 

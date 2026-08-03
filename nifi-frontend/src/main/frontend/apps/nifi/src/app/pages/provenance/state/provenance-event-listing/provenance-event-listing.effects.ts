@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-import { Injectable } from '@angular/core';
+import { Injectable, inject } from '@angular/core';
 import { Actions, createEffect, ofType } from '@ngrx/effects';
 import { concatLatestFrom } from '@ngrx/operators';
 import * as ProvenanceEventListingActions from './provenance-event-listing.actions';
@@ -49,16 +49,14 @@ import { ErrorContextKey } from '../../../../state/error';
 
 @Injectable()
 export class ProvenanceEventListingEffects {
-    constructor(
-        private actions$: Actions,
-        private store: Store<NiFiState>,
-        private provenanceService: ProvenanceService,
-        private errorHelper: ErrorHelper,
-        private clusterService: ClusterService,
-        private nifiCommon: NiFiCommon,
-        private dialog: MatDialog,
-        private router: Router
-    ) {}
+    private actions$ = inject(Actions);
+    private store = inject<Store<NiFiState>>(Store);
+    private provenanceService = inject(ProvenanceService);
+    private errorHelper = inject(ErrorHelper);
+    private clusterService = inject(ClusterService);
+    private nifiCommon = inject(NiFiCommon);
+    private dialog = inject(MatDialog);
+    private router = inject(Router);
 
     loadProvenanceOptions$ = createEffect(() =>
         this.actions$.pipe(
@@ -446,7 +444,9 @@ export class ProvenanceEventListingEffects {
                         this.provenanceService.getProvenanceEvent(request.eventId, request.clusterNodeId).subscribe({
                             next: (response) => {
                                 const event: any = response.provenanceEvent;
-                                this.router.navigate(this.getEventComponentLink(event.groupId, event.componentId));
+                                this.router.navigate(
+                                    this.getEventComponentLink(event.groupId, event.componentId, event.componentType)
+                                );
                             },
                             error: (errorResponse: HttpErrorResponse) => {
                                 this.store.dispatch(
@@ -457,7 +457,9 @@ export class ProvenanceEventListingEffects {
                             }
                         });
                     } else if (request.groupId && request.componentId) {
-                        this.router.navigate(this.getEventComponentLink(request.groupId, request.componentId));
+                        this.router.navigate(
+                            this.getEventComponentLink(request.groupId, request.componentId, request.componentType)
+                        );
                     }
                 })
             ),
@@ -497,15 +499,19 @@ export class ProvenanceEventListingEffects {
         { dispatch: false }
     );
 
-    private getEventComponentLink(groupId: string, componentId: string): string[] {
+    private getEventComponentLink(groupId: string, componentId: string, componentType?: string): string[] {
         let link: string[];
 
         if (groupId == componentId) {
             link = ['/process-groups', componentId];
-        } else if (componentId === 'Connection' || componentId === 'Load Balanced Connection') {
+        } else if (componentType === 'Connection' || componentType === 'Load Balanced Connection') {
             link = ['/process-groups', groupId, 'Connection', componentId];
-        } else if (componentId === 'Output Port') {
+        } else if (componentType === 'Output Port') {
             link = ['/process-groups', groupId, 'OutputPort', componentId];
+        } else if (componentType === 'Input Port') {
+            link = ['/process-groups', groupId, 'InputPort', componentId];
+        } else if (componentType === 'Funnel') {
+            link = ['/process-groups', groupId, 'Funnel', componentId];
         } else {
             link = ['/process-groups', groupId, 'Processor', componentId];
         }

@@ -26,9 +26,11 @@ import org.apache.nifi.annotation.lifecycle.OnScheduled;
 import org.apache.nifi.annotation.lifecycle.OnStopped;
 import org.apache.nifi.components.AllowableValue;
 import org.apache.nifi.components.ConfigVerificationResult;
+import org.apache.nifi.components.ConfigVerificationResult.Outcome;
 import org.apache.nifi.components.PropertyDescriptor;
 import org.apache.nifi.components.PropertyValue;
 import org.apache.nifi.components.Validator;
+import org.apache.nifi.components.connector.components.ConnectorMethod;
 import org.apache.nifi.expression.ExpressionLanguageScope;
 import org.apache.nifi.kafka.processors.common.KafkaUtils;
 import org.apache.nifi.kafka.processors.consumer.OffsetTracker;
@@ -44,6 +46,8 @@ import org.apache.nifi.kafka.service.api.common.PartitionState;
 import org.apache.nifi.kafka.service.api.consumer.AutoOffsetReset;
 import org.apache.nifi.kafka.service.api.consumer.KafkaConsumerService;
 import org.apache.nifi.kafka.service.api.consumer.PollingContext;
+import org.apache.nifi.kafka.service.api.consumer.RebalanceCallback;
+import org.apache.nifi.kafka.service.api.consumer.SessionContext;
 import org.apache.nifi.kafka.service.api.record.ByteRecord;
 import org.apache.nifi.kafka.shared.attribute.KafkaFlowFileAttribute;
 import org.apache.nifi.kafka.shared.property.KeyEncoding;
@@ -58,11 +62,14 @@ import org.apache.nifi.processor.Relationship;
 import org.apache.nifi.processor.VerifiableProcessor;
 import org.apache.nifi.processor.exception.ProcessException;
 import org.apache.nifi.processor.util.StandardValidators;
+import org.apache.nifi.serialization.RecordReader;
 import org.apache.nifi.serialization.RecordReaderFactory;
 import org.apache.nifi.serialization.RecordSetWriterFactory;
 import org.apache.nifi.util.StringUtils;
 
+import java.io.ByteArrayInputStream;
 import java.io.IOException;
+import java.io.InputStream;
 import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
@@ -96,7 +103,8 @@ import static org.apache.nifi.expression.ExpressionLanguageScope.NONE;
         @WritesAttribute(attribute = KafkaFlowFileAttribute.KAFKA_KEY, description = "The key of message if present and if single message. "
                 + "How the key is encoded depends on the value of the 'Key Attribute Encoding' property."),
         @WritesAttribute(attribute = KafkaFlowFileAttribute.KAFKA_OFFSET, description = "The offset of the record in the partition or the minimum value of the offset in a batch of records"),
-        @WritesAttribute(attribute = KafkaFlowFileAttribute.KAFKA_TIMESTAMP, description = "The timestamp of the message in the partition of the topic."),
+        @WritesAttribute(attribute = KafkaFlowFileAttribute.KAFKA_TIMESTAMP, description = "The timestamp of the message consumed from the topic or the minimum value of the timestamp "
+                + "in a batch of messages. The value of this timestamp depends on 'log.message.timestamp.type` kafka broker config (LOG_APPEND_TIME, CREATE_TIME, NO_TIMESTAMP_TYPE)"),
         @WritesAttribute(attribute = KafkaFlowFileAttribute.KAFKA_PARTITION, description = "The partition of the topic for a record or batch of records"),
         @WritesAttribute(attribute = KafkaFlowFileAttribute.KAFKA_TOPIC, description = "The topic the for a record or batch of records"),
         @WritesAttribute(attribute = KafkaFlowFileAttribute.KAFKA_TOMBSTONE, description = "Set to true if the consumed message is a tombstone message"),
@@ -210,6 +218,18 @@ public class ConsumeKafka extends AbstractProcessor implements VerifiableProcess
             .expressionLanguageSupported(NONE)
             .build();
 
+    static final PropertyDescriptor HEADER_NAME_PREFIX = new PropertyDescriptor.Builder()
+            .name("Header Name Prefix")
+            .description("""
+                    A prefix to apply to the FlowFile attribute name when writing Kafka Record Header values.
+                    This is useful to avoid conflicts with reserved FlowFile attribute names such as 'uuid'.
+                    For example, if set to 'kafka.header.', a Kafka header named 'uuid' would be written as 'kafka.header.uuid'.
+                    """)
+            .addValidator(StandardValidators.NON_BLANK_VALIDATOR)
+            .required(false)
+            .dependsOn(PROCESSING_STRATEGY, ProcessingStrategy.FLOW_FILE)
+            .build();
+
     static final PropertyDescriptor RECORD_READER = new PropertyDescriptor.Builder()
             .name("Record Reader")
             .description("The Record Reader to use for incoming Kafka messages")
@@ -304,6 +324,7 @@ public class ConsumeKafka extends AbstractProcessor implements VerifiableProcess
             HEADER_NAME_PATTERN,
             HEADER_ENCODING,
             PROCESSING_STRATEGY,
+            HEADER_NAME_PREFIX,
             RECORD_READER,
             RECORD_WRITER,
             OUTPUT_STRATEGY,
@@ -319,6 +340,7 @@ public class ConsumeKafka extends AbstractProcessor implements VerifiableProcess
 
     private volatile Charset headerEncoding;
     private volatile Pattern headerNamePattern;
+    private volatile String headerNamePrefix;
     private volatile ProcessingStrategy processingStrategy;
     private volatile KeyEncoding keyEncoding;
     private volatile OutputStrategy outputStrategy;
@@ -366,6 +388,11 @@ public class ConsumeKafka extends AbstractProcessor implements VerifiableProcess
         keyEncoding = context.getProperty(KEY_ATTRIBUTE_ENCODING).asAllowableValue(KeyEncoding.class);
         commitOffsets = context.getProperty(COMMIT_OFFSETS).asBoolean();
         processingStrategy = context.getProperty(PROCESSING_STRATEGY).asAllowableValue(ProcessingStrategy.class);
+
+        // Only read HEADER_NAME_PREFIX when PROCESSING_STRATEGY is FLOW_FILE (property dependency)
+        headerNamePrefix = processingStrategy == ProcessingStrategy.FLOW_FILE
+                ? context.getProperty(HEADER_NAME_PREFIX).getValue()
+                : null;
         outputStrategy = processingStrategy == ProcessingStrategy.RECORD ? context.getProperty(OUTPUT_STRATEGY).asAllowableValue(OutputStrategy.class) : null;
         keyFormat = (outputStrategy == OutputStrategy.USE_WRAPPER || outputStrategy == OutputStrategy.INJECT_METADATA)
                 ? context.getProperty(KEY_FORMAT).asAllowableValue(KeyFormat.class)
@@ -391,7 +418,6 @@ public class ConsumeKafka extends AbstractProcessor implements VerifiableProcess
         }
     }
 
-
     @Override
     public void onTrigger(final ProcessContext context, final ProcessSession session) {
         final KafkaConsumerService consumerService = getConsumerService(context);
@@ -406,54 +432,87 @@ public class ConsumeKafka extends AbstractProcessor implements VerifiableProcess
         final OffsetTracker offsetTracker = new OffsetTracker();
         boolean recordsReceived = false;
 
-        while (System.currentTimeMillis() < stopTime) {
-            try {
-                final Duration maxWaitDuration = Duration.ofMillis(stopTime - System.currentTimeMillis());
-                if (maxWaitDuration.toMillis() <= 0) {
-                    break;
-                }
+        final RebalanceSessionHolder sessionHolder = new RebalanceSessionHolder(session, offsetTracker);
+        consumerService.setSessionContext(sessionHolder);
 
-                final Iterator<ByteRecord> consumerRecords = consumerService.poll(maxWaitDuration).iterator();
-                if (!consumerRecords.hasNext()) {
-                    getLogger().trace("No Kafka Records consumed: {}", pollingContext);
-                    continue;
-                }
-
-                recordsReceived = true;
-                processConsumerRecords(context, session, offsetTracker, consumerRecords);
-
-                if (maxUncommittedSizeConfigured) {
-                    // Stop consuming before reaching Max Uncommitted Time when exceeding Max Uncommitted Size
-                    final long totalRecordSize = offsetTracker.getTotalRecordSize();
-                    if (totalRecordSize > maxUncommittedSize) {
+        try {
+            while (System.currentTimeMillis() < stopTime) {
+                try {
+                    final Duration maxWaitDuration = Duration.ofMillis(stopTime - System.currentTimeMillis());
+                    if (maxWaitDuration.toMillis() <= 0) {
                         break;
                     }
+
+                    final Iterator<ByteRecord> consumerRecords = consumerService.poll(maxWaitDuration).iterator();
+                    if (!consumerRecords.hasNext()) {
+                        getLogger().trace("No Kafka Records consumed: {}", pollingContext);
+                        // Check if a rebalance occurred during poll - if so, break to commit what we have
+                        if (consumerService.hasRevokedPartitions()) {
+                            getLogger().debug("Rebalance detected with revoked partitions, breaking to commit session");
+                            break;
+                        }
+                        continue;
+                    }
+
+                    recordsReceived = true;
+                    processConsumerRecords(context, session, offsetTracker, consumerRecords);
+
+                    // Check if a rebalance occurred during poll - if so, break to commit what we have
+                    if (consumerService.hasRevokedPartitions()) {
+                        getLogger().debug("Rebalance detected with revoked partitions, breaking to commit session");
+                        break;
+                    }
+
+                    if (maxUncommittedSizeConfigured) {
+                        // Stop consuming before reaching Max Uncommitted Time when exceeding Max Uncommitted Size
+                        final long totalRecordSize = offsetTracker.getTotalRecordSize();
+                        if (totalRecordSize > maxUncommittedSize) {
+                            break;
+                        }
+                    }
+                } catch (final Exception e) {
+                    getLogger().error("Failed to consume Kafka Records", e);
+                    consumerService.rollback();
+                    close(consumerService, "Encountered Exception while consuming or writing out Kafka Records");
+                    context.yield();
+                    // If there are any FlowFiles already created and transferred, roll them back because we're rolling back offsets and
+                    // because we will consume the data again, we don't want to transfer out the FlowFiles.
+                    session.rollback();
+                    return;
                 }
-            } catch (final Exception e) {
-                getLogger().error("Failed to consume Kafka Records", e);
-                consumerService.rollback();
-                close(consumerService, "Encountered Exception while consuming or writing out Kafka Records");
-                context.yield();
-                // If there are any FlowFiles already created and transferred, roll them back because we're rolling back offsets and
-                // because we will consume the data again, we don't want to transfer out the FlowFiles.
-                session.rollback();
+            }
+
+            if (!recordsReceived && !consumerService.hasRevokedPartitions()) {
+                getLogger().trace("No Kafka Records consumed, re-queuing consumer");
+                consumerServices.offer(consumerService);
                 return;
             }
-        }
 
-        if (!recordsReceived) {
-            getLogger().trace("No Kafka Records consumed, re-queuing consumer");
-            consumerServices.offer(consumerService);
-            return;
-        }
+            // If no records received but we have revoked partitions, we still need to commit their offsets.
+            // Note: When a rebalance callback is registered (which is the case in this processor), offsets for
+            // revoked partitions are committed synchronously during onPartitionsRevoked(), so hasRevokedPartitions()
+            // will return false. This code path exists for backward compatibility when no callback is registered.
+            if (!recordsReceived && consumerService.hasRevokedPartitions()) {
+                getLogger().debug("No records received but rebalance occurred, committing offsets for revoked partitions");
+                try {
+                    consumerService.commitOffsetsForRevokedPartitions();
+                } catch (final Exception e) {
+                    getLogger().warn("Failed to commit offsets for revoked partitions", e);
+                }
+                consumerServices.offer(consumerService);
+                return;
+            }
 
-        session.commitAsync(
-            () -> commitOffsets(consumerService, offsetTracker, pollingContext, session),
-            throwable -> {
-                getLogger().error("Failed to commit session; will roll back any uncommitted records", throwable);
-                rollback(consumerService, offsetTracker, session);
-                context.yield();
-            });
+            session.commitAsync(
+                () -> commitOffsets(consumerService, offsetTracker, pollingContext, session),
+                throwable -> {
+                    getLogger().error("Failed to commit session; will roll back any uncommitted records", throwable);
+                    rollback(consumerService, offsetTracker, session);
+                    context.yield();
+                });
+        } finally {
+            consumerService.setSessionContext(null);
+        }
     }
 
     private void commitOffsets(final KafkaConsumerService consumerService, final OffsetTracker offsetTracker, final PollingContext pollingContext, final ProcessSession session) {
@@ -464,6 +523,14 @@ public class ConsumeKafka extends AbstractProcessor implements VerifiableProcess
                 offsetTracker.getRecordCounts().forEach((topic, count) -> {
                     session.adjustCounter("Records Acknowledged for " + topic, count, true);
                 });
+            }
+
+            // After successful session commit, also commit offsets for any partitions that were revoked during rebalance.
+            // Note: When a rebalance callback is registered, this check will always be false since offsets are
+            // committed synchronously during onPartitionsRevoked(). This code path is for backward compatibility.
+            if (consumerService.hasRevokedPartitions()) {
+                getLogger().debug("Committing offsets for partitions revoked during rebalance");
+                consumerService.commitOffsetsForRevokedPartitions();
             }
 
             consumerServices.offer(consumerService);
@@ -477,6 +544,8 @@ public class ConsumeKafka extends AbstractProcessor implements VerifiableProcess
     private void rollback(final KafkaConsumerService consumerService, final OffsetTracker offsetTracker, final ProcessSession session) {
         if (!consumerService.isClosed()) {
             try {
+                // Clear any pending revoked partitions since we're rolling back
+                consumerService.clearRevokedPartitions();
                 consumerService.rollback();
                 consumerServices.offer(consumerService);
                 getLogger().debug("Rolled back offsets for Kafka Consumer Service");
@@ -512,26 +581,110 @@ public class ConsumeKafka extends AbstractProcessor implements VerifiableProcess
         final List<ConfigVerificationResult> verificationResults = new ArrayList<>();
 
         final KafkaConnectionService connectionService = context.getProperty(CONNECTION_SERVICE).asControllerService(KafkaConnectionService.class);
-        final PollingContext pollingContext = createPollingContext(context);
-        final KafkaConsumerService consumerService = connectionService.getConsumerService(pollingContext);
+        final PollingContext pollingContext = createPollingContext(context, null, AutoOffsetReset.EARLIEST);
+        try (final KafkaConsumerService consumerService = connectionService.getConsumerService(pollingContext)) {
+            final ConfigVerificationResult partitionVerification = verifyPartitions(consumerService, pollingContext);
+            verificationResults.add(partitionVerification);
 
-        final ConfigVerificationResult.Builder verificationPartitions = new ConfigVerificationResult.Builder()
-                .verificationStepName("Verify Topic Partitions");
+            final ConfigVerificationResult parsingResult = verifyCanParse(context, consumerService, verificationLogger);
+            verificationResults.add(parsingResult);
+        } catch (final IOException e) {
+            verificationResults.add(new ConfigVerificationResult.Builder()
+                .verificationStepName("Communicate with Kafka Broker")
+                .outcome(Outcome.FAILED)
+                .explanation("There was an I/O failure when communicating with Kafka: " + e)
+                .build());
+        }
+
+        return verificationResults;
+    }
+
+    private ConfigVerificationResult verifyPartitions(final KafkaConsumerService consumerService, final PollingContext pollingContext) {
+        final ConfigVerificationResult.Builder partitionVerification = new ConfigVerificationResult.Builder()
+            .verificationStepName("Verify Topic Partitions");
 
         try {
             final List<PartitionState> partitionStates = consumerService.getPartitionStates();
-            verificationPartitions
-                    .outcome(ConfigVerificationResult.Outcome.SUCCESSFUL)
-                    .explanation(String.format("Partitions [%d] found for Topics %s", partitionStates.size(), pollingContext.getTopics()));
+            partitionVerification
+                .outcome(ConfigVerificationResult.Outcome.SUCCESSFUL)
+                .explanation(String.format("Found [%d] partitions for Topics %s", partitionStates.size(), pollingContext.getTopics()));
         } catch (final Exception e) {
             getLogger().error("Topics {} Partition verification failed", pollingContext.getTopics(), e);
-            verificationPartitions
-                    .outcome(ConfigVerificationResult.Outcome.FAILED)
-                    .explanation(String.format("Topics %s Partition access failed: %s", pollingContext.getTopics(), e));
+            partitionVerification
+                .outcome(ConfigVerificationResult.Outcome.FAILED)
+                .explanation(String.format("Topics %s Partition access failed: %s", pollingContext.getTopics(), e));
         }
-        verificationResults.add(verificationPartitions.build());
 
-        return verificationResults;
+        return partitionVerification.build();
+    }
+
+    private ConfigVerificationResult verifyCanParse(final ProcessContext context, final KafkaConsumerService consumerService, final ComponentLog verificationLogger) {
+        final Iterable<ByteRecord> records = consumerService.poll(Duration.ofSeconds(60));
+        final ProcessingStrategy processingStrategy = context.getProperty(PROCESSING_STRATEGY).asAllowableValue(ProcessingStrategy.class);
+        if (processingStrategy != ProcessingStrategy.RECORD) {
+            return new ConfigVerificationResult.Builder()
+                .verificationStepName("Parse Records")
+                .outcome(Outcome.SKIPPED)
+                .explanation("Processing Strategy is set to " + processingStrategy.getValue() + " so skipping record parsing verification")
+                .build();
+        }
+
+        final RecordReaderFactory readerFactory = context.getProperty(RECORD_READER).asControllerService(RecordReaderFactory.class);
+        int recordIndex = 0;
+        for (final ByteRecord byteRecord : records) {
+            recordIndex++;
+            final Map<String, String> recordAttributes = KafkaUtils.toAttributes(
+                byteRecord, keyEncoding, headerNamePattern, headerEncoding, commitOffsets);
+
+            try (final InputStream inputStream = new ByteArrayInputStream(byteRecord.getValue());
+                 final RecordReader reader = readerFactory.createRecordReader(recordAttributes, inputStream, byteRecord.getValue().length, verificationLogger)) {
+
+                while (reader.nextRecord() != null) {
+                }
+            } catch (final Exception e) {
+                return new ConfigVerificationResult.Builder()
+                    .verificationStepName("Parse Records")
+                    .outcome(Outcome.FAILED)
+                    .explanation("Failed to parse Record number " + recordIndex + ": " + e)
+                    .build();
+            }
+        }
+
+        if (recordIndex == 0) {
+            return new ConfigVerificationResult.Builder()
+                .verificationStepName("Parse Records")
+                .outcome(Outcome.SKIPPED)
+                .explanation("No records were received to parse")
+                .build();
+        }
+
+        return new ConfigVerificationResult.Builder()
+            .verificationStepName("Parse Records")
+            .outcome(Outcome.SUCCESSFUL)
+            .explanation("Successfully parsed " + recordIndex + " records")
+            .build();
+    }
+
+
+    @ConnectorMethod(
+        name = "sampleTopics",
+        description = "Returns a list of sample data from the topics that would be consumed by this processor."
+    )
+    public List<byte[]> sampleTopics(final ProcessContext context) throws IOException {
+        final KafkaConnectionService connectionService = context.getProperty(CONNECTION_SERVICE).asControllerService(KafkaConnectionService.class);
+        final PollingContext pollingContext = createPollingContext(context, "nifi-validation-" + System.currentTimeMillis(), AutoOffsetReset.EARLIEST);
+        try (final KafkaConsumerService consumerService = connectionService.getConsumerService(pollingContext)) {
+            final Iterable<ByteRecord> records = consumerService.poll(Duration.ofSeconds(60));
+            final List<byte[]> samples = new ArrayList<>();
+            for (final ByteRecord record : records) {
+                samples.add(record.getValue());
+                if (samples.size() >= 10) {
+                    break;
+                }
+            }
+
+            return samples;
+        }
     }
 
     private KafkaConsumerService getConsumerService(final ProcessContext context) {
@@ -549,7 +702,43 @@ public class ConsumeKafka extends AbstractProcessor implements VerifiableProcess
 
         getLogger().info("No Kafka Consumer Service available; creating a new one. Active count: {}", activeCount);
         final KafkaConnectionService connectionService = context.getProperty(CONNECTION_SERVICE).asControllerService(KafkaConnectionService.class);
-        return connectionService.getConsumerService(pollingContext);
+        final KafkaConsumerService newService = connectionService.getConsumerService(pollingContext);
+        newService.setRebalanceCallback(createRebalanceCallback());
+        return newService;
+    }
+
+    private RebalanceCallback createRebalanceCallback() {
+        return new RebalanceCallback() {
+            @Override
+            public void onPartitionsRevoked(final Collection<PartitionState> revokedPartitions, final SessionContext sessionContext) {
+                if (sessionContext == null) {
+                    getLogger().debug("No session context during rebalance callback, nothing to commit");
+                    return;
+                }
+
+                final RebalanceSessionHolder holder = (RebalanceSessionHolder) sessionContext;
+                final ProcessSession session = holder.session;
+                final OffsetTracker offsetTracker = holder.offsetTracker;
+
+                getLogger().info("Rebalance callback invoked for {} revoked partitions, committing session synchronously",
+                        revokedPartitions.size());
+
+                try {
+                    session.commit();
+                    getLogger().debug("Session committed successfully during rebalance callback");
+
+                    if (offsetTracker != null) {
+                        offsetTracker.getRecordCounts().forEach((topic, count) -> {
+                            session.adjustCounter("Records Acknowledged for " + topic, count, true);
+                        });
+                        offsetTracker.clear();
+                    }
+                } catch (final Exception e) {
+                    getLogger().error("Failed to commit session during rebalance callback", e);
+                    throw new RuntimeException("Failed to commit session during rebalance", e);
+                }
+            }
+        };
     }
 
     private int getMaxConsumerCount() {
@@ -612,7 +801,7 @@ public class ConsumeKafka extends AbstractProcessor implements VerifiableProcess
 
     private void processInputFlowFile(final ProcessSession session, final OffsetTracker offsetTracker, final Iterator<ByteRecord> consumerRecords) {
         final KafkaMessageConverter converter = new FlowFileStreamKafkaMessageConverter(
-            headerEncoding, headerNamePattern, keyEncoding, commitOffsets, offsetTracker, brokerUri);
+            headerEncoding, headerNamePattern, headerNamePrefix, keyEncoding, commitOffsets, offsetTracker, brokerUri);
         converter.toFlowFiles(session, consumerRecords);
     }
 
@@ -620,6 +809,10 @@ public class ConsumeKafka extends AbstractProcessor implements VerifiableProcess
         final String groupId = context.getProperty(GROUP_ID).getValue();
         final String offsetReset = context.getProperty(AUTO_OFFSET_RESET).getValue();
         final AutoOffsetReset autoOffsetReset = AutoOffsetReset.valueOf(offsetReset.toUpperCase());
+        return createPollingContext(context, groupId, autoOffsetReset);
+    }
+
+    private PollingContext createPollingContext(final ProcessContext context, final String groupId, final AutoOffsetReset autoOffsetReset) {
         final String topics = context.getProperty(TOPICS).evaluateAttributeExpressions().getValue();
         final String topicFormat = context.getProperty(TOPIC_FORMAT).getValue();
 
@@ -635,5 +828,15 @@ public class ConsumeKafka extends AbstractProcessor implements VerifiableProcess
         }
 
         return pollingContext;
+    }
+
+    private static class RebalanceSessionHolder implements SessionContext {
+        private final ProcessSession session;
+        private final OffsetTracker offsetTracker;
+
+        RebalanceSessionHolder(final ProcessSession session, final OffsetTracker offsetTracker) {
+            this.session = session;
+            this.offsetTracker = offsetTracker;
+        }
     }
 }

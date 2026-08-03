@@ -16,9 +16,11 @@
  */
 package org.apache.nifi.controller.queue;
 
+import org.apache.nifi.components.connector.DropFlowFileSummary;
 import org.apache.nifi.controller.repository.FlowFileRecord;
 import org.apache.nifi.controller.repository.SwapSummary;
 import org.apache.nifi.controller.status.FlowFileAvailability;
+import org.apache.nifi.flowfile.FlowFile;
 import org.apache.nifi.flowfile.FlowFilePrioritizer;
 import org.apache.nifi.processor.FlowFileFilter;
 
@@ -27,6 +29,7 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Predicate;
 
 public interface FlowFileQueue {
 
@@ -71,13 +74,13 @@ public interface FlowFileQueue {
     /**
      * Establishes this queue's preferred maximum work load.
      *
-     * @param maxQueueSize the maximum number of flow files this processor
+     * @param maxQueueSize the maximum number of FlowFiles this processor
      *            recommends having in its work queue at any one time
      */
     void setBackPressureObjectThreshold(long maxQueueSize);
 
     /**
-     * @return maximum number of flow files that should be queued up at any one
+     * @return maximum number of FlowFiles that should be queued up at any one
      *         time
      */
     long getBackPressureObjectThreshold();
@@ -164,7 +167,7 @@ public interface FlowFileQueue {
      * @param maxResults limits how many results can be polled
      * @param expiredRecords for expired records
      * @param pollStrategy strategy of polling
-     * @return the next flow files on the queue up to the max results; null if
+     * @return the next FlowFiles on the queue up to the max results; null if
      *         empty
      */
     List<FlowFileRecord> poll(int maxResults, Set<FlowFileRecord> expiredRecords, final PollStrategy pollStrategy);
@@ -216,6 +219,18 @@ public interface FlowFileQueue {
      *         request status exists with that identifier
      */
     DropFlowFileStatus cancelDropFlowFileRequest(String requestIdentifier);
+
+    /**
+     * Synchronously drops all FlowFiles in this queue that match the given predicate. This method filters
+     * FlowFiles in the active queue, swap queue, and any swapped-out swap files. The FlowFile Repository
+     * and Provenance Repository are updated atomically after all matching FlowFiles have been identified.
+     *
+     * @param predicate the predicate used to determine which FlowFiles should be dropped; FlowFiles for which
+     *                  the predicate returns <code>true</code> will be dropped
+     * @return a summary of the FlowFiles that were dropped, including the count and total size in bytes
+     * @throws IOException if an error occurs while reading or writing swap files
+     */
+    DropFlowFileSummary dropFlowFiles(Predicate<FlowFile> predicate) throws IOException;
 
     /**
      * <p>
@@ -293,14 +308,14 @@ public interface FlowFileQueue {
     void setLoadBalanceStrategy(LoadBalanceStrategy strategy, String partitioningAttribute);
 
     /**
-     * Offloads the flowfiles in the queue to other nodes.  This disables the queue from partition flowfiles locally.
+     * Offloads the FlowFiles in the queue to other nodes.  This disables the queue from partition FlowFiles locally.
      * <p>
      * This operation is a no-op if the node that contains this queue is not in a cluster.
      */
     void offloadQueue();
 
     /**
-     * Resets a queue that has previously been offloaded.  This allows the queue to partition flowfiles locally, and
+     * Resets a queue that has previously been offloaded.  This allows the queue to partition FlowFiles locally, and
      * has no other effect on processors or remote process groups.
      * <p>
      * This operation is a no-op if the queue is not currently offloaded or the node that contains this queue is not

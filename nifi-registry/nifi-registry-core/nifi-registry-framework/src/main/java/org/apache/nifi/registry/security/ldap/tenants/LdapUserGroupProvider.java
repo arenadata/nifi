@@ -37,7 +37,7 @@ import org.apache.nifi.security.ssl.StandardKeyStoreBuilder;
 import org.apache.nifi.security.ssl.StandardSslContextBuilder;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.ldap.control.PagedResultsDirContextProcessor;
+import org.springframework.ldap.control.PagedResultsControlExchangeDirContextProcessor;
 import org.springframework.ldap.core.ContextSource;
 import org.springframework.ldap.core.DirContextAdapter;
 import org.springframework.ldap.core.DirContextOperations;
@@ -54,12 +54,6 @@ import org.springframework.ldap.filter.AndFilter;
 import org.springframework.ldap.filter.EqualsFilter;
 import org.springframework.ldap.filter.HardcodedFilter;
 
-import javax.naming.Context;
-import javax.naming.NamingEnumeration;
-import javax.naming.NamingException;
-import javax.naming.directory.Attribute;
-import javax.naming.directory.SearchControls;
-import javax.net.ssl.SSLContext;
 import java.io.FileInputStream;
 import java.io.IOException;
 import java.security.KeyStore;
@@ -74,6 +68,12 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
+import javax.naming.Context;
+import javax.naming.NamingEnumeration;
+import javax.naming.NamingException;
+import javax.naming.directory.Attribute;
+import javax.naming.directory.SearchControls;
+import javax.net.ssl.SSLContext;
 
 /**
  * Abstract LDAP based implementation of a login identity provider.
@@ -464,7 +464,7 @@ public class LdapUserGroupProvider implements UserGroupProvider {
                 if (pageSize == null) {
                     userProcessor = new NullDirContextProcessor();
                 } else {
-                    userProcessor = new PagedResultsDirContextProcessor(pageSize);
+                    userProcessor = new PagedResultsControlExchangeDirContextProcessor(pageSize);
                 }
 
                 // looking for objects matching the user object class
@@ -538,7 +538,7 @@ public class LdapUserGroupProvider implements UserGroupProvider {
                 if (pageSize == null) {
                     groupProcessor = new NullDirContextProcessor();
                 } else {
-                    groupProcessor = new PagedResultsDirContextProcessor(pageSize);
+                    groupProcessor = new PagedResultsControlExchangeDirContextProcessor(pageSize);
                 }
 
                 // looking for objects matching the group object class
@@ -676,8 +676,8 @@ public class LdapUserGroupProvider implements UserGroupProvider {
         }
     }
 
-    private boolean hasMorePages(final DirContextProcessor processor ) {
-        return processor instanceof PagedResultsDirContextProcessor && ((PagedResultsDirContextProcessor) processor).hasMore();
+    private boolean hasMorePages(final DirContextProcessor processor) {
+        return processor instanceof PagedResultsControlExchangeDirContextProcessor && ((PagedResultsControlExchangeDirContextProcessor) processor).hasMore();
     }
 
     private String getUserIdentity(final DirContextOperations ctx) {

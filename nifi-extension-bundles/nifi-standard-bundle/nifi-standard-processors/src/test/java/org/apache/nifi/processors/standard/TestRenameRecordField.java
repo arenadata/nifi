@@ -40,10 +40,9 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 
 public class TestRenameRecordField {
-    private final Path INPUT_FILES = Paths.get("src/test/resources/TestRenameRecordField/input");
-    private final Path OUTPUT_FILES = Paths.get("src/test/resources/TestRenameRecordField/output");
+    private static final Path INPUT_FILES = Paths.get("src/test/resources/TestRenameRecordField/input");
+    private static final Path OUTPUT_FILES = Paths.get("src/test/resources/TestRenameRecordField/output");
     private TestRunner runner;
-
 
     @BeforeEach
     public void setup() throws InitializationException {
@@ -116,7 +115,6 @@ public class TestRenameRecordField {
         final MockFlowFile out = runner.getFlowFilesForRelationship(AbstractRecordProcessor.REL_SUCCESS).get(0);
         assertContentsEqual(out, OUTPUT_FILES.resolve("testRenameArray.json"));
     }
-
 
     @Test
     public void testNestedPath() throws IOException {

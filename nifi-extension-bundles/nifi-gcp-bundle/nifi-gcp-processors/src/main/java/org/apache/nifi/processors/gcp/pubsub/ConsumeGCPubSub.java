@@ -43,6 +43,7 @@ import org.apache.nifi.components.Validator;
 import org.apache.nifi.expression.ExpressionLanguageScope;
 import org.apache.nifi.flowfile.FlowFile;
 import org.apache.nifi.logging.ComponentLog;
+import org.apache.nifi.migration.PropertyConfiguration;
 import org.apache.nifi.processor.ProcessContext;
 import org.apache.nifi.processor.ProcessSession;
 import org.apache.nifi.processor.Relationship;
@@ -99,12 +100,12 @@ import static org.apache.nifi.processors.gcp.pubsub.PubSubAttributes.SUBSCRIPTIO
 )
 @WritesAttributes(
     {
-            @WritesAttribute(attribute = ACK_ID_ATTRIBUTE, description = ACK_ID_DESCRIPTION),
-            @WritesAttribute(attribute = SERIALIZED_SIZE_ATTRIBUTE, description = SERIALIZED_SIZE_DESCRIPTION),
-            @WritesAttribute(attribute = MSG_ATTRIBUTES_COUNT_ATTRIBUTE, description = MSG_ATTRIBUTES_COUNT_DESCRIPTION),
-            @WritesAttribute(attribute = MSG_PUBLISH_TIME_ATTRIBUTE, description = MSG_PUBLISH_TIME_DESCRIPTION),
-            @WritesAttribute(attribute = SUBSCRIPTION_NAME_ATTRIBUTE, description = SUBSCRIPTION_NAME_DESCRIPTION),
-            @WritesAttribute(attribute = DYNAMIC_ATTRIBUTES_ATTRIBUTE, description = DYNAMIC_ATTRIBUTES_DESCRIPTION)
+        @WritesAttribute(attribute = ACK_ID_ATTRIBUTE, description = ACK_ID_DESCRIPTION),
+        @WritesAttribute(attribute = SERIALIZED_SIZE_ATTRIBUTE, description = SERIALIZED_SIZE_DESCRIPTION),
+        @WritesAttribute(attribute = MSG_ATTRIBUTES_COUNT_ATTRIBUTE, description = MSG_ATTRIBUTES_COUNT_DESCRIPTION),
+        @WritesAttribute(attribute = MSG_PUBLISH_TIME_ATTRIBUTE, description = MSG_PUBLISH_TIME_DESCRIPTION),
+        @WritesAttribute(attribute = SUBSCRIPTION_NAME_ATTRIBUTE, description = SUBSCRIPTION_NAME_DESCRIPTION),
+        @WritesAttribute(attribute = DYNAMIC_ATTRIBUTES_ATTRIBUTE, description = DYNAMIC_ATTRIBUTES_DESCRIPTION)
     }
 )
 public class ConsumeGCPubSub extends AbstractGCPubSubProcessor {
@@ -112,8 +113,7 @@ public class ConsumeGCPubSub extends AbstractGCPubSubProcessor {
     private static final List<String> REQUIRED_PERMISSIONS = Collections.singletonList("pubsub.subscriptions.consume");
 
     public static final PropertyDescriptor SUBSCRIPTION = new PropertyDescriptor.Builder()
-            .name("gcp-pubsub-subscription")
-            .displayName("Subscription")
+            .name("Subscription")
             .addValidator(StandardValidators.NON_EMPTY_EL_VALIDATOR)
             .description("Name of the Google Cloud Pub/Sub Subscription")
             .required(true)
@@ -335,8 +335,14 @@ public class ConsumeGCPubSub extends AbstractGCPubSubProcessor {
         session.commitAsync(() -> acknowledgeAcks(ackIds, subscriptionName));
     }
 
+    @Override
+    public void migrateProperties(PropertyConfiguration config) {
+        super.migrateProperties(config);
+        config.renameProperty("gcp-pubsub-subscription", SUBSCRIPTION.getName());
+    }
+
     private void processInputDemarcator(final ProcessSession session, final List<ReceivedMessage> receivedMessages, final String subscriptionName,
-            final List<String> ackIds) {
+                                        final List<String> ackIds) {
         final byte[] demarcator = demarcatorValue == null ? new byte[0] : demarcatorValue.getBytes(StandardCharsets.UTF_8);
         FlowFile flowFile = session.create();
 
@@ -432,7 +438,7 @@ public class ConsumeGCPubSub extends AbstractGCPubSubProcessor {
     }
 
     protected SubscriberStub getSubscriber(final ProcessContext context) throws IOException {
-        final String endpoint = context.getProperty(API_ENDPOINT).getValue();
+        final String endpoint = context.getProperty(API_ENDPOINT).evaluateAttributeExpressions().getValue();
 
         final SubscriberStubSettings.Builder subscriberBuilder = SubscriberStubSettings.newBuilder()
                 .setCredentialsProvider(FixedCredentialsProvider.create(getGoogleCredentials(context)))

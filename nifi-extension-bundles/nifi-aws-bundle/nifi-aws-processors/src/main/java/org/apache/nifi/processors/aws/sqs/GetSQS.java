@@ -16,7 +16,6 @@
  */
 package org.apache.nifi.processors.aws.sqs;
 
-
 import org.apache.nifi.annotation.behavior.InputRequirement;
 import org.apache.nifi.annotation.behavior.InputRequirement.Requirement;
 import org.apache.nifi.annotation.behavior.SupportsBatching;
@@ -32,7 +31,7 @@ import org.apache.nifi.processor.ProcessContext;
 import org.apache.nifi.processor.ProcessSession;
 import org.apache.nifi.processor.Relationship;
 import org.apache.nifi.processor.util.StandardValidators;
-import org.apache.nifi.processors.aws.v2.AbstractAwsSyncProcessor;
+import org.apache.nifi.processors.aws.AbstractAwsSyncProcessor;
 import software.amazon.awssdk.services.sqs.SqsClient;
 import software.amazon.awssdk.services.sqs.SqsClientBuilder;
 import software.amazon.awssdk.services.sqs.model.DeleteMessageBatchRequest;
@@ -52,6 +51,9 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
 
+import static org.apache.nifi.processors.aws.region.RegionUtil.CUSTOM_REGION;
+import static org.apache.nifi.processors.aws.region.RegionUtil.REGION;
+
 @SupportsBatching
 @SeeAlso({ PutSQS.class, DeleteSQS.class })
 @InputRequirement(Requirement.INPUT_FORBIDDEN)
@@ -68,7 +70,7 @@ public class GetSQS extends AbstractAwsSyncProcessor<SqsClient, SqsClientBuilder
     public static final PropertyDescriptor QUEUE_URL = new PropertyDescriptor.Builder()
             .name("Queue URL")
             .description("The URL of the queue to get messages from")
-            .addValidator(StandardValidators.NON_EMPTY_VALIDATOR)
+            .addValidator(StandardValidators.URL_VALIDATOR)
             .expressionLanguageSupported(ExpressionLanguageScope.ENVIRONMENT)
             .required(true)
             .build();
@@ -119,6 +121,7 @@ public class GetSQS extends AbstractAwsSyncProcessor<SqsClient, SqsClientBuilder
     public static final List<PropertyDescriptor> PROPERTY_DESCRIPTORS = List.of(
         QUEUE_URL,
         REGION,
+        CUSTOM_REGION,
         AWS_CREDENTIALS_PROVIDER_SERVICE,
         SSL_CONTEXT_SERVICE,
         AUTO_DELETE,

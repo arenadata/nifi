@@ -16,7 +16,7 @@
  */
 
 import {
-    afterRender,
+    afterNextRender,
     AfterViewInit,
     Component,
     DestroyRef,
@@ -29,10 +29,12 @@ import { NiFiState } from '../../../state';
 import { Store } from '@ngrx/store';
 import { loadExtensionTypesForDocumentation } from '../../../state/extension-types/extension-types.actions';
 import {
+    selectConnectorTypes,
     selectControllerServiceTypes,
     selectFlowAnalysisRuleTypes,
     selectParameterProviderTypes,
     selectProcessorTypes,
+    selectRegistryClientTypes,
     selectReportingTaskTypes
 } from '../../../state/extension-types/extension-types.selectors';
 import { ComponentType, isDefinedAndNotNull, NiFiCommon, selectCurrentRoute } from '@nifi/shared';
@@ -56,6 +58,11 @@ import { concatLatestFrom } from '@ngrx/operators';
     standalone: false
 })
 export class Documentation implements OnInit, AfterViewInit {
+    private store = inject<Store<NiFiState>>(Store);
+    private formBuilder = inject(FormBuilder);
+    private nifiCommon = inject(NiFiCommon);
+    private documentation = inject(ElementRef);
+
     private destroyRef: DestroyRef = inject(DestroyRef);
 
     processorTypes$ = this.store
@@ -67,11 +74,17 @@ export class Documentation implements OnInit, AfterViewInit {
     reportingTaskTypes$ = this.store
         .select(selectReportingTaskTypes)
         .pipe(map((extensionTypes) => this.sortExtensions(extensionTypes)));
+    registryClientTypes$ = this.store
+        .select(selectRegistryClientTypes)
+        .pipe(map((extensionTypes) => this.sortExtensions(extensionTypes)));
     parameterProviderTypes$ = this.store
         .select(selectParameterProviderTypes)
         .pipe(map((extensionTypes) => this.sortExtensions(extensionTypes)));
     flowAnalysisRuleTypes$ = this.store
         .select(selectFlowAnalysisRuleTypes)
+        .pipe(map((extensionTypes) => this.sortExtensions(extensionTypes)));
+    connectorTypes$ = this.store
+        .select(selectConnectorTypes)
         .pipe(map((extensionTypes) => this.sortExtensions(extensionTypes)));
 
     accordion = viewChild.required(MatAccordion);
@@ -80,7 +93,7 @@ export class Documentation implements OnInit, AfterViewInit {
     filter: string | null = null;
 
     private selectedCoordinates: DefinitionCoordinates | null = null;
-    private isOverviewRoute: boolean = false;
+    private isOverviewRoute = false;
     private scrolledIntoView = false;
 
     generalExpanded = true;
@@ -88,13 +101,10 @@ export class Documentation implements OnInit, AfterViewInit {
     controllerServicesExpanded = false;
     reportingTasksExpanded = false;
     parameterProvidersExpanded = false;
+    registryClientsExpanded = false;
+    connectorsExpanded = false;
 
-    constructor(
-        private store: Store<NiFiState>,
-        private formBuilder: FormBuilder,
-        private nifiCommon: NiFiCommon,
-        private documentation: ElementRef
-    ) {
+    constructor() {
         this.store
             .select(selectDefinitionCoordinatesFromRoute)
             .pipe(
@@ -127,6 +137,12 @@ export class Documentation implements OnInit, AfterViewInit {
                     case ComponentType.ParameterProvider:
                         this.parameterProvidersExpanded = true;
                         break;
+                    case ComponentType.FlowRegistryClient:
+                        this.registryClientsExpanded = true;
+                        break;
+                    case ComponentType.Connector:
+                        this.connectorsExpanded = true;
+                        break;
                 }
             });
 
@@ -154,7 +170,7 @@ export class Documentation implements OnInit, AfterViewInit {
             filter: new FormControl(null)
         });
 
-        afterRender(() => {
+        afterNextRender(() => {
             if (!this.scrolledIntoView) {
                 const selectedType = this.documentation.nativeElement.querySelector('a.selected');
                 if (selectedType) {

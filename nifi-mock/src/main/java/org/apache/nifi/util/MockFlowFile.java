@@ -16,6 +16,11 @@
  */
 package org.apache.nifi.util;
 
+import org.apache.commons.lang3.builder.HashCodeBuilder;
+import org.apache.nifi.flowfile.FlowFile;
+import org.apache.nifi.flowfile.attributes.CoreAttributes;
+import org.junit.jupiter.api.Assertions;
+
 import java.io.BufferedInputStream;
 import java.io.ByteArrayInputStream;
 import java.io.File;
@@ -33,11 +38,6 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
-
-import org.apache.commons.lang3.builder.HashCodeBuilder;
-import org.apache.nifi.flowfile.FlowFile;
-import org.apache.nifi.flowfile.attributes.CoreAttributes;
-import org.junit.jupiter.api.Assertions;
 
 public class MockFlowFile implements FlowFile {
 
@@ -279,7 +279,6 @@ public class MockFlowFile implements FlowFile {
     public void assertContentEquals(final String data, final String charset) {
         assertContentEquals(data, Charset.forName(charset), false);
     }
-
 
     public void assertContentEquals(final String data, final Charset charset) {
         assertContentEquals(data, charset, false);

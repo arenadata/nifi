@@ -16,8 +16,8 @@
  */
 package org.apache.nifi.web.dao.impl;
 
-import org.apache.nifi.connectable.Port;
 import org.apache.nifi.components.PortFunction;
+import org.apache.nifi.connectable.Port;
 import org.apache.nifi.connectable.Position;
 import org.apache.nifi.controller.FlowController;
 import org.apache.nifi.controller.ScheduledState;
@@ -40,14 +40,22 @@ public abstract class AbstractPortDAO extends ComponentDAO implements PortDAO {
 
     protected FlowController flowController;
 
-    protected abstract Port locatePort(final String portId);
+    protected Port locatePort(final String portId) {
+        return locatePort(portId, false);
+    }
+
+    protected abstract Port locatePort(final String portId, final boolean includeConnectorManaged);
+
+    @Override
+    public Port getPort(final String portId) {
+        return locatePort(portId);
+    }
 
     @Override
     public void verifyUpdate(PortDTO portDTO) {
         final Port port = locatePort(portDTO.getId());
         verifyUpdate(port, portDTO);
     }
-
 
     protected void verifyUpdate(final Port port, final PortDTO portDTO) {
         if (isNotNull(portDTO.getState())) {

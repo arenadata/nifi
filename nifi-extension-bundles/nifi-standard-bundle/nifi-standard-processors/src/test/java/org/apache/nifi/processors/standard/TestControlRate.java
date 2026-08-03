@@ -77,8 +77,8 @@ public class TestControlRate {
 
     @Test
     public void testLimitExceededThenOtherLimitNotExceeded() {
-        // If we have flowfiles queued that have different values for the "Rate Controlled Attribute"
-        // and we encounter a FlowFile whose rate should be throttled, we should continue pulling other flowfiles
+        // If we have FlowFiles queued that have different values for the "Rate Controlled Attribute"
+        // and we encounter a FlowFile whose rate should be throttled, we should continue pulling other FlowFiles
         // whose rate does not need to be throttled.
         runner.setProperty(ControlRate.RATE_CONTROL_CRITERIA, ControlRate.RateControlCriteria.FLOWFILE_RATE);
         runner.setProperty(ControlRate.MAX_RATE, "3");
@@ -247,7 +247,7 @@ public class TestControlRate {
 
         runner.run(5, false);
 
-        // all flowfiles transfer to failure since throttling attribute is not present
+        // all FlowFiles transfer to failure since throttling attribute is not present
         runner.assertAllFlowFilesTransferred(ControlRate.REL_FAILURE, 5);
         runner.assertTransferCount(ControlRate.REL_SUCCESS, 0);
         runner.assertQueueEmpty();
@@ -276,24 +276,24 @@ public class TestControlRate {
         runner.setProperty(ControlRate.MAX_RATE, "5555");
         runner.setProperty(ControlRate.TIME_PERIOD, ONE_SECOND_TIME_PERIOD);
 
-        final int TEST_FILE_COUNT = 1500;
+        final int testFileCount = 1500;
 
-        for (int i = 0; i < TEST_FILE_COUNT; i++) {
+        for (int i = 0; i < testFileCount; i++) {
             runner.enqueue("test data " + i);
         }
 
         runner.run(1, false);
 
-        // after 1 run should have MAX_FLOW_FILES_PER_BATCH files transferred and remainder of TEST_FILE_COUNT in queue
+        // after 1 run should have MAX_FLOW_FILES_PER_BATCH files transferred and remainder of testFileCount in queue
         runner.assertAllFlowFilesTransferred(ControlRate.REL_SUCCESS, MAX_FLOW_FILES_PER_BATCH);
         runner.assertTransferCount(ControlRate.REL_FAILURE, 0);
         runner.assertQueueNotEmpty();
-        assertEquals(TEST_FILE_COUNT - MAX_FLOW_FILES_PER_BATCH, runner.getQueueSize().getObjectCount());
+        assertEquals(testFileCount - MAX_FLOW_FILES_PER_BATCH, runner.getQueueSize().getObjectCount());
 
         runner.run(1, false);
 
-        // after 2 runs should have TEST_FILE_COUNT files transferred and 0 in queue
-        runner.assertAllFlowFilesTransferred(ControlRate.REL_SUCCESS, TEST_FILE_COUNT);
+        // after 2 runs should have testFileCount files transferred and 0 in queue
+        runner.assertAllFlowFilesTransferred(ControlRate.REL_SUCCESS, testFileCount);
         runner.assertTransferCount(ControlRate.REL_FAILURE, 0);
         runner.assertQueueEmpty();
     }
@@ -342,7 +342,7 @@ public class TestControlRate {
         runner.assertTransferCount(ControlRate.REL_FAILURE, 0);
         runner.assertQueueNotEmpty();
 
-        // after 1 second, we should be able to send the up to 3 more flowfiles
+        // after 1 second, we should be able to send the up to 3 more FlowFiles
         incrementCurrentTime();
         runner.run(7, false);
         runner.assertTransferCount(ControlRate.REL_SUCCESS, 6);
@@ -376,7 +376,7 @@ public class TestControlRate {
         runner.assertTransferCount(ControlRate.REL_FAILURE, 0);
         runner.assertQueueNotEmpty();
 
-        // after 1 second, we should be able to send the up to 3 more flowfiles
+        // after 1 second, we should be able to send the up to 3 more FlowFiles
         incrementCurrentTime();
         runner.run(7, false);
         runner.assertTransferCount(ControlRate.REL_SUCCESS, 6);
@@ -419,7 +419,7 @@ public class TestControlRate {
         runner.setProperty(ControlRate.RATE_CONTROL_CRITERIA, ControlRate.RateControlCriteria.DATA_OR_FLOWFILE_RATE);
         runner.setProperty(ControlRate.TIME_PERIOD, ONE_SECOND_TIME_PERIOD);
         // FlowFile count rate will throttle before data rate
-        runner.setProperty(ControlRate.MAX_DATA_RATE, "44 B"); // greater than all flowfiles to be queued
+        runner.setProperty(ControlRate.MAX_DATA_RATE, "44 B"); // greater than all FlowFiles to be queued
         runner.setProperty(ControlRate.MAX_COUNT_RATE, "1");  // limit to 1 flowfile per second
 
         runner.enqueue("test data 1");
@@ -433,6 +433,12 @@ public class TestControlRate {
         runner.assertQueueNotEmpty();
 
         incrementCurrentTime(2000);
+        runner.run(1, false);
+        runner.assertTransferCount(ControlRate.REL_SUCCESS, 2);
+        runner.assertTransferCount(ControlRate.REL_FAILURE, 0);
+        runner.assertQueueNotEmpty();
+
+        incrementCurrentTime();
         runner.run(1, false);
         runner.assertTransferCount(ControlRate.REL_SUCCESS, 3);
         runner.assertTransferCount(ControlRate.REL_FAILURE, 0);
@@ -464,6 +470,12 @@ public class TestControlRate {
 
         // we have sent 2 flowfile and after 1 second, we should be able to send more, now limited by flowfile count
         incrementCurrentTime(1500);
+        runner.run(1, false);
+        runner.assertTransferCount(ControlRate.REL_SUCCESS, 7);
+        runner.assertTransferCount(ControlRate.REL_FAILURE, 0);
+        runner.assertQueueNotEmpty();
+
+        incrementCurrentTime();
         runner.run(1, false);
         runner.assertTransferCount(ControlRate.REL_SUCCESS, 8);
         runner.assertTransferCount(ControlRate.REL_FAILURE, 0);

@@ -17,14 +17,13 @@
 package org.apache.nifi.web.api.dto.util;
 
 import jakarta.xml.bind.annotation.adapters.XmlAdapter;
+
 import java.time.Instant;
 
 /**
  * XmlAdapter for (un)marshalling an Instant
  */
 public class InstantAdapter extends XmlAdapter<String, Instant> {
-
-    public static final String DEFAULT_DATE_TIME_FORMAT = "MM/dd/yyyy HH:mm:ss z";
 
     @Override
     public String marshal(Instant instant) throws Exception {

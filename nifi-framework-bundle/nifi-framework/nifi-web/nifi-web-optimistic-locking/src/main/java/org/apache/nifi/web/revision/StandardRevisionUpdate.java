@@ -17,12 +17,12 @@
 
 package org.apache.nifi.web.revision;
 
+import org.apache.nifi.web.FlowModification;
+import org.apache.nifi.web.Revision;
+
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.Set;
-
-import org.apache.nifi.web.FlowModification;
-import org.apache.nifi.web.Revision;
 
 public class StandardRevisionUpdate<T> implements RevisionUpdate<T> {
     private final T component;
@@ -41,7 +41,6 @@ public class StandardRevisionUpdate<T> implements RevisionUpdate<T> {
             this.updatedRevisions.add(lastModification.getRevision());
         }
     }
-
 
     @Override
     public T getComponent() {

@@ -18,7 +18,7 @@
     <parent>
         <groupId>org.apache.nifi</groupId>
         <artifactId>nifi-standard-shared-bom</artifactId>
-        <version>2.6.0</version>
+        <version>2.10.0.1</version>
         <relativePath>../nifi-standard-shared-bundle/nifi-standard-shared-bom</relativePath>
     </parent>
     <artifactId>nifi-standard-bundle</artifactId>
@@ -34,39 +34,39 @@
         <module>nifi-standard-content-viewer-nar</module>
     </modules>
     <properties>
-        <tika.version>3.2.3</tika.version>
+        <tika.version>3.3.1</tika.version>
     </properties>
     <dependencyManagement>
         <dependencies>
             <dependency>
                 <groupId>org.apache.nifi</groupId>
                 <artifactId>nifi-standard-processors</artifactId>
-                <version>2.6.0</version>
+                <version>2.10.0.1</version>
             </dependency>
             <dependency>
                 <groupId>org.apache.nifi</groupId>
                 <artifactId>nifi-expression-language</artifactId>
-                <version>2.6.0</version>
+                <version>2.10.0.1</version>
             </dependency>
             <dependency>
                 <groupId>org.apache.nifi</groupId>
                 <artifactId>nifi-standard-reporting-tasks</artifactId>
-                <version>2.6.0</version>
+                <version>2.10.0.1</version>
             </dependency>
             <dependency>
                 <groupId>org.apache.nifi</groupId>
                 <artifactId>nifi-standard-rules</artifactId>
-                <version>2.6.0</version>
+                <version>2.10.0.1</version>
             </dependency>
             <dependency>
                 <groupId>org.apache.nifi</groupId>
                 <artifactId>nifi-standard-parameter-providers</artifactId>
-                <version>2.6.0</version>
+                <version>2.10.0.1</version>
             </dependency>
             <dependency>
                 <groupId>jakarta.activation</groupId>
                 <artifactId>jakarta.activation-api</artifactId>
-                <version>2.1.4</version>
+                <version>${jakarta.activation-api.version}</version>
             </dependency>
             <dependency>
                 <groupId>com.sun.activation</groupId>
@@ -76,12 +76,12 @@
             <dependency>
                 <groupId>jakarta.mail</groupId>
                 <artifactId>jakarta.mail-api</artifactId>
-                <version>2.1.4</version>
+                <version>2.1.5</version>
             </dependency>
             <dependency>
                 <groupId>org.eclipse.angus</groupId>
                 <artifactId>angus-mail</artifactId>
-                <version>2.0.4</version>
+                <version>2.0.5</version>
             </dependency>
             <dependency>
                 <groupId>com.sun.mail</groupId>
@@ -96,12 +96,12 @@
             <dependency>
                 <groupId>com.aayushatharva.brotli4j</groupId>
                 <artifactId>brotli4j</artifactId>
-                <version>1.20.0</version>
+                <version>1.23.0</version>
             </dependency>
             <dependency>
                 <groupId>org.tukaani</groupId>
                 <artifactId>xz</artifactId>
-                <version>1.10</version>
+                <version>1.12</version>
             </dependency>
             <dependency>
                 <groupId>net.sf.saxon</groupId>
@@ -112,16 +112,6 @@
                 <groupId>javax.jms</groupId>
                 <artifactId>javax.jms-api</artifactId>
                 <version>2.0.1</version>
-            </dependency>
-            <dependency>
-                <groupId>org.apache.derby</groupId>
-                <artifactId>derby</artifactId>
-                <version>${derby.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>org.apache.derby</groupId>
-                <artifactId>derbytools</artifactId>
-                <version>${derby.version}</version>
             </dependency>
             <dependency>
                 <groupId>org.apache.tika</groupId>
@@ -157,7 +147,7 @@
             <dependency>
                 <groupId>com.github.wnameless.json</groupId>
                 <artifactId>json-flattener</artifactId>
-                <version>0.17.3</version>
+                <version>0.18.1</version>
             </dependency>
             <dependency>
                 <groupId>io.krakens</groupId>
@@ -173,7 +163,7 @@
             <dependency>
                 <groupId>org.apache.calcite</groupId>
                 <artifactId>calcite-core</artifactId>
-                <version>1.40.0</version>
+                <version>${calcite.version}</version>
                 <exclusions>
                     <exclusion>
                         <groupId>log4j</groupId>
@@ -190,12 +180,6 @@
                 <groupId>org.codehaus.janino</groupId>
                 <artifactId>commons-compiler</artifactId>
                 <version>3.1.12</version>
-            </dependency>
-            <!-- Override httpclient5 5.4.1 from calcite-core -->
-            <dependency>
-                <groupId>org.apache.httpcomponents.client5</groupId>
-                <artifactId>httpclient5</artifactId>
-                <version>5.4.4</version>
             </dependency>
             <dependency>
                 <groupId>org.codehaus.janino</groupId>
@@ -225,12 +209,12 @@
             <dependency>
                 <groupId>com.google.guava</groupId>
                 <artifactId>guava</artifactId>
-                <version>33.4.8-jre</version>
+                <version>33.6.0-jre</version>
             </dependency>
             <dependency>
                 <groupId>com.networknt</groupId>
                 <artifactId>json-schema-validator</artifactId>
-                <version>1.5.9</version>
+                <version>2.0.1</version>
             </dependency>
         </dependencies>
     </dependencyManagement>

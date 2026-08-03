@@ -44,7 +44,6 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import javax.net.ssl.SSLContext;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -63,6 +62,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Predicate;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import javax.net.ssl.SSLContext;
 
 @ExtendWith(TroubleshootingTestWatcher.class)
 @Timeout(value = 5, unit = TimeUnit.MINUTES)
@@ -90,6 +90,7 @@ public abstract class NiFiSystemIT implements NiFiInstanceProvider {
     public static final String TEST_PYTHON_EXTENSIONS_ARTIFACT_ID = "python-extensions";
     public static final String TEST_PARAM_PROVIDERS_PACKAGE = "org.apache.nifi.parameter.tests.system";
     public static final String TEST_PROCESSORS_PACKAGE = "org.apache.nifi.processors.tests.system";
+    public static final String TEST_CONNECTORS_PACKAGE = "org.apache.nifi.connectors.tests.system";
     public static final String TEST_CS_PACKAGE = "org.apache.nifi.cs.tests.system";
     public static final String TEST_REPORTING_TASK_PACKAGE = "org.apache.nifi.reporting";
     public static final String TEST_FLOW_ANALYSIS_RULE_PACKAGE = "org.apache.nifi.flowanalysis";
@@ -156,17 +157,29 @@ public abstract class NiFiSystemIT implements NiFiInstanceProvider {
     public void teardown() throws Exception {
         logger.info("Beginning teardown");
 
+        setupClient();
+
         try {
             // In some cases a test can pass, but still leave a clustered instance with one
             // of the nodes in a bad state, if the instance then gets reused
             // it will cause later tests to fail, so it is better to destroy the environment
             // if the cluster is in a bad state at the end of a test
             final NiFiInstance nifiInstance = nifiRef.get();
-            if (nifiInstance != null && nifiInstance.isClustered() && (!isCoordinatorElected() || !allNodesConnected(nifiInstance.getNumberOfNodes()))) {
-                logger.info("Clustered environment is in a bad state, will completely tear down the environments and start with a clean environment for the next test.");
-                instanceCache.poison(nifiInstance);
-                cleanup();
-                return;
+            if (nifiInstance != null && nifiInstance.isClustered()) {
+                boolean clusterHealthy;
+                try {
+                    clusterHealthy = isCoordinatorElected() && allNodesConnected(nifiInstance.getNumberOfNodes());
+                } catch (final Exception e) {
+                    logger.warn("Failed to determine cluster health during teardown", e);
+                    clusterHealthy = false;
+                }
+
+                if (!clusterHealthy) {
+                    logger.info("Clustered environment is in a bad state, will completely tear down the environments and start with a clean environment for the next test.");
+                    instanceCache.poison(nifiInstance);
+                    cleanup();
+                    return;
+                }
             }
 
             Exception destroyFlowFailure = null;
@@ -262,12 +275,14 @@ public abstract class NiFiSystemIT implements NiFiInstanceProvider {
         getClientUtil().disableControllerLevelServices();
         getClientUtil().disableFlowAnalysisRules();
         getClientUtil().stopTransmitting("root");
+        getClientUtil().stopConnectors();
         getClientUtil().deleteAll("root");
         getClientUtil().deleteControllerLevelServices();
         getClientUtil().deleteReportingTasks();
         getClientUtil().deleteFlowAnalysisRules();
         getClientUtil().deleteParameterContexts();
         getClientUtil().deleteParameterProviders();
+        getClientUtil().deleteConnectors();
 
         logger.info("Finished destroyFlow");
     }
@@ -305,7 +320,20 @@ public abstract class NiFiSystemIT implements NiFiInstanceProvider {
             }
 
             if (System.currentTimeMillis() > maxTime) {
-                throw new RuntimeException("Waited up to 60 seconds for all nodes to connect but only " + connectedNodeCount + " nodes connected");
+                String nodeDetails = "";
+                try {
+                    final ClusterEntity clusterEntity = client.getControllerClient().getNodes();
+                    final Collection<NodeDTO> nodes = clusterEntity.getCluster().getNodes();
+                    final StringBuilder details = new StringBuilder();
+                    for (final NodeDTO node : nodes) {
+                        details.append(String.format("%n  Node [%s:%d] Status=%s", node.getAddress(), node.getApiPort(), node.getStatus()));
+                    }
+                    nodeDetails = details.toString();
+                } catch (final Exception e) {
+                    nodeDetails = " (failed to retrieve node details: " + e.getMessage() + ")";
+                }
+                throw new RuntimeException("Waited up to 60 seconds for all " + expectedNumberOfNodes
+                    + " nodes to connect but only " + connectedNodeCount + " nodes connected. Node states:" + nodeDetails);
             }
 
             try {
@@ -423,6 +451,25 @@ public abstract class NiFiSystemIT implements NiFiInstanceProvider {
         }
     }
 
+    protected void waitFor(final ExceptionalBooleanSupplier condition, final long delayMillis, final String description) throws InterruptedException {
+        logger.info("Waiting for {}", description);
+        boolean result = false;
+        while (!result) {
+            try {
+                result = condition.getAsBoolean();
+            } catch (final InterruptedException ie) {
+                throw ie;
+            } catch (final Exception e) {
+                logEverySecond("Waiting for {} but condition check threw {}: {}", description, e.getClass().getSimpleName(), e.getMessage());
+            }
+
+            if (!result) {
+                Thread.sleep(delayMillis);
+            }
+        }
+        logger.info("Wait successful for {}", description);
+    }
+
     protected void waitForNodeStatus(final NodeDTO nodeDto, final String status) throws InterruptedException {
         waitFor(() -> {
             try {
@@ -466,6 +513,29 @@ public abstract class NiFiSystemIT implements NiFiInstanceProvider {
         waitForQueueCountToMatch(connectionId, size -> size == queueSize, String.valueOf(queueSize));
 
         logger.info("Queue Count for Connection {} is now {}", connectionId, queueSize);
+    }
+
+    protected void waitForConnectorMinQueueCount(final String connectorId, final int minQueueSize) throws InterruptedException {
+        logger.info("Waiting for Queue Count of at least {} in Connector {}", minQueueSize, connectorId);
+
+        waitFor(() -> {
+            try {
+                final ProcessGroupStatusEntity statusEntity = getNifiClient().getConnectorClient().getStatus(connectorId, true);
+                final int currentSize = statusEntity.getProcessGroupStatus().getAggregateSnapshot().getFlowFilesQueued();
+                logEverySecond("Current Queue Size for Connector {} = {}, Waiting for at least {}", connectorId, currentSize, minQueueSize);
+                return currentSize >= minQueueSize;
+            } catch (final Exception e) {
+                logger.error("Failed to get connector queue count", e);
+                return false;
+            }
+        });
+
+        logger.info("Queue Count for Connector {} is now at least {}", connectorId, minQueueSize);
+    }
+
+    protected int getConnectorQueuedFlowFileCount(final String connectorId) throws NiFiClientException, IOException {
+        final ProcessGroupStatusEntity statusEntity = getNifiClient().getConnectorClient().getStatus(connectorId, true);
+        return statusEntity.getProcessGroupStatus().getAggregateSnapshot().getFlowFilesQueued();
     }
 
     private void waitForQueueCountToMatch(final String connectionId, final Predicate<Integer> test, final String queueSizeDescription) throws InterruptedException {
@@ -633,6 +703,30 @@ public abstract class NiFiSystemIT implements NiFiInstanceProvider {
         final NodeEntity nodeEntity = getNodeEntity(nodeIndex);
         nodeEntity.getNode().setStatus(NodeConnectionState.CONNECTING.name());
         getNifiClient().getControllerClient().connectNode(nodeEntity.getNode().getNodeId(), nodeEntity);
+    }
+
+    /**
+     * Removes a node from the cluster and waits until the cluster coordinator no longer reports the node.
+     * Mutating cluster requests (such as deleting a component) reject while a non-CONNECTED node is still
+     * known to the coordinator, so callers that need to issue follow-up mutating requests must wait for
+     * the removal to be reflected in the cluster state rather than relying on the synchronous response of
+     * {@code deleteNode} alone.
+     *
+     * @param nodeIndex the 1-based index of the node
+     */
+    protected void removeNodeFromCluster(final int nodeIndex) throws NiFiClientException, IOException, InterruptedException {
+        final NodeEntity nodeEntity = getNodeEntity(nodeIndex);
+        final int expectedPort = getClientApiPort() + nodeIndex - 1;
+        getNifiClient().getControllerClient().deleteNode(nodeEntity.getNode().getNodeId());
+
+        waitFor(() -> {
+            try {
+                return getNifiClient().getControllerClient().getNodes().getCluster().getNodes().stream()
+                        .noneMatch(dto -> dto.getApiPort() == expectedPort);
+            } catch (final Exception e) {
+                return false;
+            }
+        });
     }
 
     protected NodeEntity getNodeEntity(final int nodeIndex) throws NiFiClientException, IOException {

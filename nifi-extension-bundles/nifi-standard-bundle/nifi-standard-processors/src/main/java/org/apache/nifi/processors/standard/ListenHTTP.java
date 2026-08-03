@@ -37,6 +37,11 @@ import org.apache.nifi.components.PropertyDescriptor;
 import org.apache.nifi.components.PropertyValue;
 import org.apache.nifi.components.ValidationContext;
 import org.apache.nifi.components.ValidationResult;
+import org.apache.nifi.components.listen.ListenComponent;
+import org.apache.nifi.components.listen.ListenPort;
+import org.apache.nifi.components.listen.StandardListenPort;
+import org.apache.nifi.components.listen.TransportProtocol;
+import org.apache.nifi.controller.ConfigurationContext;
 import org.apache.nifi.expression.ExpressionLanguageScope;
 import org.apache.nifi.flowfile.FlowFile;
 import org.apache.nifi.jetty.configuration.connector.StandardServerConnectorFactory;
@@ -59,16 +64,12 @@ import org.apache.nifi.security.util.ClientAuth;
 import org.apache.nifi.serialization.RecordReaderFactory;
 import org.apache.nifi.serialization.RecordSetWriterFactory;
 import org.apache.nifi.ssl.SSLContextProvider;
-import org.eclipse.jetty.ee10.servlet.ServletContextHandler;
-import org.eclipse.jetty.ee10.servlet.ServletHolder;
+import org.eclipse.jetty.ee11.servlet.ServletContextHandler;
+import org.eclipse.jetty.ee11.servlet.ServletHolder;
 import org.eclipse.jetty.server.Server;
 import org.eclipse.jetty.server.ServerConnector;
 import org.eclipse.jetty.util.thread.QueuedThreadPool;
 
-import javax.net.ssl.SSLContext;
-import javax.net.ssl.TrustManager;
-import javax.net.ssl.TrustManagerFactory;
-import javax.net.ssl.X509TrustManager;
 import java.security.KeyStore;
 import java.security.cert.X509Certificate;
 import java.util.ArrayList;
@@ -85,6 +86,10 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.regex.Pattern;
+import javax.net.ssl.SSLContext;
+import javax.net.ssl.TrustManager;
+import javax.net.ssl.TrustManagerFactory;
+import javax.net.ssl.X509TrustManager;
 
 @InputRequirement(Requirement.INPUT_FORBIDDEN)
 @Tags({"ingest", "http", "https", "rest", "listen"})
@@ -93,11 +98,11 @@ import java.util.regex.Pattern;
         The default URI of the Service will be http://{hostname}:{port}/contentListener. Only HEAD and POST requests are
         supported. GET, PUT, DELETE, OPTIONS and TRACE will result in an error and the HTTP response status code 405;
         CONNECT will also result in an error and the HTTP response status code 400.
-        GET is supported on <service_URI>/healthcheck. If the service is available, it returns \"200 OK\" with the content \"OK\".
+        GET is supported on <service_URI>/healthcheck. If the service is available, it returns "200 OK" with the content "OK".
         The health check functionality can be configured to be accessible via a different port.
-        For details, see the documentation of the \"Listening Port for health check requests\" property.
+        For details, see the documentation of the "Listening Port for health check requests" property.
         A Record Reader and Record Writer property can be enabled on the processor to process incoming requests as records.
-        Record processing is not allowed for multipart requests and request in FlowFileV3 format (minifi).
+        Record processing is not allowed for multipart requests or requests in FlowFileV3 format (minifi).
         If the incoming request contains a FlowFileV3 package format, the data will be unpacked automatically into individual
         FlowFile(s) contained within the package; the original FlowFile names are restored.
         """)
@@ -116,7 +121,7 @@ import java.util.regex.Pattern;
         """
 )
 @MultiProcessorUseCase(
-        description = "Limit the date flow rate that is accepted",
+        description = "Limit the data flow rate that is accepted",
         keywords = {"rate", "limit"},
         notes = """
             When ListenHTTP cannot output FlowFiles due to back pressure, it will send HTTP 503 Service Unavailable
@@ -140,7 +145,7 @@ import java.util.regex.Pattern;
                     """)
         }
 )
-public class ListenHTTP extends AbstractSessionFactoryProcessor {
+public class ListenHTTP extends AbstractSessionFactoryProcessor implements ListenComponent {
     private static final String MATCH_ALL = ".*";
 
     private final AtomicBoolean initialized = new AtomicBoolean(false);
@@ -183,12 +188,12 @@ public class ListenHTTP extends AbstractSessionFactoryProcessor {
         .name("Listening Port")
         .description("The Port to listen on for incoming connections")
         .required(true)
+        .identifiesListenPort(TransportProtocol.TCP, "http/1.1", "h2")
         .expressionLanguageSupported(ExpressionLanguageScope.ENVIRONMENT)
         .addValidator(StandardValidators.PORT_VALIDATOR)
         .build();
     public static final PropertyDescriptor HEALTH_CHECK_PORT = new PropertyDescriptor.Builder()
-            .name("health-check-port")
-            .displayName("Listening Port for Health Check Requests")
+            .name("Listening Port for Health Check Requests")
             .description("The port to listen on for incoming health check requests. " +
                     "If set, it must be different from the Listening Port. " +
                     "Configure this port if the processor is set to use two-way SSL and a load balancer that does not support client authentication for " +
@@ -198,12 +203,12 @@ public class ListenHTTP extends AbstractSessionFactoryProcessor {
                     "If the processor is set to use one-way SSL, one-way SSL will be used on this port. " +
                     "If the processor is set to use two-way SSL, one-way SSL will be used on this port (client authentication not required).")
             .required(false)
+            .identifiesListenPort(TransportProtocol.TCP, "http/1.1", "h2")
             .expressionLanguageSupported(ExpressionLanguageScope.ENVIRONMENT)
             .addValidator(StandardValidators.PORT_VALIDATOR)
             .build();
     public static final PropertyDescriptor AUTHORIZED_DN_PATTERN = new PropertyDescriptor.Builder()
-        .name("Authorized DN Pattern")
-        .displayName("Authorized Subject DN Pattern")
+        .name("Authorized Subject DN Pattern")
         .description("A Regular Expression to apply against the Subject's Distinguished Name of incoming connections. If the Pattern does not match the Subject DN, " +
                 "the the processor will respond with a status of HTTP 403 Forbidden.")
         .required(true)
@@ -211,8 +216,7 @@ public class ListenHTTP extends AbstractSessionFactoryProcessor {
         .addValidator(StandardValidators.REGULAR_EXPRESSION_VALIDATOR)
         .build();
     public static final PropertyDescriptor AUTHORIZED_ISSUER_DN_PATTERN = new PropertyDescriptor.Builder()
-        .name("authorized-issuer-dn-pattern")
-        .displayName("Authorized Issuer DN Pattern")
+        .name("Authorized Issuer DN Pattern")
         .description("A Regular Expression to apply against the Issuer's Distinguished Name of incoming connections. If the Pattern does not match the Issuer DN, " +
                 "the processor will respond with a status of HTTP 403 Forbidden.")
         .required(false)
@@ -241,7 +245,7 @@ public class ListenHTTP extends AbstractSessionFactoryProcessor {
         .dependsOn(SSL_CONTEXT_SERVICE)
         .build();
     public static final PropertyDescriptor HEADERS_AS_ATTRIBUTES_REGEX = new PropertyDescriptor.Builder()
-        .name("HTTP Headers to receive as Attributes (Regex)")
+        .name("HTTP Headers for Attributes")
         .description("Specifies the Regular Expression that determines the names of HTTP Headers that should be passed along as FlowFile attributes")
         .addValidator(StandardValidators.REGULAR_EXPRESSION_VALIDATOR)
         .required(false)
@@ -260,8 +264,7 @@ public class ListenHTTP extends AbstractSessionFactoryProcessor {
         .addValidator(StandardValidators.NON_NEGATIVE_INTEGER_VALIDATOR)
         .build();
     public static final PropertyDescriptor MULTIPART_REQUEST_MAX_SIZE = new PropertyDescriptor.Builder()
-        .name("multipart-request-max-size")
-        .displayName("Multipart Request Max Size")
+        .name("Multipart Request Max Size")
         .description("The max size of the request. Only applies for requests with Content-Type: multipart/form-data, "
                 + "and is used to prevent denial of service type of attacks, to prevent filling up the heap or disk space")
         .required(true)
@@ -269,8 +272,7 @@ public class ListenHTTP extends AbstractSessionFactoryProcessor {
         .defaultValue("1 MB")
         .build();
     public static final PropertyDescriptor MULTIPART_READ_BUFFER_SIZE = new PropertyDescriptor.Builder()
-        .name("multipart-read-buffer-size")
-        .displayName("Multipart Read Buffer Size")
+        .name("Multipart Read Buffer Size")
         .description("The threshold size, at which the contents of an incoming file would be written to disk. "
                 + "Only applies for requests with Content-Type: multipart/form-data. "
                 + "It is used to prevent denial of service type of attacks, to prevent filling up the heap or disk space.")
@@ -279,8 +281,7 @@ public class ListenHTTP extends AbstractSessionFactoryProcessor {
         .defaultValue("512 KB")
         .build();
     public static final PropertyDescriptor CLIENT_AUTHENTICATION = new PropertyDescriptor.Builder()
-            .name("client-authentication")
-            .displayName("Client Authentication")
+            .name("Client Authentication")
             .description("Client Authentication policy for TLS connections. Required when SSL Context Service configured.")
             .required(false)
             .allowableValues(Arrays.stream(ClientAuthentication.values())
@@ -291,8 +292,7 @@ public class ListenHTTP extends AbstractSessionFactoryProcessor {
             .dependsOn(SSL_CONTEXT_SERVICE)
             .build();
     public static final PropertyDescriptor MAX_THREAD_POOL_SIZE = new PropertyDescriptor.Builder()
-            .name("max-thread-pool-size")
-            .displayName("Maximum Thread Pool Size")
+            .name("Maximum Thread Pool Size")
             .description("The maximum number of threads to be used by the embedded Jetty server. "
                     + "The value can be set between 8 and 1000. "
                     + "The value of this property affects the performance of the flows and the operating system, therefore "
@@ -306,16 +306,14 @@ public class ListenHTTP extends AbstractSessionFactoryProcessor {
             .build();
 
     public static final PropertyDescriptor RECORD_READER = new PropertyDescriptor.Builder()
-            .name("record-reader")
-            .displayName("Record Reader")
+            .name("Record Reader")
             .description("The Record Reader to use parsing the incoming FlowFile into Records")
             .required(false)
             .identifiesControllerService(RecordReaderFactory.class)
             .build();
 
     public static final PropertyDescriptor RECORD_WRITER = new PropertyDescriptor.Builder()
-            .name("record-writer")
-            .displayName("Record Writer")
+            .name("Record Writer")
             .description("The Record Writer to use for serializing Records after they have been transformed")
             .required(true)
             .identifiesControllerService(RecordSetWriterFactory.class)
@@ -405,10 +403,20 @@ public class ListenHTTP extends AbstractSessionFactoryProcessor {
 
     @Override
     public void migrateProperties(PropertyConfiguration config) {
-        super.migrateProperties(config);
         if (config.removeProperty("Max Data to Receive per Second")) {
             getLogger().warn("ListenHTTP rate limit feature was removed. Please see ListenHTTP documentation for alternatives.");
         }
+
+        config.renameProperty("health-check-port", HEALTH_CHECK_PORT.getName());
+        config.renameProperty("Authorized DN Pattern", AUTHORIZED_DN_PATTERN.getName());
+        config.renameProperty("authorized-issuer-dn-pattern", AUTHORIZED_ISSUER_DN_PATTERN.getName());
+        config.renameProperty("multipart-request-max-size", MULTIPART_REQUEST_MAX_SIZE.getName());
+        config.renameProperty("multipart-read-buffer-size", MULTIPART_READ_BUFFER_SIZE.getName());
+        config.renameProperty("client-authentication", CLIENT_AUTHENTICATION.getName());
+        config.renameProperty("max-thread-pool-size", MAX_THREAD_POOL_SIZE.getName());
+        config.renameProperty("record-reader", RECORD_READER.getName());
+        config.renameProperty("record-writer", RECORD_WRITER.getName());
+        config.renameProperty("HTTP Headers to receive as Attributes (Regex)", HEADERS_AS_ATTRIBUTES_REGEX.getName());
     }
 
     @OnShutdown
@@ -420,6 +428,47 @@ public class ListenHTTP extends AbstractSessionFactoryProcessor {
         }
 
         shutdownHttpServer(toShutdown);
+    }
+
+    @Override
+    public List<ListenPort> getListenPorts(final ConfigurationContext context) {
+
+        final List<ListenPort> ports = new ArrayList<>();
+
+        final Integer primaryPortNumber = context.getProperty(PORT).evaluateAttributeExpressions().asInteger();
+        final Integer healthCheckPortNumber = context.getProperty(HEALTH_CHECK_PORT).evaluateAttributeExpressions().asInteger();
+        final SSLContextProvider sslContextProvider = context.getProperty(SSL_CONTEXT_SERVICE).asControllerService(SSLContextProvider.class);
+        final HttpProtocolStrategy httpProtocolStrategy = sslContextProvider == null
+            ? HttpProtocolStrategy.valueOf(HTTP_PROTOCOL_STRATEGY.getDefaultValue())
+            : context.getProperty(HTTP_PROTOCOL_STRATEGY).asAllowableValue(HttpProtocolStrategy.class);
+        final List<String> applicationProtocols = switch (httpProtocolStrategy) {
+            case H2 -> List.of("h2");
+            case HTTP_1_1 -> List.of("http/1.1");
+            case H2_HTTP_1_1 -> List.of("h2", "http/1.1");
+            case null -> List.of("h2", "http/1.1");
+        };
+
+        if (primaryPortNumber != null) {
+            final ListenPort primaryPort = StandardListenPort.builder()
+                .portNumber(primaryPortNumber)
+                .portName(PORT.getDisplayName())
+                .transportProtocol(TransportProtocol.TCP)
+                .applicationProtocols(applicationProtocols)
+                .build();
+            ports.add(primaryPort);
+        }
+
+        if (healthCheckPortNumber != null) {
+            final ListenPort healthCheckPort = StandardListenPort.builder()
+                .portNumber(healthCheckPortNumber)
+                .portName(HEALTH_CHECK_PORT.getDisplayName())
+                .transportProtocol(TransportProtocol.TCP)
+                .applicationProtocols(applicationProtocols)
+                .build();
+            ports.add(healthCheckPort);
+        }
+
+        return ports;
     }
 
     Server getServer() {
@@ -437,7 +486,7 @@ public class ListenHTTP extends AbstractSessionFactoryProcessor {
         }
     }
 
-    synchronized private void createHttpServerFromService(final ProcessContext context) throws Exception {
+    private synchronized void createHttpServerFromService(final ProcessContext context) throws Exception {
         if (initialized.get()) {
             return;
         }
@@ -462,8 +511,8 @@ public class ListenHTTP extends AbstractSessionFactoryProcessor {
         // get the configured port
         final int port = context.getProperty(PORT).evaluateAttributeExpressions().asInteger();
         final HttpProtocolStrategy httpProtocolStrategy = sslContextProvider == null
-                ? HttpProtocolStrategy.valueOf(HTTP_PROTOCOL_STRATEGY.getDefaultValue())
-                : context.getProperty(HTTP_PROTOCOL_STRATEGY).asAllowableValue(HttpProtocolStrategy.class);
+            ? HttpProtocolStrategy.valueOf(HTTP_PROTOCOL_STRATEGY.getDefaultValue())
+            : context.getProperty(HTTP_PROTOCOL_STRATEGY).asAllowableValue(HttpProtocolStrategy.class);
         final ServerConnector connector = createServerConnector(server,
                 port,
                 requestHeaderSize,

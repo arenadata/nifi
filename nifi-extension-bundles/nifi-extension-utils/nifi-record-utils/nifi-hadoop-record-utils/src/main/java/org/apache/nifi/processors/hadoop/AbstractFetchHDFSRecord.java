@@ -27,6 +27,7 @@ import org.apache.nifi.components.PropertyDescriptor;
 import org.apache.nifi.expression.ExpressionLanguageScope;
 import org.apache.nifi.flowfile.FlowFile;
 import org.apache.nifi.flowfile.attributes.CoreAttributes;
+import org.apache.nifi.migration.PropertyConfiguration;
 import org.apache.nifi.processor.ProcessContext;
 import org.apache.nifi.processor.ProcessSession;
 import org.apache.nifi.processor.ProcessorInitializationContext;
@@ -64,8 +65,7 @@ import java.util.concurrent.atomic.AtomicReference;
 public abstract class AbstractFetchHDFSRecord extends AbstractHadoopProcessor {
 
     public static final PropertyDescriptor FILENAME = new PropertyDescriptor.Builder()
-            .name("filename")
-            .displayName("Filename")
+            .name("Filename")
             .description("The name of the file to retrieve")
             .required(true)
             .expressionLanguageSupported(ExpressionLanguageScope.FLOWFILE_ATTRIBUTES)
@@ -74,8 +74,7 @@ public abstract class AbstractFetchHDFSRecord extends AbstractHadoopProcessor {
             .build();
 
     public static final PropertyDescriptor RECORD_WRITER = new PropertyDescriptor.Builder()
-            .name("record-writer")
-            .displayName("Record Writer")
+            .name("Record Writer")
             .description("The service for writing records to the FlowFile content")
             .identifiesControllerService(RecordSetWriterFactory.class)
             .required(true)
@@ -168,11 +167,10 @@ public abstract class AbstractFetchHDFSRecord extends AbstractHadoopProcessor {
         }
 
         final FlowFile originalFlowFile = session.get();
-        if (originalFlowFile == null ) {
+        if (originalFlowFile == null) {
             context.yield();
             return;
         }
-
 
         ugi.doAs((PrivilegedAction<Object>) () -> {
             FlowFile child = null;
@@ -231,7 +229,6 @@ public abstract class AbstractFetchHDFSRecord extends AbstractHadoopProcessor {
                 attributes.put(CoreAttributes.MIME_TYPE.key(), mimeTypeRef.get());
                 successFlowFile = session.putAllAttributes(successFlowFile, attributes);
 
-
                 final Path qualifiedPath = path.makeQualified(fileSystem.getUri(), fileSystem.getWorkingDirectory());
                 successFlowFile = session.putAttribute(successFlowFile, HADOOP_FILE_URL_ATTRIBUTE, qualifiedPath.toString());
                 getLogger().info("Successfully received content from {} for {} in {} milliseconds", qualifiedPath, successFlowFile, stopWatch.getDuration());
@@ -262,6 +259,13 @@ public abstract class AbstractFetchHDFSRecord extends AbstractHadoopProcessor {
             return null;
         });
 
+    }
+
+    @Override
+    public void migrateProperties(PropertyConfiguration config) {
+        super.migrateProperties(config);
+        config.renameProperty("filename", FILENAME.getName());
+        config.renameProperty("record-writer", RECORD_WRITER.getName());
     }
 
     /**

@@ -16,14 +16,6 @@
  */
 package org.apache.nifi.controller.status.analytics;
 
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.NoSuchElementException;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.stream.Stream;
-
 import org.apache.commons.collections4.MapUtils;
 import org.apache.commons.lang3.ArrayUtils;
 import org.apache.nifi.connectable.Connection;
@@ -36,6 +28,14 @@ import org.apache.nifi.processor.DataUnit;
 import org.apache.nifi.util.Tuple;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.NoSuchElementException;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.stream.Stream;
 
 /**
  * <p>
@@ -58,13 +58,13 @@ public class ConnectionStatusAnalytics implements StatusAnalytics {
     private double scoreThreshold = .90;
     private Map<String, Long> predictions;
 
-    private static String TIME_TO_BYTE_BACKPRESSURE_MILLIS = "timeToBytesBackpressureMillis";
-    private static String TIME_TO_COUNT_BACKPRESSURE_MILLIS = "timeToCountBackpressureMillis";
-    private static String NEXT_INTERVAL_BYTES = "nextIntervalBytes";
-    private static String NEXT_INTERVAL_COUNT = "nextIntervalCount";
-    private static String NEXT_INTERVAL_PERCENTAGE_USE_COUNT = "nextIntervalPercentageUseCount";
-    private static String NEXT_INTERVAL_PERCENTAGE_USE_BYTES = "nextIntervalPercentageUseBytes";
-    private static String INTERVAL_TIME_MILLIS = "intervalTimeMillis";
+    private static final String TIME_TO_BYTE_BACKPRESSURE_MILLIS = "timeToBytesBackpressureMillis";
+    private static final String TIME_TO_COUNT_BACKPRESSURE_MILLIS = "timeToCountBackpressureMillis";
+    private static final String NEXT_INTERVAL_BYTES = "nextIntervalBytes";
+    private static final String NEXT_INTERVAL_COUNT = "nextIntervalCount";
+    private static final String NEXT_INTERVAL_PERCENTAGE_USE_COUNT = "nextIntervalPercentageUseCount";
+    private static final String NEXT_INTERVAL_PERCENTAGE_USE_BYTES = "nextIntervalPercentageUseBytes";
+    private static final String INTERVAL_TIME_MILLIS = "intervalTimeMillis";
 
     public ConnectionStatusAnalytics(StatusHistoryRepository statusHistoryRepository, FlowManager flowManager,
                                      Map<String, Tuple<StatusAnalyticsModel, StatusMetricExtractFunction>> modelMap, String connectionIdentifier, Boolean supportOnlineLearning) {

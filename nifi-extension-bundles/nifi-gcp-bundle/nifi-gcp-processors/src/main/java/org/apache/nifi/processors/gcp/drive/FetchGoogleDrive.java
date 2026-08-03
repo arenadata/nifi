@@ -24,15 +24,6 @@ import com.google.api.client.http.HttpResponse;
 import com.google.api.services.drive.Drive;
 import com.google.api.services.drive.DriveScopes;
 import com.google.api.services.drive.model.File;
-import java.io.IOException;
-import java.io.InputStream;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Optional;
-import java.util.Set;
-import java.util.concurrent.TimeUnit;
-
 import com.google.api.services.drive.model.User;
 import org.apache.nifi.annotation.behavior.InputRequirement;
 import org.apache.nifi.annotation.behavior.ReadsAttribute;
@@ -49,6 +40,8 @@ import org.apache.nifi.components.PropertyDescriptor;
 import org.apache.nifi.expression.ExpressionLanguageScope;
 import org.apache.nifi.flowfile.FlowFile;
 import org.apache.nifi.flowfile.attributes.CoreAttributes;
+import org.apache.nifi.migration.PropertyConfiguration;
+import org.apache.nifi.migration.ProxyServiceMigration;
 import org.apache.nifi.processor.AbstractProcessor;
 import org.apache.nifi.processor.ProcessContext;
 import org.apache.nifi.processor.ProcessSession;
@@ -58,6 +51,15 @@ import org.apache.nifi.processor.util.StandardValidators;
 import org.apache.nifi.processors.gcp.ProxyAwareTransportFactory;
 import org.apache.nifi.processors.gcp.util.GoogleUtils;
 import org.apache.nifi.proxy.ProxyConfiguration;
+
+import java.io.IOException;
+import java.io.InputStream;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
+import java.util.concurrent.TimeUnit;
 
 import static org.apache.nifi.processors.gcp.drive.GoogleDriveAttributes.CREATED_TIME;
 import static org.apache.nifi.processors.gcp.drive.GoogleDriveAttributes.CREATED_TIME_DESC;
@@ -94,7 +96,6 @@ import static org.apache.nifi.processors.gcp.drive.GoogleDriveAttributes.WEB_CON
 import static org.apache.nifi.processors.gcp.drive.GoogleDriveAttributes.WEB_CONTENT_LINK_DESC;
 import static org.apache.nifi.processors.gcp.drive.GoogleDriveAttributes.WEB_VIEW_LINK;
 import static org.apache.nifi.processors.gcp.drive.GoogleDriveAttributes.WEB_VIEW_LINK_DESC;
-
 @InputRequirement(InputRequirement.Requirement.INPUT_REQUIRED)
 @Tags({"google", "drive", "storage", "fetch"})
 @CapabilityDescription("Fetches files from a Google Drive Folder. Designed to be used in tandem with ListGoogleDrive. " +
@@ -205,10 +206,8 @@ public class FetchGoogleDrive extends AbstractProcessor implements GoogleDriveTr
         fileExtensions.put("application/vnd.google-apps.script+json", ".json");
     }
 
-
     public static final PropertyDescriptor FILE_ID = new PropertyDescriptor.Builder()
-            .name("drive-file-id")
-            .displayName("File ID")
+            .name("File ID")
             .description("The Drive ID of the File to fetch. Please see Additional Details for information on how to obtain the Drive ID.")
             .required(true)
             .defaultValue("${drive.id}")
@@ -258,8 +257,6 @@ public class FetchGoogleDrive extends AbstractProcessor implements GoogleDriveTr
         .defaultValue(EXPORT_PDF.getValue())
         .build();
 
-
-
     public static final Relationship REL_SUCCESS = new Relationship.Builder()
             .name("success")
             .description("A FlowFile will be routed here for each successfully fetched File.")
@@ -277,6 +274,7 @@ public class FetchGoogleDrive extends AbstractProcessor implements GoogleDriveTr
             GOOGLE_SPREADSHEET_EXPORT_TYPE,
             GOOGLE_PRESENTATION_EXPORT_TYPE,
             GOOGLE_DRAWING_EXPORT_TYPE,
+            GOOGLE_DRIVE_SCOPE,
             ProxyConfiguration.createProxyConfigPropertyDescriptor(ProxyAwareTransportFactory.PROXY_SPECS),
             CONNECT_TIMEOUT,
             READ_TIMEOUT
@@ -306,7 +304,7 @@ public class FetchGoogleDrive extends AbstractProcessor implements GoogleDriveTr
         driveService = createDriveService(
                 context,
                 new ProxyAwareTransportFactory(proxyConfiguration).create(),
-                DriveScopes.DRIVE, DriveScopes.DRIVE_FILE
+                resolveScopes(context, DriveScopes.DRIVE, DriveScopes.DRIVE_FILE)
         );
     }
 
@@ -361,6 +359,15 @@ public class FetchGoogleDrive extends AbstractProcessor implements GoogleDriveTr
         } catch (Exception e) {
             handleUnexpectedError(session, flowFile, fileId, e);
         }
+    }
+
+    @Override
+    public void migrateProperties(PropertyConfiguration config) {
+        config.renameProperty("drive-file-id", FILE_ID.getName());
+        config.renameProperty(OLD_CONNECT_TIMEOUT_PROPERTY_NAME, CONNECT_TIMEOUT.getName());
+        config.renameProperty(OLD_READ_TIMEOUT_PROPERTY_NAME, READ_TIMEOUT.getName());
+        config.renameProperty(GoogleUtils.OLD_GCP_CREDENTIALS_PROVIDER_SERVICE_PROPERTY_NAME, GoogleUtils.GCP_CREDENTIALS_PROVIDER_SERVICE.getName());
+        ProxyServiceMigration.renameProxyConfigurationServiceProperty(config);
     }
 
     private String getExportType(final String mimeType, final ProcessContext context) {

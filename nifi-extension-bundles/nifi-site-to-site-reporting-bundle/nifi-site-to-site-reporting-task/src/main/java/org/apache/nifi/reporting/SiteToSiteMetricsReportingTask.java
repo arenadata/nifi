@@ -17,6 +17,33 @@
 
 package org.apache.nifi.reporting;
 
+import jakarta.json.Json;
+import jakarta.json.JsonBuilderFactory;
+import jakarta.json.JsonObject;
+import org.apache.avro.Schema;
+import org.apache.nifi.annotation.documentation.CapabilityDescription;
+import org.apache.nifi.annotation.documentation.Tags;
+import org.apache.nifi.avro.AvroTypeUtil;
+import org.apache.nifi.components.AllowableValue;
+import org.apache.nifi.components.PropertyDescriptor;
+import org.apache.nifi.components.ValidationContext;
+import org.apache.nifi.components.ValidationResult;
+import org.apache.nifi.components.Validator;
+import org.apache.nifi.controller.status.ProcessGroupStatus;
+import org.apache.nifi.expression.ExpressionLanguageScope;
+import org.apache.nifi.flowfile.attributes.CoreAttributes;
+import org.apache.nifi.metrics.jvm.JmxJvmMetrics;
+import org.apache.nifi.metrics.jvm.JvmMetrics;
+import org.apache.nifi.migration.PropertyConfiguration;
+import org.apache.nifi.processor.exception.ProcessException;
+import org.apache.nifi.processor.util.StandardValidators;
+import org.apache.nifi.remote.Transaction;
+import org.apache.nifi.remote.TransferDirection;
+import org.apache.nifi.reporting.s2s.SiteToSiteUtils;
+import org.apache.nifi.reporting.util.metrics.MetricNames;
+import org.apache.nifi.reporting.util.metrics.MetricsService;
+import org.apache.nifi.reporting.util.metrics.api.MetricsBuilder;
+
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
@@ -32,33 +59,6 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 
-import javax.json.Json;
-import javax.json.JsonBuilderFactory;
-import javax.json.JsonObject;
-
-import org.apache.avro.Schema;
-import org.apache.nifi.annotation.documentation.CapabilityDescription;
-import org.apache.nifi.annotation.documentation.Tags;
-import org.apache.nifi.avro.AvroTypeUtil;
-import org.apache.nifi.components.AllowableValue;
-import org.apache.nifi.components.PropertyDescriptor;
-import org.apache.nifi.components.ValidationContext;
-import org.apache.nifi.components.ValidationResult;
-import org.apache.nifi.components.Validator;
-import org.apache.nifi.controller.status.ProcessGroupStatus;
-import org.apache.nifi.expression.ExpressionLanguageScope;
-import org.apache.nifi.flowfile.attributes.CoreAttributes;
-import org.apache.nifi.metrics.jvm.JmxJvmMetrics;
-import org.apache.nifi.metrics.jvm.JvmMetrics;
-import org.apache.nifi.processor.exception.ProcessException;
-import org.apache.nifi.processor.util.StandardValidators;
-import org.apache.nifi.remote.Transaction;
-import org.apache.nifi.remote.TransferDirection;
-import org.apache.nifi.reporting.s2s.SiteToSiteUtils;
-import org.apache.nifi.reporting.util.metrics.MetricNames;
-import org.apache.nifi.reporting.util.metrics.MetricsService;
-import org.apache.nifi.reporting.util.metrics.api.MetricsBuilder;
-
 @Tags({"status", "metrics", "site", "site to site"})
 @CapabilityDescription("Publishes same metrics as the Ambari Reporting task using the Site To Site protocol.")
 public class SiteToSiteMetricsReportingTask extends AbstractSiteToSiteReportingTask {
@@ -70,8 +70,7 @@ public class SiteToSiteMetricsReportingTask extends AbstractSiteToSiteReportingT
             + " have the description of the default schema.");
 
     static final PropertyDescriptor APPLICATION_ID = new PropertyDescriptor.Builder()
-            .name("s2s-metrics-application-id")
-            .displayName("Application ID")
+            .name("Application ID")
             .description("The Application ID to be included in the metrics")
             .required(true)
             .expressionLanguageSupported(ExpressionLanguageScope.ENVIRONMENT)
@@ -80,8 +79,7 @@ public class SiteToSiteMetricsReportingTask extends AbstractSiteToSiteReportingT
             .build();
 
     static final PropertyDescriptor HOSTNAME = new PropertyDescriptor.Builder()
-            .name("s2s-metrics-hostname")
-            .displayName("Hostname")
+            .name("Hostname")
             .description("The Hostname of this NiFi instance to be included in the metrics")
             .required(true)
             .expressionLanguageSupported(ExpressionLanguageScope.ENVIRONMENT)
@@ -90,8 +88,7 @@ public class SiteToSiteMetricsReportingTask extends AbstractSiteToSiteReportingT
             .build();
 
     static final PropertyDescriptor FORMAT = new PropertyDescriptor.Builder()
-            .name("s2s-metrics-format")
-            .displayName("Output Format")
+            .name("Output Format")
             .description("The output format that will be used for the metrics. If " + RECORD_FORMAT.getDisplayName() + " is selected, "
                     + "a Record Writer must be provided. If " + AMBARI_FORMAT.getDisplayName() + " is selected, the Record Writer property "
                     + "should be empty.")
@@ -231,4 +228,11 @@ public class SiteToSiteMetricsReportingTask extends AbstractSiteToSiteReportingT
         }
     }
 
+    @Override
+    public void migrateProperties(PropertyConfiguration config) {
+        super.migrateProperties(config);
+        config.renameProperty("s2s-metrics-application-id", APPLICATION_ID.getName());
+        config.renameProperty("s2s-metrics-hostname", HOSTNAME.getName());
+        config.renameProperty("s2s-metrics-format", FORMAT.getName());
+    }
 }

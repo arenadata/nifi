@@ -58,6 +58,7 @@ import org.apache.nifi.processor.exception.ProcessException;
 import org.apache.nifi.processor.util.StandardValidators;
 import org.apache.nifi.processors.azure.AbstractAzureBlobProcessor_v12;
 import org.apache.nifi.processors.azure.storage.utils.AzureStorageUtils;
+import org.apache.nifi.services.azure.AzureIdentityFederationTokenProvider;
 import org.apache.nifi.services.azure.storage.AzureStorageConflictResolutionStrategy;
 import org.apache.nifi.services.azure.storage.AzureStorageCredentialsDetails_v12;
 import org.apache.nifi.services.azure.storage.AzureStorageCredentialsService_v12;
@@ -73,6 +74,7 @@ import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 
@@ -119,7 +121,7 @@ import static org.apache.nifi.processors.azure.storage.utils.BlobAttributes.ATTR
         @WritesAttribute(attribute = ATTR_NAME_ERROR_CODE, description = ATTR_DESCRIPTION_ERROR_CODE),
         @WritesAttribute(attribute = ATTR_NAME_IGNORED, description = ATTR_DESCRIPTION_IGNORED)})
 public class CopyAzureBlobStorage_v12 extends AbstractAzureBlobProcessor_v12 {
-    private final static int GENERATE_SAS_EXPIRY_HOURS = 24;
+    private static final int GENERATE_SAS_EXPIRY_HOURS = 24;
 
     public static final PropertyDescriptor SOURCE_STORAGE_CREDENTIALS_SERVICE = new PropertyDescriptor.Builder()
             .name("Source Storage Credentials")
@@ -281,6 +283,7 @@ public class CopyAzureBlobStorage_v12 extends AbstractAzureBlobProcessor_v12 {
 
     @Override
     public void migrateProperties(PropertyConfiguration config) {
+        super.migrateProperties(config);
         config.renameProperty(OLD_BLOB_NAME_PROPERTY_DESCRIPTOR_NAME, DESTINATION_BLOB_NAME.getName());
         config.renameProperty(AzureStorageUtils.OLD_CONFLICT_RESOLUTION_DESCRIPTOR_NAME, AzureStorageUtils.CONFLICT_RESOLUTION.getName());
         config.renameProperty(AzureStorageUtils.OLD_CREATE_CONTAINER_DESCRIPTOR_NAME, AzureStorageUtils.CREATE_CONTAINER.getName());
@@ -364,8 +367,13 @@ public class CopyAzureBlobStorage_v12 extends AbstractAzureBlobProcessor_v12 {
     private static HttpAuthorization getHttpAuthorization(final AzureStorageCredentialsDetails_v12 credentialsDetails) {
         switch (credentialsDetails.getCredentialsType()) {
             case ACCESS_TOKEN -> {
-                TokenCredential credential = tokenRequestContext -> Mono.just(credentialsDetails.getAccessToken());
-                return getHttpAuthorizationFromTokenCredential(credential);
+                final TokenCredential accessTokenCredential = tokenRequestContext -> Mono.just(credentialsDetails.getAccessToken());
+                return getHttpAuthorizationFromTokenCredential(accessTokenCredential);
+            }
+            case IDENTITY_FEDERATION -> {
+                final AzureIdentityFederationTokenProvider identityTokenProvider = Objects.requireNonNull(
+                        credentialsDetails.getIdentityTokenProvider(), "Identity Federation Token Provider is required");
+                return getHttpAuthorizationFromTokenCredential(identityTokenProvider.getCredentials());
             }
             case MANAGED_IDENTITY -> {
                 final ManagedIdentityCredential credential = new ManagedIdentityCredentialBuilder()

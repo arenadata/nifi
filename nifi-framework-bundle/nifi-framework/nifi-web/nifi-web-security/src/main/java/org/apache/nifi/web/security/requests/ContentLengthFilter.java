@@ -16,9 +16,6 @@
  */
 package org.apache.nifi.web.security.requests;
 
-import java.io.IOException;
-import java.util.Arrays;
-import java.util.List;
 import jakarta.servlet.Filter;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.FilterConfig;
@@ -34,11 +31,14 @@ import org.apache.nifi.util.FormatUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.IOException;
+import java.util.Arrays;
+import java.util.List;
 
 public class ContentLengthFilter implements Filter {
     private static final Logger logger = LoggerFactory.getLogger(ContentLengthFilter.class);
-    public final static String MAX_LENGTH_INIT_PARAM = "maxContentLength";
-    public final static int MAX_LENGTH_DEFAULT = 10_000_000;
+    public static final String MAX_LENGTH_INIT_PARAM = "maxContentLength";
+    public static final int MAX_LENGTH_DEFAULT = 10_000_000;
     private int maxContentLength;
 
     private static final List<String> BYPASS_URI_PREFIXES = Arrays.asList("/nifi-api/data-transfer", "/nifi-api/site-to-site");

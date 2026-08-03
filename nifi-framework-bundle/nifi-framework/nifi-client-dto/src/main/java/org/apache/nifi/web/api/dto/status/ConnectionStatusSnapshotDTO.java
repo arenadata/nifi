@@ -17,7 +17,6 @@
 package org.apache.nifi.web.api.dto.status;
 
 import io.swagger.v3.oas.annotations.media.Schema;
-
 import jakarta.xml.bind.annotation.XmlType;
 import org.apache.nifi.controller.status.LoadBalanceStatus;
 
@@ -90,9 +89,9 @@ public class ConnectionStatusSnapshotDTO implements Cloneable {
     }
 
     /**
-     * @return total count of flow files that are queued
+     * @return total count of FlowFiles that are queued
      */
-    @Schema(description = "The number of flowfiles that are queued, pretty printed.")
+    @Schema(description = "The number of FlowFiles that are queued, pretty printed.")
     public String getQueuedCount() {
         return queuedCount;
     }
@@ -101,15 +100,13 @@ public class ConnectionStatusSnapshotDTO implements Cloneable {
         this.queuedCount = queuedCount;
     }
 
-
     /**
-     * @return total size of flow files that are queued
+     * @return total size of FlowFiles that are queued
      */
-    @Schema(description = "The total size of flowfiles that are queued formatted.")
+    @Schema(description = "The total size of FlowFiles that are queued formatted.")
     public String getQueuedSize() {
         return queuedSize;
     }
-
 
     public void setInput(String input) {
         this.input = input;
@@ -128,13 +125,12 @@ public class ConnectionStatusSnapshotDTO implements Cloneable {
     }
 
     /**
-     * @return The total count and size of queued flow files
+     * @return The total count and size of queued FlowFiles
      */
-    @Schema(description = "The total count and size of queued flowfiles formatted.")
+    @Schema(description = "The total count and size of queued FlowFiles formatted.")
     public String getQueued() {
         return queued;
     }
-
 
     /**
      * @return id of the source of this connection
@@ -204,7 +200,6 @@ public class ConnectionStatusSnapshotDTO implements Cloneable {
         return input;
     }
 
-
     /**
      * @return output for this connection
      */
@@ -212,7 +207,6 @@ public class ConnectionStatusSnapshotDTO implements Cloneable {
     public String getOutput() {
         return output;
     }
-
 
     @Schema(description = "The number of FlowFiles that have come into the connection in the last 5 minutes.")
     public Integer getFlowFilesIn() {
@@ -268,7 +262,7 @@ public class ConnectionStatusSnapshotDTO implements Cloneable {
         this.bytesQueued = bytesQueued;
     }
 
-    @Schema(description = "Connection percent use regarding queued flow files count and backpressure threshold if configured.")
+    @Schema(description = "Connection percent use regarding queued FlowFiles count and backpressure threshold if configured.")
     public Integer getPercentUseCount() {
         return percentUseCount;
     }
@@ -277,7 +271,7 @@ public class ConnectionStatusSnapshotDTO implements Cloneable {
         this.percentUseCount = percentUseCount;
     }
 
-    @Schema(description = "Connection percent use regarding queued flow files size and backpressure threshold if configured.")
+    @Schema(description = "Connection percent use regarding queued FlowFiles size and backpressure threshold if configured.")
     public Integer getPercentUseBytes() {
         return percentUseBytes;
     }

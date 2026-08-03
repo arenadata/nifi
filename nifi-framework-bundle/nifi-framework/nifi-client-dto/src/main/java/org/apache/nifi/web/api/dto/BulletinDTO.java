@@ -17,10 +17,12 @@
 package org.apache.nifi.web.api.dto;
 
 import io.swagger.v3.oas.annotations.media.Schema;
-import org.apache.nifi.web.api.dto.util.TimeAdapter;
-
 import jakarta.xml.bind.annotation.XmlType;
 import jakarta.xml.bind.annotation.adapters.XmlJavaTypeAdapter;
+import org.apache.nifi.web.api.dto.util.InstantAdapter;
+import org.apache.nifi.web.api.dto.util.TimeAdapter;
+
+import java.time.Instant;
 import java.util.Date;
 
 /**
@@ -38,7 +40,9 @@ public class BulletinDTO {
     private String level;
     private String message;
     private Date timestamp;
+    private Instant timestampIso;
     private String sourceType;
+    private String stackTrace;
 
     /**
      * @return id of this message
@@ -159,6 +163,21 @@ public class BulletinDTO {
         this.timestamp = timestamp;
     }
 
+    /**
+     * @return When this bulletin was generated in ISO format with full date and milliseconds.
+     */
+    @XmlJavaTypeAdapter(InstantAdapter.class)
+    @Schema(description = "When this bulletin was generated in ISO format with full date and milliseconds.",
+            type = "string"
+    )
+    public Instant getTimestampIso() {
+        return timestampIso;
+    }
+
+    public void setTimestampIso(Instant timestampIso) {
+        this.timestampIso = timestampIso;
+    }
+
     @Schema(description = "The type of the source component"
     )
     public String getSourceType() {
@@ -167,5 +186,14 @@ public class BulletinDTO {
 
     public void setSourceType(String sourceType) {
         this.sourceType = sourceType;
+    }
+
+    @Schema(description = "The stack trace associated with the bulletin, if any.")
+    public String getStackTrace() {
+        return stackTrace;
+    }
+
+    public void setStackTrace(String stackTrace) {
+        this.stackTrace = stackTrace;
     }
 }

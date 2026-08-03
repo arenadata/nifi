@@ -29,6 +29,7 @@ import org.apache.nifi.components.PropertyDescriptor;
 import org.apache.nifi.flowfile.FlowFile;
 import org.apache.nifi.json.OutputGrouping;
 import org.apache.nifi.json.WriteJsonResult;
+import org.apache.nifi.migration.PropertyConfiguration;
 import org.apache.nifi.oauth2.OAuth2AccessTokenProvider;
 import org.apache.nifi.processor.AbstractProcessor;
 import org.apache.nifi.processor.ProcessContext;
@@ -55,6 +56,10 @@ import java.util.Set;
 import java.util.concurrent.TimeUnit;
 
 import static org.apache.nifi.processors.salesforce.util.CommonSalesforceProperties.API_VERSION;
+import static org.apache.nifi.processors.salesforce.util.CommonSalesforceProperties.OLD_API_VERSION_PROPERTY_NAME;
+import static org.apache.nifi.processors.salesforce.util.CommonSalesforceProperties.OLD_READ_TIMEOUT_PROPERTY_NAME;
+import static org.apache.nifi.processors.salesforce.util.CommonSalesforceProperties.OLD_SALESFORCE_INSTANCE_URL_PROPERTY_NAME;
+import static org.apache.nifi.processors.salesforce.util.CommonSalesforceProperties.OLD_TOKEN_PROVIDER_PROPERTY_NAME;
 import static org.apache.nifi.processors.salesforce.util.CommonSalesforceProperties.READ_TIMEOUT;
 import static org.apache.nifi.processors.salesforce.util.CommonSalesforceProperties.SALESFORCE_INSTANCE_URL;
 import static org.apache.nifi.processors.salesforce.util.CommonSalesforceProperties.TOKEN_PROVIDER;
@@ -73,8 +78,7 @@ public class PutSalesforceObject extends AbstractProcessor {
     private static final String ATTR_ERROR_MESSAGE = "error.message";
 
     protected static final PropertyDescriptor RECORD_READER_FACTORY = new PropertyDescriptor.Builder()
-            .name("record-reader")
-            .displayName("Record Reader")
+            .name("Record Reader")
             .description(
                     "Specifies the Controller Service to use for parsing incoming data and determining the data's schema")
             .identifiesControllerService(RecordReaderFactory.class)
@@ -155,41 +159,50 @@ public class PutSalesforceObject extends AbstractProcessor {
         }
     }
 
+    @Override
+    public void migrateProperties(PropertyConfiguration config) {
+        config.renameProperty("record-reader", RECORD_READER_FACTORY.getName());
+        config.renameProperty(OLD_SALESFORCE_INSTANCE_URL_PROPERTY_NAME, SALESFORCE_INSTANCE_URL.getName());
+        config.renameProperty(OLD_API_VERSION_PROPERTY_NAME, API_VERSION.getName());
+        config.renameProperty(OLD_READ_TIMEOUT_PROPERTY_NAME, READ_TIMEOUT.getName());
+        config.renameProperty(OLD_TOKEN_PROVIDER_PROPERTY_NAME, TOKEN_PROVIDER.getName());
+    }
+
     private void processRecords(FlowFile flowFile, String objectType, ProcessContext context, ProcessSession session) throws IOException, MalformedRecordException, SchemaNotFoundException {
         RecordReaderFactory readerFactory = context.getProperty(RECORD_READER_FACTORY).asControllerService(RecordReaderFactory.class);
         int count = 0;
-        RecordExtender recordExtender;
 
         try (InputStream in = session.read(flowFile);
              RecordReader reader = readerFactory.createRecordReader(flowFile, in, getLogger());
-             ByteArrayOutputStream out = new ByteArrayOutputStream();
-             WriteJsonResult writer = getWriter(recordExtender = getExtender(reader), out)) {
+             ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+            RecordExtender recordExtender = getExtender(reader);
+            try (WriteJsonResult writer = getWriter(recordExtender, out)) {
+                Record record;
+                while ((record = reader.nextRecord()) != null) {
+                    count++;
+                    if (!writer.isActiveRecordSet()) {
+                        writer.beginRecordSet();
+                    }
 
-            Record record;
-            while ((record = reader.nextRecord()) != null) {
-                count++;
-                if (!writer.isActiveRecordSet()) {
-                    writer.beginRecordSet();
+                    MapRecord extendedRecord = recordExtender.getExtendedRecord(objectType, count, record);
+                    writer.write(extendedRecord);
+
+                    if (count == maxRecordCount) {
+                        count = 0;
+                        postRecordBatch(objectType, out, writer, recordExtender);
+                        out.reset();
+                    }
                 }
-
-                MapRecord extendedRecord = recordExtender.getExtendedRecord(objectType, count, record);
-                writer.write(extendedRecord);
-
-                if (count == maxRecordCount) {
-                    count = 0;
+                if (writer.isActiveRecordSet()) {
                     postRecordBatch(objectType, out, writer, recordExtender);
-                    out.reset();
                 }
-            }
-            if (writer.isActiveRecordSet()) {
-                postRecordBatch(objectType, out, writer, recordExtender);
             }
         }
     }
 
     private SalesforceConfiguration createSalesforceConfiguration(ProcessContext context) {
-        String salesforceVersion = context.getProperty(API_VERSION).getValue();
-        String instanceUrl = context.getProperty(SALESFORCE_INSTANCE_URL).getValue();
+        String salesforceVersion = context.getProperty(API_VERSION).evaluateAttributeExpressions().getValue();
+        String instanceUrl = context.getProperty(SALESFORCE_INSTANCE_URL).evaluateAttributeExpressions().getValue();
         OAuth2AccessTokenProvider accessTokenProvider =
                 context.getProperty(TOKEN_PROVIDER).asControllerService(OAuth2AccessTokenProvider.class);
         return SalesforceConfiguration.create(instanceUrl, salesforceVersion,

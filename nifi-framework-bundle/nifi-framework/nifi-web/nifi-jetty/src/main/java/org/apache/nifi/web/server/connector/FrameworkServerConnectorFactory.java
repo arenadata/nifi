@@ -16,8 +16,8 @@
  */
 package org.apache.nifi.web.server.connector;
 
-import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.ObjectUtils;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.nifi.jetty.configuration.connector.ApplicationLayerProtocol;
 import org.apache.nifi.jetty.configuration.connector.StandardServerConnectorFactory;
 import org.apache.nifi.processor.DataUnit;
@@ -44,6 +44,8 @@ public class FrameworkServerConnectorFactory extends StandardServerConnectorFact
 
     private static final String CIPHER_SUITE_SEPARATOR_PATTERN = ",\\s*";
 
+    private static final Pattern HOST_PORT_SEPARATOR = Pattern.compile(":");
+
     private static final Pattern HOST_PORT_PATTERN = Pattern.compile(".+?:(\\d+)$");
 
     private static final int PORT_GROUP = 1;
@@ -53,6 +55,8 @@ public class FrameworkServerConnectorFactory extends StandardServerConnectorFact
     private final String includeCipherSuites;
 
     private final String excludeCipherSuites;
+
+    private final Set<String> validProxyHosts;
 
     private final Set<Integer> validPorts;
 
@@ -70,6 +74,7 @@ public class FrameworkServerConnectorFactory extends StandardServerConnectorFact
         includeCipherSuites = properties.getProperty(NiFiProperties.WEB_HTTPS_CIPHERSUITES_INCLUDE);
         excludeCipherSuites = properties.getProperty(NiFiProperties.WEB_HTTPS_CIPHERSUITES_EXCLUDE);
         headerSize = DataUnit.parseDataSize(properties.getWebMaxHeaderSize(), DataUnit.B).intValue();
+        validProxyHosts = getValidProxyHosts(properties);
         validPorts = getValidPorts(properties);
 
         if (properties.isHTTPSConfigured()) {
@@ -99,8 +104,11 @@ public class FrameworkServerConnectorFactory extends StandardServerConnectorFact
         httpConfiguration.setResponseHeaderSize(headerSize);
         httpConfiguration.setIdleTimeout(IDLE_TIMEOUT);
 
-        // Add HostHeaderCustomizer to set Host Header for HTTP/2 and HostHeaderHandler
+        // Add HostHeaderCustomizer to set Host Header for HTTP/2
         httpConfiguration.addCustomizer(new HostHeaderCustomizer());
+
+        final ProxyHeaderValidatorCustomizer proxyHeaderValidatorCustomizer = new ProxyHeaderValidatorCustomizer(validProxyHosts, validPorts);
+        httpConfiguration.addCustomizer(proxyHeaderValidatorCustomizer);
 
         final HostPortValidatorCustomizer hostPortValidatorCustomizer = new HostPortValidatorCustomizer(validPorts);
         httpConfiguration.addCustomizer(hostPortValidatorCustomizer);
@@ -157,6 +165,19 @@ public class FrameworkServerConnectorFactory extends StandardServerConnectorFact
         }
 
         return ObjectUtils.getIfNull(httpsPort, httpPort);
+    }
+
+    private static Set<String> getValidProxyHosts(final NiFiProperties properties) {
+        final Set<String> validProxyHosts = new HashSet<>();
+
+        final List<String> allowedHosts = properties.getAllowedHostsAsList();
+        for (final String allowedHost : allowedHosts) {
+            final String[] hostPort = HOST_PORT_SEPARATOR.split(allowedHost);
+            final String host = hostPort[0];
+            validProxyHosts.add(host);
+        }
+
+        return validProxyHosts;
     }
 
     private static Set<Integer> getValidPorts(final NiFiProperties properties) {

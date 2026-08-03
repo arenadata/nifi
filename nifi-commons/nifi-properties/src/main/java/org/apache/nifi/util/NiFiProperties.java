@@ -90,6 +90,7 @@ public class NiFiProperties extends ApplicationProperties {
     public static final String REPOSITORY_CONTENT_PREFIX = "nifi.content.repository.directory.";
     public static final String CONTENT_REPOSITORY_IMPLEMENTATION = "nifi.content.repository.implementation";
     public static final String MAX_APPENDABLE_CLAIM_SIZE = "nifi.content.claim.max.appendable.size";
+    public static final String CONTENT_CLAIM_TRUNCATION_ENABLED = "nifi.content.claim.truncation.enabled";
     public static final String CONTENT_ARCHIVE_MAX_RETENTION_PERIOD = "nifi.content.repository.archive.max.retention.period";
     public static final String CONTENT_ARCHIVE_MAX_USAGE_PERCENTAGE = "nifi.content.repository.archive.max.usage.percentage";
     public static final String CONTENT_ARCHIVE_BACK_PRESSURE_PERCENTAGE = "nifi.content.repository.archive.backpressure.percentage";
@@ -124,6 +125,9 @@ public class NiFiProperties extends ApplicationProperties {
     public static final String ASSET_MANAGER_IMPLEMENTATION = "nifi.asset.manager.implementation";
     public static final String ASSET_MANAGER_PREFIX = "nifi.asset.manager.properties.";
 
+    public static final String CONNECTOR_ASSET_MANAGER_IMPLEMENTATION = "nifi.connector.asset.manager.implementation";
+    public static final String CONNECTOR_ASSET_MANAGER_PREFIX = "nifi.connector.asset.manager.properties.";
+
     // status repository properties
     public static final String COMPONENT_STATUS_REPOSITORY_IMPLEMENTATION = "nifi.components.status.repository.implementation";
     public static final String COMPONENT_STATUS_SNAPSHOT_FREQUENCY = "nifi.components.status.snapshot.frequency";
@@ -135,6 +139,19 @@ public class NiFiProperties extends ApplicationProperties {
     public static final String STATUS_REPOSITORY_QUESTDB_PERSIST_LOCATION_BACKUP = "nifi.status.repository.questdb.persist.location.backup";
     public static final String STATUS_REPOSITORY_QUESTDB_PERSIST_BATCH_SIZE = "nifi.status.repository.questdb.persist.batchsize";
     public static final String STATUS_REPOSITORY_QUESTDB_PERSIST_FREQUENCY = "nifi.status.repository.questdb.persist.frequency";
+
+    // Connector Repository properties
+    public static final String CONNECTOR_REPOSITORY_IMPLEMENTATION = "nifi.connector.repository.implementation";
+    public static final String CONNECTOR_SYNC_TIMEOUT = "nifi.connector.sync.timeout";
+    public static final String DEFAULT_CONNECTOR_SYNC_TIMEOUT = "5 mins";
+
+    // Connector Configuration Provider properties
+    public static final String CONNECTOR_CONFIGURATION_PROVIDER_IMPLEMENTATION = "nifi.connector.configuration.provider.implementation";
+    public static final String CONNECTOR_CONFIGURATION_PROVIDER_PROPERTIES_PREFIX = "nifi.connector.configuration.provider.properties.";
+
+    // Secrets Manager properties
+    public static final String SECRETS_MANAGER_IMPLEMENTATION = "nifi.secrets.manager.implementation";
+    public static final String SECRETS_MANAGER_CACHE_DURATION = "nifi.secrets.manager.cache.duration";
 
     // security properties
     public static final String SECURITY_KEYSTORE = "nifi.security.keystore";
@@ -152,8 +169,6 @@ public class NiFiProperties extends ApplicationProperties {
     public static final String SECURITY_USER_AUTHORIZER = "nifi.security.user.authorizer";
     public static final String SECURITY_ANONYMOUS_AUTHENTICATION = "nifi.security.allow.anonymous.authentication";
     public static final String SECURITY_USER_LOGIN_IDENTITY_PROVIDER = "nifi.security.user.login.identity.provider";
-    public static final String SECURITY_OCSP_RESPONDER_URL = "nifi.security.ocsp.responder.url";
-    public static final String SECURITY_OCSP_RESPONDER_CERTIFICATE = "nifi.security.ocsp.responder.certificate";
     public static final String SECURITY_IDENTITY_MAPPING_PATTERN_PREFIX = "nifi.security.identity.mapping.pattern.";
     public static final String SECURITY_IDENTITY_MAPPING_VALUE_PREFIX = "nifi.security.identity.mapping.value.";
     public static final String SECURITY_IDENTITY_MAPPING_TRANSFORM_PREFIX = "nifi.security.identity.mapping.transform.";
@@ -225,7 +240,6 @@ public class NiFiProperties extends ApplicationProperties {
     // cluster common properties
     public static final String CLUSTER_PROTOCOL_HEARTBEAT_INTERVAL = "nifi.cluster.protocol.heartbeat.interval";
     public static final String CLUSTER_PROTOCOL_HEARTBEAT_MISSABLE_MAX = "nifi.cluster.protocol.heartbeat.missable.max";
-    public static final String CLUSTER_PROTOCOL_IS_SECURE = "nifi.cluster.protocol.is.secure";
     public static final String CLUSTER_LEADER_ELECTION_IMPLEMENTATION = "nifi.cluster.leader.election.implementation";
 
     // cluster node properties
@@ -352,6 +366,7 @@ public class NiFiProperties extends ApplicationProperties {
     public static final String DEFAULT_NAR_LIBRARY_AUTOLOAD_DIR = "./extensions";
     public static final String DEFAULT_FLOWFILE_CHECKPOINT_INTERVAL = "20 secs";
     public static final String DEFAULT_MAX_APPENDABLE_CLAIM_SIZE = "50 KB";
+    public static final String DEFAULT_CONTENT_CLAIM_TRUNCATION_ENABLED = "true";
     public static final int DEFAULT_QUEUE_SWAP_THRESHOLD = 20000;
     public static final long DEFAULT_BACKPRESSURE_COUNT = 10_000L;
     public static final String DEFAULT_BACKPRESSURE_SIZE = "1 GB";
@@ -412,7 +427,6 @@ public class NiFiProperties extends ApplicationProperties {
     public static final int DEFAULT_LOAD_BALANCE_MAX_THREAD_COUNT = 8;
     public static final String DEFAULT_LOAD_BALANCE_COMMS_TIMEOUT = "30 sec";
 
-
     // state management defaults
     public static final String DEFAULT_STATE_MANAGEMENT_CONFIG_FILE = "conf/state-management.xml";
 
@@ -423,7 +437,7 @@ public class NiFiProperties extends ApplicationProperties {
     public static final String DEFAULT_ANALYTICS_PREDICTION_ENABLED = "false";
     public static final String DEFAULT_ANALYTICS_PREDICTION_INTERVAL = "3 mins";
     public static final String DEFAULT_ANALYTICS_QUERY_INTERVAL = "3 mins";
-    public final static String DEFAULT_ANALYTICS_CONNECTION_MODEL_IMPLEMENTATION = "org.apache.nifi.controller.status.analytics.models.OrdinaryLeastSquares";
+    public static final String DEFAULT_ANALYTICS_CONNECTION_MODEL_IMPLEMENTATION = "org.apache.nifi.controller.status.analytics.models.OrdinaryLeastSquares";
     public static final String DEFAULT_ANALYTICS_CONNECTION_SCORE_NAME = "rSquared";
     public static final double DEFAULT_ANALYTICS_CONNECTION_SCORE_THRESHOLD = .90;
 
@@ -604,7 +618,6 @@ public class NiFiProperties extends ApplicationProperties {
                 DEFAULT_AUTO_RESUME_STATE.toString());
         return Boolean.parseBoolean(rawAutoResumeState);
     }
-
 
     /**
      * Returns the number of milliseconds between FlowFileRepository
@@ -903,7 +916,6 @@ public class NiFiProperties extends ApplicationProperties {
         }
     }
 
-
     public int getClusterNodeProtocolMaxPoolSize() {
         try {
             return Integer.parseInt(getProperty(CLUSTER_NODE_PROTOCOL_MAX_THREADS));
@@ -926,11 +938,12 @@ public class NiFiProperties extends ApplicationProperties {
     }
 
     public String getClusterProtocolManagerToNodeApiScheme() {
-        final String isSecureProperty = getProperty(CLUSTER_PROTOCOL_IS_SECURE);
-        if (Boolean.valueOf(isSecureProperty)) {
-            return "https";
-        } else {
+        final String httpsPort = getProperty(WEB_HTTPS_PORT);
+
+        if (httpsPort == null || httpsPort.isBlank()) {
             return "http";
+        } else {
+            return "https";
         }
     }
 
@@ -1315,7 +1328,7 @@ public class NiFiProperties extends ApplicationProperties {
             port = getPort();
 
             if (port == null) {
-                throw new RuntimeException(String.format("The %s must be specified if running in a cluster with %s set to false.", WEB_HTTP_PORT, CLUSTER_PROTOCOL_IS_SECURE));
+                throw new IllegalStateException("Application property [%s] must be specified".formatted(WEB_HTTP_PORT));
             }
         } else {
             // get host
@@ -1328,7 +1341,7 @@ public class NiFiProperties extends ApplicationProperties {
             port = getSslPort();
 
             if (port == null) {
-                throw new RuntimeException(String.format("The %s must be specified if running in a cluster with %s set to true.", WEB_HTTPS_PORT, CLUSTER_PROTOCOL_IS_SECURE));
+                throw new IllegalStateException("Application property [%s] must be specified".formatted(WEB_HTTPS_PORT));
             }
         }
 
@@ -1411,7 +1424,6 @@ public class NiFiProperties extends ApplicationProperties {
         return provenanceRepositoryPaths;
     }
 
-
     /**
      * Returns the maximum size, in bytes, that claims should grow before writing a new file. This means that we won't continually write to one
      * file that keeps growing but gives us a chance to bunch together many small files.
@@ -1422,6 +1434,10 @@ public class NiFiProperties extends ApplicationProperties {
      */
     public String getMaxAppendableClaimSize() {
         return getProperty(MAX_APPENDABLE_CLAIM_SIZE, DEFAULT_MAX_APPENDABLE_CLAIM_SIZE);
+    }
+
+    public boolean isContentClaimTruncationEnabled() {
+        return Boolean.parseBoolean(getProperty(CONTENT_CLAIM_TRUNCATION_ENABLED, DEFAULT_CONTENT_CLAIM_TRUNCATION_ENABLED));
     }
 
     @Override
@@ -1813,8 +1829,28 @@ public class NiFiProperties extends ApplicationProperties {
 
         // The Properties(Properties) constructor does NOT inherit the provided values, just uses them as default values
         if (additionalProperties != null) {
-            additionalProperties.forEach(properties::put);
+            properties.putAll(additionalProperties);
         }
+
+        return createNiFiProperties(properties);
+    }
+
+    public static NiFiProperties createBasicNiFiProperties(final InputStream inputStream) {
+        return createBasicNiFiProperties(inputStream, null);
+    }
+
+    public static NiFiProperties createBasicNiFiProperties(final InputStream inputStream, final Properties additionalProperties) {
+        final Properties properties = new Properties();
+        readFromInputStream(inputStream, properties);
+
+        if (additionalProperties != null) {
+            properties.putAll(additionalProperties);
+        }
+
+        return createNiFiProperties(properties);
+    }
+
+    private static NiFiProperties createNiFiProperties(final Properties properties) {
         return new NiFiProperties() {
             @Override
             public String getProperty(String key) {
@@ -1834,9 +1870,7 @@ public class NiFiProperties extends ApplicationProperties {
     }
 
     private static void readFromPropertiesFile(String propertiesFilePath, Properties properties) {
-        final String nfPropertiesFilePath = (propertiesFilePath == null)
-                ? System.getProperty(PROPERTIES_FILE_PATH)
-                : propertiesFilePath;
+        final String nfPropertiesFilePath = (propertiesFilePath == null) ? System.getProperty(PROPERTIES_FILE_PATH) : propertiesFilePath;
         if (nfPropertiesFilePath != null) {
             final File propertiesFile = new File(nfPropertiesFilePath.trim());
             if (!propertiesFile.exists()) {
@@ -1847,21 +1881,22 @@ public class NiFiProperties extends ApplicationProperties {
                 throw new RuntimeException("Properties file exists but cannot be read '"
                         + propertiesFile.getAbsolutePath() + "'");
             }
-            InputStream inStream = null;
-            try {
-                inStream = new BufferedInputStream(new FileInputStream(propertiesFile));
+
+            try (final InputStream fileIn = new FileInputStream(propertiesFile);
+                 final InputStream inStream = new BufferedInputStream(fileIn)) {
+
                 properties.load(inStream);
             } catch (final Exception ex) {
-                throw new RuntimeException("Cannot load properties file due to "
-                        + ex.getLocalizedMessage(), ex);
-            } finally {
-                if (null != inStream) {
-                    try {
-                        inStream.close();
-                    } catch (final Exception ignored) {
-                    }
-                }
+                throw new RuntimeException("Cannot load properties file due to " + ex.getLocalizedMessage(), ex);
             }
+        }
+    }
+
+    private static void readFromInputStream(final InputStream inputStream, final Properties properties) {
+        try {
+            properties.load(inputStream);
+        } catch (final Exception ex) {
+            throw new RuntimeException("Cannot load properties file due to " + ex.getLocalizedMessage(), ex);
         }
     }
 

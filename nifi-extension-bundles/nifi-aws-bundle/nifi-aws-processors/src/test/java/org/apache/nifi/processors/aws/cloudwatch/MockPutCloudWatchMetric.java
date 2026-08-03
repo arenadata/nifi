@@ -23,7 +23,6 @@ import software.amazon.awssdk.services.cloudwatch.model.PutMetricDataResponse;
 
 import java.util.List;
 
-
 /**
  * Simple mock {@link PutCloudWatchMetric} processor for testing.
  */
@@ -33,7 +32,6 @@ public class MockPutCloudWatchMetric extends PutCloudWatchMetric {
     protected List<MetricDatum> actualMetricData;
     protected PutMetricDataResponse result = PutMetricDataResponse.builder().build();
     protected int putMetricDataCallCount = 0;
-
 
     @Override
     protected PutMetricDataResponse putMetricData(final ProcessContext context, final PutMetricDataRequest metricDataRequest) {

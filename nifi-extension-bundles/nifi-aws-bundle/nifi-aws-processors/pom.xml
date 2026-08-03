@@ -18,7 +18,7 @@
     <parent>
         <groupId>org.apache.nifi</groupId>
         <artifactId>nifi-aws-bundle</artifactId>
-        <version>2.6.0</version>
+        <version>2.10.0.1</version>
     </parent>
 
     <artifactId>nifi-aws-processors</artifactId>
@@ -31,15 +31,21 @@
             <artifactId>nifi-utils</artifactId>
         </dependency>
 
+        <!-- OAuth2 Access Token Provider API for Web Identity (OIDC) support -->
+        <dependency>
+            <groupId>org.apache.nifi</groupId>
+            <artifactId>nifi-oauth2-provider-api</artifactId>
+        </dependency>
+
         <dependency>
             <groupId>org.apache.nifi</groupId>
             <artifactId>nifi-listed-entity</artifactId>
-            <version>2.6.0</version>
+            <version>2.10.0.1</version>
         </dependency>
         <dependency>
             <groupId>org.apache.nifi</groupId>
             <artifactId>nifi-resource-transfer</artifactId>
-            <version>2.6.0</version>
+            <version>2.10.0.1</version>
         </dependency>
         <dependency>
             <groupId>org.apache.nifi</groupId>
@@ -48,7 +54,7 @@
         <dependency>
             <groupId>org.apache.nifi</groupId>
             <artifactId>nifi-aws-abstract-processors</artifactId>
-            <version>2.6.0</version>
+            <version>2.10.0.1</version>
         </dependency>
         <dependency>
             <groupId>org.apache.nifi</groupId>
@@ -65,7 +71,7 @@
         <dependency>
             <groupId>org.apache.nifi</groupId>
             <artifactId>nifi-standard-record-utils</artifactId>
-            <version>2.6.0</version>
+            <version>2.10.0.1</version>
         </dependency>
         <dependency>
             <groupId>org.apache.nifi</groupId>
@@ -98,7 +104,7 @@
         <dependency>
             <groupId>software.amazon.kinesis</groupId>
             <artifactId>amazon-kinesis-client</artifactId>
-            <version>${aws-kinesis-client-library-version}</version>
+            <version>2.7.3</version>
             <exclusions>
                 <exclusion>
                     <groupId>commons-logging</groupId>
@@ -161,12 +167,8 @@
         <dependency>
             <groupId>org.apache.nifi</groupId>
             <artifactId>nifi-record-serialization-services</artifactId>
-            <version>2.6.0</version>
+            <version>2.10.0.1</version>
             <scope>test</scope>
-        </dependency>
-        <dependency>
-            <groupId>com.amazonaws</groupId>
-            <artifactId>aws-java-sdk-core</artifactId>
         </dependency>
         <dependency>
             <groupId>com.google.guava</groupId>
@@ -179,23 +181,27 @@
         <dependency>
             <groupId>org.apache.nifi</groupId>
             <artifactId>nifi-avro-record-utils</artifactId>
-            <version>2.6.0</version>
+            <version>2.10.0.1</version>
             <scope>test</scope>
         </dependency>
         <dependency>
             <groupId>org.apache.nifi</groupId>
             <artifactId>nifi-record-serialization-services-shared</artifactId>
-            <version>2.6.0</version>
-            <scope>test</scope>
-        </dependency>
-        <dependency>
-            <groupId>org.testcontainers</groupId>
-            <artifactId>testcontainers</artifactId>
+            <version>2.10.0.1</version>
             <scope>test</scope>
         </dependency>
         <dependency>
             <groupId>software.amazon.awssdk</groupId>
             <artifactId>dynamodb</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>software.amazon.awssdk</groupId>
+            <artifactId>rds</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.nifi</groupId>
+            <artifactId>nifi-dbcp-service-api</artifactId>
+            <scope>provided</scope>
         </dependency>
         <dependency>
             <groupId>software.amazon.awssdk</groupId>
@@ -206,16 +212,12 @@
             <artifactId>sts</artifactId>
         </dependency>
         <dependency>
-            <groupId>com.amazonaws</groupId>
-            <artifactId>aws-java-sdk-kms</artifactId>
+            <groupId>software.amazon.awssdk</groupId>
+            <artifactId>s3</artifactId>
         </dependency>
         <dependency>
-            <groupId>com.amazonaws</groupId>
-            <artifactId>aws-java-sdk-sts</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>com.amazonaws</groupId>
-            <artifactId>aws-java-sdk-s3</artifactId>
+            <groupId>software.amazon.encryption.s3</groupId>
+            <artifactId>amazon-s3-encryption-client-java</artifactId>
         </dependency>
         <dependency>
             <groupId>org.apache.commons</groupId>
@@ -283,26 +285,38 @@
         </dependency>
         <dependency>
             <groupId>org.testcontainers</groupId>
-            <artifactId>localstack</artifactId>
+            <artifactId>testcontainers-localstack</artifactId>
             <scope>test</scope>
         </dependency>
         <dependency>
             <groupId>org.apache.nifi</groupId>
             <artifactId>nifi-proxy-configuration</artifactId>
-            <version>2.6.0</version>
+            <version>2.10.0.1</version>
             <scope>test</scope>
         </dependency>
         <dependency>
             <groupId>org.apache.nifi</groupId>
             <artifactId>nifi-file-resource-service</artifactId>
-            <version>2.6.0</version>
+            <version>2.10.0.1</version>
             <scope>test</scope>
         </dependency>
         <!-- Override vulnerable kafka clients version 3.6.1 -->
         <dependency>
             <groupId>org.apache.kafka</groupId>
             <artifactId>kafka-clients</artifactId>
-            <version>4.1.0</version>
+            <version>${kafka-clients.version}</version>
+            <exclusions>
+                <!-- Excluded and replaced with at.yawk.lz4 version -->
+                <exclusion>
+                    <groupId>org.lz4</groupId>
+                    <artifactId>lz4-java</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+        <dependency>
+            <groupId>at.yawk.lz4</groupId>
+            <artifactId>lz4-java</artifactId>
+            <version>1.11.0</version>
         </dependency>
     </dependencies>
     <build>

@@ -37,6 +37,7 @@ import org.apache.nifi.components.state.StateMap;
 import org.apache.nifi.elasticsearch.SearchResponse;
 import org.apache.nifi.expression.ExpressionLanguageScope;
 import org.apache.nifi.flowfile.FlowFile;
+import org.apache.nifi.migration.PropertyConfiguration;
 import org.apache.nifi.processor.ProcessContext;
 import org.apache.nifi.processor.ProcessSession;
 import org.apache.nifi.processor.Relationship;
@@ -55,10 +56,10 @@ import java.util.stream.Stream;
 
 @WritesAttributes({
         @WritesAttribute(attribute = "mime.type", description = "application/json"),
-        @WritesAttribute(attribute = "aggregation.name", description = "The name of the aggregation whose results are in the output flowfile"),
-        @WritesAttribute(attribute = "aggregation.number", description = "The number of the aggregation whose results are in the output flowfile"),
-        @WritesAttribute(attribute = "page.number", description = "The number of the page (request), starting from 1, in which the results were returned that are in the output flowfile"),
-        @WritesAttribute(attribute = "hit.count", description = "The number of hits that are in the output flowfile"),
+        @WritesAttribute(attribute = "aggregation.name", description = "The name of the aggregation whose results are in the output FlowFile"),
+        @WritesAttribute(attribute = "aggregation.number", description = "The number of the aggregation whose results are in the output FlowFile"),
+        @WritesAttribute(attribute = "page.number", description = "The number of the page (request), starting from 1, in which the results were returned that are in the output FlowFile"),
+        @WritesAttribute(attribute = "hit.count", description = "The number of hits that are in the output FlowFile"),
         @WritesAttribute(attribute = "elasticsearch.query.error", description = "The error message provided by Elasticsearch if there is an error querying the index.")
 })
 @InputRequirement(InputRequirement.Requirement.INPUT_FORBIDDEN)
@@ -92,7 +93,7 @@ import java.util.stream.Stream;
         "is retained in between invocations of this processor until the Scroll/PiT has expired " +
         "(when the current time is later than the last query execution plus the Pagination Keep Alive interval).")
 @SystemResourceConsideration(resource = SystemResource.MEMORY, description = "Care should be taken on the size of each page because each response " +
-        "from Elasticsearch will be loaded into memory all at once and converted into the resulting flowfiles.")
+        "from Elasticsearch will be loaded into memory all at once and converted into the resulting FlowFiles.")
 public class SearchElasticsearch extends AbstractPaginatedJsonQueryElasticsearch {
     static final String STATE_SCROLL_ID = "scrollId";
     static final String STATE_PIT_ID = "pitId";
@@ -108,8 +109,7 @@ public class SearchElasticsearch extends AbstractPaginatedJsonQueryElasticsearch
             .build();
 
     static final PropertyDescriptor RESTART_ON_FINISH = new PropertyDescriptor.Builder()
-            .name("restart-on-finish")
-            .displayName("Restart On Finish?")
+            .name("Restart On Finish")
             .description("Whether the processor should start another search with the same query once a paginated search has completed.")
             .addValidator(StandardValidators.BOOLEAN_VALIDATOR)
             .allowableValues(Boolean.TRUE.toString(), Boolean.FALSE.toString())
@@ -155,6 +155,12 @@ public class SearchElasticsearch extends AbstractPaginatedJsonQueryElasticsearch
         if (context.getProperty(RESTART_ON_FINISH).isSet()) {
             this.restartOnFinish = context.getProperty(RESTART_ON_FINISH).asBoolean();
         }
+    }
+
+    @Override
+    public void migrateProperties(PropertyConfiguration config) {
+        super.migrateProperties(config);
+        config.renameProperty("restart-on-finish", RESTART_ON_FINISH.getName());
     }
 
     @Override

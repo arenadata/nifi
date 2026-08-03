@@ -16,9 +16,9 @@
  */
 package org.apache.nifi.remote.protocol.socket;
 
-import org.apache.nifi.events.EventReporter;
 import org.apache.nifi.remote.Peer;
 import org.apache.nifi.remote.PeerDescription;
+import org.apache.nifi.remote.SiteToSiteEventReporter;
 import org.apache.nifi.remote.Transaction;
 import org.apache.nifi.remote.TransferDirection;
 import org.apache.nifi.remote.codec.FlowFileCodec;
@@ -73,7 +73,7 @@ public class TestSocketClientTransaction {
         Peer peer = new Peer(description, commsSession, peerUrl, clusterUrl);
         boolean useCompression = false;
         int penaltyMillis = 1000;
-        EventReporter eventReporter = null;
+        SiteToSiteEventReporter eventReporter = null;
         int protocolVersion = 5;
         String destinationId = "destinationId";
         return new SocketClientTransaction(protocolVersion, destinationId, peer, codec, direction, useCompression, penaltyMillis, eventReporter);
@@ -121,7 +121,7 @@ public class TestSocketClientTransaction {
         assertEquals(RequestType.RECEIVE_FLOWFILES, RequestType.readRequestType(sentByClient));
         Response confirmResponse = Response.read(sentByClient);
         assertEquals(ResponseCode.CONFIRM_TRANSACTION, confirmResponse.getCode());
-        assertEquals( "3680976076", confirmResponse.getMessage(), "Checksum should be calculated at client");
+        assertEquals("3680976076", confirmResponse.getMessage(), "Checksum should be calculated at client");
         Response completeResponse = Response.read(sentByClient);
         assertEquals(ResponseCode.TRANSACTION_FINISHED, completeResponse.getCode());
         assertEquals(-1, sentByClient.read());
@@ -138,7 +138,6 @@ public class TestSocketClientTransaction {
         codec.encode(createDataPacket("contents on server 2"), serverResponse);
         ResponseCode.FINISH_TRANSACTION.writeResponse(serverResponse);
         ResponseCode.CONFIRM_TRANSACTION.writeResponse(serverResponse, "Checksum has been verified at server.");
-
 
         ByteArrayInputStream bis = new ByteArrayInputStream(serverResponseBos.toByteArray());
         ByteArrayOutputStream bos = new ByteArrayOutputStream();
@@ -172,7 +171,6 @@ public class TestSocketClientTransaction {
         ResponseCode.FINISH_TRANSACTION.writeResponse(serverResponse);
         ResponseCode.BAD_CHECKSUM.writeResponse(serverResponse);
 
-
         ByteArrayInputStream bis = new ByteArrayInputStream(serverResponseBos.toByteArray());
         ByteArrayOutputStream bos = new ByteArrayOutputStream();
 
@@ -185,10 +183,9 @@ public class TestSocketClientTransaction {
         assertEquals(RequestType.RECEIVE_FLOWFILES, RequestType.readRequestType(sentByClient));
         Response confirmResponse = Response.read(sentByClient);
         assertEquals(ResponseCode.CONFIRM_TRANSACTION, confirmResponse.getCode());
-        assertEquals( "2969091230", confirmResponse.getMessage(), "Checksum should be calculated at client");
+        assertEquals("2969091230", confirmResponse.getMessage(), "Checksum should be calculated at client");
         assertEquals(-1, sentByClient.read());
     }
-
 
     @Test
     public void testSendZeroFlowFile() throws IOException {
@@ -295,7 +292,6 @@ public class TestSocketClientTransaction {
         assertEquals(ResponseCode.BAD_CHECKSUM, confirmResponse.getCode());
         assertEquals(-1, sentByClient.read());
     }
-
 
     @Test
     public void testSendButDestinationFull() throws IOException {

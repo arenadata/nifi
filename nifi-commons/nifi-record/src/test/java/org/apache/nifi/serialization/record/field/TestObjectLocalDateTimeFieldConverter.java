@@ -19,9 +19,12 @@ package org.apache.nifi.serialization.record.field;
 
 import org.junit.jupiter.api.Test;
 
+import java.sql.Timestamp;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
+import java.time.ZonedDateTime;
+import java.time.temporal.ChronoUnit;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -40,8 +43,15 @@ public class TestObjectLocalDateTimeFieldConverter {
     private static final LocalDateTime LOCAL_DATE_TIME_MILLIS_PRECISION = LocalDateTime.ofInstant(INSTANT_MILLIS_PRECISION, ZoneId.systemDefault());
     private static final LocalDateTime LOCAL_DATE_TIME_MICROS_PRECISION = LocalDateTime.ofInstant(INSTANT_MICROS_PRECISION, ZoneId.systemDefault());
 
-    private final ObjectLocalDateTimeFieldConverter converter = new ObjectLocalDateTimeFieldConverter();
+    private static final long INPUT_MILLISECONDS = 1765056655230L;
+    private static final long INPUT_MICROSECONDS = 746;
+    private static final int EXPECTED_NANOSECONDS = 230746000;
+    private static final String MILLIS_WITH_FRACTIONAL_MICROS = "%d.%d".formatted(INPUT_MILLISECONDS, INPUT_MICROSECONDS);
 
+    private static final Instant INSTANT_MICROSECOND_PRECISION = Instant.ofEpochMilli(INPUT_MILLISECONDS).plus(INPUT_MICROSECONDS, ChronoUnit.MICROS);
+    private static final LocalDateTime LOCAL_DATE_TIME_FRACTIONAL_MICROS = LocalDateTime.ofInstant(INSTANT_MICROSECOND_PRECISION, ZoneId.systemDefault());
+
+    private final ObjectLocalDateTimeFieldConverter converter = new ObjectLocalDateTimeFieldConverter();
 
     @Test
     public void testConvertTimestampMillis() {
@@ -69,8 +79,15 @@ public class TestObjectLocalDateTimeFieldConverter {
     public void testDoubleAsEpochSecondsAsString() {
         final LocalDateTime result = converter.convertField(MICROS_TIMESTAMP_STRING, Optional.empty(), FIELD_NAME);
         assertEquals(LOCAL_DATE_TIME_MICROS_PRECISION, result);
-        final double expectedNanos = 351567000L;
-        assertEquals(expectedNanos, result.getNano(), 1D);
+        assertEquals(NANOS_AFTER_SECOND, result.getNano(), 1D);
+    }
+
+    @Test
+    public void testDoubleAsEpochMillisecondsWithMicroseconds() {
+        final LocalDateTime result = converter.convertField(MILLIS_WITH_FRACTIONAL_MICROS, Optional.empty(), FIELD_NAME);
+        assertEquals(LOCAL_DATE_TIME_FRACTIONAL_MICROS, result);
+        final int nano = result.getNano();
+        assertEquals(EXPECTED_NANOSECONDS, nano);
     }
 
     @Test
@@ -84,5 +101,22 @@ public class TestObjectLocalDateTimeFieldConverter {
     public void testWithDateFormatMicrosecondPrecision() {
         final LocalDateTime result = converter.convertField(MICROS_TIMESTAMP_LONG, Optional.of("yyyy-MM-dd'T'HH:mm:ss.SSSSSS"), FIELD_NAME);
         assertEquals(LOCAL_DATE_TIME_MICROS_PRECISION, result);
+    }
+
+    @Test
+    public void testConvertTimestampYearOneIsProlepticGregorian() {
+        final LocalDateTime yearOne = LocalDateTime.of(1, 1, 1, 12, 0, 0);
+        final ZonedDateTime zonedYearOne = yearOne.atZone(ZoneId.systemDefault());
+        final Timestamp timestamp = Timestamp.from(zonedYearOne.toInstant());
+        final LocalDateTime result = converter.convertField(timestamp, Optional.empty(), FIELD_NAME);
+
+        assertEquals(yearOne, result);
+    }
+
+    @Test
+    public void testConvertStringYearOneIsProlepticGregorian() {
+        final LocalDateTime result = converter.convertField("0001-01-01 12:00:00", Optional.of("yyyy-MM-dd HH:mm:ss"), FIELD_NAME);
+        final LocalDateTime expected = LocalDateTime.of(1, 1, 1, 12, 0, 0);
+        assertEquals(expected, result);
     }
 }

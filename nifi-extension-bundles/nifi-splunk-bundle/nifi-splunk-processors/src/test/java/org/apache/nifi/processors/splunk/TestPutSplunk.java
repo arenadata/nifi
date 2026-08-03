@@ -42,19 +42,20 @@ import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
-
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 public class TestPutSplunk {
 
     private TestRunner runner;
     private BlockingQueue<ByteArrayMessage> messages;
     private EventServer eventServer;
-    private final static int DEFAULT_TEST_TIMEOUT_PERIOD = 10000;
-    private final static String OUTGOING_MESSAGE_DELIMITER = "\n";
+    private static final int DEFAULT_TEST_TIMEOUT_PERIOD = 10000;
+    private static final String OUTGOING_MESSAGE_DELIMITER = "\n";
     private static final Charset CHARSET = StandardCharsets.UTF_8;
-    private final static int VALID_LARGE_FILE_SIZE = 32768;
+    private static final int VALID_LARGE_FILE_SIZE = 32768;
     private static final String LOCALHOST = "localhost";
 
     @BeforeEach
@@ -264,6 +265,31 @@ public class TestPutSplunk {
 
     @Test
     @Timeout(value = DEFAULT_TEST_TIMEOUT_PERIOD, unit = TimeUnit.MILLISECONDS)
+    public void testYieldsWhenIdle() throws Exception {
+        createTestServer(TransportProtocol.TCP);
+
+        runner.run(1);
+
+        assertTrue(runner.isYieldCalled(), "Processor should yield when no FlowFile is available to avoid busy scheduling");
+    }
+
+    @Test
+    @Timeout(value = DEFAULT_TEST_TIMEOUT_PERIOD, unit = TimeUnit.MILLISECONDS)
+    public void testDoesNotYieldWhenFlowFileProcessed() throws Exception {
+        createTestServer(TransportProtocol.TCP);
+        final String message = "This is one message, should send the whole FlowFile";
+
+        runner.enqueue(message);
+        runner.run(1);
+        runner.assertAllFlowFilesTransferred(PutSplunk.REL_SUCCESS, 1);
+
+        checkReceivedAllData(message);
+
+        assertFalse(runner.isYieldCalled(), "Processor should not yield after successfully processing a FlowFile");
+    }
+
+    @Test
+    @Timeout(value = DEFAULT_TEST_TIMEOUT_PERIOD, unit = TimeUnit.MILLISECONDS)
     public void testUnableToCreateConnectionShouldRouteToFailure() {
         // Set an unreachable port
         runner.setProperty(PutSplunk.PORT, "482");
@@ -275,7 +301,6 @@ public class TestPutSplunk {
         runner.run();
         runner.assertAllFlowFilesTransferred(PutSplunk.REL_FAILURE, 1);
     }
-
 
     private void createTestServer(final TransportProtocol protocol) {
         messages = new LinkedBlockingQueue<>();

@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-import { Component, Inject } from '@angular/core';
+import { Component, inject } from '@angular/core';
 import { MAT_DIALOG_DATA, MatDialogModule } from '@angular/material/dialog';
 import { FormBuilder, FormControl, FormGroup, ReactiveFormsModule, Validators } from '@angular/forms';
 import { Store } from '@ngrx/store';
@@ -23,14 +23,13 @@ import { MatInputModule } from '@angular/material/input';
 import { MatCheckboxModule } from '@angular/material/checkbox';
 import { MatButtonModule } from '@angular/material/button';
 import { AsyncPipe } from '@angular/common';
-import { NifiSpinnerDirective } from '../../../../../ui/common/spinner/nifi-spinner.directive';
 import { selectSaving } from '../../../state/manage-remote-ports/manage-remote-ports.selectors';
-import { EditRemotePortDialogRequest } from '../../../state/flow';
+import { EditRemotePortDialogRequest } from '../../../../../state/shared';
 import { Client } from '../../../../../service/client.service';
 import { PortSummary } from '../../../state/manage-remote-ports';
 import { configureRemotePort } from '../../../state/manage-remote-ports/manage-remote-ports.actions';
 import { ClusterConnectionService } from '../../../../../service/cluster-connection.service';
-import { NifiTooltipDirective, TextTip } from '@nifi/shared';
+import { NifiSpinnerDirective, NifiTooltipDirective, TextTip } from '@nifi/shared';
 import { ComponentType, CloseOnEscapeDialog } from '@nifi/shared';
 import { CanvasState } from '../../../state';
 import { ErrorContextKey } from '../../../../../state/error';
@@ -52,19 +51,21 @@ import { ContextErrorBanner } from '../../../../../ui/common/context-error-banne
     styleUrls: ['./edit-remote-port.component.scss']
 })
 export class EditRemotePortComponent extends CloseOnEscapeDialog {
+    request = inject<EditRemotePortDialogRequest>(MAT_DIALOG_DATA);
+    private formBuilder = inject(FormBuilder);
+    private store = inject<Store<CanvasState>>(Store);
+    private client = inject(Client);
+    private clusterConnectionService = inject(ClusterConnectionService);
+
     saving$ = this.store.select(selectSaving);
 
     editPortForm: FormGroup;
     portTypeLabel: string;
 
-    constructor(
-        @Inject(MAT_DIALOG_DATA) public request: EditRemotePortDialogRequest,
-        private formBuilder: FormBuilder,
-        private store: Store<CanvasState>,
-        private client: Client,
-        private clusterConnectionService: ClusterConnectionService
-    ) {
+    constructor() {
         super();
+        const request = this.request;
+
         // set the port type name
         if (ComponentType.InputPort == this.request.type) {
             this.portTypeLabel = 'Input Port';
@@ -104,7 +105,6 @@ export class EditRemotePortComponent extends CloseOnEscapeDialog {
             configureRemotePort({
                 request: {
                     id: this.request.entity.id,
-                    uri: this.request.rpg.uri,
                     payload
                 }
             })

@@ -125,7 +125,7 @@ public class WriteAheadStorePartition implements EventStorePartition {
         fileList.sort(DirectoryUtils.LARGEST_ID_FIRST);
         for (final File file : fileList) {
             try {
-                final RecordReader reader = recordReaderFactory.newRecordReader(file, Collections.emptyList(), Integer.MAX_VALUE);
+                final RecordReader reader = recordReaderFactory.newRecordReader(file, Collections.emptyList(), config.getMaxAttributeChars());
                 final long eventId = reader.getMaxEventId();
                 if (eventId > maxEventId) {
                     maxEventId = eventId;
@@ -166,7 +166,6 @@ public class WriteAheadStorePartition implements EventStorePartition {
         final long updatedId = idGenerator.updateAndGet(curVal -> Math.max(curVal, nextPartitionId));
         logger.info("After recovering {}, next Event ID to be generated will be {}", partitionDirectory, updatedId);
     }
-
 
     @Override
     public StorageResult addEvents(final Iterable<ProvenanceEventRecord> events) throws IOException {
@@ -359,7 +358,6 @@ public class WriteAheadStorePartition implements EventStorePartition {
         return locationMap;
     }
 
-
     @Override
     public long getSize() {
         return getEventFilesFromDisk()
@@ -407,12 +405,13 @@ public class WriteAheadStorePartition implements EventStorePartition {
     public List<ProvenanceEventRecord> getEvents(final long firstRecordId, final int maxEvents, final EventAuthorizer authorizer) throws IOException {
         final List<ProvenanceEventRecord> events = new ArrayList<>(Math.min(maxEvents, 1000));
         try (final EventIterator iterator = createEventIterator(firstRecordId)) {
-            Optional<ProvenanceEventRecord> eventOption;
-            while ((eventOption = iterator.nextEvent()).isPresent() && events.size() < maxEvents) {
+            Optional<ProvenanceEventRecord> eventOption = iterator.nextEvent();
+            while (eventOption.isPresent() && events.size() < maxEvents) {
                 final ProvenanceEventRecord event = eventOption.get();
                 if (authorizer.isAuthorized(event)) {
                     events.add(event);
                 }
+                eventOption = iterator.nextEvent();
             }
         }
 
@@ -459,7 +458,6 @@ public class WriteAheadStorePartition implements EventStorePartition {
         return new SequentialRecordReaderEventIterator(filesOfInterest, recordReaderFactory, minDesiredId, config.getMaxAttributeChars());
     }
 
-
     @Override
     public EventIterator createEventIterator(final List<Long> eventIds) {
         final List<File> allFiles;
@@ -490,7 +488,6 @@ public class WriteAheadStorePartition implements EventStorePartition {
 
         return Optional.ofNullable(lastFile);
     }
-
 
     @Override
     public void purgeOldEvents(final long olderThan, final TimeUnit unit) {
@@ -622,7 +619,7 @@ public class WriteAheadStorePartition implements EventStorePartition {
             final Runnable reindexTask = () -> {
                 final Map<ProvenanceEventRecord, StorageSummary> storageMap = new HashMap<>(1000);
 
-                try (final RecordReader recordReader = recordReaderFactory.newRecordReader(eventFile, Collections.emptyList(), Integer.MAX_VALUE)) {
+                try (final RecordReader recordReader = recordReaderFactory.newRecordReader(eventFile, Collections.emptyList(), config.getMaxAttributeChars())) {
                     if (skipToEvent) {
                         final Optional<ProvenanceEventRecord> eventOption = recordReader.skipToEvent(minEventIdToReindex);
                         if (!eventOption.isPresent()) {
@@ -689,7 +686,6 @@ public class WriteAheadStorePartition implements EventStorePartition {
             reindexedCount.get(), eventFilesToReindex.size(), partitionDirectory, seconds, millisRemainder);
     }
 
-
     EventIterator getEventsByTimestamp(final long minTimestmap, final long maxTimestamp) throws IOException {
         // Get a list of all Files and order them based on their ID such that the largest ID is first.
         // This allows us to step through the event files in order and read the first event in the file.
@@ -723,12 +719,12 @@ public class WriteAheadStorePartition implements EventStorePartition {
             }
         }
 
-        final EventIterator rawEventIterator = new SequentialRecordReaderEventIterator(relevantEventFiles, recordReaderFactory, 0, Integer.MAX_VALUE);
+        final EventIterator rawEventIterator = new SequentialRecordReaderEventIterator(relevantEventFiles, recordReaderFactory, 0, config.getMaxAttributeChars());
         return rawEventIterator.filter(event -> event.getEventTime() >= minTimestmap && event.getEventTime() <= maxTimestamp);
     }
 
     private ProvenanceEventRecord getFirstEvent(final File eventFile) throws IOException {
-        try (final RecordReader recordReader = recordReaderFactory.newRecordReader(eventFile, Collections.emptyList(), Integer.MAX_VALUE)) {
+        try (final RecordReader recordReader = recordReaderFactory.newRecordReader(eventFile, Collections.emptyList(), config.getMaxAttributeChars())) {
             return recordReader.nextRecord();
         }
     }

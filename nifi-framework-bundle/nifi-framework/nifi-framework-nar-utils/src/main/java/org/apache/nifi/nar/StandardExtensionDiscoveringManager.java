@@ -29,9 +29,11 @@ import org.apache.nifi.bundle.BundleDetails;
 import org.apache.nifi.components.ClassloaderIsolationKeyProvider;
 import org.apache.nifi.components.ConfigurableComponent;
 import org.apache.nifi.components.PropertyDescriptor;
+import org.apache.nifi.components.connector.Connector;
 import org.apache.nifi.components.state.StateProvider;
 import org.apache.nifi.controller.ControllerService;
 import org.apache.nifi.controller.leader.election.LeaderElectionManager;
+import org.apache.nifi.controller.metrics.ComponentMetricReporter;
 import org.apache.nifi.controller.repository.ContentRepository;
 import org.apache.nifi.controller.repository.FlowFileRepository;
 import org.apache.nifi.controller.repository.FlowFileSwapManager;
@@ -134,6 +136,8 @@ public class StandardExtensionDiscoveringManager implements ExtensionDiscovering
         definitionMap.put(NarPersistenceProvider.class, new HashSet<>());
         definitionMap.put(AssetManager.class, new HashSet<>());
         definitionMap.put(FlowActionReporter.class, new HashSet<>());
+        definitionMap.put(ComponentMetricReporter.class, new HashSet<>());
+        definitionMap.put(Connector.class, new HashSet<>());
 
         additionalExtensionTypes.forEach(type -> definitionMap.putIfAbsent(type, new HashSet<>()));
     }
@@ -322,7 +326,6 @@ public class StandardExtensionDiscoveringManager implements ExtensionDiscovering
             .build();
     }
 
-
     /**
      * Loads extensions from the specified bundle.
      *
@@ -407,9 +410,12 @@ public class StandardExtensionDiscoveringManager implements ExtensionDiscovering
             serviceResourceUrls.add(serviceResourceUrlEnum.nextElement());
         }
 
-        final Enumeration<URL> parentResourceUrlEnum = bundle.getClassLoader().getParent().getResources(servicesFile);
-        while (parentResourceUrlEnum.hasMoreElements()) {
-            serviceResourceUrls.remove(parentResourceUrlEnum.nextElement());
+        final ClassLoader parentClassLoader = bundle.getClassLoader().getParent();
+        if (parentClassLoader != null) {
+            final Enumeration<URL> parentResourceUrlEnum = parentClassLoader.getResources(servicesFile);
+            while (parentResourceUrlEnum.hasMoreElements()) {
+                serviceResourceUrls.remove(parentResourceUrlEnum.nextElement());
+            }
         }
 
         return serviceResourceUrls;
@@ -420,10 +426,9 @@ public class StandardExtensionDiscoveringManager implements ExtensionDiscovering
     }
 
     protected void registerExtensionClass(final Class<?> extensionType, final String implementationClassName, final Bundle bundle) {
-        final Set<ExtensionDefinition> registeredClasses = definitionMap.get(extensionType);
+        final Set<ExtensionDefinition> registeredClasses = definitionMap.computeIfAbsent(extensionType, type -> new HashSet<>());
         registerServiceClass(implementationClassName, extensionType, classNameBundleLookup, bundleCoordinateClassesLookup, bundle, registeredClasses);
     }
-
 
     protected void initializeTempComponent(final ConfigurableComponent configurableComponent) {
         try {
@@ -435,7 +440,6 @@ public class StandardExtensionDiscoveringManager implements ExtensionDiscovering
             logger.warn("Unable to initialize component {} due to {}", configurableComponent.getClass().getName(), e.getMessage());
         }
     }
-
 
     /**
      * Registers extension for the specified type from the specified Bundle.
@@ -508,7 +512,8 @@ public class StandardExtensionDiscoveringManager implements ExtensionDiscovering
      */
     private static boolean multipleVersionsAllowed(Class<?> type) {
         return Processor.class.isAssignableFrom(type) || ControllerService.class.isAssignableFrom(type) || ReportingTask.class.isAssignableFrom(type)
-                || FlowAnalysisRule.class.isAssignableFrom(type) || ParameterProvider.class.isAssignableFrom(type) || FlowRegistryClient.class.isAssignableFrom(type);
+                || FlowAnalysisRule.class.isAssignableFrom(type) || ParameterProvider.class.isAssignableFrom(type) || FlowRegistryClient.class.isAssignableFrom(type)
+                || Connector.class.isAssignableFrom(type);
     }
 
     protected boolean isInstanceClassLoaderRequired(final String classType, final Bundle bundle) {
@@ -647,7 +652,6 @@ public class StandardExtensionDiscoveringManager implements ExtensionDiscovering
         return instanceClassLoader;
     }
 
-
     /**
      * Find the bundle coordinates for any service APIs that are referenced by this component and not part of the same bundle.
      *
@@ -742,11 +746,9 @@ public class StandardExtensionDiscoveringManager implements ExtensionDiscovering
 
         final Bundle removedBundle = bundleCoordinateBundleLookup.remove(bundleCoordinate);
         if (removedBundle == null) {
-            logger.debug("Bundle not found with coordinate [{}]", bundleCoordinate);
             return null;
         }
 
-        logger.debug("Removing bundle [{}]", bundleCoordinate);
         final ClassLoader removedBundleClassLoader = removedBundle.getClassLoader();
         classLoaderBundleLookup.remove(removedBundleClassLoader);
 
@@ -863,6 +865,10 @@ public class StandardExtensionDiscoveringManager implements ExtensionDiscovering
                 tempComponent = pythonBridge.createProcessor(procId, classType, bundleCoordinate.getVersion(), false, false);
             } else {
                 final Class<?> componentClass = Class.forName(classType, true, bundleClassLoader);
+                if (!ConfigurableComponent.class.isAssignableFrom(componentClass)) {
+                    return null;
+                }
+
                 tempComponent = (ConfigurableComponent) componentClass.getDeclaredConstructor().newInstance();
             }
 
@@ -965,7 +971,6 @@ public class StandardExtensionDiscoveringManager implements ExtensionDiscovering
             }
         }
     }
-
 
     private static class BaseClassLoaderKey {
         private final Bundle bundle;

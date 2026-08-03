@@ -16,10 +16,9 @@
  */
 package org.apache.nifi.controller.repository.claim;
 
-
 /**
  * <p>
- * A ContentClaim is a reference to a given flow file's content. Multiple flow files may reference the same content by both having the same content claim.</p>
+ * A ContentClaim is a reference to a given flow file's content. Multiple FlowFiles may reference the same content by both having the same content claim.</p>
  *
  * <p>
  * Must be thread safe</p>
@@ -30,6 +29,7 @@ public final class StandardContentClaim implements ContentClaim, Comparable<Cont
     private final ResourceClaim resourceClaim;
     private final long offset;
     private volatile long length;
+    private volatile boolean truncationCandidate;
 
     public StandardContentClaim(final ResourceClaim resourceClaim, final long offset) {
         this.resourceClaim = resourceClaim;
@@ -39,6 +39,15 @@ public final class StandardContentClaim implements ContentClaim, Comparable<Cont
 
     public void setLength(final long length) {
         this.length = length;
+    }
+
+    public void setTruncationCandidate(final boolean candidate) {
+        this.truncationCandidate = candidate;
+    }
+
+    @Override
+    public boolean isTruncationCandidate() {
+        return truncationCandidate;
     }
 
     @Override

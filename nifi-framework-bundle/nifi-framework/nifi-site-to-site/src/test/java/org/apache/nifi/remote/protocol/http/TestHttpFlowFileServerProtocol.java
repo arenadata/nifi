@@ -332,7 +332,7 @@ public class TestHttpFlowFileServerProtocol {
             Collection<MockFlowFile>> flowFileGenerator) throws IOException {
         setupMockProcessSession();
 
-        // Enqueue flow files to be transferred.
+        // Enqueue FlowFiles to be transferred.
         final Collection<MockFlowFile> flowFiles = flowFileGenerator.apply(processSession);
         for (final MockFlowFile flowFile : flowFiles) {
             sessionState.getFlowFileQueue().offer(flowFile);
@@ -423,7 +423,6 @@ public class TestHttpFlowFileServerProtocol {
         final ProcessContext context = null;
         final ProcessSession processSession = mock(ProcessSession.class);
 
-
         final InputStream httpInputStream = new ByteArrayInputStream(new byte[]{});
 
         ((HttpInput) commsSession.getInput()).setInputStream(httpInputStream);
@@ -464,7 +463,7 @@ public class TestHttpFlowFileServerProtocol {
         assertEquals(endpointUri, provenanceEvent.getTransitUri());
         assertEquals("Remote Host=peer-host, Remote DN=unit-test", provenanceEvent.getDetails());
 
-        // Assert received flow files.
+        // Assert received FlowFiles.
         processSession.assertAllFlowFilesTransferred(Relationship.ANONYMOUS);
         final List<MockFlowFile> flowFiles = processSession.getFlowFilesForRelationship(Relationship.ANONYMOUS);
         assertEquals(1, flowFiles.size());
@@ -557,7 +556,7 @@ public class TestHttpFlowFileServerProtocol {
             assertEquals("Remote Host=peer-host, Remote DN=unit-test", provenanceEvent.getDetails());
         }
 
-        // Assert received flow files.
+        // Assert received FlowFiles.
         processSession.assertAllFlowFilesTransferred(Relationship.ANONYMOUS);
         final List<MockFlowFile> flowFiles = processSession.getFlowFilesForRelationship(Relationship.ANONYMOUS);
         assertEquals(2, flowFiles.size());
@@ -568,6 +567,5 @@ public class TestHttpFlowFileServerProtocol {
             flowFile.assertAttributeEquals("client-attr-2", "client-attr-2-value");
         }
     }
-
 
 }

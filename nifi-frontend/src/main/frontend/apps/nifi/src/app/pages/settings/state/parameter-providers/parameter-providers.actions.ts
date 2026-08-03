@@ -31,6 +31,7 @@ import {
     PollParameterProviderParametersUpdateSuccess,
     SelectParameterProviderRequest
 } from './index';
+import { ClearBulletinsRequest, ClearBulletinsResponse } from '../../../../state/shared';
 
 const PARAMETER_PROVIDERS_PREFIX = '[Parameter Providers]';
 
@@ -43,8 +44,13 @@ export const loadParameterProvidersSuccess = createAction(
     props<{ response: LoadParameterProvidersResponse }>()
 );
 
-export const parameterProvidersBannerApiError = createAction(
+export const loadParameterProvidersError = createAction(
     `${PARAMETER_PROVIDERS_PREFIX} Load Parameter Providers Error`,
+    props<{ errorResponse: any; loadedTimestamp: string; status: 'pending' | 'success' }>()
+);
+
+export const parameterProvidersBannerApiError = createAction(
+    `${PARAMETER_PROVIDERS_PREFIX} Parameter Providers Banner Api Error`,
     props<{ error: string }>()
 );
 
@@ -170,4 +176,14 @@ export const deleteParameterProviderParametersUpdateRequest = createAction(
 
 export const submitParameterProviderParametersUpdateComplete = createAction(
     `${PARAMETER_PROVIDERS_PREFIX} Submit Parameter Provider Parameters Update Complete`
+);
+
+export const clearParameterProviderBulletins = createAction(
+    `${PARAMETER_PROVIDERS_PREFIX} Clear Parameter Provider Bulletins`,
+    props<{ request: ClearBulletinsRequest }>()
+);
+
+export const clearParameterProviderBulletinsSuccess = createAction(
+    `${PARAMETER_PROVIDERS_PREFIX} Clear Parameter Provider Bulletins Success`,
+    props<{ response: ClearBulletinsResponse }>()
 );

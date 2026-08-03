@@ -25,6 +25,8 @@ import { ReportingTaskDefinition } from '../ui/reporting-task-definition/reporti
 import { ParameterProviderDefinition } from '../ui/parameter-provider-definition/parameter-provider-definition.component';
 import { FlowAnalysisRuleDefinition } from '../ui/flow-analysis-rule-definition/flow-analysis-rule-definition.component';
 import { Overview } from '../ui/overview/overview.component';
+import { FlowRegistryClientDefinition } from '../ui/flow-registry-client-definition/flow-registry-client-definition.component';
+import { ConnectorDefinitionComponent } from '../ui/connector-definition/connector-definition.component';
 
 const routes: Routes = [
     {
@@ -45,12 +47,20 @@ const routes: Routes = [
                 component: ReportingTaskDefinition
             },
             {
+                path: `${ComponentType.FlowRegistryClient}/:group/:artifact/:version/:type`,
+                component: FlowRegistryClientDefinition
+            },
+            {
                 path: `${ComponentType.ParameterProvider}/:group/:artifact/:version/:type`,
                 component: ParameterProviderDefinition
             },
             {
                 path: `${ComponentType.FlowAnalysisRule}/:group/:artifact/:version/:type`,
                 component: FlowAnalysisRuleDefinition
+            },
+            {
+                path: `${ComponentType.Connector}/:group/:artifact/:version/:type`,
+                component: ConnectorDefinitionComponent
             },
             {
                 path: 'overview',

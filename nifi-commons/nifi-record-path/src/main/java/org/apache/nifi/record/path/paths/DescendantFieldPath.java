@@ -17,11 +17,6 @@
 
 package org.apache.nifi.record.path.paths;
 
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.List;
-import java.util.Map;
-import java.util.stream.Stream;
 import org.apache.nifi.record.path.FieldValue;
 import org.apache.nifi.record.path.MapEntryFieldValue;
 import org.apache.nifi.record.path.RecordPathEvaluationContext;
@@ -33,6 +28,12 @@ import org.apache.nifi.serialization.record.RecordField;
 import org.apache.nifi.serialization.record.RecordFieldType;
 import org.apache.nifi.serialization.record.type.MapDataType;
 
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+import java.util.Map;
+import java.util.stream.Stream;
+
 public class DescendantFieldPath extends RecordPathSegment {
     private final String descendantName;
 
@@ -40,7 +41,6 @@ public class DescendantFieldPath extends RecordPathSegment {
         super("//" + descendantName, parent, absolute);
         this.descendantName = descendantName;
     }
-
 
     @Override
     public Stream<FieldValue> evaluate(final RecordPathEvaluationContext context) {

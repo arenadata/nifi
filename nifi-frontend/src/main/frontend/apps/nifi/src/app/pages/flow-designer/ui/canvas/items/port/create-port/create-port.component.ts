@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-import { Component, Inject } from '@angular/core';
+import { Component, inject } from '@angular/core';
 import { FormBuilder, FormControl, FormGroup, ReactiveFormsModule, Validators } from '@angular/forms';
 import { Store } from '@ngrx/store';
 import { CanvasState } from '../../../../../state';
@@ -28,8 +28,14 @@ import { MatInputModule } from '@angular/material/input';
 import { MatSelectModule } from '@angular/material/select';
 import { AsyncPipe } from '@angular/common';
 import { MatButtonModule } from '@angular/material/button';
-import { NifiSpinnerDirective } from '../../../../../../../ui/common/spinner/nifi-spinner.directive';
-import { ComponentType, SelectOption, NifiTooltipDirective, TextTip, CloseOnEscapeDialog } from '@nifi/shared';
+import {
+    ComponentType,
+    NifiSpinnerDirective,
+    SelectOption,
+    NifiTooltipDirective,
+    TextTip,
+    CloseOnEscapeDialog
+} from '@nifi/shared';
 import { ErrorContextKey } from '../../../../../../../state/error';
 import { ContextErrorBanner } from '../../../../../../../ui/common/context-error-banner/context-error-banner.component';
 
@@ -50,6 +56,10 @@ import { ContextErrorBanner } from '../../../../../../../ui/common/context-error
     styleUrls: ['./create-port.component.scss']
 })
 export class CreatePort extends CloseOnEscapeDialog {
+    request = inject<CreateComponentRequest>(MAT_DIALOG_DATA);
+    private formBuilder = inject(FormBuilder);
+    private store = inject<Store<CanvasState>>(Store);
+
     saving$ = this.store.select(selectSaving);
 
     protected readonly TextTip = TextTip;
@@ -71,11 +81,7 @@ export class CreatePort extends CloseOnEscapeDialog {
         }
     ];
 
-    constructor(
-        @Inject(MAT_DIALOG_DATA) public request: CreateComponentRequest,
-        private formBuilder: FormBuilder,
-        private store: Store<CanvasState>
-    ) {
+    constructor() {
         super();
         // set the port type name
         if (ComponentType.InputPort == this.request.type) {

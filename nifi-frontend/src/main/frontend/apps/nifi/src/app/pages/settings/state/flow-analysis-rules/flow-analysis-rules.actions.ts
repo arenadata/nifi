@@ -31,7 +31,7 @@ import {
     LoadFlowAnalysisRulesResponse,
     SelectFlowAnalysisRuleRequest
 } from './index';
-import { FetchComponentVersionsRequest } from '../../../../state/shared';
+import { ClearBulletinsRequest, ClearBulletinsResponse, FetchComponentVersionsRequest } from '../../../../state/shared';
 
 export const resetFlowAnalysisRulesState = createAction('[Flow Analysis Rules] Reset Flow Analysis Rules State');
 
@@ -40,6 +40,11 @@ export const loadFlowAnalysisRules = createAction('[Flow Analysis Rules] Load Fl
 export const loadFlowAnalysisRulesSuccess = createAction(
     '[Flow Analysis Rules] Load Flow Analysis Rules Success',
     props<{ response: LoadFlowAnalysisRulesResponse }>()
+);
+
+export const loadFlowAnalysisRulesError = createAction(
+    '[Flow Analysis Rules] Load Flow Analysis Rules Error',
+    props<{ errorResponse: any; loadedTimestamp: string; status: 'pending' | 'success' }>()
 );
 
 export const openConfigureFlowAnalysisRuleDialog = createAction(
@@ -131,4 +136,14 @@ export const selectFlowAnalysisRule = createAction(
 export const openChangeFlowAnalysisRuleVersionDialog = createAction(
     `[Flow Analysis Rules] Open Change Flow Analysis Rule Version Dialog`,
     props<{ request: FetchComponentVersionsRequest }>()
+);
+
+export const clearFlowAnalysisRuleBulletins = createAction(
+    '[Flow Analysis Rules] Clear Flow Analysis Rule Bulletins',
+    props<{ request: ClearBulletinsRequest }>()
+);
+
+export const clearFlowAnalysisRuleBulletinsSuccess = createAction(
+    '[Flow Analysis Rules] Clear Flow Analysis Rule Bulletins Success',
+    props<{ response: ClearBulletinsResponse }>()
 );

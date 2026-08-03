@@ -16,25 +16,6 @@
  */
 package org.apache.nifi.processors.avro;
 
-import static org.apache.nifi.flowfile.attributes.FragmentAttributes.FRAGMENT_COUNT;
-import static org.apache.nifi.flowfile.attributes.FragmentAttributes.FRAGMENT_ID;
-import static org.apache.nifi.flowfile.attributes.FragmentAttributes.FRAGMENT_INDEX;
-import static org.apache.nifi.flowfile.attributes.FragmentAttributes.SEGMENT_ORIGINAL_FILENAME;
-import static org.apache.nifi.flowfile.attributes.FragmentAttributes.copyAttributesToOriginal;
-
-import java.io.BufferedInputStream;
-import java.io.BufferedOutputStream;
-import java.io.IOException;
-import java.io.InputStream;
-import java.io.OutputStream;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
-import java.util.UUID;
-import java.util.concurrent.atomic.AtomicReference;
-import java.util.stream.IntStream;
 import org.apache.avro.file.CodecFactory;
 import org.apache.avro.file.DataFileConstants;
 import org.apache.avro.file.DataFileStream;
@@ -65,6 +46,26 @@ import org.apache.nifi.processor.ProcessSession;
 import org.apache.nifi.processor.Relationship;
 import org.apache.nifi.processor.exception.ProcessException;
 import org.apache.nifi.processor.util.StandardValidators;
+
+import java.io.BufferedInputStream;
+import java.io.BufferedOutputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.UUID;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.stream.IntStream;
+
+import static org.apache.nifi.flowfile.attributes.FragmentAttributes.FRAGMENT_COUNT;
+import static org.apache.nifi.flowfile.attributes.FragmentAttributes.FRAGMENT_ID;
+import static org.apache.nifi.flowfile.attributes.FragmentAttributes.FRAGMENT_INDEX;
+import static org.apache.nifi.flowfile.attributes.FragmentAttributes.SEGMENT_ORIGINAL_FILENAME;
+import static org.apache.nifi.flowfile.attributes.FragmentAttributes.copyAttributesToOriginal;
 
 @SideEffectFree
 @SupportsBatching
@@ -230,7 +231,7 @@ public class SplitAvro extends AbstractProcessor {
     /**
      * Splits the incoming Avro datafile into batches of records by reading and de-serializing each record.
      */
-    static private class RecordSplitter implements Splitter {
+    private static class RecordSplitter implements Splitter {
 
         private final int splitSize;
         private final boolean transferMetadata;
@@ -309,7 +310,7 @@ public class SplitAvro extends AbstractProcessor {
     /**
      * Writes a binary Avro Datafile to the OutputStream.
      */
-    static private class DatafileSplitWriter implements SplitWriter {
+    private static class DatafileSplitWriter implements SplitWriter {
 
         private final boolean transferMetadata;
         private DataFileWriter<GenericRecord> writer;
@@ -353,7 +354,7 @@ public class SplitAvro extends AbstractProcessor {
     /**
      * Writes bare Avro records to the OutputStream.
      */
-    static private class BareRecordSplitWriter implements SplitWriter {
+    private static class BareRecordSplitWriter implements SplitWriter {
         private Encoder encoder;
         private DatumWriter<GenericRecord> writer;
 

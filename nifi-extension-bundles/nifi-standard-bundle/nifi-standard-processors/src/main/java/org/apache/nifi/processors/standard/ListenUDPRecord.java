@@ -32,6 +32,7 @@ import org.apache.nifi.components.Validator;
 import org.apache.nifi.expression.ExpressionLanguageScope;
 import org.apache.nifi.flowfile.FlowFile;
 import org.apache.nifi.flowfile.attributes.CoreAttributes;
+import org.apache.nifi.migration.PropertyConfiguration;
 import org.apache.nifi.processor.DataUnit;
 import org.apache.nifi.processor.ProcessContext;
 import org.apache.nifi.processor.ProcessSession;
@@ -73,20 +74,19 @@ import java.util.concurrent.TimeUnit;
 @Tags({"ingest", "udp", "listen", "source", "record"})
 @InputRequirement(InputRequirement.Requirement.INPUT_FORBIDDEN)
 @CapabilityDescription("Listens for Datagram Packets on a given port and reads the content of each datagram using the " +
-        "configured Record Reader. Each record will then be written to a flow file using the configured Record Writer. This processor " +
+        "configured Record Reader. Each record will then be written to a FlowFile using the configured Record Writer. This processor " +
         "can be restricted to listening for datagrams from  a specific remote host and port by specifying the Sending Host and " +
         "Sending Host Port properties, otherwise it will listen for datagrams from all hosts and ports.")
 @WritesAttributes({
         @WritesAttribute(attribute = "udp.sender", description = "The sending host of the messages."),
         @WritesAttribute(attribute = "udp.port", description = "The sending port the messages were received."),
-        @WritesAttribute(attribute = "record.count", description = "The number of records written to the flow file."),
-        @WritesAttribute(attribute = "mime.type", description = "The mime-type of the writer used to write the records to the flow file.")
+        @WritesAttribute(attribute = "record.count", description = "The number of records written to the FlowFile."),
+        @WritesAttribute(attribute = "mime.type", description = "The mime-type of the writer used to write the records to the FlowFile.")
 })
 public class ListenUDPRecord extends AbstractListenEventProcessor<StandardEvent> {
 
     public static final PropertyDescriptor SENDING_HOST = new PropertyDescriptor.Builder()
-            .name("sending-host")
-            .displayName("Sending Host")
+            .name("Sending Host")
             .description("IP, or name, of a remote host. Only Datagrams from the specified Sending Host Port and this host will "
                 + "be accepted. Improves Performance. May be a system property or an environment variable.")
             .addValidator(new HostValidator())
@@ -94,8 +94,7 @@ public class ListenUDPRecord extends AbstractListenEventProcessor<StandardEvent>
             .build();
 
     public static final PropertyDescriptor SENDING_HOST_PORT = new PropertyDescriptor.Builder()
-            .name("sending-host-port")
-            .displayName("Sending Host Port")
+            .name("Sending Host Port")
             .description("Port being used by remote host to send Datagrams. Only Datagrams from the specified Sending Host and "
                 + "this port will be accepted. Improves Performance. May be a system property or an environment variable.")
             .addValidator(StandardValidators.PORT_VALIDATOR)
@@ -103,8 +102,7 @@ public class ListenUDPRecord extends AbstractListenEventProcessor<StandardEvent>
             .build();
 
     public static final PropertyDescriptor RECORD_READER = new PropertyDescriptor.Builder()
-            .name("record-reader")
-            .displayName("Record Reader")
+            .name("Record Reader")
             .description("The Record Reader to use for reading the content of incoming datagrams.")
             .identifiesControllerService(RecordReaderFactory.class)
             .expressionLanguageSupported(ExpressionLanguageScope.NONE)
@@ -112,17 +110,15 @@ public class ListenUDPRecord extends AbstractListenEventProcessor<StandardEvent>
             .build();
 
     public static final PropertyDescriptor RECORD_WRITER = new PropertyDescriptor.Builder()
-            .name("record-writer")
-            .displayName("Record Writer")
-            .description("The Record Writer to use in order to serialize the data before writing to a flow file.")
+            .name("Record Writer")
+            .description("The Record Writer to use in order to serialize the data before writing to a FlowFile.")
             .identifiesControllerService(RecordSetWriterFactory.class)
             .expressionLanguageSupported(ExpressionLanguageScope.NONE)
             .required(true)
             .build();
 
     public static final PropertyDescriptor POLL_TIMEOUT = new PropertyDescriptor.Builder()
-            .name("poll-timeout")
-            .displayName("Poll Timeout")
+            .name("Poll Timeout")
             .description("The amount of time to wait when polling the internal queue for more datagrams. If no datagrams are found after waiting " +
                     "for the configured timeout, then the processor will emit whatever records have been obtained up to that point.")
             .addValidator(StandardValidators.TIME_PERIOD_VALIDATOR)
@@ -131,8 +127,7 @@ public class ListenUDPRecord extends AbstractListenEventProcessor<StandardEvent>
             .build();
 
     public static final PropertyDescriptor BATCH_SIZE = new PropertyDescriptor.Builder()
-            .name("batch-size")
-            .displayName("Batch Size")
+            .name("Batch Size")
             .description("The maximum number of datagrams to write as records to a single FlowFile. The Batch Size will only be reached when " +
                     "data is coming in more frequently than the Poll Timeout.")
             .addValidator(StandardValidators.POSITIVE_INTEGER_VALIDATOR)
@@ -263,8 +258,8 @@ public class ListenUDPRecord extends AbstractListenEventProcessor<StandardEvent>
                 continue;
             }
 
-            // see if we already started a flow file and writer for the given sender
-            // if an exception happens creating the flow file or writer, put the event in the error queue to try it again later
+            // see if we already started a FlowFile and writer for the given sender
+            // if an exception happens creating the FlowFile or writer, put the event in the error queue to try it again later
             FlowFileRecordWriter flowFileRecordWriter = flowFileRecordWriters.get(event.getSender());
 
             if (flowFileRecordWriter == null) {
@@ -307,7 +302,7 @@ public class ListenUDPRecord extends AbstractListenEventProcessor<StandardEvent>
                 }
             }
 
-            // attempt to write each record, if any record fails then remove the flow file and break out of the loop
+            // attempt to write each record, if any record fails then remove the FlowFile and break out of the loop
             final RecordSetWriter writer = flowFileRecordWriter.getRecordWriter();
             try {
                 for (final Record record : records) {
@@ -322,8 +317,8 @@ public class ListenUDPRecord extends AbstractListenEventProcessor<StandardEvent>
             }
         }
 
-        // attempt to finish each record set and transfer the flow file, if an error is encountered calling
-        // finishRecordSet or closing the writer then remove the flow file
+        // attempt to finish each record set and transfer the FlowFile, if an error is encountered calling
+        // finishRecordSet or closing the writer then remove the FlowFile
 
         for (final Map.Entry<String, FlowFileRecordWriter> entry : flowFileRecordWriters.entrySet()) {
             final String sender = entry.getKey();
@@ -361,6 +356,16 @@ public class ListenUDPRecord extends AbstractListenEventProcessor<StandardEvent>
                 session.remove(flowFile);
             }
         }
+    }
+
+    @Override
+    public void migrateProperties(PropertyConfiguration config) {
+        config.renameProperty("sending-host", SENDING_HOST.getName());
+        config.renameProperty("sending-host-port", SENDING_HOST_PORT.getName());
+        config.renameProperty("record-reader", RECORD_READER.getName());
+        config.renameProperty("record-writer", RECORD_WRITER.getName());
+        config.renameProperty("poll-timeout", POLL_TIMEOUT.getName());
+        config.renameProperty("batch-size", BATCH_SIZE.getName());
     }
 
     private void handleParseFailure(final StandardEvent event, final ProcessSession session, final Exception cause) {
@@ -404,7 +409,7 @@ public class ListenUDPRecord extends AbstractListenEventProcessor<StandardEvent>
     }
 
     /**
-     * Holder class to pass around a flow file and the writer that is writing records to it.
+     * Holder class to pass around a FlowFile and the writer that is writing records to it.
      */
     private static class FlowFileRecordWriter {
 

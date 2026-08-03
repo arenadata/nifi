@@ -108,25 +108,23 @@ public class ISPEnrichIP extends AbstractEnrichIP {
         final Map<String, String> attrs = new HashMap<>();
         attrs.put(new StringBuilder(ipAttributeName).append(".isp.lookup.micros").toString(), String.valueOf(stopWatch.getDuration(TimeUnit.MICROSECONDS)));
 
-
-
         // During test I observed behavior where null values in ASN data could trigger NPEs. Instead of relying on the
         // underlying database to be free from Nulls wrapping ensure equality to null without assigning a variable
         // seem like good option to "final int asn ..." as with the other returned data.
-        if (!(response.getAutonomousSystemNumber() == null)) {
-            attrs.put(new StringBuilder(ipAttributeName).append(".isp.asn").toString(), String.valueOf(response.getAutonomousSystemNumber()));
+        if (!(response.autonomousSystemNumber() == null)) {
+            attrs.put(new StringBuilder(ipAttributeName).append(".isp.asn").toString(), String.valueOf(response.autonomousSystemNumber()));
         }
-        final String asnOrg = response.getAutonomousSystemOrganization();
+        final String asnOrg = response.autonomousSystemOrganization();
         if (asnOrg != null) {
             attrs.put(new StringBuilder(ipAttributeName).append(".isp.asn.organization").toString(), asnOrg);
         }
 
-        final String ispName = response.getIsp();
+        final String ispName = response.isp();
         if (ispName != null) {
             attrs.put(new StringBuilder(ipAttributeName).append(".isp.name").toString(), ispName);
         }
 
-        final String organisation = response.getOrganization();
+        final String organisation = response.organization();
         if (organisation  != null) {
             attrs.put(new StringBuilder(ipAttributeName).append(".isp.organization").toString(), organisation);
         }

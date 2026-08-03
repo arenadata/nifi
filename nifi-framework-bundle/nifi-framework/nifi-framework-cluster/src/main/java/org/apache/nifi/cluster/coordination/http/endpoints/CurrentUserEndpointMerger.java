@@ -41,7 +41,6 @@ public class CurrentUserEndpointMerger extends AbstractSingleEntityEndpoint<Curr
         return CurrentUserEntity.class;
     }
 
-
     @Override
     protected void mergeResponses(final CurrentUserEntity clientEntity, final Map<NodeIdentifier, CurrentUserEntity> entityMap,
                                   final Set<NodeResponse> successfulResponses, final Set<NodeResponse> problematicResponses) {
@@ -56,6 +55,8 @@ public class CurrentUserEndpointMerger extends AbstractSingleEntityEndpoint<Curr
                 mergePermissions(clientEntity.getTenantsPermissions(), entity.getTenantsPermissions());
                 mergePermissions(clientEntity.getSystemPermissions(), entity.getSystemPermissions());
                 mergePermissions(clientEntity.getTenantsPermissions(), entity.getTenantsPermissions());
+                mergePermissions(clientEntity.getConnectorsPermissions(), entity.getConnectorsPermissions());
+                mergePermissions(clientEntity.getRestrictedComponentsPermissions(), entity.getRestrictedComponentsPermissions());
 
                 final Set<ComponentRestrictionPermissionDTO> clientEntityComponentRestrictionsPermissions = clientEntity.getComponentRestrictionPermissions();
                 final Set<ComponentRestrictionPermissionDTO> entityComponentRestrictionsPermissions = entity.getComponentRestrictionPermissions();

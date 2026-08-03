@@ -17,10 +17,10 @@
 package org.apache.nifi.web.api.dto.provenance.lineage;
 
 import io.swagger.v3.oas.annotations.media.Schema;
-import org.apache.nifi.web.api.dto.util.TimestampAdapter;
-
 import jakarta.xml.bind.annotation.XmlType;
 import jakarta.xml.bind.annotation.adapters.XmlJavaTypeAdapter;
+import org.apache.nifi.web.api.dto.util.TimestampAdapter;
+
 import java.util.Date;
 import java.util.List;
 
@@ -37,6 +37,7 @@ public class ProvenanceNodeDTO {
     private String clusterNodeIdentifier;
     private String type;
     private String eventType;
+    private String componentType;
     private Long millis;
     private Date timestamp;
 
@@ -69,7 +70,7 @@ public class ProvenanceNodeDTO {
     /**
      * @return parent flowfile uuids for this provenance event
      */
-    @Schema(description = "The uuid of the parent flowfiles of the provenance event."
+    @Schema(description = "The uuid of the parent FlowFiles of the provenance event."
     )
     public List<String> getParentUuids() {
         return parentUuids;
@@ -80,9 +81,9 @@ public class ProvenanceNodeDTO {
     }
 
     /**
-     * @return child flowfile uuids for this provenance event
+     * @return child FlowFile uuids for this provenance event
      */
-    @Schema(description = "The uuid of the childrent flowfiles of the provenance event."
+    @Schema(description = "The uuid of the children FlowFiles of the provenance event."
     )
     public List<String> getChildUuids() {
         return childUuids;
@@ -130,6 +131,19 @@ public class ProvenanceNodeDTO {
 
     public void setEventType(String eventType) {
         this.eventType = eventType;
+    }
+
+    /**
+     * @return if this is an event node, this is the type of the component that generated this event
+     */
+    @Schema(description = "If the type is EVENT, this is the type of the component that generated the event."
+    )
+    public String getComponentType() {
+        return componentType;
+    }
+
+    public void setComponentType(String componentType) {
+        this.componentType = componentType;
     }
 
     /**

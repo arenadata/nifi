@@ -42,16 +42,17 @@ import java.util.List;
 import java.util.Properties;
 
 /**
- * Reads secrets from AWS Secrets Manager to provide parameter values.  Secrets must be created similar to the following AWS cli command: <br/><br/>
- * <code>aws secretsmanager create-secret --name "[Context]" --secret-string '{ "[Param]": "[secretValue]", "[Param2]": "[secretValue2]" }'</code> <br/><br/>
- *
+ * Reads secrets from AWS Secrets Manager to provide parameter values.  Secrets must be created similar to the following AWS cli command:
+ * {@snippet lang="text" :
+ *       aws secretsmanager create-secret --name "[Context]" --secret-string '{ "[Param]": "[secretValue]", "[Param2]": "[secretValue2]" }'
+ * }
  * A standard configuration for this provider would be: <br/><br/>
  *
- * <code>
+ * {@snippet lang="properties" :
  *      nifi.stateless.parameter.provider.AWSSecretsManager.name=AWS Secrets Manager Value Provider
  *      nifi.stateless.parameter.provider.AWSSecretsManager.type=org.apache.nifi.stateless.parameter.AwsSecretsManagerParameterValueProvider
  *      nifi.stateless.parameter.provider.AWSSecretsManager.properties.aws-credentials-file=./conf/bootstrap-aws.conf
- * </code>
+ * }
  */
 public class AwsSecretsManagerParameterValueProvider extends AbstractSecretBasedParameterValueProvider implements ParameterValueProvider {
     private static final Logger logger = LoggerFactory.getLogger(AwsSecretsManagerParameterValueProvider.class);
@@ -118,8 +119,12 @@ public class AwsSecretsManagerParameterValueProvider extends AbstractSecretBased
                 logger.debug("Parameter [{}] not found", parameterName);
                 return null;
             }
+            if (!parameter.isValueNode() || parameter.isNull()) {
+                logger.debug("Parameter [{}] is null or not a supported value type", parameterName);
+                return null;
+            }
 
-            return parameter.textValue();
+            return parameter.asText();
         } catch (final JsonProcessingException e) {
             throw new IllegalArgumentException(String.format("Secret String for [%s] could not be parsed", parameterName), e);
         }

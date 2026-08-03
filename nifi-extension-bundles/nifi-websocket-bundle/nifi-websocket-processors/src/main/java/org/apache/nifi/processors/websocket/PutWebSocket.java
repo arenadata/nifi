@@ -17,14 +17,32 @@
 
 package org.apache.nifi.processors.websocket;
 
-import static org.apache.nifi.processors.websocket.WebSocketProcessorAttributes.ATTR_WS_CS_ID;
-import static org.apache.nifi.processors.websocket.WebSocketProcessorAttributes.ATTR_WS_ENDPOINT_ID;
-import static org.apache.nifi.processors.websocket.WebSocketProcessorAttributes.ATTR_WS_FAILURE_DETAIL;
-import static org.apache.nifi.processors.websocket.WebSocketProcessorAttributes.ATTR_WS_LOCAL_ADDRESS;
-import static org.apache.nifi.processors.websocket.WebSocketProcessorAttributes.ATTR_WS_MESSAGE_TYPE;
-import static org.apache.nifi.processors.websocket.WebSocketProcessorAttributes.ATTR_WS_REMOTE_ADDRESS;
-import static org.apache.nifi.processors.websocket.WebSocketProcessorAttributes.ATTR_WS_SESSION_ID;
-import static org.apache.nifi.websocket.WebSocketMessage.CHARSET;
+import org.apache.nifi.annotation.behavior.InputRequirement;
+import org.apache.nifi.annotation.behavior.SystemResource;
+import org.apache.nifi.annotation.behavior.SystemResourceConsideration;
+import org.apache.nifi.annotation.behavior.TriggerSerially;
+import org.apache.nifi.annotation.behavior.WritesAttribute;
+import org.apache.nifi.annotation.behavior.WritesAttributes;
+import org.apache.nifi.annotation.documentation.CapabilityDescription;
+import org.apache.nifi.annotation.documentation.Tags;
+import org.apache.nifi.components.PropertyDescriptor;
+import org.apache.nifi.components.ValidationResult;
+import org.apache.nifi.components.Validator;
+import org.apache.nifi.controller.ControllerService;
+import org.apache.nifi.expression.ExpressionLanguageScope;
+import org.apache.nifi.flowfile.FlowFile;
+import org.apache.nifi.migration.PropertyConfiguration;
+import org.apache.nifi.processor.AbstractProcessor;
+import org.apache.nifi.processor.ProcessContext;
+import org.apache.nifi.processor.ProcessSession;
+import org.apache.nifi.processor.Relationship;
+import org.apache.nifi.processor.exception.ProcessException;
+import org.apache.nifi.processor.util.StandardValidators;
+import org.apache.nifi.stream.io.StreamUtils;
+import org.apache.nifi.util.StringUtils;
+import org.apache.nifi.websocket.WebSocketConfigurationException;
+import org.apache.nifi.websocket.WebSocketMessage;
+import org.apache.nifi.websocket.WebSocketService;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
@@ -33,30 +51,16 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.regex.Pattern;
 
-import org.apache.nifi.util.StringUtils;
-import org.apache.nifi.annotation.behavior.SystemResourceConsideration;
-import org.apache.nifi.annotation.behavior.InputRequirement;
-import org.apache.nifi.annotation.behavior.SystemResource;
-import org.apache.nifi.annotation.behavior.TriggerSerially;
-import org.apache.nifi.annotation.behavior.WritesAttribute;
-import org.apache.nifi.annotation.behavior.WritesAttributes;
-import org.apache.nifi.annotation.documentation.CapabilityDescription;
-import org.apache.nifi.annotation.documentation.Tags;
-import org.apache.nifi.components.PropertyDescriptor;
-import org.apache.nifi.controller.ControllerService;
-import org.apache.nifi.expression.ExpressionLanguageScope;
-import org.apache.nifi.flowfile.FlowFile;
-import org.apache.nifi.processor.AbstractProcessor;
-import org.apache.nifi.processor.ProcessContext;
-import org.apache.nifi.processor.ProcessSession;
-import org.apache.nifi.processor.Relationship;
-import org.apache.nifi.processor.exception.ProcessException;
-import org.apache.nifi.processor.util.StandardValidators;
-import org.apache.nifi.stream.io.StreamUtils;
-import org.apache.nifi.websocket.WebSocketConfigurationException;
-import org.apache.nifi.websocket.WebSocketMessage;
-import org.apache.nifi.websocket.WebSocketService;
+import static org.apache.nifi.processors.websocket.WebSocketProcessorAttributes.ATTR_WS_CS_ID;
+import static org.apache.nifi.processors.websocket.WebSocketProcessorAttributes.ATTR_WS_ENDPOINT_ID;
+import static org.apache.nifi.processors.websocket.WebSocketProcessorAttributes.ATTR_WS_FAILURE_DETAIL;
+import static org.apache.nifi.processors.websocket.WebSocketProcessorAttributes.ATTR_WS_LOCAL_ADDRESS;
+import static org.apache.nifi.processors.websocket.WebSocketProcessorAttributes.ATTR_WS_MESSAGE_TYPE;
+import static org.apache.nifi.processors.websocket.WebSocketProcessorAttributes.ATTR_WS_REMOTE_ADDRESS;
+import static org.apache.nifi.processors.websocket.WebSocketProcessorAttributes.ATTR_WS_SESSION_ID;
+import static org.apache.nifi.websocket.WebSocketMessage.CHARSET;
 
 @Tags({"WebSocket", "publish", "send"})
 @InputRequirement(InputRequirement.Requirement.INPUT_REQUIRED)
@@ -76,8 +80,7 @@ import org.apache.nifi.websocket.WebSocketService;
 public class PutWebSocket extends AbstractProcessor {
 
     public static final PropertyDescriptor PROP_WS_SESSION_ID = new PropertyDescriptor.Builder()
-            .name("websocket-session-id")
-            .displayName("WebSocket Session Id")
+            .name("WebSocket Session Id")
             .description("A NiFi Expression to retrieve the session id. If not specified, a message will be " +
                     "sent to all connected WebSocket peers for the WebSocket controller service endpoint.")
             .required(true)
@@ -87,9 +90,8 @@ public class PutWebSocket extends AbstractProcessor {
             .build();
 
     public static final PropertyDescriptor PROP_WS_CONTROLLER_SERVICE_ID = new PropertyDescriptor.Builder()
-            .name("websocket-controller-service-id")
-            .displayName("WebSocket ControllerService Id")
-            .description("A NiFi Expression to retrieve the id of a WebSocket ControllerService.")
+            .name("WebSocket Controller Service Id")
+            .description("A NiFi Expression to retrieve the id of a WebSocket Controller Service.")
             .required(true)
             .addValidator(StandardValidators.NON_BLANK_VALIDATOR)
             .expressionLanguageSupported(ExpressionLanguageScope.FLOWFILE_ATTRIBUTES)
@@ -97,21 +99,38 @@ public class PutWebSocket extends AbstractProcessor {
             .build();
 
     public static final PropertyDescriptor PROP_WS_CONTROLLER_SERVICE_ENDPOINT = new PropertyDescriptor.Builder()
-            .name("websocket-endpoint-id")
-            .displayName("WebSocket Endpoint Id")
-            .description("A NiFi Expression to retrieve the endpoint id of a WebSocket ControllerService.")
+            .name("WebSocket Endpoint Id")
+            .description("A NiFi Expression to retrieve the endpoint id of a WebSocket Controller Service.")
             .required(true)
             .addValidator(StandardValidators.NON_BLANK_VALIDATOR)
             .expressionLanguageSupported(ExpressionLanguageScope.FLOWFILE_ATTRIBUTES)
             .defaultValue("${" + ATTR_WS_ENDPOINT_ID + "}")
             .build();
 
+    private static final Pattern WEBSOCKETMESSAGE_TYPE_PATTERN = Pattern.compile("^(?:BINARY|TEXT)$");
+    private static final Validator WEBSOCKETMESSAGE_TYPE_VALIDATOR = (subject, input, context) -> {
+        final boolean matches = WEBSOCKETMESSAGE_TYPE_PATTERN.matcher(input).matches();
+        if (matches || context.isExpressionLanguagePresent(input)) {
+            return (new ValidationResult.Builder())
+                    .subject(subject)
+                    .input(input)
+                    .valid(true)
+                    .build();
+        } else {
+            return (new ValidationResult.Builder())
+                    .subject(subject)
+                    .valid(false)
+                    .explanation(String.format("%s must be either BINARY or TEXT", subject))
+                    .input(input)
+                    .build();
+        }
+    };
+
     public static final PropertyDescriptor PROP_WS_MESSAGE_TYPE = new PropertyDescriptor.Builder()
-            .name("websocket-message-type")
-            .displayName("WebSocket Message Type")
+            .name("WebSocket Message Type")
             .description("The type of message content: TEXT or BINARY")
             .required(true)
-            .addValidator(StandardValidators.NON_BLANK_VALIDATOR)
+            .addValidator(WEBSOCKETMESSAGE_TYPE_VALIDATOR)
             .defaultValue(WebSocketMessage.Type.TEXT.toString())
             .expressionLanguageSupported(ExpressionLanguageScope.FLOWFILE_ATTRIBUTES)
             .build();
@@ -232,6 +251,14 @@ public class PutWebSocket extends AbstractProcessor {
             transferToFailure(processSession, flowfile, e.toString());
         }
 
+    }
+
+    @Override
+    public void migrateProperties(PropertyConfiguration config) {
+        config.renameProperty("websocket-session-id", PROP_WS_SESSION_ID.getName());
+        config.renameProperty("websocket-controller-service-id", PROP_WS_CONTROLLER_SERVICE_ID.getName());
+        config.renameProperty("websocket-endpoint-id", PROP_WS_CONTROLLER_SERVICE_ENDPOINT.getName());
+        config.renameProperty("websocket-message-type", PROP_WS_MESSAGE_TYPE.getName());
     }
 
     private void transferToFailure(final ProcessSession processSession, FlowFile flowfile, final String value) {

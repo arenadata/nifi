@@ -22,11 +22,11 @@ import org.apache.nifi.cluster.coordination.ClusterTopologyEventListener;
 import org.apache.nifi.cluster.coordination.node.NodeConnectionState;
 import org.apache.nifi.cluster.coordination.node.NodeConnectionStatus;
 import org.apache.nifi.cluster.protocol.NodeIdentifier;
+import org.apache.nifi.components.connector.DropFlowFileSummary;
 import org.apache.nifi.controller.ProcessScheduler;
 import org.apache.nifi.controller.queue.AbstractFlowFileQueue;
 import org.apache.nifi.controller.queue.DropFlowFileRequest;
 import org.apache.nifi.controller.queue.DropFlowFileState;
-import org.apache.nifi.controller.status.FlowFileAvailability;
 import org.apache.nifi.controller.queue.FlowFileQueueContents;
 import org.apache.nifi.controller.queue.IllegalClusterStateException;
 import org.apache.nifi.controller.queue.LoadBalanceStrategy;
@@ -36,6 +36,7 @@ import org.apache.nifi.controller.queue.PollStrategy;
 import org.apache.nifi.controller.queue.QueueDiagnostics;
 import org.apache.nifi.controller.queue.QueueSize;
 import org.apache.nifi.controller.queue.RemoteQueuePartitionDiagnostics;
+import org.apache.nifi.controller.queue.SelectiveDropResult;
 import org.apache.nifi.controller.queue.StandardQueueDiagnostics;
 import org.apache.nifi.controller.queue.SwappablePriorityQueue;
 import org.apache.nifi.controller.queue.clustered.client.async.AsyncLoadBalanceClientRegistry;
@@ -56,12 +57,15 @@ import org.apache.nifi.controller.repository.FlowFileRecord;
 import org.apache.nifi.controller.repository.FlowFileRepository;
 import org.apache.nifi.controller.repository.FlowFileSwapManager;
 import org.apache.nifi.controller.repository.RepositoryRecord;
+import org.apache.nifi.controller.repository.RepositoryRecordType;
 import org.apache.nifi.controller.repository.StandardRepositoryRecord;
 import org.apache.nifi.controller.repository.SwapSummary;
 import org.apache.nifi.controller.repository.claim.ContentClaim;
 import org.apache.nifi.controller.repository.claim.ResourceClaim;
+import org.apache.nifi.controller.status.FlowFileAvailability;
 import org.apache.nifi.controller.swap.StandardSwapSummary;
 import org.apache.nifi.events.EventReporter;
+import org.apache.nifi.flowfile.FlowFile;
 import org.apache.nifi.flowfile.FlowFilePrioritizer;
 import org.apache.nifi.processor.FlowFileFilter;
 import org.apache.nifi.provenance.ProvenanceEventBuilder;
@@ -91,6 +95,7 @@ import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.function.Function;
+import java.util.function.Predicate;
 import java.util.stream.Collectors;
 
 public class SocketLoadBalancedFlowFileQueue extends AbstractFlowFileQueue implements LoadBalancedFlowFileQueue {
@@ -121,7 +126,6 @@ public class SocketLoadBalancedFlowFileQueue extends AbstractFlowFileQueue imple
     private volatile FlowFilePartitioner partitioner;
     private boolean stopped = true;
     private volatile boolean offloaded = false;
-
 
     public SocketLoadBalancedFlowFileQueue(final String identifier, final ProcessScheduler scheduler, final FlowFileRepository flowFileRepo,
                                            final ProvenanceEventRepository provRepo, final ContentRepository contentRepo,
@@ -184,7 +188,6 @@ public class SocketLoadBalancedFlowFileQueue extends AbstractFlowFileQueue imple
 
         rebalancingPartition.start(partitioner);
     }
-
 
     @Override
     public synchronized void setLoadBalanceStrategy(final LoadBalanceStrategy strategy, final String partitioningAttribute) {
@@ -426,7 +429,6 @@ public class SocketLoadBalancedFlowFileQueue extends AbstractFlowFileQueue imple
             partitionReadLock.unlock();
         }
     }
-
 
     @Override
     public SwapSummary recoverSwappedFlowFiles() {
@@ -774,7 +776,6 @@ public class SocketLoadBalancedFlowFileQueue extends AbstractFlowFileQueue imple
                 }
             }
 
-
             this.nodeIdentifiers.clear();
             this.nodeIdentifiers.addAll(updatedNodeIdentifiers);
 
@@ -801,7 +802,6 @@ public class SocketLoadBalancedFlowFileQueue extends AbstractFlowFileQueue imple
     public void put(final FlowFileRecord flowFile) {
         putAndGetPartition(flowFile);
     }
-
 
     protected QueuePartition putAndGetPartition(final FlowFileRecord flowFile) {
         final QueuePartition partition;
@@ -1051,7 +1051,6 @@ public class SocketLoadBalancedFlowFileQueue extends AbstractFlowFileQueue imple
         }
     }
 
-
     @Override
     protected List<FlowFileRecord> getListableFlowFiles() {
         return localPartition.getListableFlowFiles();
@@ -1105,6 +1104,67 @@ public class SocketLoadBalancedFlowFileQueue extends AbstractFlowFileQueue imple
     }
 
     @Override
+    public DropFlowFileSummary dropFlowFiles(final Predicate<FlowFile> predicate) throws IOException {
+        lock();
+        try {
+            final List<FlowFileRecord> allDroppedFlowFiles = new ArrayList<>();
+            final Map<String, String> allSwapLocationUpdates = new HashMap<>();
+
+            for (final QueuePartition partition : queuePartitions) {
+                final SelectiveDropResult partitionResult = partition.dropFlowFiles(predicate);
+                allDroppedFlowFiles.addAll(partitionResult.getDroppedFlowFiles());
+                allSwapLocationUpdates.putAll(partitionResult.getSwapLocationUpdates());
+                adjustSize(-partitionResult.getDroppedCount(), -partitionResult.getDroppedBytes());
+            }
+
+            // Also drop from the rebalancing partition
+            final SelectiveDropResult rebalanceResult = rebalancingPartition.dropFlowFiles(predicate);
+            allDroppedFlowFiles.addAll(rebalanceResult.getDroppedFlowFiles());
+            allSwapLocationUpdates.putAll(rebalanceResult.getSwapLocationUpdates());
+            adjustSize(-rebalanceResult.getDroppedCount(), -rebalanceResult.getDroppedBytes());
+
+            if (allDroppedFlowFiles.isEmpty()) {
+                return new DropFlowFileSummary(0, 0L);
+            }
+
+            // Create repository records for the dropped FlowFiles
+            final List<RepositoryRecord> repositoryRecords = new ArrayList<>(createDeleteRepositoryRecords(allDroppedFlowFiles));
+
+            // Create repository records for swap file changes so the FlowFile Repository can track valid swap locations
+            for (final Map.Entry<String, String> entry : allSwapLocationUpdates.entrySet()) {
+                final String oldSwapLocation = entry.getKey();
+                final String newSwapLocation = entry.getValue();
+
+                final StandardRepositoryRecord swapRecord = new StandardRepositoryRecord(this);
+                if (newSwapLocation == null) {
+                    swapRecord.setSwapLocation(oldSwapLocation, RepositoryRecordType.SWAP_FILE_DELETED);
+                } else {
+                    swapRecord.setSwapFileRenamed(oldSwapLocation, newSwapLocation);
+                }
+                repositoryRecords.add(swapRecord);
+            }
+
+            // Update the FlowFile Repository
+            flowFileRepo.updateRepository(repositoryRecords);
+
+            // Create and register provenance events
+            final List<ProvenanceEventRecord> provenanceEvents = createDropProvenanceEvents(allDroppedFlowFiles, "Selective drop by predicate");
+            provRepo.registerEvents(provenanceEvents);
+
+            // Delete old swap files that were replaced
+            for (final String oldSwapLocation : allSwapLocationUpdates.keySet()) {
+                swapManager.deleteSwapFile(oldSwapLocation);
+            }
+
+            final int totalDroppedCount = allDroppedFlowFiles.size();
+            final long totalDroppedBytes = allDroppedFlowFiles.stream().mapToLong(FlowFileRecord::getSize).sum();
+            return new DropFlowFileSummary(totalDroppedCount, totalDroppedBytes);
+        } finally {
+            unlock();
+        }
+    }
+
+    @Override
     public void lock() {
         partitionReadLock.lock();
     }
@@ -1120,8 +1180,18 @@ public class SocketLoadBalancedFlowFileQueue extends AbstractFlowFileQueue imple
             partitionWriteLock.lock();
             try {
                 if (nodeIdentifiers.contains(nodeId)) {
-                    logger.debug("Node Identifier {} added to cluster but already known in set: {}", nodeId, nodeIdentifiers);
-                    return;
+                    final NodeIdentifier existingId = nodeIdentifiers.stream()
+                        .filter(id -> id.getId().equals(nodeId.getId())).findFirst().orElse(null);
+                    final boolean lbAddressChanged = existingId != null
+                        && (existingId.getLoadBalancePort() != nodeId.getLoadBalancePort()
+                            || !Objects.equals(existingId.getLoadBalanceAddress(), nodeId.getLoadBalanceAddress()));
+                    if (!lbAddressChanged) {
+                        logger.debug("Node Identifier {} added to cluster but already known in set with same LB address", nodeId);
+                        return;
+                    }
+                    logger.info("Node Identifier {} added to cluster with updated LB address. Previous: {}:{}, New: {}:{}",
+                        nodeId, existingId.getLoadBalanceAddress(), existingId.getLoadBalancePort(),
+                        nodeId.getLoadBalanceAddress(), nodeId.getLoadBalancePort());
                 }
 
                 final Set<NodeIdentifier> updatedNodeIds = new HashSet<>(nodeIdentifiers);

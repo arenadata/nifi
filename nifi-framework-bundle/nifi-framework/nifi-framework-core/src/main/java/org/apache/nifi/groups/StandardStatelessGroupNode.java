@@ -23,8 +23,10 @@ import org.apache.nifi.components.PortFunction;
 import org.apache.nifi.components.ValidationResult;
 import org.apache.nifi.components.state.StateManagerProvider;
 import org.apache.nifi.components.state.StatelessStateManagerProvider;
+import org.apache.nifi.connectable.ConnectableFlowFileActivity;
 import org.apache.nifi.connectable.ConnectableType;
 import org.apache.nifi.connectable.Connection;
+import org.apache.nifi.connectable.FlowFileActivity;
 import org.apache.nifi.connectable.Port;
 import org.apache.nifi.connectable.Position;
 import org.apache.nifi.controller.BackoffMechanism;
@@ -120,6 +122,7 @@ public class StandardStatelessGroupNode implements StatelessGroupNode {
     private volatile long schedulingNanos = 1L;
     private ComponentLog logger;
 
+    private final ConnectableFlowFileActivity flowFileActivity = new ConnectableFlowFileActivity();
 
     private StandardStatelessGroupNode(final Builder builder) {
         this.processGroup = builder.rootGroup;
@@ -152,6 +155,7 @@ public class StandardStatelessGroupNode implements StatelessGroupNode {
                 return;
             }
 
+            flowFileActivity.reset();
             currentState = ScheduledState.STARTING;
             logger.info("Starting {}", this);
         } finally {
@@ -161,7 +165,7 @@ public class StandardStatelessGroupNode implements StatelessGroupNode {
         getProcessGroup().findAllInputPorts().forEach(Port::onSchedulingStart);
         getProcessGroup().findAllOutputPorts().forEach(Port::onSchedulingStart);
 
-        executor.submit(() -> initialize(executor, schedulingAgentCallback, lifecycleState) );
+        executor.submit(() -> initialize(executor, schedulingAgentCallback, lifecycleState));
     }
 
     private void initialize(final ScheduledExecutorService executor, final SchedulingAgentCallback schedulingAgentCallback, final LifecycleState lifecycleState) {
@@ -442,7 +446,6 @@ public class StandardStatelessGroupNode implements StatelessGroupNode {
         }
     }
 
-
     /**
      * When a Stateless Group is stopped, we need to stop all of the Processors within the group, as well as all of the
      * processors that are on the canvas. When the Stateless Group is started, the processors on the canvas are transitioned to a RUNNING
@@ -484,7 +487,6 @@ public class StandardStatelessGroupNode implements StatelessGroupNode {
 
         return allStoppedFuture;
     }
-
 
     private void stopPorts() {
         final List<Port> allPorts = new ArrayList<>();
@@ -911,7 +913,6 @@ public class StandardStatelessGroupNode implements StatelessGroupNode {
         return value;
     }
 
-
     public static class Builder {
         private ProcessGroup rootGroup;
         private ControllerServiceProvider controllerServiceProvider;
@@ -1039,5 +1040,10 @@ public class StandardStatelessGroupNode implements StatelessGroupNode {
             return new StandardStatelessGroupNode(this);
         }
 
+    }
+
+    @Override
+    public FlowFileActivity getFlowFileActivity() {
+        return flowFileActivity;
     }
 }

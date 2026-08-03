@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-import { Component, HostListener, OnDestroy, OnInit } from '@angular/core';
+import { Component, HostListener, OnDestroy, OnInit, inject } from '@angular/core';
 import { CanvasState } from '../../state';
 import { Position } from '../../state/shared';
 import { Store } from '@ngrx/store';
@@ -25,9 +25,11 @@ import {
     editComponent,
     editCurrentProcessGroup,
     loadProcessGroup,
+    navigateToComponents,
     paste,
     resetFlowState,
     selectComponents,
+    setAllowTransition,
     setSkipTransform,
     startProcessGroupPolling,
     stopProcessGroupPolling
@@ -57,6 +59,9 @@ import {
     selectRemoteProcessGroup,
     selectSingleEditedComponent,
     selectSingleSelectedComponent,
+    selectNavigationCollapsed,
+    selectOperationCollapsed,
+    selectOverlappingConnections,
     selectSkipTransform,
     selectViewStatusHistoryComponent,
     selectViewStatusHistoryCurrentProcessGroup
@@ -69,6 +74,7 @@ import { getStatusHistoryAndOpenDialog } from '../../../../state/status-history/
 import { concatLatestFrom } from '@ngrx/operators';
 import { ComponentType, isDefinedAndNotNull, NiFiCommon, selectUrl, Storage } from '@nifi/shared';
 import { CanvasUtils } from '../../service/canvas-utils.service';
+import { OverlappingConnectionGroup } from '../../../../ui/common/overlap-detection.utils';
 import { CanvasActionsService } from '../../service/canvas-actions.service';
 import { MatDialog } from '@angular/material/dialog';
 import { CopyResponseEntity } from '../../../../state/copy';
@@ -81,6 +87,15 @@ import { snackBarError } from '../../../../state/error/error.actions';
     standalone: false
 })
 export class Canvas implements OnInit, OnDestroy {
+    private store = inject<Store<CanvasState>>(Store);
+    private canvasView = inject(CanvasView);
+    private storage = inject(Storage);
+    private canvasUtils = inject(CanvasUtils);
+    canvasContextMenu = inject(CanvasContextMenu);
+    private canvasActionsService = inject(CanvasActionsService);
+    private dialog = inject(MatDialog);
+    nifiCommon = inject(NiFiCommon);
+
     private svg: any;
     private canvas: any;
 
@@ -88,17 +103,16 @@ export class Canvas implements OnInit, OnDestroy {
     private canvasClicked = false;
 
     flowAnalysisOpen = this.store.selectSignal(selectFlowAnalysisOpen);
+    navigationCollapsed = this.store.selectSignal(selectNavigationCollapsed);
+    operationCollapsed = this.store.selectSignal(selectOperationCollapsed);
+    overlappingConnections$ = this.store.select(selectOverlappingConnections);
 
-    constructor(
-        private store: Store<CanvasState>,
-        private canvasView: CanvasView,
-        private storage: Storage,
-        private canvasUtils: CanvasUtils,
-        public canvasContextMenu: CanvasContextMenu,
-        private canvasActionsService: CanvasActionsService,
-        private dialog: MatDialog,
-        public nifiCommon: NiFiCommon
-    ) {
+    navigateToOverlappingConnections(group: OverlappingConnectionGroup): void {
+        this.store.dispatch(setAllowTransition({ allowTransition: true }));
+        this.store.dispatch(navigateToComponents({ request: { ids: group.connectionIds } }));
+    }
+
+    constructor() {
         this.store
             .select(selectTransform)
             .pipe(takeUntilDestroyed())
@@ -634,7 +648,7 @@ export class Canvas implements OnInit, OnDestroy {
         this.canvasView.destroy();
     }
 
-    private processKeyboardEvents(event: KeyboardEvent | ClipboardEvent): boolean {
+    private processKeyboardEvents(event: Event): boolean {
         const source = event.target as any;
         let searchFieldIsEventSource = false;
         if (source) {
@@ -644,7 +658,7 @@ export class Canvas implements OnInit, OnDestroy {
         return this.dialog.openDialogs.length === 0 && !searchFieldIsEventSource;
     }
 
-    private executeAction(actionId: string, event: KeyboardEvent, bypassCondition?: boolean): boolean {
+    private executeAction(actionId: string, event: Event, bypassCondition?: boolean): boolean {
         if (this.processKeyboardEvents(event)) {
             const selection = this.canvasUtils.getSelection();
             const canvasAction = this.canvasActionsService.getAction(actionId);
@@ -658,37 +672,39 @@ export class Canvas implements OnInit, OnDestroy {
         return false;
     }
 
+    // Typed as Event (not KeyboardEvent) because Angular 21's typeCheckHostBindings
+    // infers $event as Event for key-specific bindings (angular/angular#40778).
     @HostListener('window:keydown.delete', ['$event'])
-    handleKeyDownDelete(event: KeyboardEvent) {
+    handleKeyDownDelete(event: Event) {
         this.executeAction('delete', event);
     }
 
     @HostListener('window:keydown.backspace', ['$event'])
-    handleKeyDownBackspace(event: KeyboardEvent) {
+    handleKeyDownBackspace(event: Event) {
         this.executeAction('delete', event);
     }
 
     @HostListener('window:keydown.control.r', ['$event'])
-    handleKeyDownCtrlR(event: KeyboardEvent) {
+    handleKeyDownCtrlR(event: Event) {
         if (this.executeAction('refresh', event, true)) {
             event.preventDefault();
         }
     }
 
     @HostListener('window:keydown.meta.r', ['$event'])
-    handleKeyDownMetaR(event: KeyboardEvent) {
+    handleKeyDownMetaR(event: Event) {
         if (this.executeAction('refresh', event, true)) {
             event.preventDefault();
         }
     }
 
     @HostListener('window:keydown.escape', ['$event'])
-    handleKeyDownEsc(event: KeyboardEvent) {
+    handleKeyDownEsc(event: Event) {
         this.executeAction('leaveGroup', event);
     }
 
     @HostListener('window:keydown.control.c', ['$event'])
-    handleKeyDownCtrlC(event: KeyboardEvent) {
+    handleKeyDownCtrlC(event: Event) {
         if (!this.canvasUtils.isClipboardAvailable()) {
             return;
         }
@@ -699,20 +715,20 @@ export class Canvas implements OnInit, OnDestroy {
     }
 
     @HostListener('window:keydown.meta.c', ['$event'])
-    handleKeyDownMetaC(event: KeyboardEvent) {
+    handleKeyDownMetaC(event: Event) {
         if (this.executeAction('copy', event)) {
             event.preventDefault();
         }
     }
 
     @HostListener('window:paste', ['$event'])
-    handlePasteEvent(event: ClipboardEvent) {
+    handlePasteEvent(event: Event) {
         if (!this.processKeyboardEvents(event) || !this.canvasUtils.isPastable()) {
             // don't attempt to paste flow content
             return;
         }
 
-        const textToPaste = event.clipboardData?.getData('text/plain');
+        const textToPaste = (event as ClipboardEvent).clipboardData?.getData('text/plain');
         if (textToPaste) {
             const copyResponse: CopyResponseEntity | null = this.toCopyResponseEntity(textToPaste);
             if (copyResponse) {
@@ -729,14 +745,14 @@ export class Canvas implements OnInit, OnDestroy {
     }
 
     @HostListener('window:keydown.control.a', ['$event'])
-    handleKeyDownCtrlA(event: KeyboardEvent) {
+    handleKeyDownCtrlA(event: Event) {
         if (this.executeAction('selectAll', event)) {
             event.preventDefault();
         }
     }
 
     @HostListener('window:keydown.meta.a', ['$event'])
-    handleKeyDownMetaA(event: KeyboardEvent) {
+    handleKeyDownMetaA(event: Event) {
         if (this.executeAction('selectAll', event)) {
             event.preventDefault();
         }
@@ -802,7 +818,7 @@ export class Canvas implements OnInit, OnDestroy {
 
             // attempting to paste something other than CopyResponseEntity or a flow definition
             return null;
-        } catch (e) {
+        } catch (_e) {
             // attempting to paste something other than CopyResponseEntity or a flow definition
             return null;
         }

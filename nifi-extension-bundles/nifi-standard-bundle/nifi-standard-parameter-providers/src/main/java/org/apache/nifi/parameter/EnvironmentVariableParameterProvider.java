@@ -16,15 +16,12 @@
  */
 package org.apache.nifi.parameter;
 
-import org.apache.nifi.annotation.behavior.Restricted;
-import org.apache.nifi.annotation.behavior.Restriction;
 import org.apache.nifi.annotation.documentation.CapabilityDescription;
 import org.apache.nifi.annotation.documentation.Tags;
 import org.apache.nifi.components.AllowableValue;
 import org.apache.nifi.components.ConfigVerificationResult;
 import org.apache.nifi.components.PropertyDescriptor;
 import org.apache.nifi.components.PropertyValue;
-import org.apache.nifi.components.RequiredPermission;
 import org.apache.nifi.components.ValidationContext;
 import org.apache.nifi.components.ValidationResult;
 import org.apache.nifi.controller.ConfigurationContext;
@@ -47,13 +44,6 @@ import java.util.stream.Collectors;
 @Tags({"environment", "variable"})
 @CapabilityDescription("Fetches parameters from environment variables")
 
-@Restricted(
-        restrictions = {
-                @Restriction(
-                        requiredPermission = RequiredPermission.ACCESS_ENVIRONMENT_CREDENTIALS,
-                        explanation = "Provides operator the ability to read environment variables, which may contain environment credentials.")
-        }
-)
 public class EnvironmentVariableParameterProvider extends AbstractParameterProvider implements VerifiableParameterProvider {
     private final Map<String, String> environmentVariables = new ConcurrentHashMap<>();
 
@@ -148,7 +138,7 @@ public class EnvironmentVariableParameterProvider extends AbstractParameterProvi
 
         final List<Parameter> parameters = new ArrayList<>();
         environmentVariables
-                .forEach( (key, value) -> {
+                .forEach((key, value) -> {
                     if (inclusionStrategy.include(key)) {
                         parameters.add(new Parameter.Builder()
                             .name(key)
@@ -156,7 +146,7 @@ public class EnvironmentVariableParameterProvider extends AbstractParameterProvi
                             .provided(true)
                             .build());
                     }
-        });
+                });
         return Collections.singletonList(new ParameterGroup(parameterGroupName, parameters));
     }
 

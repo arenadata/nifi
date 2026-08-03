@@ -16,9 +16,9 @@
  */
 package org.apache.nifi.processors.jolt;
 
-import com.bazaarvoice.jolt.ContextualTransform;
-import com.bazaarvoice.jolt.JoltTransform;
-import com.bazaarvoice.jolt.Transform;
+import io.joltcommunity.jolt.ContextualTransform;
+import io.joltcommunity.jolt.JoltTransform;
+import io.joltcommunity.jolt.Transform;
 import org.apache.nifi.annotation.behavior.InputRequirement;
 import org.apache.nifi.annotation.behavior.RequiresInstanceClassLoading;
 import org.apache.nifi.annotation.behavior.SideEffectFree;
@@ -31,6 +31,7 @@ import org.apache.nifi.components.PropertyDescriptor;
 import org.apache.nifi.flowfile.FlowFile;
 import org.apache.nifi.flowfile.attributes.CoreAttributes;
 import org.apache.nifi.logging.ComponentLog;
+import org.apache.nifi.migration.PropertyConfiguration;
 import org.apache.nifi.processor.ProcessContext;
 import org.apache.nifi.processor.ProcessSession;
 import org.apache.nifi.processor.Relationship;
@@ -69,6 +70,7 @@ import java.util.stream.Stream;
         @WritesAttribute(attribute = "record.count", description = "The number of records in an outgoing FlowFile"),
         @WritesAttribute(attribute = "mime.type", description = "The MIME Type that the configured Record Writer indicates is appropriate"),
 })
+
 @CapabilityDescription("Applies a JOLT specification to each record in the FlowFile payload. A new FlowFile is created "
         + "with transformed content and is routed to the 'success' relationship. If the transform "
         + "fails, the original FlowFile is routed to the 'failure' relationship.")
@@ -76,16 +78,14 @@ import java.util.stream.Stream;
 public class JoltTransformRecord extends AbstractJoltTransform {
 
     static final PropertyDescriptor RECORD_READER = new PropertyDescriptor.Builder()
-            .name("jolt-record-record-reader")
-            .displayName("Record Reader")
+            .name("Record Reader")
             .description("Specifies the Controller Service to use for parsing incoming data and determining the data's schema.")
             .identifiesControllerService(RecordReaderFactory.class)
             .required(true)
             .build();
 
     static final PropertyDescriptor RECORD_WRITER = new PropertyDescriptor.Builder()
-            .name("jolt-record-record-writer")
-            .displayName("Record Writer")
+            .name("Record Writer")
             .description("Specifies the Controller Service to use for writing out the records")
             .identifiesControllerService(RecordSetWriterFactory.class)
             .required(true)
@@ -245,6 +245,12 @@ public class JoltTransformRecord extends AbstractJoltTransform {
             session.transfer(transformed, REL_SUCCESS);
         }
         session.transfer(original, REL_ORIGINAL);
+    }
+
+    @Override
+    public void migrateProperties(PropertyConfiguration config) {
+        config.renameProperty("jolt-record-record-reader", RECORD_READER.getName());
+        config.renameProperty("jolt-record-record-writer", RECORD_WRITER.getName());
     }
 
     private List<Record> transform(final Record record, final JoltTransform transform) {

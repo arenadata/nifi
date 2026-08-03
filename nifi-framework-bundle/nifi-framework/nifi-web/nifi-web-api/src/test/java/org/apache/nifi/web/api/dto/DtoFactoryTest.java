@@ -16,6 +16,7 @@
  */
 package org.apache.nifi.web.api.dto;
 
+import org.apache.nifi.asset.Asset;
 import org.apache.nifi.bundle.Bundle;
 import org.apache.nifi.bundle.BundleCoordinate;
 import org.apache.nifi.bundle.BundleDetails;
@@ -41,9 +42,17 @@ import org.apache.nifi.nar.NarSource;
 import org.apache.nifi.nar.NarState;
 import org.apache.nifi.nar.StandardExtensionDiscoveringManager;
 import org.apache.nifi.nar.SystemBundle;
+import org.apache.nifi.parameter.Parameter;
+import org.apache.nifi.parameter.ParameterContext;
+import org.apache.nifi.parameter.ParameterContextLookup;
+import org.apache.nifi.parameter.ParameterReferenceManager;
 import org.apache.nifi.processor.Relationship;
 import org.apache.nifi.registry.flow.FlowRegistryClientNode;
+import org.apache.nifi.registry.flow.diff.DifferenceType;
+import org.apache.nifi.registry.flow.diff.FlowDifference;
 import org.apache.nifi.web.api.entity.AllowableValueEntity;
+import org.apache.nifi.web.api.entity.ParameterContextReferenceEntity;
+import org.apache.nifi.web.revision.RevisionManager;
 import org.junit.jupiter.api.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -59,13 +68,17 @@ import java.util.stream.Collectors;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNotSame;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 public class DtoFactoryTest {
@@ -271,7 +284,6 @@ public class DtoFactoryTest {
         when(serviceNode.getBulletinLevel()).thenReturn(LogLevel.INFO);
         when(serviceNode.getState()).thenReturn(ControllerServiceState.DISABLED);
         when(serviceNode.isSupportsSensitiveDynamicProperties()).thenReturn(false);
-        when(serviceNode.isRestricted()).thenReturn(false);
         when(serviceNode.isDeprecated()).thenReturn(false);
         when(serviceNode.isExtensionMissing()).thenReturn(true); // ghost component
         when(serviceNode.getVersionedComponentId()).thenReturn(java.util.Optional.empty());
@@ -311,7 +323,6 @@ public class DtoFactoryTest {
         when(serviceNode.getBulletinLevel()).thenReturn(LogLevel.INFO);
         when(serviceNode.getState()).thenReturn(ControllerServiceState.DISABLED);
         when(serviceNode.isSupportsSensitiveDynamicProperties()).thenReturn(false);
-        when(serviceNode.isRestricted()).thenReturn(false);
         when(serviceNode.isDeprecated()).thenReturn(false);
         when(serviceNode.isExtensionMissing()).thenReturn(false); // not ghost
         when(serviceNode.getVersionedComponentId()).thenReturn(java.util.Optional.empty());
@@ -352,7 +363,6 @@ public class DtoFactoryTest {
         when(serviceNode.getBulletinLevel()).thenReturn(LogLevel.INFO);
         when(serviceNode.getState()).thenReturn(ControllerServiceState.DISABLED);
         when(serviceNode.isSupportsSensitiveDynamicProperties()).thenReturn(false);
-        when(serviceNode.isRestricted()).thenReturn(false);
         when(serviceNode.isDeprecated()).thenReturn(false);
         when(serviceNode.isExtensionMissing()).thenReturn(false); // not ghost
         when(serviceNode.getVersionedComponentId()).thenReturn(java.util.Optional.empty());
@@ -391,7 +401,6 @@ public class DtoFactoryTest {
         when(clientNode.getAnnotationData()).thenReturn(null);
         when(clientNode.isSupportsSensitiveDynamicProperties()).thenReturn(false);
         when(clientNode.isBranchingSupported()).thenReturn(false);
-        when(clientNode.isRestricted()).thenReturn(false);
         when(clientNode.isDeprecated()).thenReturn(false);
         when(clientNode.isExtensionMissing()).thenReturn(true); // ghost component
         when(clientNode.getRawPropertyValues()).thenReturn(Collections.emptyMap());
@@ -658,5 +667,338 @@ public class DtoFactoryTest {
         assertNotSame(original.getSelectedRelationships(), copy.getSelectedRelationships());
         assertNotSame(original.getAvailableRelationships(), copy.getAvailableRelationships());
         assertNotSame(original.getRetriedRelationships(), copy.getRetriedRelationships());
+    }
+
+    @Test
+    void testCreateBundleDifferenceDtoWhenRegistryBundleAvailable() {
+        final org.apache.nifi.flow.Bundle registryBundle = new org.apache.nifi.flow.Bundle("com.example", "my-nar", "1.0.0");
+        final BundleCoordinate expectedCoordinate = new BundleCoordinate("com.example", "my-nar", "1.0.0");
+
+        final FlowDifference difference = mock(FlowDifference.class);
+        when(difference.getDifferenceType()).thenReturn(DifferenceType.BUNDLE_CHANGED);
+        when(difference.getDescription()).thenReturn("Bundle changed from 1.0.0 to 2.0.0");
+        when(difference.getValueA()).thenReturn(registryBundle);
+
+        final ExtensionManager extensionManager = mock(ExtensionManager.class);
+        when(extensionManager.getBundle(eq(expectedCoordinate))).thenReturn(createBundle("com.example", "my-nar", "1.0.0"));
+
+        final DtoFactory dtoFactory = new DtoFactory();
+        dtoFactory.setExtensionManager(extensionManager);
+
+        final DifferenceDTO dto = dtoFactory.createBundleDifferenceDto(difference);
+        assertEquals(DifferenceType.BUNDLE_CHANGED.getDescription(), dto.getDifferenceType());
+        assertFalse(dto.getEnvironmental());
+    }
+
+    @Test
+    void testCreateBundleDifferenceDtoWhenRegistryBundleNotAvailable() {
+        final org.apache.nifi.flow.Bundle registryBundle = new org.apache.nifi.flow.Bundle("com.example", "my-nar", "1.0.0");
+
+        final FlowDifference difference = mock(FlowDifference.class);
+        when(difference.getDifferenceType()).thenReturn(DifferenceType.BUNDLE_CHANGED);
+        when(difference.getDescription()).thenReturn("Bundle changed from 1.0.0 to 2.0.0");
+        when(difference.getValueA()).thenReturn(registryBundle);
+
+        final ExtensionManager extensionManager = mock(ExtensionManager.class);
+        when(extensionManager.getBundle(any(BundleCoordinate.class))).thenReturn(null);
+
+        final DtoFactory dtoFactory = new DtoFactory();
+        dtoFactory.setExtensionManager(extensionManager);
+
+        final DifferenceDTO dto = dtoFactory.createBundleDifferenceDto(difference);
+        assertEquals(DifferenceType.BUNDLE_CHANGED.getDescription(), dto.getDifferenceType());
+        assertTrue(dto.getEnvironmental());
+    }
+
+    @Test
+    void testCreateBundleDifferenceDtoWhenValueIsNotBundle() {
+        final FlowDifference difference = mock(FlowDifference.class);
+        when(difference.getDifferenceType()).thenReturn(DifferenceType.BUNDLE_CHANGED);
+        when(difference.getDescription()).thenReturn("Bundle changed");
+        when(difference.getValueA()).thenReturn("not-a-bundle");
+
+        final ExtensionManager extensionManager = mock(ExtensionManager.class);
+
+        final DtoFactory dtoFactory = new DtoFactory();
+        dtoFactory.setExtensionManager(extensionManager);
+
+        final DifferenceDTO dto = dtoFactory.createBundleDifferenceDto(difference);
+        assertTrue(dto.getEnvironmental());
+    }
+
+    @Test
+    void testCreateAssetReferenceDtoWhenContentFileExists() {
+        final Asset asset = mock(Asset.class);
+        when(asset.getIdentifier()).thenReturn("asset-id-1");
+        when(asset.getName()).thenReturn("asset-name-1");
+        final File contentFile = mock(File.class);
+        when(contentFile.exists()).thenReturn(true);
+        when(asset.getFile()).thenReturn(contentFile);
+
+        final DtoFactory dtoFactory = new DtoFactory();
+        final AssetReferenceDTO dto = dtoFactory.createAssetReferenceDto(asset);
+
+        assertEquals("asset-id-1", dto.getId());
+        assertEquals("asset-name-1", dto.getName());
+        assertNotNull(dto.getMissingContent());
+        assertFalse(dto.getMissingContent());
+    }
+
+    @Test
+    void testCreateAssetReferenceDtoWhenContentFileMissing() {
+        final Asset asset = mock(Asset.class);
+        when(asset.getIdentifier()).thenReturn("asset-id-2");
+        when(asset.getName()).thenReturn("asset-name-2");
+        final File contentFile = mock(File.class);
+        when(contentFile.exists()).thenReturn(false);
+        when(asset.getFile()).thenReturn(contentFile);
+
+        final DtoFactory dtoFactory = new DtoFactory();
+        final AssetReferenceDTO dto = dtoFactory.createAssetReferenceDto(asset);
+
+        assertEquals("asset-id-2", dto.getId());
+        assertEquals("asset-name-2", dto.getName());
+        assertNotNull(dto.getMissingContent());
+        assertTrue(dto.getMissingContent());
+    }
+
+    @Test
+    void testCreateParameterDtoResolvesSourceContextWhenParameterContextIdIsNull() {
+        final String contextId = "context-1";
+        final ParameterContext parameterContext = createMockParameterContext(contextId, "context-1-name", Collections.emptyList());
+
+        final Parameter parameter = new Parameter.Builder()
+                .name("param-name")
+                .value("param-value")
+                .build();
+
+        final ParameterContextLookup lookup = mock(ParameterContextLookup.class);
+
+        final DtoFactory dtoFactory = newDtoFactoryForParameters();
+        final ParameterDTO dto = dtoFactory.createParameterDto(parameterContext, parameter, mock(RevisionManager.class), lookup);
+
+        assertEquals("param-name", dto.getName());
+        assertEquals("param-value", dto.getValue());
+        assertFalse(dto.getInherited());
+
+        final ParameterContextReferenceEntity reference = dto.getParameterContext();
+        assertNotNull(reference);
+        assertEquals(contextId, reference.getId());
+
+        verify(lookup, never()).getParameterContext(anyString());
+    }
+
+    @Test
+    void testCreateParameterDtoResolvesSourceContextWhenParameterContextIdMatchesCurrent() {
+        final String contextId = "context-1";
+        final ParameterContext parameterContext = createMockParameterContext(contextId, "context-1-name", Collections.emptyList());
+
+        final Parameter parameter = new Parameter.Builder()
+                .name("param-name")
+                .value("param-value")
+                .parameterContextId(contextId)
+                .build();
+
+        final ParameterContextLookup lookup = mock(ParameterContextLookup.class);
+
+        final DtoFactory dtoFactory = newDtoFactoryForParameters();
+        final ParameterDTO dto = dtoFactory.createParameterDto(parameterContext, parameter, mock(RevisionManager.class), lookup);
+
+        assertFalse(dto.getInherited());
+        assertEquals(contextId, dto.getParameterContext().getId());
+
+        verify(lookup, never()).getParameterContext(anyString());
+    }
+
+    @Test
+    void testCreateParameterDtoResolvesSourceContextFromInheritedGraph() {
+        final String childId = "context-child";
+        final String parentId = "context-parent";
+
+        final ParameterContext parentContext = createMockParameterContext(parentId, "parent", Collections.emptyList());
+        final ParameterContext childContext = createMockParameterContext(childId, "child", List.of(parentContext));
+
+        final Parameter parameter = new Parameter.Builder()
+                .name("param-name")
+                .value("param-value")
+                .parameterContextId(parentId)
+                .build();
+
+        final ParameterContextLookup lookup = mock(ParameterContextLookup.class);
+
+        final DtoFactory dtoFactory = newDtoFactoryForParameters();
+        final ParameterDTO dto = dtoFactory.createParameterDto(childContext, parameter, mock(RevisionManager.class), lookup);
+
+        assertTrue(dto.getInherited());
+        assertEquals(parentId, dto.getParameterContext().getId());
+
+        verify(lookup, never()).getParameterContext(anyString());
+    }
+
+    @Test
+    void testCreateParameterDtoResolvesSourceContextFromTransitiveInheritedGraph() {
+        final String childId = "context-child";
+        final String parentId = "context-parent";
+        final String grandparentId = "context-grandparent";
+
+        final ParameterContext grandparentContext = createMockParameterContext(grandparentId, "grandparent", Collections.emptyList());
+        final ParameterContext parentContext = createMockParameterContext(parentId, "parent", List.of(grandparentContext));
+        final ParameterContext childContext = createMockParameterContext(childId, "child", List.of(parentContext));
+
+        final Parameter parameter = new Parameter.Builder()
+                .name("param-name")
+                .value("param-value")
+                .parameterContextId(grandparentId)
+                .build();
+
+        final ParameterContextLookup lookup = mock(ParameterContextLookup.class);
+
+        final DtoFactory dtoFactory = newDtoFactoryForParameters();
+        final ParameterDTO dto = dtoFactory.createParameterDto(childContext, parameter, mock(RevisionManager.class), lookup);
+
+        assertTrue(dto.getInherited());
+        assertEquals(grandparentId, dto.getParameterContext().getId());
+
+        verify(lookup, never()).getParameterContext(anyString());
+    }
+
+    @Test
+    void testCreateParameterDtoFallsBackToLookupWhenSourceNotReachableInGraph() {
+        final String contextId = "context-1";
+        final String externalId = "context-external";
+
+        final ParameterContext parameterContext = createMockParameterContext(contextId, "context-1-name", Collections.emptyList());
+        final ParameterContext externalContext = createMockParameterContext(externalId, "context-external-name", Collections.emptyList());
+
+        final Parameter parameter = new Parameter.Builder()
+                .name("param-name")
+                .value("param-value")
+                .parameterContextId(externalId)
+                .build();
+
+        final ParameterContextLookup lookup = mock(ParameterContextLookup.class);
+        when(lookup.getParameterContext(externalId)).thenReturn(externalContext);
+
+        final DtoFactory dtoFactory = newDtoFactoryForParameters();
+        final ParameterDTO dto = dtoFactory.createParameterDto(parameterContext, parameter, mock(RevisionManager.class), lookup);
+
+        assertTrue(dto.getInherited());
+        assertEquals(externalId, dto.getParameterContext().getId());
+
+        verify(lookup).getParameterContext(externalId);
+    }
+
+    @Test
+    void testCreateParameterDtoFallsBackToCurrentContextWhenSourceNotReachableInGraphAndLookupIsEmpty() {
+        final String contextId = "context-1";
+        final String externalId = "context-external";
+
+        final ParameterContext parameterContext = createMockParameterContext(contextId, "context-1-name", Collections.emptyList());
+
+        final Parameter parameter = new Parameter.Builder()
+                .name("param-name")
+                .value("param-value")
+                .parameterContextId(externalId)
+                .build();
+
+        final DtoFactory dtoFactory = newDtoFactoryForParameters();
+        final ParameterDTO dto = dtoFactory.createParameterDto(parameterContext, parameter, mock(RevisionManager.class), ParameterContextLookup.EMPTY);
+
+        assertFalse(dto.getInherited());
+        assertEquals(contextId, dto.getParameterContext().getId());
+    }
+
+    @Test
+    void testCreateParameterDtoResolvesSourceContextFromDiamondInheritanceGraph() {
+        final String contextAId = "context-a";
+        final String contextBId = "context-b";
+        final String contextCId = "context-c";
+        final String contextDId = "context-d";
+
+        final ParameterContext contextD = createMockParameterContext(contextDId, "context-d-name", Collections.emptyList());
+        final ParameterContext contextB = createMockParameterContext(contextBId, "context-b-name", List.of(contextD));
+        final ParameterContext contextC = createMockParameterContext(contextCId, "context-c-name", List.of(contextD));
+        final ParameterContext contextA = createMockParameterContext(contextAId, "context-a-name", List.of(contextB, contextC));
+
+        final Parameter parameter = new Parameter.Builder()
+                .name("param-name")
+                .value("param-value")
+                .parameterContextId(contextDId)
+                .build();
+
+        final DtoFactory dtoFactory = newDtoFactoryForParameters();
+        final ParameterDTO dto = dtoFactory.createParameterDto(contextA, parameter, mock(RevisionManager.class), ParameterContextLookup.EMPTY);
+
+        assertTrue(dto.getInherited());
+        assertEquals(contextDId, dto.getParameterContext().getId());
+    }
+
+    @Test
+    void testCreateParameterDtoInheritanceGraphHandlesCycles() {
+        final String childId = "context-child";
+        final String parentId = "context-parent";
+        final String missingId = "context-missing";
+
+        final ParameterContext parentContext = mock(ParameterContext.class);
+        final ParameterContext childContext = mock(ParameterContext.class);
+        configureBaseParameterContext(childContext, childId, "child");
+        configureBaseParameterContext(parentContext, parentId, "parent");
+        when(childContext.getInheritedParameterContexts()).thenReturn(List.of(parentContext));
+        when(parentContext.getInheritedParameterContexts()).thenReturn(List.of(childContext));
+
+        final Parameter parameter = new Parameter.Builder()
+                .name("param-name")
+                .value("param-value")
+                .parameterContextId(missingId)
+                .build();
+
+        final ParameterContext fallbackContext = createMockParameterContext(missingId, "missing", Collections.emptyList());
+        final ParameterContextLookup lookup = mock(ParameterContextLookup.class);
+        when(lookup.getParameterContext(missingId)).thenReturn(fallbackContext);
+
+        final DtoFactory dtoFactory = newDtoFactoryForParameters();
+        final ParameterDTO dto = dtoFactory.createParameterDto(childContext, parameter, mock(RevisionManager.class), lookup);
+
+        assertTrue(dto.getInherited());
+        assertEquals(missingId, dto.getParameterContext().getId());
+
+        verify(lookup).getParameterContext(missingId);
+    }
+
+    @Test
+    void testCreateParameterDtoSensitiveValueIsMasked() {
+        final String contextId = "context-1";
+        final ParameterContext parameterContext = createMockParameterContext(contextId, "context-1-name", Collections.emptyList());
+
+        final Parameter parameter = new Parameter.Builder()
+                .name("sensitive-param")
+                .value("plaintext-secret")
+                .sensitive(true)
+                .build();
+
+        final DtoFactory dtoFactory = newDtoFactoryForParameters();
+        final ParameterDTO dto = dtoFactory.createParameterDto(parameterContext, parameter, mock(RevisionManager.class), mock(ParameterContextLookup.class));
+
+        assertTrue(dto.getSensitive());
+        assertEquals(DtoFactory.SENSITIVE_VALUE_MASK, dto.getValue());
+    }
+
+    private static DtoFactory newDtoFactoryForParameters() {
+        final DtoFactory dtoFactory = new DtoFactory();
+        dtoFactory.setEntityFactory(new EntityFactory());
+        return dtoFactory;
+    }
+
+    private static ParameterContext createMockParameterContext(final String id, final String name, final List<ParameterContext> inherited) {
+        final ParameterContext context = mock(ParameterContext.class);
+        configureBaseParameterContext(context, id, name);
+        when(context.getInheritedParameterContexts()).thenReturn(inherited);
+        return context;
+    }
+
+    private static void configureBaseParameterContext(final ParameterContext context, final String id, final String name) {
+        when(context.getIdentifier()).thenReturn(id);
+        when(context.getName()).thenReturn(name);
+        when(context.getParameterReferenceManager()).thenReturn(ParameterReferenceManager.EMPTY);
     }
 }

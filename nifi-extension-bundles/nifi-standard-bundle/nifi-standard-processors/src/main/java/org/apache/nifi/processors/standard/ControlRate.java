@@ -241,7 +241,6 @@ public class ControlRate extends AbstractProcessor {
     private volatile String groupingAttributeName = null;
     private volatile int timePeriodSeconds = 1;
 
-
     @Override
     protected List<PropertyDescriptor> getSupportedPropertyDescriptors() {
         return PROPERTY_DESCRIPTORS;
@@ -274,8 +273,7 @@ public class ControlRate extends AbstractProcessor {
                             .explanation("property must be set if using <Rate Control Criteria> of 'attribute value'")
                             .build());
                 }
-            // fallthrough
-            // is intentional since the "Maximum Rate" property must be filled in when using either of DATA_RATE, FLOWFILE_RATE or ATTRIBUTE_RATE.
+                // fall through - intentional since the "Maximum Rate" property must be filled in when using either of DATA_RATE, FLOWFILE_RATE or ATTRIBUTE_RATE.
             case FLOWFILE_RATE:
                 validationResults.add(StandardValidators.POSITIVE_LONG_VALIDATOR.validate("Maximum Rate", context.getProperty(MAX_RATE).getValue(), context));
                 break;
@@ -392,7 +390,6 @@ public class ControlRate extends AbstractProcessor {
         }
     }
 
-
     private void holdFlowFilesExceedingRate(final ProcessContext context, final ProcessSession session) {
         clearExpiredThrottles(context);
 
@@ -477,7 +474,7 @@ public class ControlRate extends AbstractProcessor {
 
     /*
      * Determine the amount this FlowFile will incur against the maximum allowed rate.
-     * This is applicable to counting accruals, flowfiles or attributes
+     * This is applicable to counting accruals, FlowFiles or attributes
      */
     private long getCountAccrual(FlowFile flowFile) {
         return switch (rateControlCriteria) {
@@ -555,7 +552,7 @@ public class ControlRate extends AbstractProcessor {
 
         private Throttle(final int timePeriod, final TimeUnit unit, final ComponentLog logger, final LongSupplier currentTimeSupplier) {
             this.timePeriodMillis = TimeUnit.MILLISECONDS.convert(timePeriod, unit);
-            this.timedBuffer = new TimedBuffer<>(unit, timePeriod, new LongEntityAccess(), currentTimeSupplier);
+            this.timedBuffer = new TimedBuffer<>(unit, timePeriod, new LongEntityAccess(currentTimeSupplier), currentTimeSupplier);
             this.logger = logger;
             this.currentTimeSupplier = currentTimeSupplier;
         }
@@ -603,7 +600,7 @@ public class ControlRate extends AbstractProcessor {
                         sum == null ? 0 : sum.getValue(), sum == null ? 0 : sum.getTimestamp(), value);
             }
 
-            final long transferred = timedBuffer.add(new TimestampedLong(value)).getValue();
+            final long transferred = timedBuffer.add(new TimestampedLong(value, now)).getValue();
             if (transferred > maxRateValue) {
                 final long amountOver = transferred - maxRateValue;
                 // determine how long it should take to transfer 'amountOver' and 'penalize' the Throttle for that long
@@ -640,7 +637,7 @@ public class ControlRate extends AbstractProcessor {
 
             String groupName = (groupingAttributeName == null) ? DEFAULT_GROUP_ATTRIBUTE : flowFile.getAttribute(groupingAttributeName);
 
-            // the flow file may not have the required attribute: in this case it is considered part
+            // the FlowFile may not have the required attribute: in this case it is considered part
             // of the DEFAULT_GROUP_ATTRIBUTE
             if (groupName == null) {
                 groupName = DEFAULT_GROUP_ATTRIBUTE;
@@ -678,7 +675,7 @@ public class ControlRate extends AbstractProcessor {
                 }
             }
 
-            // continue processing count throttle only if required and if data throttle is not already limiting flowfiles
+            // continue processing count throttle only if required and if data throttle is not already limiting FlowFiles
             if (countThrottleRequired() && !dataThrottlingActive) {
                 if (countThrottle == null) {
                     countThrottle = new Throttle(timePeriodSeconds, TimeUnit.SECONDS, getLogger(), currentTimeSupplier);

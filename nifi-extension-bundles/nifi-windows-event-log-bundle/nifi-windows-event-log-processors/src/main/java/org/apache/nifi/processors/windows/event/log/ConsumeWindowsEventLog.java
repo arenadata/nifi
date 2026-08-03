@@ -25,6 +25,7 @@ import org.apache.nifi.annotation.behavior.TriggerSerially;
 import org.apache.nifi.annotation.behavior.WritesAttribute;
 import org.apache.nifi.annotation.behavior.WritesAttributes;
 import org.apache.nifi.annotation.documentation.CapabilityDescription;
+import org.apache.nifi.annotation.documentation.DeprecationNotice;
 import org.apache.nifi.annotation.documentation.Tags;
 import org.apache.nifi.annotation.lifecycle.OnScheduled;
 import org.apache.nifi.annotation.lifecycle.OnStopped;
@@ -34,6 +35,7 @@ import org.apache.nifi.components.ValidationResult;
 import org.apache.nifi.expression.ExpressionLanguageScope;
 import org.apache.nifi.flowfile.FlowFile;
 import org.apache.nifi.flowfile.attributes.CoreAttributes;
+import org.apache.nifi.migration.PropertyConfiguration;
 import org.apache.nifi.processor.AbstractSessionFactoryProcessor;
 import org.apache.nifi.processor.ProcessContext;
 import org.apache.nifi.processor.ProcessSession;
@@ -56,7 +58,6 @@ import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
 
-
 @InputRequirement(InputRequirement.Requirement.INPUT_FORBIDDEN)
 @Tags({"ingest", "event", "windows"})
 @TriggerSerially
@@ -64,6 +65,7 @@ import java.util.concurrent.TimeUnit;
 @WritesAttributes({
         @WritesAttribute(attribute = "mime.type", description = "Will set a MIME type value of application/xml.")
 })
+@DeprecationNotice(reason = "NIFI-15688: Depends on Windows platform-specific libraries resulting in minimal usage and maintenance since initial implementation")
 public class ConsumeWindowsEventLog extends AbstractSessionFactoryProcessor {
     public static final String DEFAULT_CHANNEL = "System";
     public static final String DEFAULT_XPATH = "*";
@@ -71,8 +73,7 @@ public class ConsumeWindowsEventLog extends AbstractSessionFactoryProcessor {
     public static final int DEFAULT_MAX_QUEUE_SIZE = 1024;
 
     public static final PropertyDescriptor CHANNEL = new PropertyDescriptor.Builder()
-            .name("channel")
-            .displayName("Channel")
+            .name("Channel")
             .required(true)
             .defaultValue(DEFAULT_CHANNEL)
             .description("The Windows Event Log Channel to listen to.")
@@ -81,8 +82,7 @@ public class ConsumeWindowsEventLog extends AbstractSessionFactoryProcessor {
             .build();
 
     public static final PropertyDescriptor QUERY = new PropertyDescriptor.Builder()
-            .name("query")
-            .displayName("XPath Query")
+            .name("XPath Query")
             .required(true)
             .defaultValue(DEFAULT_XPATH)
             .description("XPath Query to filter events. (See https://msdn.microsoft.com/en-us/library/windows/desktop/dd996910(v=vs.85).aspx for examples.)")
@@ -91,8 +91,7 @@ public class ConsumeWindowsEventLog extends AbstractSessionFactoryProcessor {
             .build();
 
     public static final PropertyDescriptor MAX_BUFFER_SIZE = new PropertyDescriptor.Builder()
-            .name("maxBuffer")
-            .displayName("Maximum Buffer Size")
+            .name("Maximum Buffer Size")
             .required(true)
             .defaultValue(Integer.toString(DEFAULT_MAX_BUFFER))
             .description("The individual Event Log XMLs are rendered to a buffer." +
@@ -101,8 +100,7 @@ public class ConsumeWindowsEventLog extends AbstractSessionFactoryProcessor {
             .build();
 
     public static final PropertyDescriptor MAX_EVENT_QUEUE_SIZE = new PropertyDescriptor.Builder()
-            .name("maxQueue")
-            .displayName("Maximum queue size")
+            .name("Maximum Queue Size")
             .required(true)
             .defaultValue(Integer.toString(DEFAULT_MAX_QUEUE_SIZE))
             .description("Events are received asynchronously and must be output as FlowFiles when the processor is triggered." +
@@ -111,8 +109,7 @@ public class ConsumeWindowsEventLog extends AbstractSessionFactoryProcessor {
             .build();
 
     public static final PropertyDescriptor INACTIVE_DURATION_TO_RECONNECT = new PropertyDescriptor.Builder()
-            .name("inactiveDurationToReconnect")
-            .displayName("Inactive duration to reconnect")
+            .name("Inactive Duration to Reconnect")
             .description("If no new event logs are processed for the specified time period," +
                     " this processor will try reconnecting to recover from a state where any further messages cannot be consumed." +
                     " Such situation can happen if Windows Event Log service is restarted, or ERROR_EVT_QUERY_RESULT_STALE (15011) is returned." +
@@ -183,6 +180,15 @@ public class ConsumeWindowsEventLog extends AbstractSessionFactoryProcessor {
             // Won't be able to use the processor anyway because native libraries didn't load
             name = null;
         }
+    }
+
+    @Override
+    public void migrateProperties(PropertyConfiguration config) {
+        config.renameProperty("channel", CHANNEL.getName());
+        config.renameProperty("query", QUERY.getName());
+        config.renameProperty("maxBuffer", MAX_BUFFER_SIZE.getName());
+        config.renameProperty("maxQueue", MAX_EVENT_QUEUE_SIZE.getName());
+        config.renameProperty("inactiveDurationToReconnect", INACTIVE_DURATION_TO_RECONNECT.getName());
     }
 
     private WEvtApi loadWEvtApi() {

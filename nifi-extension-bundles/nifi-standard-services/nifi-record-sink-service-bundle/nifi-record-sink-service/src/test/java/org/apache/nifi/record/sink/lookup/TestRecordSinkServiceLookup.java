@@ -16,8 +16,6 @@
  */
 package org.apache.nifi.record.sink.lookup;
 
-
-import org.apache.nifi.record.sink.TestProcessor;
 import org.apache.nifi.reporting.InitializationException;
 import org.apache.nifi.serialization.SimpleRecordSchema;
 import org.apache.nifi.serialization.WriteResult;
@@ -27,6 +25,7 @@ import org.apache.nifi.serialization.record.RecordField;
 import org.apache.nifi.serialization.record.RecordFieldType;
 import org.apache.nifi.serialization.record.RecordSchema;
 import org.apache.nifi.serialization.record.RecordSet;
+import org.apache.nifi.util.NoOpProcessor;
 import org.apache.nifi.util.TestRunner;
 import org.apache.nifi.util.TestRunners;
 import org.junit.jupiter.api.BeforeEach;
@@ -47,8 +46,8 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 public class TestRecordSinkServiceLookup {
 
     private MockRecordSinkServiceLookup sinkLookup;
-    private TestRunner runner;
-    private MockRecordSinkService sinkA, sinkB;
+    private MockRecordSinkService sinkA;
+    private MockRecordSinkService sinkB;
     private RecordSet recordSet;
 
     @BeforeEach
@@ -57,7 +56,7 @@ public class TestRecordSinkServiceLookup {
         sinkB = new MockRecordSinkService("b");
         sinkLookup = new MockRecordSinkServiceLookup();
 
-        runner = TestRunners.newTestRunner(TestProcessor.class);
+        TestRunner runner = TestRunners.newTestRunner(NoOpProcessor.class);
 
         final String sinkServiceAIdentifier = "a";
         runner.addControllerService(sinkServiceAIdentifier, sinkA);

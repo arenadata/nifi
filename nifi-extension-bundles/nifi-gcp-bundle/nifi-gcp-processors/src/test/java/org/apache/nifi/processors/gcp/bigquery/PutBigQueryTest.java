@@ -36,21 +36,21 @@ import com.google.cloud.bigquery.testing.RemoteBigQueryHelper;
 import com.google.protobuf.Descriptors;
 import io.grpc.Status;
 import io.grpc.StatusRuntimeException;
-import java.io.IOException;
-import java.util.Arrays;
-import java.util.List;
-import java.util.stream.IntStream;
-import java.util.stream.Stream;
 import org.apache.nifi.csv.CSVReader;
 import org.apache.nifi.csv.CSVUtils;
 import org.apache.nifi.gcp.credentials.service.GCPCredentialsService;
 import org.apache.nifi.json.JsonTreeReader;
+import org.apache.nifi.migration.ProxyServiceMigration;
 import org.apache.nifi.processor.ProcessContext;
 import org.apache.nifi.processor.Processor;
+import org.apache.nifi.processors.gcp.AbstractGCPProcessor;
 import org.apache.nifi.processors.gcp.credentials.service.GCPCredentialsControllerService;
 import org.apache.nifi.proxy.ProxyConfiguration;
 import org.apache.nifi.reporting.InitializationException;
 import org.apache.nifi.schema.access.SchemaAccessUtils;
+import org.apache.nifi.util.LogMessage;
+import org.apache.nifi.util.MockComponentLog;
+import org.apache.nifi.util.PropertyMigrationResult;
 import org.apache.nifi.util.TestRunner;
 import org.apache.nifi.util.TestRunners;
 import org.junit.jupiter.api.BeforeEach;
@@ -64,6 +64,14 @@ import org.mockito.Captor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import java.io.IOException;
+import java.util.Arrays;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.stream.IntStream;
+import java.util.stream.Stream;
+
 import static org.apache.nifi.processors.gcp.bigquery.PutBigQuery.BATCH_TYPE;
 import static org.apache.nifi.processors.gcp.bigquery.PutBigQuery.STREAM_TYPE;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -74,6 +82,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.isA;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.reset;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -96,7 +105,6 @@ public class PutBigQueryTest {
     @Mock
     protected BigQuery bq;
 
-
     private TestRunner runner;
 
     @Mock
@@ -116,7 +124,6 @@ public class PutBigQueryTest {
 
     @Captor
     private ArgumentCaptor<BatchCommitWriteStreamsRequest> batchCommitRequestCaptor;
-
 
     public static TestRunner buildNewRunner(Processor processor) throws Exception {
         final GCPCredentialsService credentialsService = new GCPCredentialsControllerService();
@@ -149,7 +156,6 @@ public class PutBigQueryTest {
         assertEquals(RETRIES.intValue(), options.getRetrySettings().getMaxAttempts(), "Retry counts should match");
         assertSame(mockCredentials, options.getCredentials(), "Credentials should be configured correctly");
     }
-
 
     public AbstractBigQueryProcessor getProcessor() {
         return new PutBigQuery() {
@@ -213,7 +219,7 @@ public class PutBigQueryTest {
         runner.enqueue(csvContentWithLines(csvLineCount));
         runner.run();
 
-        Integer expectedAppendCount = (int) Math.ceil( (double) csvLineCount / appendRecordCount);
+        Integer expectedAppendCount = (int) Math.ceil((double) csvLineCount / appendRecordCount);
         verify(streamWriter, times(expectedAppendCount)).append(protoRowsCaptor.capture(), offsetCaptor.capture());
         List<ProtoRows> allValues = protoRowsCaptor.getAllValues();
         List<Long> offsets = offsetCaptor.getAllValues();
@@ -229,9 +235,9 @@ public class PutBigQueryTest {
 
         int lastAppendSize = csvLineCount % appendRecordCount;
         if (lastAppendSize != 0) {
-            assertEquals(lastAppendSize, allValues.get(allValues.size() - 1).getSerializedRowsCount());
+            assertEquals(lastAppendSize, allValues.getLast().getSerializedRowsCount());
             for (int j = 0; j < lastAppendSize; j++) {
-                assertTrue(allValues.get(allValues.size() - 1).getSerializedRowsList().get(j).toString().contains(VALUE_PREFIX + ((expectedAppendCount - 1) * appendRecordCount + j)));
+                assertTrue(allValues.getLast().getSerializedRowsList().get(j).toString().contains(VALUE_PREFIX + ((expectedAppendCount - 1) * appendRecordCount + j)));
             }
         }
 
@@ -272,8 +278,8 @@ public class PutBigQueryTest {
 
         runner.assertAllFlowFilesTransferred(PutBigQuery.REL_SUCCESS, iteration);
 
-        runner.getFlowFilesForRelationship(PutBigQuery.REL_SUCCESS).get(0).assertAttributeEquals(BigQueryAttributes.JOB_NB_RECORDS_ATTR, Integer.toString(entityCountFirst));
-        runner.getFlowFilesForRelationship(PutBigQuery.REL_SUCCESS).get(1).assertAttributeEquals(BigQueryAttributes.JOB_NB_RECORDS_ATTR, Integer.toString(entityCountSecond));
+        runner.getFlowFilesForRelationship(PutBigQuery.REL_SUCCESS).get(0).assertAttributeEquals(PutBigQuery.JOB_NB_RECORDS_ATTR, Integer.toString(entityCountFirst));
+        runner.getFlowFilesForRelationship(PutBigQuery.REL_SUCCESS).get(1).assertAttributeEquals(PutBigQuery.JOB_NB_RECORDS_ATTR, Integer.toString(entityCountSecond));
     }
 
     @Test
@@ -359,9 +365,115 @@ public class PutBigQueryTest {
 
         verify(streamWriter).append(protoRowsCaptor.capture(), offsetCaptor.capture());
         ProtoRows rows = protoRowsCaptor.getValue();
-        assertFalse(rows.getSerializedRowsList().get(0).toString().contains(unknownProperty));
+        assertFalse(rows.getSerializedRowsList().getFirst().toString().contains(unknownProperty));
 
         runner.assertAllFlowFilesTransferred(PutBigQuery.REL_SUCCESS);
+    }
+
+    @Test
+    void testUnmatchedFieldWarnLogsAndWrites() {
+        when(writeClient.createWriteStream(isA(CreateWriteStreamRequest.class))).thenReturn(writeStream);
+        final TableSchema myTableSchema = mockTableSchema(FIELD_1_NAME, TableFieldSchema.Type.STRING, FIELD_2_NAME, TableFieldSchema.Type.STRING);
+        when(writeStream.getTableSchema()).thenReturn(myTableSchema);
+        when(streamWriter.append(isA(ProtoRows.class), isA(Long.class)))
+            .thenReturn(ApiFutures.immediateFuture(AppendRowsResponse.newBuilder().setAppendResult(mock(AppendRowsResponse.AppendResult.class)).build()));
+
+        runner.setProperty(PutBigQuery.UNMATCHED_FIELD_BEHAVIOR, UnmatchedFieldBehavior.WARN);
+
+        final String unknownProperty = "myUnknownProperty";
+        runner.enqueue(CSV_HEADER + ",unknownField\nmyId,myValue," + unknownProperty);
+        runner.run();
+
+        verify(streamWriter).append(protoRowsCaptor.capture(), offsetCaptor.capture());
+        final ProtoRows rows = protoRowsCaptor.getValue();
+        assertEquals(1, rows.getSerializedRowsCount());
+        assertFalse(rows.getSerializedRowsList().getFirst().toString().contains(unknownProperty));
+
+        runner.assertAllFlowFilesTransferred(PutBigQuery.REL_SUCCESS);
+        assertUnmatchedFieldWarningLogged(runner);
+    }
+
+    @Test
+    void testUnmatchedFieldFailRoutesToFailure() {
+        when(writeClient.createWriteStream(isA(CreateWriteStreamRequest.class))).thenReturn(writeStream);
+        final TableSchema myTableSchema = mockTableSchema(FIELD_1_NAME, TableFieldSchema.Type.STRING, FIELD_2_NAME, TableFieldSchema.Type.STRING);
+        when(writeStream.getTableSchema()).thenReturn(myTableSchema);
+
+        runner.setProperty(PutBigQuery.UNMATCHED_FIELD_BEHAVIOR, UnmatchedFieldBehavior.FAIL);
+        runner.setProperty(PutBigQuery.SKIP_INVALID_ROWS, "false");
+
+        runner.enqueue(CSV_HEADER + ",unknownField\nmyId,myValue,extraField");
+        runner.run();
+
+        verify(streamWriter, never()).append(any(ProtoRows.class), anyLong());
+        runner.assertAllFlowFilesTransferred(PutBigQuery.REL_FAILURE);
+    }
+
+    @Test
+    void testUnmatchedFieldFailIgnoresSkipInvalidRows() {
+        when(writeClient.createWriteStream(isA(CreateWriteStreamRequest.class))).thenReturn(writeStream);
+        final TableSchema myTableSchema = mockTableSchema(FIELD_1_NAME, TableFieldSchema.Type.STRING, FIELD_2_NAME, TableFieldSchema.Type.STRING);
+        when(writeStream.getTableSchema()).thenReturn(myTableSchema);
+
+        runner.setProperty(PutBigQuery.UNMATCHED_FIELD_BEHAVIOR, UnmatchedFieldBehavior.FAIL);
+        runner.setProperty(PutBigQuery.SKIP_INVALID_ROWS, "true");
+
+        runner.enqueue(CSV_HEADER + ",unknownField\nidOne,valueOne,extraField");
+        runner.run();
+
+        verify(streamWriter, never()).append(any(ProtoRows.class), anyLong());
+        runner.assertAllFlowFilesTransferred(PutBigQuery.REL_FAILURE);
+    }
+
+    @Test
+    void testUnmatchedFieldInNestedStructLogsDottedPath() throws InitializationException {
+        when(writeClient.createWriteStream(isA(CreateWriteStreamRequest.class))).thenReturn(writeStream);
+
+        final TableFieldSchema nestedKnown = mock(TableFieldSchema.class);
+        when(nestedKnown.getName()).thenReturn("known");
+        when(nestedKnown.getType()).thenReturn(TableFieldSchema.Type.STRING);
+        when(nestedKnown.getMode()).thenReturn(TableFieldSchema.Mode.NULLABLE);
+
+        final TableFieldSchema parent = mock(TableFieldSchema.class);
+        when(parent.getName()).thenReturn("parent");
+        when(parent.getType()).thenReturn(TableFieldSchema.Type.STRUCT);
+        when(parent.getMode()).thenReturn(TableFieldSchema.Mode.NULLABLE);
+        when(parent.getFieldsList()).thenReturn(List.of(nestedKnown));
+
+        final TableSchema schemaWithStruct = mock(TableSchema.class);
+        when(schemaWithStruct.getFieldsList()).thenReturn(List.of(parent));
+
+        when(writeStream.getTableSchema()).thenReturn(schemaWithStruct);
+        when(streamWriter.append(isA(ProtoRows.class), isA(Long.class)))
+            .thenReturn(ApiFutures.immediateFuture(AppendRowsResponse.newBuilder().setAppendResult(mock(AppendRowsResponse.AppendResult.class)).build()));
+
+        decorateWithNestedStructJsonReader(runner);
+
+        runner.setProperty(PutBigQuery.UNMATCHED_FIELD_BEHAVIOR, UnmatchedFieldBehavior.WARN);
+
+        runner.enqueue("""
+                {"parent":{"known":"ok","unexpected":"oops"}}
+                """);
+        runner.run();
+
+        runner.assertAllFlowFilesTransferred(PutBigQuery.REL_SUCCESS);
+        assertUnmatchedFieldPathLogged(runner, "parent.unexpected");
+    }
+
+    private static void assertUnmatchedFieldWarningLogged(final TestRunner runner) {
+        final MockComponentLog logger = runner.getLogger();
+        final boolean found = logger.getWarnMessages().stream()
+                .map(LogMessage::getMsg)
+                .anyMatch(msg -> msg != null && msg.contains("not present in BigQuery table schema"));
+        assertTrue(found, "Expected a warning about unmatched fields, got: " + logger.getWarnMessages());
+    }
+
+    private static void assertUnmatchedFieldPathLogged(final TestRunner runner, final String expectedPath) {
+        final MockComponentLog logger = runner.getLogger();
+        final boolean found = logger.getWarnMessages().stream()
+                .map(LogMessage::getMsg)
+                .anyMatch(msg -> msg != null && msg.contains(expectedPath));
+        assertTrue(found, "Expected warning to reference path '" + expectedPath + "', got: " + logger.getWarnMessages());
     }
 
     @Test
@@ -478,6 +590,35 @@ public class PutBigQueryTest {
         runner.assertAllFlowFilesTransferred(PutBigQuery.REL_SUCCESS);
     }
 
+    @Test
+    void testMigrateProperties() {
+        final TestRunner testRunner = TestRunners.newTestRunner(PutBigQuery.class);
+        final Map<String, String> expectedRenamed = Map.ofEntries(
+                Map.entry("bigquery-api-endpoint", PutBigQuery.BIGQUERY_API_ENDPOINT.getName()),
+                Map.entry("bq.transfer.type", PutBigQuery.TRANSFER_TYPE.getName()),
+                Map.entry("bq.append.record.count", PutBigQuery.APPEND_RECORD_COUNT.getName()),
+                Map.entry("bq.record.reader", PutBigQuery.RECORD_READER.getName()),
+                Map.entry("bq.skip.invalid.rows", PutBigQuery.SKIP_INVALID_ROWS.getName()),
+                Map.entry("bq.dataset", AbstractBigQueryProcessor.DATASET.getName()),
+                Map.entry("bq.table.name", AbstractBigQueryProcessor.TABLE_NAME.getName()),
+                Map.entry("gcp-project-id", AbstractGCPProcessor.PROJECT_ID.getName()),
+                Map.entry("gcp-retry-count", AbstractGCPProcessor.RETRY_COUNT.getName()),
+                Map.entry(ProxyServiceMigration.OBSOLETE_PROXY_CONFIGURATION_SERVICE, ProxyServiceMigration.PROXY_CONFIGURATION_SERVICE)
+        );
+
+        final PropertyMigrationResult propertyMigrationResult = testRunner.migrateProperties();
+        assertEquals(expectedRenamed, propertyMigrationResult.getPropertiesRenamed());
+
+        final Set<String> expectedRemoved = Set.of(
+                "gcp-proxy-host",
+                "gcp-proxy-port",
+                "gcp-proxy-user-name",
+                "gcp-proxy-user-password"
+        );
+
+        assertEquals(expectedRemoved, propertyMigrationResult.getPropertiesRemoved());
+    }
+
     private void decorateWithRecordReader(TestRunner runner) throws InitializationException {
         CSVReader csvReader = new CSVReader();
         runner.addControllerService("csvReader", csvReader);
@@ -529,6 +670,36 @@ public class PutBigQueryTest {
         runner.enableControllerService(jsonReader);
     }
 
+    private void decorateWithNestedStructJsonReader(TestRunner runner) throws InitializationException {
+        String recordReaderSchema = """
+                {
+                  "name": "nested",
+                  "namespace": "nifi.examples",
+                  "type": "record",
+                  "fields": [
+                    {
+                      "name": "parent",
+                      "type": {
+                        "type": "record",
+                        "name": "ParentRecord",
+                        "fields": [
+                          {"name": "known", "type": ["null", "string"], "default": null},
+                          {"name": "unexpected", "type": ["null", "string"], "default": null}
+                        ]
+                      }
+                    }
+                  ]
+                }""";
+
+        JsonTreeReader jsonReader = new JsonTreeReader();
+        runner.addControllerService("nestedJsonReader", jsonReader);
+        runner.setProperty(jsonReader, SchemaAccessUtils.SCHEMA_ACCESS_STRATEGY, SchemaAccessUtils.SCHEMA_TEXT_PROPERTY);
+        runner.setProperty(jsonReader, SchemaAccessUtils.SCHEMA_TEXT, recordReaderSchema);
+        runner.enableControllerService(jsonReader);
+
+        runner.setProperty(PutBigQuery.RECORD_READER, "nestedJsonReader");
+    }
+
     private TableSchema mockTableSchema(String name1, TableFieldSchema.Type type1, String name2, TableFieldSchema.Type type2) {
         TableSchema myTableSchema = mock(TableSchema.class);
 
@@ -541,7 +712,6 @@ public class PutBigQueryTest {
         when(tableFieldSchemaValue.getMode()).thenReturn(TableFieldSchema.Mode.NULLABLE);
         when(tableFieldSchemaValue.getType()).thenReturn(type2);
         when(tableFieldSchemaValue.getName()).thenReturn(name2);
-
 
         when(myTableSchema.getFieldsList()).thenReturn(Arrays.asList(tableFieldSchemaId, tableFieldSchemaValue));
 

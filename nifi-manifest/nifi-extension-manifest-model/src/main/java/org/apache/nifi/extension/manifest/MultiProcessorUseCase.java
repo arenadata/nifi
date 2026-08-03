@@ -21,6 +21,7 @@ import jakarta.xml.bind.annotation.XmlAccessType;
 import jakarta.xml.bind.annotation.XmlAccessorType;
 import jakarta.xml.bind.annotation.XmlElement;
 import jakarta.xml.bind.annotation.XmlElementWrapper;
+
 import java.util.List;
 
 @XmlAccessorType(XmlAccessType.FIELD)
@@ -36,7 +37,6 @@ public class MultiProcessorUseCase {
     @XmlElementWrapper
     @XmlElement(name = "processorConfiguration")
     private List<ProcessorConfiguration> processorConfigurations;
-
 
     public String getDescription() {
         return description;

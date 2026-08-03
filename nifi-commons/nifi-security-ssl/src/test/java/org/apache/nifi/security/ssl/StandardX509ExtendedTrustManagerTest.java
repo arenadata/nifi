@@ -22,11 +22,11 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
-import javax.net.ssl.SSLEngine;
-import javax.net.ssl.X509ExtendedTrustManager;
 import java.net.Socket;
 import java.security.cert.CertificateException;
 import java.security.cert.X509Certificate;
+import javax.net.ssl.SSLEngine;
+import javax.net.ssl.X509ExtendedTrustManager;
 
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
@@ -72,7 +72,6 @@ class StandardX509ExtendedTrustManagerTest {
         verify(extendedTrustManager).checkClientTrusted(eq(certificates), eq(AUTH_TYPE), eq(socket));
     }
 
-
     @Test
     void testCheckClientTrustedEngine() throws CertificateException {
         manager.checkClientTrusted(certificates, AUTH_TYPE, sslEngine);
@@ -93,7 +92,6 @@ class StandardX509ExtendedTrustManagerTest {
 
         verify(extendedTrustManager).checkServerTrusted(eq(certificates), eq(AUTH_TYPE), eq(socket));
     }
-
 
     @Test
     void testCheckServerTrustedEngine() throws CertificateException {

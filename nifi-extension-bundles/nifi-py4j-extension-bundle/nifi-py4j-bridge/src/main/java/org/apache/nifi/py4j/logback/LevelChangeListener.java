@@ -20,8 +20,8 @@ import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.Logger;
 import ch.qos.logback.classic.LoggerContext;
 import ch.qos.logback.classic.spi.LoggerContextListener;
-import org.apache.nifi.py4j.logging.LogLevelChangeListener;
 import org.apache.nifi.logging.LogLevel;
+import org.apache.nifi.py4j.logging.LogLevelChangeListener;
 import org.slf4j.ILoggerFactory;
 import org.slf4j.LoggerFactory;
 
@@ -36,7 +36,6 @@ import java.util.regex.Pattern;
  */
 public class LevelChangeListener implements LoggerContextListener {
     private static final Map<Level, LogLevel> LEVELS = Map.of(
-            Level.ALL, LogLevel.TRACE,
             Level.TRACE, LogLevel.TRACE,
             Level.DEBUG, LogLevel.DEBUG,
             Level.INFO, LogLevel.INFO,

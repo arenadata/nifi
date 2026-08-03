@@ -17,12 +17,6 @@
 
 package org.apache.nifi.provenance.schema;
 
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.function.Supplier;
-
 import org.apache.nifi.flowfile.attributes.CoreAttributes;
 import org.apache.nifi.provenance.ProvenanceEventRecord;
 import org.apache.nifi.provenance.ProvenanceEventType;
@@ -32,6 +26,12 @@ import org.apache.nifi.repository.schema.NamedValue;
 import org.apache.nifi.repository.schema.Record;
 import org.apache.nifi.repository.schema.RecordField;
 import org.apache.nifi.repository.schema.RecordSchema;
+
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.function.Supplier;
 
 public class LookupTableEventRecord implements Record {
     private final RecordSchema schema;
@@ -70,7 +70,6 @@ public class LookupTableEventRecord implements Record {
     public RecordSchema getSchema() {
         return schema;
     }
-
 
     private static Record createPreviousContentClaimRecord(final RecordSchema contentClaimSchema, final String container, final String section,
         final String identifier, final Long offset, final Long size) {
@@ -188,7 +187,7 @@ public class LookupTableEventRecord implements Record {
             case EventFieldNames.COMPONENT_ID -> createLookupValue(event.getComponentId(), componentIdMap);
             case EventFieldNames.COMPONENT_TYPE -> createLookupValue(event.getComponentType(), componentTypeMap);
             case EventFieldNames.CONTENT_CLAIM ->
-                    createExplicitSameOrNoneValue(contentClaimRecord, previousClaimRecord, () -> contentClaimRecord);
+                createExplicitSameOrNoneValue(contentClaimRecord, previousClaimRecord, () -> contentClaimRecord);
             case EventFieldNames.EVENT_DETAILS -> event.getDetails();
             case EventFieldNames.EVENT_DURATION -> (int) event.getEventDuration();
             case EventFieldNames.EVENT_TIME -> (int) (event.getEventTime() - startTimeOffset);
@@ -200,7 +199,7 @@ public class LookupTableEventRecord implements Record {
             case EventFieldNames.PREVIOUS_CONTENT_CLAIM -> previousClaimRecord;
             case EventFieldNames.RELATIONSHIP -> event.getRelationship();
             case EventFieldNames.SOURCE_QUEUE_IDENTIFIER ->
-                    createLookupValue(event.getSourceQueueIdentifier(), queueIdMap);
+                createLookupValue(event.getSourceQueueIdentifier(), queueIdMap);
             case EventFieldNames.SOURCE_SYSTEM_FLOWFILE_IDENTIFIER -> event.getSourceSystemFlowFileIdentifier();
             case EventFieldNames.TRANSIT_URI -> event.getTransitUri();
             case EventFieldNames.UPDATED_ATTRIBUTES -> event.getUpdatedAttributes();
@@ -239,7 +238,6 @@ public class LookupTableEventRecord implements Record {
         builder.setSourceSystemFlowFileIdentifier((String) record.getFieldValue(EventFieldNames.SOURCE_SYSTEM_FLOWFILE_IDENTIFIER));
         builder.setTransitUri((String) record.getFieldValue(EventFieldNames.TRANSIT_URI));
         builder.setUpdatedAttributes(updatedAttributes);
-
 
         builder.setComponentId(readLookupValue(record.getFieldValue(EventFieldNames.COMPONENT_ID), componentIds));
         builder.setComponentType(readLookupValue(record.getFieldValue(EventFieldNames.COMPONENT_TYPE), componentTypes));

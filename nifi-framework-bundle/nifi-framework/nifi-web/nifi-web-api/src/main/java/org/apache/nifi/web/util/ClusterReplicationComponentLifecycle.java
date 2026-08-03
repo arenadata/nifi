@@ -17,6 +17,12 @@
 
 package org.apache.nifi.web.util;
 
+import jakarta.ws.rs.HttpMethod;
+import jakarta.ws.rs.core.MediaType;
+import jakarta.ws.rs.core.MultivaluedHashMap;
+import jakarta.ws.rs.core.MultivaluedMap;
+import jakarta.ws.rs.core.Response;
+import jakarta.ws.rs.core.Response.Status;
 import org.apache.nifi.authorization.user.NiFiUser;
 import org.apache.nifi.authorization.user.NiFiUserUtils;
 import org.apache.nifi.cluster.coordination.ClusterCoordinator;
@@ -50,12 +56,6 @@ import org.apache.nifi.web.api.entity.ScheduleComponentsEntity;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import jakarta.ws.rs.HttpMethod;
-import jakarta.ws.rs.core.MediaType;
-import jakarta.ws.rs.core.MultivaluedHashMap;
-import jakarta.ws.rs.core.MultivaluedMap;
-import jakarta.ws.rs.core.Response;
-import jakarta.ws.rs.core.Response.Status;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.util.Collection;
@@ -74,7 +74,6 @@ public class ClusterReplicationComponentLifecycle implements ComponentLifecycle 
     private RequestReplicator requestReplicator;
     private NiFiServiceFacade serviceFacade;
     private DtoFactory dtoFactory;
-
 
     @Override
     public Set<AffectedComponentEntity> scheduleComponents(final URI exampleUri, final String groupId, final Set<AffectedComponentEntity> components,
@@ -163,7 +162,6 @@ public class ClusterReplicationComponentLifecycle implements ComponentLifecycle 
             .collect(Collectors.toSet());
         return updatedEntities;
     }
-
 
     private ReplicationTarget getReplicationTarget() {
         return clusterCoordinator.isActiveClusterCoordinator() ? ReplicationTarget.CLUSTER_NODES : ReplicationTarget.CLUSTER_COORDINATOR;
@@ -464,7 +462,6 @@ public class ClusterReplicationComponentLifecycle implements ComponentLifecycle 
         return clientResponse.readEntity(clazz);
     }
 
-
     private void updateAffectedProcessors(final Collection<ProcessorRunStatusDetailsEntity> runStatusDetailsEntities, final Map<String, AffectedComponentEntity> affectedComponents) {
         // update the affected processors
         runStatusDetailsEntities.stream()
@@ -487,7 +484,6 @@ public class ClusterReplicationComponentLifecycle implements ComponentLifecycle 
                 }
             });
     }
-
 
     private boolean isProcessorActionComplete(final ProcessorsRunStatusDetailsEntity runStatusDetailsEntity, final Map<String, AffectedComponentEntity> affectedComponents,
                                               final ScheduledState desiredState, final InvalidComponentAction invalidComponentAction) throws LifecycleManagementException {
@@ -552,7 +548,6 @@ public class ClusterReplicationComponentLifecycle implements ComponentLifecycle 
 
         return true;
     }
-
 
     @Override
     public Set<AffectedComponentEntity> activateControllerServices(final URI originalUri, final String groupId, final Set<AffectedComponentEntity> affectedServices,
@@ -803,7 +798,6 @@ public class ClusterReplicationComponentLifecycle implements ComponentLifecycle 
 
         return false;
     }
-
 
     /**
      * Updates the affected controller services in the specified updateRequest with the serviceEntities.

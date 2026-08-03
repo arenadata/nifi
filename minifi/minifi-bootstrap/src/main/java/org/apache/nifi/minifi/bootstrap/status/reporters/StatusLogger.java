@@ -17,11 +17,6 @@
 
 package org.apache.nifi.minifi.bootstrap.status.reporters;
 
-import static org.apache.nifi.minifi.commons.api.MiNiFiProperties.NIFI_MINIFI_STATUS_REPORTER_LOG_LEVEL;
-import static org.apache.nifi.minifi.commons.api.MiNiFiProperties.NIFI_MINIFI_STATUS_REPORTER_LOG_PERIOD;
-import static org.apache.nifi.minifi.commons.api.MiNiFiProperties.NIFI_MINIFI_STATUS_REPORTER_LOG_QUERY;
-
-import java.io.IOException;
 import org.apache.nifi.logging.LogLevel;
 import org.apache.nifi.minifi.bootstrap.QueryableStatusAggregator;
 import org.apache.nifi.minifi.bootstrap.status.PeriodicStatusReporter;
@@ -29,6 +24,12 @@ import org.apache.nifi.minifi.commons.status.FlowStatusReport;
 import org.apache.nifi.minifi.properties.BootstrapProperties;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import java.io.IOException;
+
+import static org.apache.nifi.minifi.commons.api.MiNiFiProperties.NIFI_MINIFI_STATUS_REPORTER_LOG_LEVEL;
+import static org.apache.nifi.minifi.commons.api.MiNiFiProperties.NIFI_MINIFI_STATUS_REPORTER_LOG_PERIOD;
+import static org.apache.nifi.minifi.commons.api.MiNiFiProperties.NIFI_MINIFI_STATUS_REPORTER_LOG_QUERY;
 
 public class StatusLogger extends PeriodicStatusReporter {
 
@@ -54,7 +55,6 @@ public class StatusLogger extends PeriodicStatusReporter {
             throw new IllegalStateException(NIFI_MINIFI_STATUS_REPORTER_LOG_PERIOD.getKey() + " is not a valid number.", e);
         }
 
-
         String loglevelString = properties.getProperty(NIFI_MINIFI_STATUS_REPORTER_LOG_LEVEL.getKey());
         if (loglevelString == null) {
             throw new IllegalStateException(NIFI_MINIFI_STATUS_REPORTER_LOG_LEVEL.getKey() + " is null but it is required. Please configure it.");
@@ -77,7 +77,6 @@ public class StatusLogger extends PeriodicStatusReporter {
 
         reportRunner = new ReportStatusRunner();
     }
-
 
     private class ReportStatusRunner implements Runnable {
 

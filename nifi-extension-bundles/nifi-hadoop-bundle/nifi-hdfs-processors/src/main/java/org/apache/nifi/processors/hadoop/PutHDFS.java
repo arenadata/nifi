@@ -37,8 +37,6 @@ import org.apache.hadoop.security.UserGroupInformation;
 import org.apache.nifi.annotation.behavior.InputRequirement;
 import org.apache.nifi.annotation.behavior.InputRequirement.Requirement;
 import org.apache.nifi.annotation.behavior.ReadsAttribute;
-import org.apache.nifi.annotation.behavior.Restricted;
-import org.apache.nifi.annotation.behavior.Restriction;
 import org.apache.nifi.annotation.behavior.WritesAttribute;
 import org.apache.nifi.annotation.behavior.WritesAttributes;
 import org.apache.nifi.annotation.documentation.CapabilityDescription;
@@ -49,13 +47,13 @@ import org.apache.nifi.annotation.lifecycle.OnStopped;
 import org.apache.nifi.components.AllowableValue;
 import org.apache.nifi.components.PropertyDescriptor;
 import org.apache.nifi.components.PropertyValue;
-import org.apache.nifi.components.RequiredPermission;
 import org.apache.nifi.components.ValidationContext;
 import org.apache.nifi.components.ValidationResult;
 import org.apache.nifi.expression.ExpressionLanguageScope;
 import org.apache.nifi.fileresource.service.api.FileResource;
 import org.apache.nifi.flowfile.FlowFile;
 import org.apache.nifi.flowfile.attributes.CoreAttributes;
+import org.apache.nifi.migration.PropertyConfiguration;
 import org.apache.nifi.processor.DataUnit;
 import org.apache.nifi.processor.ProcessContext;
 import org.apache.nifi.processor.ProcessSession;
@@ -101,11 +99,7 @@ import static org.apache.nifi.processors.transfer.ResourceTransferUtils.getFileR
         @WritesAttribute(attribute = "target.dir.created", description = "The result(true/false) indicates if the folder is created by the processor.")
 })
 @SeeAlso(GetHDFS.class)
-@Restricted(restrictions = {
-    @Restriction(
-        requiredPermission = RequiredPermission.WRITE_DISTRIBUTED_FILESYSTEM,
-        explanation = "Provides operator the ability to delete any file that NiFi has access to in HDFS or the local filesystem.")
-})
+
 public class PutHDFS extends AbstractHadoopProcessor {
 
     protected static final String BUFFER_SIZE_KEY = "io.file.buffer.size";
@@ -162,8 +156,7 @@ public class PutHDFS extends AbstractHadoopProcessor {
             .build();
 
     protected static final PropertyDescriptor WRITING_STRATEGY = new PropertyDescriptor.Builder()
-            .name("writing-strategy")
-            .displayName("Writing Strategy")
+            .name("Writing Strategy")
             .description("Defines the approach for writing the FlowFile data.")
             .required(true)
             .defaultValue(WRITE_AND_RENAME_AV)
@@ -198,7 +191,7 @@ public class PutHDFS extends AbstractHadoopProcessor {
             .build();
 
     public static final PropertyDescriptor UMASK = new PropertyDescriptor.Builder()
-            .name("Permissions umask")
+            .name("Permissions Umask")
             .description(
                    "A umask represented as an octal number which determines the permissions of files written to HDFS. " +
                            "This overrides the Hadoop property \"fs.permissions.umask-mode\". " +
@@ -552,6 +545,13 @@ public class PutHDFS extends AbstractHadoopProcessor {
                 });
             }
         });
+    }
+
+    @Override
+    public void migrateProperties(PropertyConfiguration config) {
+        super.migrateProperties(config);
+        config.renameProperty("writing-strategy", WRITING_STRATEGY.getName());
+        config.renameProperty("Permissions umask", UMASK.getName());
     }
 
     protected Relationship getSuccessRelationship() {

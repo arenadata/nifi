@@ -49,7 +49,10 @@ export enum ErrorContextKey {
     FUNNEL = 'funnel',
     LOCAL_EXTENSIONS = 'local-extensions',
     LINEAGE = 'lineage',
-    FLOW_ANALYSIS_RULES = 'flow-analysis-rules'
+    FLOW_ANALYSIS_RULES = 'flow-analysis-rules',
+    CONNECTORS = 'connectors',
+    CONNECTOR_CANVAS = 'connector-canvas',
+    CONNECTOR_RENAME_DIALOG = 'connector-rename-dialog'
 }
 
 export interface ErrorContext {

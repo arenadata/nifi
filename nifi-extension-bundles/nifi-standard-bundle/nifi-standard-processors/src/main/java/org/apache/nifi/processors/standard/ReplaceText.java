@@ -41,6 +41,7 @@ import org.apache.nifi.expression.AttributeValueDecorator;
 import org.apache.nifi.expression.ExpressionLanguageScope;
 import org.apache.nifi.flowfile.FlowFile;
 import org.apache.nifi.logging.ComponentLog;
+import org.apache.nifi.migration.PropertyConfiguration;
 import org.apache.nifi.processor.AbstractProcessor;
 import org.apache.nifi.processor.DataUnit;
 import org.apache.nifi.processor.ProcessContext;
@@ -198,8 +199,7 @@ public class ReplaceText extends AbstractProcessor {
         .required(true)
         .build();
     public static final PropertyDescriptor SEARCH_VALUE = new PropertyDescriptor.Builder()
-        .name("Regular Expression")
-        .displayName("Search Value")
+        .name("Search Value")
         .description("The Search Value to search for in the FlowFile content. Only used for 'Literal Replace' and 'Regex Replace' matching strategies")
         .required(true)
         .addValidator(Validator.VALID)
@@ -424,6 +424,11 @@ public class ReplaceText extends AbstractProcessor {
         session.transfer(flowFile, REL_SUCCESS);
     }
 
+    @Override
+    public void migrateProperties(PropertyConfiguration config) {
+        config.renameProperty("Regular Expression", SEARCH_VALUE.getName());
+    }
+
     // If we find a back reference that is not valid, then we will treat it as a literal string. For example, if we have 3 capturing
     // groups and the Replacement Value has the value is "I owe $8 to him", then we want to treat the $8 as a literal "$8", rather
     // than attempting to use it as a back reference.
@@ -591,7 +596,6 @@ public class ReplaceText extends AbstractProcessor {
             return false;
         }
     }
-
 
     private static class RegexReplace implements ReplacementStrategyExecutor {
         private final int numCapturingGroups;
@@ -802,7 +806,6 @@ public class ReplaceText extends AbstractProcessor {
     private interface ReplaceLine {
         void apply(BufferedWriter bw, String oneLine) throws IOException;
     }
-
 
     private static class StreamReplaceCallback implements StreamCallback {
         private final Charset charset;

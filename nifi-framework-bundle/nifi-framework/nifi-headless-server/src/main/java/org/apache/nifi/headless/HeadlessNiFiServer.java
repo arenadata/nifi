@@ -29,11 +29,14 @@ import org.apache.nifi.authorization.exception.AuthorizerDestructionException;
 import org.apache.nifi.bundle.Bundle;
 import org.apache.nifi.cluster.ClusterDetailsFactory;
 import org.apache.nifi.cluster.ConnectionState;
+import org.apache.nifi.components.connector.StandaloneConnectorRequestReplicator;
 import org.apache.nifi.components.state.StateManagerProvider;
 import org.apache.nifi.controller.DecommissionTask;
 import org.apache.nifi.controller.FlowController;
 import org.apache.nifi.controller.StandardFlowService;
 import org.apache.nifi.controller.flow.FlowManager;
+import org.apache.nifi.controller.metrics.ComponentMetricReporter;
+import org.apache.nifi.controller.metrics.DefaultComponentMetricReporter;
 import org.apache.nifi.controller.repository.FlowFileEventRepository;
 import org.apache.nifi.controller.repository.metrics.RingBufferEventRepository;
 import org.apache.nifi.controller.state.manager.StandardStateManagerProvider;
@@ -66,11 +69,11 @@ import org.apache.nifi.util.NiFiProperties;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import javax.net.ssl.SSLContext;
 import java.io.BufferedWriter;
 import java.io.OutputStreamWriter;
 import java.util.List;
 import java.util.Set;
+import javax.net.ssl.SSLContext;
 
 public class HeadlessNiFiServer implements NiFiServer {
 
@@ -134,6 +137,7 @@ public class HeadlessNiFiServer implements NiFiServer {
             final FrameworkSslContextProvider sslContextProvider = new FrameworkSslContextProvider(props);
             final SSLContext sslContext = sslContextProvider.loadSslContext().orElse(null);
             final StateManagerProvider stateManagerProvider = StandardStateManagerProvider.create(props, sslContext, extensionManager, ParameterLookup.EMPTY);
+            final ComponentMetricReporter componentMetricReporter = new DefaultComponentMetricReporter();
 
             flowController = FlowController.createStandaloneInstance(
                     flowFileEventRepository,
@@ -141,21 +145,24 @@ public class HeadlessNiFiServer implements NiFiServer {
                     props,
                     authorizer,
                     auditService,
+                    componentMetricReporter,
                     encryptor,
                     bulletinRepository,
                     extensionManager,
                     statusHistoryRepository,
                     null,
-                    stateManagerProvider
+                    stateManagerProvider,
+                    new StandaloneConnectorRequestReplicator()
             );
 
             flowService = StandardFlowService.createStandaloneInstance(
-                    flowController,
-                    props,
-                    null, // revision manager
-                    null, // NAR Manager
-                    null, // Asset Synchronizer
-                    authorizer);
+                flowController,
+                props,
+                null, // revision manager
+                null, // NAR Manager
+                null, // Parameter Context Asset Synchronizer
+                null, // Connector Asset Synchronizer
+                authorizer);
 
             diagnosticsFactory = new BootstrapDiagnosticsFactory();
             ((BootstrapDiagnosticsFactory) diagnosticsFactory).setFlowController(flowController);

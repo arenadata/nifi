@@ -27,12 +27,13 @@ import org.apache.nifi.annotation.documentation.Tags;
 import org.apache.nifi.components.PropertyDescriptor;
 import org.apache.nifi.expression.ExpressionLanguageScope;
 import org.apache.nifi.flowfile.FlowFile;
+import org.apache.nifi.migration.PropertyConfiguration;
 import org.apache.nifi.processor.DataUnit;
 import org.apache.nifi.processor.ProcessContext;
 import org.apache.nifi.processor.ProcessSession;
 import org.apache.nifi.processor.util.StandardValidators;
+import org.apache.nifi.processors.aws.AbstractAwsSyncProcessor;
 import org.apache.nifi.processors.aws.kinesis.KinesisProcessorUtils;
-import org.apache.nifi.processors.aws.v2.AbstractAwsSyncProcessor;
 import software.amazon.awssdk.core.SdkBytes;
 import software.amazon.awssdk.services.firehose.FirehoseClient;
 import software.amazon.awssdk.services.firehose.FirehoseClientBuilder;
@@ -45,6 +46,9 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+
+import static org.apache.nifi.processors.aws.region.RegionUtil.CUSTOM_REGION;
+import static org.apache.nifi.processors.aws.region.RegionUtil.REGION;
 
 @SupportsBatching
 @InputRequirement(Requirement.INPUT_REQUIRED)
@@ -79,7 +83,7 @@ public class PutKinesisFirehose extends AbstractAwsSyncProcessor<FirehoseClient,
             .build();
 
     public static final PropertyDescriptor MAX_MESSAGE_BUFFER_SIZE_MB = new PropertyDescriptor.Builder()
-            .name("Max message buffer size")
+            .name("Max Message Buffer Size")
             .description("Max message buffer")
             .defaultValue("1 MB")
             .required(false)
@@ -91,6 +95,7 @@ public class PutKinesisFirehose extends AbstractAwsSyncProcessor<FirehoseClient,
         KINESIS_FIREHOSE_DELIVERY_STREAM_NAME,
         BATCH_SIZE,
         REGION,
+        CUSTOM_REGION,
         AWS_CREDENTIALS_PROVIDER_SERVICE,
         MAX_MESSAGE_BUFFER_SIZE_MB,
         TIMEOUT,
@@ -108,7 +113,6 @@ public class PutKinesisFirehose extends AbstractAwsSyncProcessor<FirehoseClient,
     protected FirehoseClientBuilder createClientBuilder(final ProcessContext context) {
         return FirehoseClient.builder();
     }
-
 
     @Override
     public void onTrigger(final ProcessContext context, final ProcessSession session) {
@@ -130,8 +134,11 @@ public class PutKinesisFirehose extends AbstractAwsSyncProcessor<FirehoseClient,
             for (final FlowFile flowFile : flowFiles) {
                 final String firehoseStreamName = context.getProperty(KINESIS_FIREHOSE_DELIVERY_STREAM_NAME).evaluateAttributeExpressions(flowFile).getValue();
 
-                recordHash.computeIfAbsent(firehoseStreamName, k -> new ArrayList<>());
-                session.read(flowFile, in -> recordHash.get(firehoseStreamName).add(Record.builder().data(SdkBytes.fromInputStream(in)).build()));
+                session.read(flowFile, in ->
+                        recordHash
+                                .computeIfAbsent(firehoseStreamName, k -> new ArrayList<>())
+                                .add(Record.builder().data(SdkBytes.fromInputStream(in)).build())
+                );
 
                 final List<FlowFile> flowFilesForStream = hashFlowFiles.computeIfAbsent(firehoseStreamName, k -> new ArrayList<>());
                 flowFilesForStream.add(flowFile);
@@ -149,9 +156,9 @@ public class PutKinesisFirehose extends AbstractAwsSyncProcessor<FirehoseClient,
                             .build();
                     final PutRecordBatchResponse response = client.putRecordBatch(putRecordBatchRequest);
 
-                    // Separate out the successful and failed flow files
+                    // Separate out the successful and failed FlowFiles
                     final List<PutRecordBatchResponseEntry> responseEntries = response.requestResponses();
-                    for (int i = 0; i < responseEntries.size(); i++ ) {
+                    for (int i = 0; i < responseEntries.size(); i++) {
 
                         final PutRecordBatchResponseEntry responseEntry = responseEntries.get(i);
                         FlowFile flowFile = hashFlowFiles.get(streamName).get(i);
@@ -166,6 +173,7 @@ public class PutKinesisFirehose extends AbstractAwsSyncProcessor<FirehoseClient,
                             failedFlowFiles.add(flowFile);
                         } else {
                             flowFile = session.putAllAttributes(flowFile, attributes);
+                            session.getProvenanceReporter().send(flowFile, "firehose://%s".formatted(streamName));
                             successfulFlowFiles.add(flowFile);
                         }
                     }
@@ -189,4 +197,9 @@ public class PutKinesisFirehose extends AbstractAwsSyncProcessor<FirehoseClient,
         }
     }
 
+    @Override
+    public void migrateProperties(PropertyConfiguration config) {
+        super.migrateProperties(config);
+        config.renameProperty("Max message buffer size", MAX_MESSAGE_BUFFER_SIZE_MB.getName());
+    }
 }

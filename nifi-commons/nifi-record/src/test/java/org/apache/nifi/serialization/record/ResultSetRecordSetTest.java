@@ -386,6 +386,25 @@ public class ResultSetRecordSetTest {
     }
 
     @Test
+    public void testCreateSchemaArrayWithNullReaderSchema() throws SQLException {
+        final ResultSet resultSet = Mockito.mock(ResultSet.class);
+        final ResultSetMetaData resultSetMetaData = Mockito.mock(ResultSetMetaData.class);
+        when(resultSet.getMetaData()).thenReturn(resultSetMetaData);
+        when(resultSetMetaData.getColumnCount()).thenReturn(1);
+        when(resultSetMetaData.getColumnLabel(1)).thenReturn("enabled_products");
+        when(resultSetMetaData.getColumnType(1)).thenReturn(Types.ARRAY);
+
+        final ResultSqlArray array = Mockito.mock(ResultSqlArray.class);
+        when(array.getArray()).thenReturn(new String[]{"Test"});
+        when(resultSet.getArray(1)).thenReturn(array);
+
+        final ResultSetRecordSet testSubject = new ResultSetRecordSet(resultSet, null);
+        final RecordSchema resultSchema = testSubject.getSchema();
+
+        assertEquals(RecordFieldType.ARRAY.getArrayDataType(RecordFieldType.STRING.getDataType()), resultSchema.getField(0).getDataType());
+    }
+
+    @Test
     public void testArrayTypeWithLogicalTypes() throws SQLException {
         testArrayType(true);
     }
@@ -771,16 +790,16 @@ public class ResultSetRecordSetTest {
     }
 
     private static class ResultBigDecimal extends BigDecimal {
-        public static int PRECISION = 3;
-        public static int SCALE = 0;
+        public static final int PRECISION = 3;
+        public static final int SCALE = 0;
         public ResultBigDecimal() {
             super("123");
         }
     }
 
     private static class ArrayTestData {
-        final private String fieldName;
-        final private Object[] testArray;
+        private final String fieldName;
+        private final Object[] testArray;
 
         public ArrayTestData(String fieldName, Object[] testArray) {
             this.fieldName = fieldName;

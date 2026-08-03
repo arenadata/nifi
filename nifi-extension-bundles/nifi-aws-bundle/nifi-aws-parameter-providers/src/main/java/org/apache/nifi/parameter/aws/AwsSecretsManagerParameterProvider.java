@@ -31,9 +31,10 @@ import org.apache.nifi.logging.ComponentLog;
 import org.apache.nifi.parameter.AbstractParameterProvider;
 import org.apache.nifi.parameter.Parameter;
 import org.apache.nifi.parameter.ParameterGroup;
+import org.apache.nifi.parameter.ParameterTag;
 import org.apache.nifi.parameter.VerifiableParameterProvider;
 import org.apache.nifi.processor.util.StandardValidators;
-import org.apache.nifi.processors.aws.credentials.provider.service.AWSCredentialsProviderService;
+import org.apache.nifi.processors.aws.credentials.provider.AwsCredentialsProviderService;
 import org.apache.nifi.ssl.SSLContextProvider;
 import software.amazon.awssdk.auth.credentials.AwsCredentialsProvider;
 import software.amazon.awssdk.core.client.config.ClientOverrideConfiguration;
@@ -45,6 +46,8 @@ import software.amazon.awssdk.http.apache.ApacheHttpClient;
 import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.retries.DefaultRetryStrategy;
 import software.amazon.awssdk.services.secretsmanager.SecretsManagerClient;
+import software.amazon.awssdk.services.secretsmanager.model.DescribeSecretRequest;
+import software.amazon.awssdk.services.secretsmanager.model.DescribeSecretResponse;
 import software.amazon.awssdk.services.secretsmanager.model.GetSecretValueRequest;
 import software.amazon.awssdk.services.secretsmanager.model.GetSecretValueResponse;
 import software.amazon.awssdk.services.secretsmanager.model.ListSecretsRequest;
@@ -52,32 +55,33 @@ import software.amazon.awssdk.services.secretsmanager.model.ListSecretsResponse;
 import software.amazon.awssdk.services.secretsmanager.model.ResourceNotFoundException;
 import software.amazon.awssdk.services.secretsmanager.model.SecretListEntry;
 import software.amazon.awssdk.services.secretsmanager.model.SecretsManagerException;
+import software.amazon.awssdk.services.secretsmanager.model.Tag;
 
+import java.time.Duration;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.regex.Pattern;
 import javax.net.ssl.KeyManager;
 import javax.net.ssl.TrustManager;
 import javax.net.ssl.X509ExtendedKeyManager;
 import javax.net.ssl.X509TrustManager;
-import java.time.Duration;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Comparator;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Map;
-import java.util.Optional;
-import java.util.Set;
-import java.util.regex.Pattern;
 
 /**
- * Reads secrets from AWS Secrets Manager to provide parameter values.  Secrets must be created similar to the following AWS cli command: <br/><br/>
- * <code>aws secretsmanager create-secret --name "[Context]" --secret-string '{ "[Param]": "[secretValue]", "[Param2]": "[secretValue2]" }'</code> <br/><br/>
+ * Reads secrets from AWS Secrets Manager to provide parameter values.  Secrets must be created similar to the following AWS cli command:
+ * {@snippet lang="text" :
+ *     aws secretsmanager create-secret --name "[Context]" --secret-string '{ "[Param]": "[secretValue]", "[Param2]": "[secretValue2]" }'
+ * }
  */
 @Tags({"aws", "secretsmanager", "secrets", "manager"})
 @CapabilityDescription("Fetches parameters from AWS SecretsManager. Each secret becomes a Parameter group, which can map to a Parameter Context, with " +
         "key/value pairs in the secret mapping to Parameters in the group.")
 public class AwsSecretsManagerParameterProvider extends AbstractParameterProvider implements VerifiableParameterProvider {
     enum ListingStrategy implements DescribedValue {
-        ENUMERATION("Enumerate Secret Names", "Requires a set of secret names to fetch. AWS actions required: GetSecretValue."),
+        ENUMERATION("Enumerate Secret Names", "Requires a set of secret names to fetch. AWS actions required: DescribeSecret and GetSecretValue."),
 
         PATTERN("Match Pattern", "Requires a regular expression pattern to match secret names. AWS actions required: ListSecrets and GetSecretValue.");
 
@@ -142,7 +146,7 @@ public class AwsSecretsManagerParameterProvider extends AbstractParameterProvide
             .displayName("AWS Credentials Provider Service")
             .description("Service used to obtain an Amazon Web Services Credentials Provider")
             .required(true)
-            .identifiesControllerService(AWSCredentialsProviderService.class)
+            .identifiesControllerService(AwsCredentialsProviderService.class)
             .build();
 
     public static final PropertyDescriptor REGION = new PropertyDescriptor.Builder()
@@ -196,10 +200,16 @@ public class AwsSecretsManagerParameterProvider extends AbstractParameterProvide
 
         // Fetch either by pattern or by enumerated list. See description of SECRET_LISTING_STRATEGY for more details.
         final ListingStrategy listingStrategy = context.getProperty(SECRET_LISTING_STRATEGY).asAllowableValue(ListingStrategy.class);
-        final Set<String> fetchSecretNames = new HashSet<>();
+        final Map<String, List<Tag>> secretNameToTags = new HashMap<>();
+
         if (listingStrategy == ListingStrategy.ENUMERATION) {
             final String secretNames = context.getProperty(SECRET_NAMES).getValue();
-            fetchSecretNames.addAll(Arrays.asList(secretNames.split(",")));
+            for (final String secretName : secretNames.split(",")) {
+                final String trimmedName = secretName.trim();
+                // For enumeration strategy, we need to call DescribeSecret to get tags
+                final List<Tag> tags = describeSecretTags(secretsManager, trimmedName);
+                secretNameToTags.put(trimmedName, tags);
+            }
         } else {
             final Pattern secretNamePattern = Pattern.compile(context.getProperty(SECRET_NAME_PATTERN).getValue());
 
@@ -212,7 +222,9 @@ public class AwsSecretsManagerParameterProvider extends AbstractParameterProvide
                         getLogger().debug("Secret [{}] does not match the secret name pattern {}", secretName, secretNamePattern);
                         continue;
                     }
-                    fetchSecretNames.add(secretName);
+                    // ListSecrets response includes tags, so we can use them directly
+                    final List<Tag> tags = entry.hasTags() ? entry.tags() : List.of();
+                    secretNameToTags.put(secretName, tags);
                 }
                 final String nextToken = listSecretsResponse.nextToken();
                 if (nextToken == null) {
@@ -223,8 +235,10 @@ public class AwsSecretsManagerParameterProvider extends AbstractParameterProvide
             }
         }
 
-        for (final String secretName : fetchSecretNames) {
-            final List<ParameterGroup> secretParameterGroups = fetchSecret(secretsManager, secretName);
+        for (final Map.Entry<String, List<Tag>> entry : secretNameToTags.entrySet()) {
+            final String secretName = entry.getKey();
+            final List<ParameterTag> parameterTags = convertTags(entry.getValue());
+            final List<ParameterGroup> secretParameterGroups = fetchSecret(secretsManager, secretName, parameterTags);
             groups.addAll(secretParameterGroups);
         }
         return groups;
@@ -257,7 +271,8 @@ public class AwsSecretsManagerParameterProvider extends AbstractParameterProvide
         return results;
     }
 
-    private List<ParameterGroup> fetchSecret(final SecretsManagerClient secretsManager, final String secretName) {
+    private List<ParameterGroup> fetchSecret(final SecretsManagerClient secretsManager, final String secretName,
+                                              final List<ParameterTag> tags) {
         final List<ParameterGroup> groups = new ArrayList<>();
 
         final List<Parameter> parameters = new ArrayList<>();
@@ -274,39 +289,80 @@ public class AwsSecretsManagerParameterProvider extends AbstractParameterProvide
                 return groups;
             }
 
-            final ObjectNode secretObject = parseSecret(getSecretValueResponse.secretString());
+            final String secretString = getSecretValueResponse.secretString();
+            final ObjectNode secretObject = parseSecret(secretString);
             if (secretObject == null) {
-                getLogger().debug("Secret [{}] is not in the expected JSON key/value format", secretName);
-                return groups;
-            }
-
-            for (final Map.Entry<String, JsonNode> field : secretObject.properties()) {
-                final String parameterName = field.getKey();
-                final String parameterValue = field.getValue().textValue();
-                if (parameterValue == null) {
-                    getLogger().debug("Secret [{}] Parameter [{}] has no value", secretName, parameterName);
-                    continue;
+                getLogger().debug("Secret [{}] is not a JSON object, treating as plain text parameter", secretName);
+                parameters.add(createParameter(secretName, secretString, tags));
+            } else {
+                for (final Map.Entry<String, JsonNode> field : secretObject.properties()) {
+                    final String parameterName = field.getKey();
+                    final JsonNode valueNode = field.getValue();
+                    if (!valueNode.isValueNode() || valueNode.isNull()) {
+                        getLogger().debug("Secret [{}] Parameter [{}] is null or not a supported value type", secretName, parameterName);
+                        continue;
+                    }
+                    parameters.add(createParameter(parameterName, valueNode.asText(), tags));
                 }
-
-                parameters.add(createParameter(parameterName, parameterValue));
             }
 
             groups.add(new ParameterGroup(secretName, parameters));
 
             return groups;
         } catch (final ResourceNotFoundException e) {
-            throw new IllegalStateException(String.format("Secret %s not found", secretName), e);
+            throw new IllegalStateException("Secret %s not found".formatted(secretName), e);
         } catch (final SecretsManagerException e) {
-            throw new IllegalStateException("Error retrieving secret " + secretName, e);
+            throw new IllegalStateException("Error retrieving secret %s".formatted(secretName), e);
         }
     }
 
-    private Parameter createParameter(final String parameterName, final String parameterValue) {
+    private Parameter createParameter(final String parameterName, final String parameterValue,
+                                       final List<ParameterTag> tags) {
         return new Parameter.Builder()
                 .name(parameterName)
                 .value(parameterValue)
                 .provided(true)
+                .tags(tags)
                 .build();
+    }
+
+    /**
+     * Retrieves tags for a secret using DescribeSecret API.
+     * This is needed for the ENUMERATION strategy since GetSecretValue does not return tags.
+     *
+     * @param secretsManager the Secrets Manager client
+     * @param secretName the name of the secret
+     * @return list of tags associated with the secret
+     */
+    private List<Tag> describeSecretTags(final SecretsManagerClient secretsManager, final String secretName) {
+        try {
+            final DescribeSecretRequest describeRequest = DescribeSecretRequest.builder()
+                    .secretId(secretName)
+                    .build();
+            final DescribeSecretResponse describeResponse = secretsManager.describeSecret(describeRequest);
+            return describeResponse.hasTags() ? describeResponse.tags() : List.of();
+        } catch (final ResourceNotFoundException e) {
+            getLogger().debug("Secret [{}] not found when describing for tags", secretName);
+            return List.of();
+        } catch (final SecretsManagerException e) {
+            getLogger().warn("Error describing secret [{}] for tags: {}", secretName, e.getMessage());
+            return List.of();
+        }
+    }
+
+    /**
+     * Converts AWS Secrets Manager Tags to NiFi ParameterTags.
+     *
+     * @param awsTags the AWS tags to convert
+     * @return list of NiFi ParameterTag objects
+     */
+    private List<ParameterTag> convertTags(final List<Tag> awsTags) {
+        if (awsTags == null || awsTags.isEmpty()) {
+            return List.of();
+        }
+        return awsTags.stream()
+                .map(tag -> new ParameterTag(tag.key(), tag.value()))
+                .toList();
     }
 
     private ClientOverrideConfiguration createConfiguration() {
@@ -369,15 +425,15 @@ public class AwsSecretsManagerParameterProvider extends AbstractParameterProvide
     }
 
     /**
-     * Get credentials provider using the {@link AWSCredentialsProviderService}
+     * Get credentials provider using the {@link AwsCredentialsProviderService}
      * @param context the configuration context
-     * @return AWSCredentialsProvider the credential provider
+     * @return AwsCredentialsProvider the credential provider
      * @see  <a href="http://docs.aws.amazon.com/AWSJavaSDK/latest/javadoc/com/amazonaws/auth/AWSCredentialsProvider.html">AWSCredentialsProvider</a>
      */
     protected AwsCredentialsProvider getCredentialsProvider(final ConfigurationContext context) {
 
-        final AWSCredentialsProviderService awsCredentialsProviderService =
-                context.getProperty(AWS_CREDENTIALS_PROVIDER_SERVICE).asControllerService(AWSCredentialsProviderService.class);
+        final AwsCredentialsProviderService awsCredentialsProviderService =
+                context.getProperty(AWS_CREDENTIALS_PROVIDER_SERVICE).asControllerService(AwsCredentialsProviderService.class);
 
         return awsCredentialsProviderService.getAwsCredentialsProvider();
 

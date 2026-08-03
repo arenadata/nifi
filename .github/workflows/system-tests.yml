@@ -56,7 +56,7 @@ env:
     -pl :nifi-py4j-integration-tests
     -pl nifi-system-tests/nifi-system-test-suite
     -pl nifi-system-tests/nifi-stateless-system-test-suite
-  DEVELOCITY_ACCESS_KEY: ${{ secrets.DEVELOCITY_ACCESS_KEY }}
+  DEVELOCITY_ACCESS_KEY: ${{ secrets.NIFI_DEVELOCITY_ACCESS_KEY }}
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -81,7 +81,7 @@ jobs:
           if [ "${{ runner.os }}" = "macOS" ]; then top -l 1 | grep PhysMem && sysctl machdep.cpu; else cat /proc/cpuinfo && cat /proc/meminfo; fi
           df
       - name: Checkout Code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
       - name: Set up Java ${{ matrix.version }}
         uses: actions/setup-java@v5
         with:
@@ -90,14 +90,11 @@ jobs:
           cache: 'maven'
 
       - name: Set up Python 3.10
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: '3.10'
       - name: Set up Astral uv
-        uses: astral-sh/setup-uv@v5
-        with:
-          python-version: '3.10'
-          enable-cache: false
+        run: pip install uv
 
       - name: Build Dependencies
         env:
@@ -117,7 +114,7 @@ jobs:
           ${{ env.MAVEN_PROJECTS }}
       - name: Upload Troubleshooting Logs
         if: failure() || cancelled()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: ${{ matrix.os }}-${{ matrix.version }}-troubleshooting-logs
           path: |

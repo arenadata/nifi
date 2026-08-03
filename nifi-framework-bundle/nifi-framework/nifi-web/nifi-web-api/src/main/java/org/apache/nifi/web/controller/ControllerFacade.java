@@ -33,18 +33,25 @@ import org.apache.nifi.authorization.user.NiFiUserUtils;
 import org.apache.nifi.bundle.Bundle;
 import org.apache.nifi.bundle.BundleCoordinate;
 import org.apache.nifi.c2.protocol.component.api.ComponentManifest;
+import org.apache.nifi.c2.protocol.component.api.ConnectorDefinition;
 import org.apache.nifi.c2.protocol.component.api.ControllerServiceDefinition;
 import org.apache.nifi.c2.protocol.component.api.FlowAnalysisRuleDefinition;
+import org.apache.nifi.c2.protocol.component.api.FlowRegistryClientDefinition;
 import org.apache.nifi.c2.protocol.component.api.ParameterProviderDefinition;
 import org.apache.nifi.c2.protocol.component.api.ProcessorDefinition;
 import org.apache.nifi.c2.protocol.component.api.ReportingTaskDefinition;
 import org.apache.nifi.c2.protocol.component.api.RuntimeManifest;
 import org.apache.nifi.cluster.protocol.NodeIdentifier;
 import org.apache.nifi.components.ConfigurableComponent;
-import org.apache.nifi.components.RequiredPermission;
+import org.apache.nifi.components.connector.Connector;
+import org.apache.nifi.components.connector.ConnectorNode;
+import org.apache.nifi.components.connector.Secret;
+import org.apache.nifi.components.listen.ListenComponent;
 import org.apache.nifi.connectable.Connectable;
 import org.apache.nifi.connectable.Connection;
 import org.apache.nifi.connectable.Port;
+import org.apache.nifi.controller.ComponentNode;
+import org.apache.nifi.controller.ConfigurationContext;
 import org.apache.nifi.controller.ContentAvailability;
 import org.apache.nifi.controller.ControllerService;
 import org.apache.nifi.controller.Counter;
@@ -63,6 +70,7 @@ import org.apache.nifi.controller.serialization.VersionedReportingTaskImporter;
 import org.apache.nifi.controller.service.ControllerServiceNode;
 import org.apache.nifi.controller.service.ControllerServiceProvider;
 import org.apache.nifi.controller.service.ControllerServiceResolver;
+import org.apache.nifi.controller.service.StandardConfigurationContext;
 import org.apache.nifi.controller.status.ConnectionStatus;
 import org.apache.nifi.controller.status.PortStatus;
 import org.apache.nifi.controller.status.ProcessGroupStatus;
@@ -112,6 +120,7 @@ import org.apache.nifi.web.ResourceNotFoundException;
 import org.apache.nifi.web.api.dto.BundleDTO;
 import org.apache.nifi.web.api.dto.DocumentedTypeDTO;
 import org.apache.nifi.web.api.dto.DtoFactory;
+import org.apache.nifi.web.api.dto.ListenPortDTO;
 import org.apache.nifi.web.api.dto.diagnostics.ProcessorDiagnosticsDTO;
 import org.apache.nifi.web.api.dto.provenance.AttributeDTO;
 import org.apache.nifi.web.api.dto.provenance.LatestProvenanceEventsDTO;
@@ -140,8 +149,8 @@ import java.io.InputStream;
 import java.nio.file.Files;
 import java.text.Collator;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.Comparator;
 import java.util.Date;
 import java.util.HashMap;
@@ -325,8 +334,7 @@ public class ControllerFacade implements Authorizable {
      * @return status history
      */
     public StatusHistoryDTO getProcessorStatusHistory(final String processorId) {
-        final ProcessGroup root = getRootGroup();
-        final ProcessorNode processor = root.findProcessor(processorId);
+        final ProcessorNode processor = flowController.getFlowManager().getProcessorNode(processorId);
 
         // ensure the processor was found
         if (processor == null) {
@@ -353,8 +361,7 @@ public class ControllerFacade implements Authorizable {
      * @return status history
      */
     public StatusHistoryDTO getConnectionStatusHistory(final String connectionId) {
-        final ProcessGroup root = getRootGroup();
-        final Connection connection = root.findConnection(connectionId);
+        final Connection connection = flowController.getFlowManager().getConnection(connectionId);
 
         // ensure the connection was found
         if (connection == null) {
@@ -383,8 +390,7 @@ public class ControllerFacade implements Authorizable {
         final FlowManager flowManager = flowController.getFlowManager();
 
         final String searchId = groupId.equals(FlowManager.ROOT_GROUP_ID_ALIAS) ? flowManager.getRootGroupId() : groupId;
-        final ProcessGroup root = flowManager.getRootGroup();
-        final ProcessGroup group = root.findProcessGroup(searchId);
+        final ProcessGroup group = flowManager.getGroup(searchId);
 
         // ensure the processor was found
         if (group == null) {
@@ -484,6 +490,18 @@ public class ControllerFacade implements Authorizable {
      */
     public Set<DocumentedTypeDTO> getFlowFileProcessorTypes(final String bundleGroupFilter, final String bundleArtifactFilter, final String typeFilter) {
         return dtoFactory.fromDocumentedTypes(getExtensionManager().getExtensions(Processor.class), bundleGroupFilter, bundleArtifactFilter, typeFilter);
+    }
+
+    /**
+     * Gets the Connector types that this controller supports.
+     *
+     * @param bundleGroupFilter    if specified, must be member of bundle group
+     * @param bundleArtifactFilter if specified, must be member of bundle artifact
+     * @param typeFilter           if specified, type must match
+     * @return types
+     */
+    public Set<DocumentedTypeDTO> getConnectorTypes(final String bundleGroupFilter, final String bundleArtifactFilter, final String typeFilter) {
+        return dtoFactory.fromDocumentedTypes(getExtensionManager().getExtensions(Connector.class), bundleGroupFilter, bundleArtifactFilter, typeFilter);
     }
 
     /**
@@ -643,9 +661,41 @@ public class ControllerFacade implements Authorizable {
         return componentManifest.getParameterProviders().stream().filter(parameterProviderDefinition -> type.equals(parameterProviderDefinition.getType())).findFirst().orElse(null);
     }
 
+    public FlowRegistryClientDefinition getFlowRegistryClientDefinition(String group, String artifact, String version, String type) {
+        final ComponentManifest componentManifest = getComponentManifest(group, artifact, version);
+        final List<FlowRegistryClientDefinition> flowRegistryClientDefinitions = componentManifest.getFlowRegistryClients();
+        if (flowRegistryClientDefinitions == null) {
+            return null;
+        }
+        return flowRegistryClientDefinitions.stream().filter(flowRegistryClientDefinition -> type.equals(flowRegistryClientDefinition.getType())).findFirst().orElse(null);
+    }
+
     public FlowAnalysisRuleDefinition getFlowAnalysisRuleDefinition(String group, String artifact, String version, String type) {
         final ComponentManifest componentManifest = getComponentManifest(group, artifact, version);
         return componentManifest.getFlowAnalysisRules().stream().filter(flowAnalysisRuleDefinition -> type.equals(flowAnalysisRuleDefinition.getType())).findFirst().orElse(null);
+    }
+
+    public ConnectorDefinition getConnectorDefinition(final String group, final String artifact, final String version, final String type) {
+        final ComponentManifest componentManifest = getComponentManifest(group, artifact, version);
+        final List<ConnectorDefinition> connectorDefinitions = componentManifest.getConnectors();
+        if (connectorDefinitions == null) {
+            return null;
+        }
+        final ConnectorDefinition connectorDefinition = connectorDefinitions.stream()
+                .filter(definition -> group.equals(definition.getGroup())
+                        && artifact.equals(definition.getArtifact())
+                        && version.equals(definition.getVersion())
+                        && type.equals(definition.getType()))
+                .findFirst()
+                .orElse(null);
+
+        if (connectorDefinition != null && connectorDefinition.getConfigurationSteps() != null) {
+            final Map<String, File> stepDocumentation = runtimeManifestService.discoverStepDocumentation(group, artifact, version, type);
+            final Set<String> documentedSteps = stepDocumentation.keySet();
+            connectorDefinition.getConfigurationSteps().forEach(step -> step.setDocumented(documentedSteps.contains(step.getName())));
+        }
+
+        return connectorDefinition;
     }
 
     public String getAdditionalDetails(String group, String artifact, String version, String type) {
@@ -661,6 +711,22 @@ public class ControllerFacade implements Authorizable {
         } catch (final IOException e) {
             throw new RuntimeException("Unable to load additional details content for "
                     + additionalDetailsFile.getAbsolutePath() + " due to: " + e.getMessage(), e);
+        }
+    }
+
+    public String getStepDocumentation(final String group, final String artifact, final String version, final String connectorType, final String stepName) {
+        final Map<String, File> stepDocsMap = runtimeManifestService.discoverStepDocumentation(group, artifact, version, connectorType);
+        final File stepDocFile = stepDocsMap.get(stepName);
+
+        if (stepDocFile == null) {
+            throw new ResourceNotFoundException("Unable to find step documentation for step [%s] in connector [%s]".formatted(stepName, connectorType));
+        }
+
+        try (final Stream<String> stepDocLines = Files.lines(stepDocFile.toPath())) {
+            return stepDocLines.collect(Collectors.joining("\n"));
+        } catch (final IOException e) {
+            throw new RuntimeException("Unable to load step documentation content for "
+                    + stepDocFile.getAbsolutePath() + " due to: " + e.getMessage(), e);
         }
     }
 
@@ -790,8 +856,7 @@ public class ControllerFacade implements Authorizable {
      * @return the status for the specified connection
      */
     public ConnectionStatus getConnectionStatus(final String connectionId) {
-        final ProcessGroup root = getRootGroup();
-        final Connection connection = root.findConnection(connectionId);
+        final Connection connection = flowController.getFlowManager().getConnection(connectionId);
 
         // ensure the connection was found
         if (connection == null) {
@@ -820,8 +885,7 @@ public class ControllerFacade implements Authorizable {
      * @return the statistics for the specified connection
      */
     public StatusAnalytics getConnectionStatusAnalytics(final String connectionId) {
-        final ProcessGroup root = getRootGroup();
-        final Connection connection = root.findConnection(connectionId);
+        final Connection connection = flowController.getFlowManager().getConnection(connectionId);
 
         // ensure the connection was found
         if (connection == null) {
@@ -851,10 +915,8 @@ public class ControllerFacade implements Authorizable {
      * @return the status for the specified input port
      */
     public PortStatus getInputPortStatus(final String portId) {
-        final ProcessGroup root = getRootGroup();
-        final Port port = root.findInputPort(portId);
+        final Port port = flowController.findInputPortIncludingConnectorManaged(portId);
 
-        // ensure the input port was found
         if (port == null) {
             throw new ResourceNotFoundException(String.format("Unable to locate input port with id '%s'.", portId));
         }
@@ -880,10 +942,8 @@ public class ControllerFacade implements Authorizable {
      * @return the status for the specified output port
      */
     public PortStatus getOutputPortStatus(final String portId) {
-        final ProcessGroup root = getRootGroup();
-        final Port port = root.findOutputPort(portId);
+        final Port port = flowController.findOutputPortIncludingConnectorManaged(portId);
 
-        // ensure the output port was found
         if (port == null) {
             throw new ResourceNotFoundException(String.format("Unable to locate output port with id '%s'.", portId));
         }
@@ -942,6 +1002,10 @@ public class ControllerFacade implements Authorizable {
         flowService.saveFlowChanges(TimeUnit.SECONDS, writeDelaySeconds);
     }
 
+    public void saveImmediate() throws IOException {
+        flowService.saveFlowChanges();
+    }
+
     /**
      * Returns the socket port that the local instance is listening on for
      * Site-to-Site communications
@@ -997,13 +1061,12 @@ public class ControllerFacade implements Authorizable {
         resources.add(ResourceFactory.getResourceResource());
         resources.add(ResourceFactory.getSiteToSiteResource());
         resources.add(ResourceFactory.getParameterContextsResource());
+        resources.add(ResourceFactory.getConnectorsResource());
+        resources.add(ResourceFactory.getDataResource(ResourceFactory.getConnectorsResource()));
+        resources.add(ResourceFactory.getProvenanceDataResource(ResourceFactory.getConnectorsResource()));
 
         // add each parameter context
         flowController.getFlowManager().getParameterContextManager().getParameterContexts().forEach(parameterContext -> resources.add(parameterContext.getResource()));
-
-        // restricted components
-        resources.add(ResourceFactory.getRestrictedComponentsResource());
-        Arrays.stream(RequiredPermission.values()).forEach(requiredPermission -> resources.add(ResourceFactory.getRestrictedComponentsResource(requiredPermission)));
 
         final ProcessGroup root = getRootGroup();
 
@@ -1088,7 +1151,6 @@ public class ControllerFacade implements Authorizable {
         flowController.getFlowManager().getAllControllerServices().forEach(csConsumer);
         root.findAllControllerServices().forEach(csConsumer);
 
-
         // add each reporting task
         for (final ReportingTaskNode reportingTask : flowController.getAllReportingTasks()) {
             final Resource reportingTaskResource = reportingTask.getResource();
@@ -1111,6 +1173,16 @@ public class ControllerFacade implements Authorizable {
             resources.add(flowRegistryResource);
             resources.add(ResourceFactory.getPolicyResource(flowRegistryResource));
             resources.add(ResourceFactory.getOperationResource(flowRegistryResource));
+        }
+
+        // add each connector
+        for (final ConnectorNode connector : flowController.getFlowManager().getAllConnectors()) {
+            final Resource connectorResource = connector.getResource();
+            resources.add(connectorResource);
+            resources.add(ResourceFactory.getDataResource(connectorResource));
+            resources.add(ResourceFactory.getProvenanceDataResource(connectorResource));
+            resources.add(ResourceFactory.getPolicyResource(connectorResource));
+            resources.add(ResourceFactory.getOperationResource(connectorResource));
         }
 
         return resources;
@@ -1427,7 +1499,8 @@ public class ControllerFacade implements Authorizable {
 
             // get the content
             final InputStream content = flowController.getContent(event, contentDirection, user.getIdentity(), uri);
-            return new DownloadableContent(filename, type, content);
+            final long contentLength = event.getFileSize();
+            return new DownloadableContent(filename, type, content, contentLength);
         } catch (final ContentNotFoundException cnfe) {
             throw new ResourceNotFoundException("Unable to find the specified content.");
         } catch (final IOException ioe) {
@@ -1648,7 +1721,11 @@ public class ControllerFacade implements Authorizable {
         final ProvenanceEventDTO dto = new ProvenanceEventDTO();
         dto.setId(String.valueOf(event.getEventId()));
         dto.setEventId(event.getEventId());
-        dto.setEventTime(new Date(event.getEventTime()));
+
+        final Date eventTime = new Date(event.getEventTime());
+        dto.setEventTime(eventTime);
+        dto.setEventTimestamp(eventTime.toInstant());
+
         dto.setEventType(event.getEventType().name());
         dto.setFlowFileUuid(event.getFlowFileUuid());
         dto.setFileSize(FormatUtils.formatDataSize(event.getFileSize()));
@@ -1768,11 +1845,12 @@ public class ControllerFacade implements Authorizable {
 
     private void setComponentDetails(final ProvenanceEventDTO dto) {
         final NiFiUser user = NiFiUserUtils.getNiFiUser();
-        final ProcessGroup root = getRootGroup();
 
         final Connectable connectable = findLocalConnectable(dto.getComponentId());
         if (connectable != null) {
-            dto.setGroupId(connectable.getProcessGroup().getIdentifier());
+            final ProcessGroup connectableGroup = connectable.getProcessGroup();
+            dto.setGroupId(connectableGroup.getIdentifier());
+            connectableGroup.getConnectorIdentifier().ifPresent(dto::setConnectorId);
 
             // if the user is approved for this component policy, provide additional details, otherwise override/redact as necessary
             if (Result.Approved.equals(connectable.checkAuthorization(authorizer, RequestAction.READ, user).getResult())) {
@@ -1786,9 +1864,11 @@ public class ControllerFacade implements Authorizable {
             return;
         }
 
-        final RemoteGroupPort remoteGroupPort = root.findRemoteGroupPort(dto.getComponentId());
+        final RemoteGroupPort remoteGroupPort = flowController.findRemoteGroupPortIncludingConnectorManaged(dto.getComponentId());
         if (remoteGroupPort != null) {
-            dto.setGroupId(remoteGroupPort.getProcessGroupIdentifier());
+            final ProcessGroup remotePortGroup = remoteGroupPort.getProcessGroup();
+            dto.setGroupId(remotePortGroup.getIdentifier());
+            remotePortGroup.getConnectorIdentifier().ifPresent(dto::setConnectorId);
 
             // if the user is approved for this component policy, provide additional details, otherwise override/redact as necessary
             if (Result.Approved.equals(remoteGroupPort.checkAuthorization(authorizer, RequestAction.READ, user).getResult())) {
@@ -1801,9 +1881,11 @@ public class ControllerFacade implements Authorizable {
             return;
         }
 
-        final Connection connection = root.findConnection(dto.getComponentId());
+        final Connection connection = flowController.findConnectionIncludingConnectorManaged(dto.getComponentId());
         if (connection != null) {
-            dto.setGroupId(connection.getProcessGroup().getIdentifier());
+            final ProcessGroup connectionGroup = connection.getProcessGroup();
+            dto.setGroupId(connectionGroup.getIdentifier());
+            connectionGroup.getConnectorIdentifier().ifPresent(dto::setConnectorId);
 
             // if the user is approved for this component policy, provide additional details, otherwise override/redact as necessary
             if (Result.Approved.equals(connection.checkAuthorization(authorizer, RequestAction.READ, user).getResult())) {
@@ -1838,6 +1920,79 @@ public class ControllerFacade implements Authorizable {
         if (!StringUtils.isEmpty(searchQuery.getTerm())) {
             controllerSearchService.search(searchQuery, results);
             controllerSearchService.searchParameters(searchQuery, results);
+        }
+
+        return results;
+    }
+
+    /**
+     * Get all user-defined data ingress ports provided by Listen Components (e.g., Processors and Controller Services)
+     *
+     * @param user the user performing the lookup
+     * @return the set of listen Ports accessible to the current user
+     */
+    public Set<ListenPortDTO> getListenPorts(final NiFiUser user) {
+
+        // Get all listen components for which the requesting user is authorized
+        final Set<ComponentNode> listenComponentNodes = flowController.getFlowManager().getAllListenComponents().stream()
+            .filter(componentNode -> componentNode.isAuthorized(authorizer, RequestAction.READ, user))
+            .collect(Collectors.toSet());
+
+        // If the current user doesn't have access to any listen components, return an empty result for ports
+        if (listenComponentNodes.isEmpty()) {
+            return Collections.emptySet();
+        }
+
+        // Now find all Listen Ports provided by the Listen Components. A listen component can provide multiple Listen Ports (e.g., ListenHTTP can have a data port and a health check port).
+        // The current Listen Ports for a component depend on configuration (e.g., port property value), so create a configuration context to provide ListenComponent.getListenPorts(context).
+        final Set<ListenPortDTO> listenPorts = new HashSet<>();
+        final ControllerServiceProvider controllerServiceProvider = flowController.getControllerServiceProvider();
+        for (final ComponentNode componentNode : listenComponentNodes) {
+            final ConfigurationContext configurationContext = new StandardConfigurationContext(componentNode, controllerServiceProvider, null);
+            final ConfigurableComponent component = componentNode.getComponent();
+            // All components are expected to be ListenComponents, so this check is just for safe casting
+            if (component instanceof ListenComponent listenComponent) {
+                listenComponent.getListenPorts(configurationContext).forEach(listenPort -> {
+                    final ListenPortDTO listenPortDTO = new ListenPortDTO();
+                    listenPortDTO.setPortName(listenPort.getPortName());
+                    listenPortDTO.setPortNumber(listenPort.getPortNumber());
+                    listenPortDTO.setTransportProtocol(listenPort.getTransportProtocol().name());
+                    listenPortDTO.setApplicationProtocols(listenPort.getApplicationProtocols());
+                    listenPortDTO.setComponentClass(componentNode.getCanonicalClassName());
+                    listenPortDTO.setComponentId(componentNode.getIdentifier());
+                    listenPortDTO.setComponentName(componentNode.getName());
+                    listenPortDTO.setParentGroupId(componentNode.getParentProcessGroup().map(ProcessGroup::getIdentifier).orElse(null));
+                    listenPortDTO.setParentGroupName(componentNode.getParentProcessGroup().map(ProcessGroup::getName).orElse(null));
+
+                    if (componentNode instanceof ProcessorNode) {
+                        listenPortDTO.setComponentType("Processor");
+                    } else if (componentNode instanceof ControllerServiceNode) {
+                        listenPortDTO.setComponentType("ControllerService");
+                    } else {
+                        logger.warn("Unexpected listen component type {}", componentNode.getClass().getCanonicalName());
+                        listenPortDTO.setComponentType(null);
+                    }
+                    listenPorts.add(listenPortDTO);
+                });
+            }
+        }
+
+        return listenPorts;
+    }
+
+    /**
+     * Searches within a connector's encapsulated process group for the specified term.
+     *
+     * @param searchLiteral search string specified by the user
+     * @param connectorProcessGroup the connector's managed process group to search within
+     * @return result
+     */
+    public SearchResultsDTO searchConnector(final String searchLiteral, final ProcessGroup connectorProcessGroup) {
+        final SearchResultsDTO results = new SearchResultsDTO();
+        final SearchQuery searchQuery = searchQueryParser.parse(searchLiteral, NiFiUserUtils.getNiFiUser(), connectorProcessGroup, connectorProcessGroup);
+
+        if (!StringUtils.isEmpty(searchQuery.getTerm())) {
+            controllerSearchService.search(searchQuery, results);
         }
 
         return results;
@@ -1885,6 +2040,15 @@ public class ControllerFacade implements Authorizable {
 
     public VersionedReportingTaskImporter createReportingTaskImporter() {
         return new StandardVersionedReportingTaskImporter(flowController);
+    }
+
+    /**
+     * Gets all secrets from the SecretsManager.
+     *
+     * @return list of all secrets available from all secret providers
+     */
+    public List<Secret> getAllSecrets() {
+        return flowController.getConnectorRepository().getSecretsManager().getAllSecrets();
     }
 
     /*

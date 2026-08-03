@@ -53,7 +53,7 @@ public final class NarClassLoaders {
     private static final Logger logger = LoggerFactory.getLogger(NarClassLoaders.class);
 
     @SuppressWarnings("PMD.UnusedPrivateField")
-    private final static class InitContext {
+    private static final class InitContext {
 
         private final File frameworkWorkingDir;
         private final File extensionWorkingDir;
@@ -136,7 +136,8 @@ public final class NarClassLoaders {
             synchronized (this) {
                 ic = initContext;
                 if (ic == null) {
-                    initContext = ic = load(rootClassloader, frameworkWorkingDir, extensionsWorkingDir, frameworkNarId, logDetails);
+                    ic = load(rootClassloader, frameworkWorkingDir, extensionsWorkingDir, frameworkNarId, logDetails);
+                    initContext = ic;
                 }
             }
         }
@@ -180,7 +181,7 @@ public final class NarClassLoaders {
             for (final File unpackedNar : narWorkingDirContents) {
                 BundleDetails narDetail = null;
                 try {
-                     narDetail = getNarDetails(unpackedNar);
+                    narDetail = getNarDetails(unpackedNar);
                 } catch (IllegalStateException e) {
                     logger.warn("Unable to load NAR {} due to {}, skipping...", unpackedNar.getAbsolutePath(), e.getMessage());
                     continue;
@@ -574,7 +575,7 @@ public final class NarClassLoaders {
         }
 
         try {
-           return initContext.bundles.get(extensionWorkingDirectory.getCanonicalPath());
+            return initContext.bundles.get(extensionWorkingDirectory.getCanonicalPath());
         } catch (final IOException ioe) {
             if (logger.isDebugEnabled()) {
                 logger.debug("Unable to get extension classloader for working directory '{}'", extensionWorkingDirectory);

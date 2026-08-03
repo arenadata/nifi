@@ -59,7 +59,6 @@ public abstract class PartitionedEventStore implements EventStore {
         this.eventReporter = eventReporter;
     }
 
-
     @Override
     public void initialize() throws IOException {
         maintenanceExecutor = Executors.newScheduledThreadPool(1, new NamedThreadFactory("Provenance Repository Maintenance"));
@@ -81,7 +80,7 @@ public abstract class PartitionedEventStore implements EventStore {
 
         for (final EventStorePartition partition : getPartitions()) {
             try {
-               partition.close();
+                partition.close();
             } catch (final IOException ioe) {
                 if (thrown == null) {
                     thrown = ioe;
@@ -95,7 +94,6 @@ public abstract class PartitionedEventStore implements EventStore {
             throw thrown;
         }
     }
-
 
     @Override
     public StorageResult addEvents(final Iterable<ProvenanceEventRecord> events) throws IOException {
@@ -239,7 +237,6 @@ public abstract class PartitionedEventStore implements EventStore {
             }
         }
     }
-
 
     void performMaintenance() {
         try {

@@ -27,6 +27,7 @@ public class AssetReferenceDTO {
 
     private String id;
     private String name;
+    private Boolean missingContent;
 
     public AssetReferenceDTO() {
     }
@@ -58,6 +59,15 @@ public class AssetReferenceDTO {
         this.name = name;
     }
 
+    @Schema(description = "Indicates if the content of the asset is missing.", accessMode = Schema.AccessMode.READ_ONLY)
+    public Boolean getMissingContent() {
+        return missingContent;
+    }
+
+    public void setMissingContent(final Boolean missingContent) {
+        this.missingContent = missingContent;
+    }
+
     @Override
     public boolean equals(final Object o) {
         if (this == o) {
@@ -73,5 +83,10 @@ public class AssetReferenceDTO {
     @Override
     public int hashCode() {
         return Objects.hashCode(id);
+    }
+
+    @Override
+    public String toString() {
+        return "AssetReferenceDTO[id=%s, name=%s]".formatted(id, name);
     }
 }

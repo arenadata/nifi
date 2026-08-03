@@ -45,6 +45,7 @@ import org.apache.nifi.flowfile.attributes.CoreAttributes;
 import org.apache.nifi.flowfile.attributes.FragmentAttributes;
 import org.apache.nifi.flowfile.attributes.StandardFlowFileMediaType;
 import org.apache.nifi.logging.ComponentLog;
+import org.apache.nifi.migration.PropertyConfiguration;
 import org.apache.nifi.processor.AbstractProcessor;
 import org.apache.nifi.processor.ProcessContext;
 import org.apache.nifi.processor.ProcessSession;
@@ -187,8 +188,7 @@ public class UnpackContent extends AbstractProcessor {
             .build();
 
     public static final PropertyDescriptor ALLOW_STORED_ENTRIES_WITH_DATA_DESCRIPTOR = new PropertyDescriptor.Builder()
-            .name("allow-stored-entries-wdd")
-            .displayName("Allow Stored Entries With Data Descriptor")
+            .name("Allow Stored Entries With Data Descriptor")
             .description("Some zip archives contain stored entries with data descriptors which by spec should not " +
                     "happen.  If this property is true they will be read anyway.  If false and such an entry is discovered " +
                     "the zip will fail to process.")
@@ -314,32 +314,32 @@ public class UnpackContent extends AbstractProcessor {
         // set the Unpacker to use for this FlowFile.  FlowFileUnpackager objects maintain state and are not reusable.
         final Unpacker unpacker;
         final boolean addFragmentAttrs = switch (packagingFormat) {
-          case TAR_FORMAT -> {
-            unpacker = tarUnpacker;
-            yield true;
-          }
-          case ZIP_FORMAT -> {
-            unpacker = zipUnpacker;
-            yield true;
-          }
-          case FLOWFILE_STREAM_FORMAT_V2 -> {
-            unpacker = new FlowFileStreamUnpacker(new FlowFileUnpackagerV2());
-            yield false;
-          }
-          case FLOWFILE_STREAM_FORMAT_V3 -> {
-            unpacker = new FlowFileStreamUnpacker(new FlowFileUnpackagerV3());
-            yield false;
-          }
-          case FLOWFILE_TAR_FORMAT -> {
-            unpacker = new FlowFileStreamUnpacker(new FlowFileUnpackagerV1());
-            yield false;
-          }
-          default ->
-            // The format of the unpacker should be known before initialization
-            throw new ProcessException(packagingFormat + " is not a valid packaging format");
+            case TAR_FORMAT -> {
+                unpacker = tarUnpacker;
+                yield true;
+            }
+            case ZIP_FORMAT -> {
+                unpacker = zipUnpacker;
+                yield true;
+            }
+            case FLOWFILE_STREAM_FORMAT_V2 -> {
+                unpacker = new FlowFileStreamUnpacker(new FlowFileUnpackagerV2());
+                yield false;
+            }
+            case FLOWFILE_STREAM_FORMAT_V3 -> {
+                unpacker = new FlowFileStreamUnpacker(new FlowFileUnpackagerV3());
+                yield false;
+            }
+            case FLOWFILE_TAR_FORMAT -> {
+                unpacker = new FlowFileStreamUnpacker(new FlowFileUnpackagerV1());
+                yield false;
+            }
+            default ->
+                // The format of the unpacker should be known before initialization
+                throw new ProcessException(packagingFormat + " is not a valid packaging format");
         };
 
-      final List<FlowFile> unpacked = new ArrayList<>();
+        final List<FlowFile> unpacked = new ArrayList<>();
         try {
             unpacker.unpack(session, flowFile, unpacked);
             if (unpacked.isEmpty()) {
@@ -364,7 +364,12 @@ public class UnpackContent extends AbstractProcessor {
         }
     }
 
-    private static abstract class Unpacker {
+    @Override
+    public void migrateProperties(PropertyConfiguration config) {
+        config.renameProperty("allow-stored-entries-wdd", ALLOW_STORED_ENTRIES_WITH_DATA_DESCRIPTOR.getName());
+    }
+
+    private abstract static class Unpacker {
         protected Pattern fileFilter = null;
 
         public Unpacker() { }
@@ -685,7 +690,6 @@ public class UnpackContent extends AbstractProcessor {
             });
         }
     }
-
 
     private void finishFragmentAttributes(final ProcessSession session, final FlowFile source, final List<FlowFile> unpacked) {
         // first pass verifies all FlowFiles have the FRAGMENT_INDEX attribute and gets the total number of fragments

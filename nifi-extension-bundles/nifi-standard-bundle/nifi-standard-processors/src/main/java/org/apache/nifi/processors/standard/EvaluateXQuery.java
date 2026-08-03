@@ -42,6 +42,7 @@ import org.apache.nifi.components.Validator;
 import org.apache.nifi.expression.ExpressionLanguageScope;
 import org.apache.nifi.flowfile.FlowFile;
 import org.apache.nifi.logging.ComponentLog;
+import org.apache.nifi.migration.PropertyConfiguration;
 import org.apache.nifi.processor.AbstractProcessor;
 import org.apache.nifi.processor.ProcessContext;
 import org.apache.nifi.processor.ProcessSession;
@@ -54,8 +55,6 @@ import org.apache.nifi.xml.processing.parsers.StandardDocumentProvider;
 import org.apache.nifi.xml.processing.transform.StandardTransformProvider;
 import org.w3c.dom.Document;
 
-import javax.xml.transform.dom.DOMSource;
-import javax.xml.transform.stream.StreamResult;
 import java.io.BufferedInputStream;
 import java.io.BufferedOutputStream;
 import java.io.ByteArrayOutputStream;
@@ -70,6 +69,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicReference;
+import javax.xml.transform.dom.DOMSource;
+import javax.xml.transform.stream.StreamResult;
 
 @SideEffectFree
 @SupportsBatching
@@ -140,8 +141,7 @@ public class EvaluateXQuery extends AbstractProcessor {
             .build();
 
     public static final PropertyDescriptor VALIDATE_DTD = new PropertyDescriptor.Builder()
-            .displayName("Allow DTD")
-            .name("Validate DTD")
+            .name("Allow DTD")
             .description("Allow embedded Document Type Declaration in XML. "
                     + "This feature should be disabled to avoid XML entity expansion vulnerabilities.")
             .required(true)
@@ -355,6 +355,11 @@ public class EvaluateXQuery extends AbstractProcessor {
                 }
             }
         } // end flowFileLoop
+    }
+
+    @Override
+    public void migrateProperties(PropertyConfiguration config) {
+        config.renameProperty("Validate DTD", VALIDATE_DTD.getName());
     }
 
     private String formatItem(XdmItem item, ProcessContext context) throws IOException {

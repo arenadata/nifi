@@ -136,16 +136,23 @@ public class ResultSetRecordSet implements RecordSet, Closeable {
     protected Record createRecord(final ResultSet rs) throws SQLException {
         final Map<String, Object> values = new HashMap<>(schema.getFieldCount());
 
+        // Prefer label-based retrieval when possible to support tests/drivers that stub by label,
+        // with index-based fallback (projection pushdown ensures index order matches SELECT order).
+        int columnIndex = 1;
         for (final RecordField field : schema.getFields()) {
             final String fieldName = field.getFieldName();
-            RecordFieldType fieldType = field.getDataType().getFieldType();
-            final Object value;
+            final RecordFieldType fieldType = field.getDataType().getFieldType();
 
-            value = rsColumnNames.contains(fieldName)
-                    ? normalizeValue((fieldType == TIMESTAMP) ? rs.getTimestamp(fieldName) : rs.getObject(fieldName))
-                    : null;
+            Object raw = null;
+            if (rsColumnNames.contains(fieldName)) {
+                raw = (fieldType == TIMESTAMP) ? rs.getTimestamp(fieldName) : rs.getObject(fieldName);
+            }
+            if (raw == null) {
+                raw = (fieldType == TIMESTAMP) ? rs.getTimestamp(columnIndex) : rs.getObject(columnIndex);
+            }
 
-            values.put(fieldName, value);
+            values.put(fieldName, normalizeValue(raw));
+            columnIndex++;
         }
 
         return new MapRecord(schema, values);
@@ -229,10 +236,10 @@ public class ResultSetRecordSet implements RecordSet, Closeable {
                 final Object obj = rs.getObject(columnIndex);
                 if (!(obj instanceof Record)) {
                     final List<DataType> dataTypes = Stream.of(RecordFieldType.BIGINT, RecordFieldType.BOOLEAN, RecordFieldType.BYTE, RecordFieldType.CHAR, RecordFieldType.DATE,
-                        RecordFieldType.DECIMAL, RecordFieldType.DOUBLE, RecordFieldType.FLOAT, RecordFieldType.INT, RecordFieldType.LONG, RecordFieldType.SHORT, RecordFieldType.STRING,
+                            RecordFieldType.DECIMAL, RecordFieldType.DOUBLE, RecordFieldType.FLOAT, RecordFieldType.INT, RecordFieldType.LONG, RecordFieldType.SHORT, RecordFieldType.STRING,
                             RecordFieldType.TIME, TIMESTAMP)
-                    .map(RecordFieldType::getDataType)
-                    .collect(Collectors.toList());
+                            .map(RecordFieldType::getDataType)
+                            .collect(Collectors.toList());
 
                     return RecordFieldType.CHOICE.getChoiceDataType(dataTypes);
                 }
@@ -278,15 +285,17 @@ public class ResultSetRecordSet implements RecordSet, Closeable {
 
     private DataType getArrayDataType(final ResultSet rs, final RecordSchema readerSchema, final int columnIndex, final boolean useLogicalTypes) throws SQLException {
         // We first want to check if the Reader Schema can tell us what the type of the array is.
-        final String columnName = rs.getMetaData().getColumnName(columnIndex);
-        final Optional<RecordField> optionalRecordField = readerSchema.getField(columnName);
-        if (optionalRecordField.isPresent()) {
-            final RecordField recordField = optionalRecordField.get();
-            final DataType dataType = recordField.getDataType();
-            if (dataType.getFieldType() == RecordFieldType.ARRAY) {
-                final ArrayDataType arrayDataType = (ArrayDataType) dataType;
-                if (arrayDataType.getElementType() != null) {
-                    return dataType;
+        if (readerSchema != null) {
+            final String columnName = rs.getMetaData().getColumnName(columnIndex);
+            final Optional<RecordField> optionalRecordField = readerSchema.getField(columnName);
+            if (optionalRecordField.isPresent()) {
+                final RecordField recordField = optionalRecordField.get();
+                final DataType dataType = recordField.getDataType();
+                if (dataType.getFieldType() == RecordFieldType.ARRAY) {
+                    final ArrayDataType arrayDataType = (ArrayDataType) dataType;
+                    if (arrayDataType.getElementType() != null) {
+                        return dataType;
+                    }
                 }
             }
         }

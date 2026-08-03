@@ -17,12 +17,14 @@
 
 package org.apache.nifi.minifi.c2;
 
-import static java.util.Optional.empty;
-import static java.util.Optional.ofNullable;
-import static java.util.concurrent.TimeUnit.MILLISECONDS;
-import static org.apache.nifi.bootstrap.CommandResult.FAILURE;
-import static org.apache.nifi.bootstrap.CommandResult.SUCCESS;
-import static org.apache.nifi.c2.protocol.api.C2OperationState.OperationState.NOT_APPLIED;
+import org.apache.nifi.c2.client.service.operation.C2OperationRestartHandler;
+import org.apache.nifi.c2.protocol.api.C2Operation;
+import org.apache.nifi.c2.protocol.api.C2OperationState.OperationState;
+import org.apache.nifi.minifi.bootstrap.BootstrapCommunicator;
+import org.apache.nifi.minifi.bootstrap.CommandResult;
+import org.apache.nifi.minifi.commons.api.MiNiFiCommandState;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.io.OutputStream;
@@ -31,14 +33,13 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.BlockingQueue;
-import org.apache.nifi.bootstrap.BootstrapCommunicator;
-import org.apache.nifi.bootstrap.CommandResult;
-import org.apache.nifi.c2.client.service.operation.C2OperationRestartHandler;
-import org.apache.nifi.c2.protocol.api.C2Operation;
-import org.apache.nifi.c2.protocol.api.C2OperationState.OperationState;
-import org.apache.nifi.minifi.commons.api.MiNiFiCommandState;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+
+import static java.util.Optional.empty;
+import static java.util.Optional.ofNullable;
+import static java.util.concurrent.TimeUnit.MILLISECONDS;
+import static org.apache.nifi.c2.protocol.api.C2OperationState.OperationState.NOT_APPLIED;
+import static org.apache.nifi.minifi.bootstrap.CommandResult.FAILURE;
+import static org.apache.nifi.minifi.bootstrap.CommandResult.SUCCESS;
 
 public class BootstrapC2OperationRestartHandler implements C2OperationRestartHandler {
 

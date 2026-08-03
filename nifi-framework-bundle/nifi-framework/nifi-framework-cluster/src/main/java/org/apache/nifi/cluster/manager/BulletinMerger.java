@@ -27,11 +27,11 @@ import java.util.stream.Collectors;
 
 public final class BulletinMerger {
 
-    final static String ALL_NODES_MESSAGE = "All Nodes";
+    static final String ALL_NODES_MESSAGE = "All Nodes";
 
     private BulletinMerger() { }
 
-    public static Comparator<BulletinEntity> BULLETIN_COMPARATOR = (o1, o2) -> {
+    public static final Comparator<BulletinEntity> BULLETIN_COMPARATOR = (o1, o2) -> {
         if (o1 == null && o2 == null) {
             return 0;
         }

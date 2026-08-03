@@ -26,6 +26,7 @@ import org.apache.nifi.annotation.documentation.Tags;
 import org.apache.nifi.components.PropertyDescriptor;
 import org.apache.nifi.flowfile.FlowFile;
 import org.apache.nifi.logging.ComponentLog;
+import org.apache.nifi.migration.PropertyConfiguration;
 import org.apache.nifi.processor.AbstractProcessor;
 import org.apache.nifi.processor.ProcessContext;
 import org.apache.nifi.processor.ProcessSession;
@@ -43,14 +44,13 @@ import java.util.concurrent.atomic.AtomicReference;
 @SupportsBatching
 @Tags({"content", "hash", "sha", "blake2", "md5", "cryptography"})
 @InputRequirement(InputRequirement.Requirement.INPUT_REQUIRED)
-@CapabilityDescription("Calculates a cryptographic hash value for the flowfile content using the given algorithm and writes it to an output attribute. Please refer to https://csrc.nist.gov/Projects/Hash-Functions/NIST-Policy-on-Hash-Functions for help to decide which algorithm to use.")
+@CapabilityDescription("Calculates a cryptographic hash value for the FlowFile content using the given algorithm and writes it to an output attribute. Please refer to https://csrc.nist.gov/Projects/Hash-Functions/NIST-Policy-on-Hash-Functions for help to decide which algorithm to use.")
 @WritesAttribute(attribute = "content_<algorithm>", description = "This processor adds an attribute whose value is the result of "
-        + "hashing the flowfile content. The name of this attribute is specified by the value of the algorithm, e.g. 'content_SHA-256'.")
+        + "hashing the FlowFile content. The name of this attribute is specified by the value of the algorithm, e.g. 'content_SHA-256'.")
 public class CryptographicHashContent extends AbstractProcessor {
 
     static final PropertyDescriptor FAIL_WHEN_EMPTY = new PropertyDescriptor.Builder()
-            .name("fail_when_empty")
-            .displayName("Fail if the content is empty")
+            .name("Fail When Content Empty")
             .description("Route to failure if the content is empty. " +
                     "While hashing an empty value is valid, some flows may want to detect empty input.")
             .allowableValues("true", "false")
@@ -60,8 +60,7 @@ public class CryptographicHashContent extends AbstractProcessor {
             .build();
 
     static final PropertyDescriptor HASH_ALGORITHM = new PropertyDescriptor.Builder()
-            .name("hash_algorithm")
-            .displayName("Hash Algorithm")
+            .name("Hash Algorithm")
             .description("The hash algorithm to use. Note that not all of the algorithms available are recommended for use (some are provided for legacy compatibility). " +
                     "There are many things to consider when picking an algorithm; it is recommended to use the most secure algorithm possible.")
             .required(true)
@@ -77,12 +76,12 @@ public class CryptographicHashContent extends AbstractProcessor {
 
     public static final Relationship REL_SUCCESS = new Relationship.Builder()
             .name("success")
-            .description("Used for flowfiles that have a hash value added")
+            .description("Used for FlowFiles that have a hash value added")
             .build();
 
     public static final Relationship REL_FAILURE = new Relationship.Builder()
             .name("failure")
-            .description("Used for flowfiles that have no content if the 'fail on empty' setting is enabled")
+            .description("Used for FlowFiles that have no content if the 'fail on empty' setting is enabled")
             .build();
 
     private static final Set<Relationship> RELATIONSHIPS = Set.of(
@@ -129,7 +128,7 @@ public class CryptographicHashContent extends AbstractProcessor {
         final AtomicReference<String> hashValueHolder = new AtomicReference<>(null);
 
         try {
-            // Read the flowfile content via a lambda InputStreamCallback and hash the content
+            // Read the FlowFile content via a lambda InputStreamCallback and hash the content
             session.read(flowFile, in -> hashValueHolder.set(HashService.hashValueStreaming(algorithm, in)));
 
             // Determine the destination attribute name
@@ -147,5 +146,11 @@ public class CryptographicHashContent extends AbstractProcessor {
             logger.error("Routing to failure since failed to process {}", flowFile, e);
             session.transfer(flowFile, REL_FAILURE);
         }
+    }
+
+    @Override
+    public void migrateProperties(PropertyConfiguration config) {
+        config.renameProperty("fail_when_empty", FAIL_WHEN_EMPTY.getName());
+        config.renameProperty("hash_algorithm", HASH_ALGORITHM.getName());
     }
 }

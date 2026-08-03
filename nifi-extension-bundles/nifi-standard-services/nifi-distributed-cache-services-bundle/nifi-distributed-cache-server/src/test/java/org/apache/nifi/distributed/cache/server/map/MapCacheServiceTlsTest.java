@@ -21,11 +21,11 @@ import org.apache.nifi.distributed.cache.client.Deserializer;
 import org.apache.nifi.distributed.cache.client.MapCacheClientService;
 import org.apache.nifi.distributed.cache.client.Serializer;
 import org.apache.nifi.distributed.cache.client.exception.DeserializationException;
-import org.apache.nifi.processor.Processor;
 import org.apache.nifi.security.cert.builder.StandardCertificateBuilder;
 import org.apache.nifi.security.ssl.EphemeralKeyStoreBuilder;
 import org.apache.nifi.security.ssl.StandardSslContextBuilder;
 import org.apache.nifi.ssl.SSLContextProvider;
+import org.apache.nifi.util.NoOpProcessor;
 import org.apache.nifi.util.TestRunner;
 import org.apache.nifi.util.TestRunners;
 import org.junit.jupiter.api.AfterAll;
@@ -33,8 +33,6 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
-import javax.net.ssl.SSLContext;
-import javax.security.auth.x500.X500Principal;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
@@ -45,6 +43,8 @@ import java.security.NoSuchAlgorithmException;
 import java.security.cert.Certificate;
 import java.security.cert.X509Certificate;
 import java.time.Duration;
+import javax.net.ssl.SSLContext;
+import javax.security.auth.x500.X500Principal;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -62,7 +62,7 @@ public class MapCacheServiceTlsTest {
 
     @BeforeAll
     public static void setServices() throws Exception {
-        runner = TestRunners.newTestRunner(Mockito.mock(Processor.class));
+        runner = TestRunners.newTestRunner(NoOpProcessor.class);
         sslContextProvider = createSslContextService();
         runner.addControllerService(sslContextProvider.getIdentifier(), sslContextProvider);
         runner.enableControllerService(sslContextProvider);

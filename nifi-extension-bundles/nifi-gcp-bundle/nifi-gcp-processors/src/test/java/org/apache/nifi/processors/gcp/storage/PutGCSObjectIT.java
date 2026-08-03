@@ -55,7 +55,7 @@ public class PutGCSObjectIT extends AbstractGCSIT {
         flowFile.assertAttributeNotExists(ENCRYPTION_ALGORITHM_ATTR);
 
         for (Map.Entry<String, String> entry : flowFile.getAttributes().entrySet()) {
-           logger.info("{}:{}", entry.getKey(), entry.getValue());
+            logger.info("{}:{}", entry.getKey(), entry.getValue());
         }
     }
 
@@ -131,7 +131,6 @@ public class PutGCSObjectIT extends AbstractGCSIT {
         assertTrue(fileEquals(KEY, CONTENT));
 
     }
-
 
     @Test
     public void testPutWithNoOverwrite() throws Exception {

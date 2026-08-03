@@ -17,9 +17,11 @@
 
 import { createReducer, on } from '@ngrx/store';
 import {
+    clearControllerServiceBulletinsSuccess,
     configureControllerService,
     configureControllerServiceSuccess,
     controllerServicesBannerApiError,
+    loadControllerServicesError,
     createControllerService,
     createControllerServiceSuccess,
     deleteControllerService,
@@ -71,6 +73,10 @@ export const controllerServicesReducer = createReducer(
         loadedTimestamp: response.loadedTimestamp,
         status: 'success' as const
     })),
+    on(loadControllerServicesError, (state, { status }) => ({
+        ...state,
+        status
+    })),
     on(controllerServicesBannerApiError, (state) => ({
         ...state,
         saving: false
@@ -108,6 +114,18 @@ export const controllerServicesReducer = createReducer(
                 draftState.controllerServices.splice(componentIndex, 1);
             }
             draftState.saving = false;
+        });
+    }),
+    on(clearControllerServiceBulletinsSuccess, (state, { response }) => {
+        return produce(state, (draftState) => {
+            const componentIndex: number = draftState.controllerServices.findIndex(
+                (service: any) => service.id === response.componentId
+            );
+            if (componentIndex > -1) {
+                const service = draftState.controllerServices[componentIndex];
+                // Replace bulletins with the current bulletins from the server
+                service.bulletins = response.bulletins || [];
+            }
         });
     })
 );

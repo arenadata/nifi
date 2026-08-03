@@ -38,6 +38,7 @@ import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -77,7 +78,7 @@ public class PutMongoIT extends MongoWriteTestBase {
         assertTrue(it.next().toString().contains("is invalid because Mongo Database Name is required"));
         assertTrue(it.next().toString().contains("is invalid because Mongo Collection Name is required"));
 
-        runner.setProperty(AbstractMongoProcessor.DATABASE_NAME, DATABASE_NAME);
+        runner.setProperty(AbstractMongoProcessor.DATABASE_NAME, databaseName);
         runner.setProperty(AbstractMongoProcessor.COLLECTION_NAME, COLLECTION_NAME);
         runner.setProperty(PutMongo.UPDATE_QUERY_KEY, "_id");
 
@@ -197,7 +198,6 @@ public class PutMongoIT extends MongoWriteTestBase {
         runner.enqueue(updateBody.toJson());
         updateOneTests(runner, document);
     }
-
 
     @Test
     public void testUpdateManyWithOperatorBySimpleKey() throws Exception {
@@ -599,7 +599,7 @@ public class PutMongoIT extends MongoWriteTestBase {
         MockFlowFile upsertOutput = flowFilesForRelationship.removeFirst();
         upsertOutput.assertAttributeEquals(PutMongo.ATTRIBUTE_UPSERT_ID, "Test");
 
-        // test next flow files for update attributes
+        // test next FlowFiles for update attributes
         for (MockFlowFile flowFile : flowFilesForRelationship) {
             flowFile.assertAttributeNotExists(PutMongo.ATTRIBUTE_UPSERT_ID);
             flowFile.assertAttributeEquals(PutMongo.ATTRIBUTE_UPDATE_MATCH_COUNT, String.valueOf(1));
@@ -665,17 +665,17 @@ public class PutMongoIT extends MongoWriteTestBase {
         runner.setProperty(PutMongo.MODE, PutMongo.MODE_UPDATE);
         runner.setProperty(PutMongo.UPSERT, "true");
 
-        final int LIMIT = 2;
+        final int limit = 2;
 
         for (int index = 0; index < upserts.size(); index++) {
             Document upsert = upserts.get(index);
             runner.setProperty(PutMongo.UPDATE_QUERY_KEY, updateKeyProps[index]);
-            for (int x = 0; x < LIMIT; x++) {
+            for (int x = 0; x < limit; x++) {
                 runner.enqueue(upsert.toJson());
             }
-            runner.run(LIMIT, true, true);
+            runner.run(limit, true, true);
             runner.assertTransferCount(PutMongo.REL_FAILURE, 0);
-            runner.assertTransferCount(PutMongo.REL_SUCCESS, LIMIT);
+            runner.assertTransferCount(PutMongo.REL_SUCCESS, limit);
 
             Document query = new Document(updateKeyProps[index], updateKeys[index]);
             Document result = collection.find(query).first();
@@ -684,5 +684,42 @@ public class PutMongoIT extends MongoWriteTestBase {
             assertEquals(1, collection.countDocuments(query), "Count was wrong");
             runner.clearTransferState();
         }
+    }
+    @Test
+    public void testUpdateKey_IdVariousTypes() throws Exception {
+        TestRunner runner = init(PutMongo.class);
+
+        runner.setProperty(PutMongo.UPDATE_OPERATION_MODE, PutMongo.UPDATE_WITH_OPERATORS);
+        runner.setProperty(PutMongo.MODE, PutMongo.MODE_UPDATE);
+        runner.setProperty(PutMongo.UPSERT, "true");
+        runner.setProperty(PutMongo.UPDATE_QUERY_KEY, "_id");
+
+        Document docId = new Document("a", 1);
+        Integer numericId = 42;
+
+        List<Document> updates = List.of(
+                new Document(Map.of("_id", docId, "$set", Map.of("v", 1))),
+                new Document(Map.of("_id", numericId, "$set", Map.of("v", 3)))
+        );
+
+        for (Document update : updates) {
+            runner.enqueue(update.toJson());
+        }
+        runner.run(updates.size(), true, true);
+
+        runner.assertTransferCount(PutMongo.REL_FAILURE, 0);
+        runner.assertTransferCount(PutMongo.REL_SUCCESS, updates.size());
+
+        // Verify _id Document preserved
+        Document r1 = collection.find(new Document("_id", docId)).first();
+        assertNotNull(r1);
+        assertInstanceOf(Document.class, r1.get("_id"));
+        assertEquals(docId, r1.get("_id"));
+
+        // Verify _id Number preserved
+        Document r3 = collection.find(new Document("_id", numericId)).first();
+        assertNotNull(r3);
+        assertInstanceOf(Integer.class, r3.get("_id"));
+        assertEquals(numericId, r3.get("_id"));
     }
 }

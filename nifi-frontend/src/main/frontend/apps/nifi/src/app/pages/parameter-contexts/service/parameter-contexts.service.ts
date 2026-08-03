@@ -15,29 +15,21 @@
  * limitations under the License.
  */
 
-import { Injectable } from '@angular/core';
+import { Injectable, inject } from '@angular/core';
 import { Observable } from 'rxjs';
 import { HttpClient, HttpParams } from '@angular/common/http';
 import { Client } from '../../../service/client.service';
-import { NiFiCommon } from '@nifi/shared';
 import { CreateParameterContextRequest, DeleteParameterContextRequest } from '../state/parameter-context-listing';
-import {
-    ParameterContextEntity,
-    ParameterContextUpdateRequest,
-    SubmitParameterContextUpdate
-} from '../../../state/shared';
+import { ParameterContextEntity, SubmitParameterContextUpdate } from '../../../state/shared';
 import { ClusterConnectionService } from '../../../service/cluster-connection.service';
 
 @Injectable({ providedIn: 'root' })
 export class ParameterContextService {
-    private static readonly API: string = '../nifi-api';
+    private httpClient = inject(HttpClient);
+    private client = inject(Client);
+    private clusterConnectionService = inject(ClusterConnectionService);
 
-    constructor(
-        private httpClient: HttpClient,
-        private client: Client,
-        private nifiCommon: NiFiCommon,
-        private clusterConnectionService: ClusterConnectionService
-    ) {}
+    private static readonly API: string = '../nifi-api';
 
     getParameterContexts(): Observable<any> {
         return this.httpClient.get(`${ParameterContextService.API}/flow/parameter-contexts`);
@@ -50,7 +42,7 @@ export class ParameterContextService {
         );
     }
 
-    getParameterContext(id: string, includeInheritedParameters: boolean = true): Observable<any> {
+    getParameterContext(id: string, includeInheritedParameters = true): Observable<any> {
         return this.httpClient.get(`${ParameterContextService.API}/parameter-contexts/${id}`, {
             params: {
                 includeInheritedParameters
@@ -65,17 +57,22 @@ export class ParameterContextService {
         );
     }
 
-    pollParameterContextUpdate(updateRequest: ParameterContextUpdateRequest): Observable<any> {
-        return this.httpClient.get(this.nifiCommon.stripProtocol(updateRequest.uri));
+    pollParameterContextUpdate(parameterContextId: string, requestId: string): Observable<any> {
+        return this.httpClient.get(
+            `${ParameterContextService.API}/parameter-contexts/${parameterContextId}/update-requests/${requestId}`
+        );
     }
 
-    deleteParameterContextUpdate(updateRequest: ParameterContextUpdateRequest): Observable<any> {
+    deleteParameterContextUpdate(parameterContextId: string, requestId: string): Observable<any> {
         const params = new HttpParams({
             fromObject: {
                 disconnectedNodeAcknowledged: this.clusterConnectionService.isDisconnectionAcknowledged()
             }
         });
-        return this.httpClient.delete(this.nifiCommon.stripProtocol(updateRequest.uri), { params });
+        return this.httpClient.delete(
+            `${ParameterContextService.API}/parameter-contexts/${parameterContextId}/update-requests/${requestId}`,
+            { params }
+        );
     }
 
     deleteParameterContext(deleteParameterContext: DeleteParameterContextRequest): Observable<any> {

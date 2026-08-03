@@ -16,21 +16,12 @@
  */
 package org.apache.nifi.remote.protocol.socket;
 
-import java.io.DataInputStream;
-import java.io.DataOutputStream;
-import java.io.IOException;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.Map;
-import java.util.Set;
-import java.util.UUID;
-import java.util.concurrent.TimeUnit;
-import org.apache.nifi.events.EventReporter;
 import org.apache.nifi.remote.Peer;
 import org.apache.nifi.remote.PeerDescription;
 import org.apache.nifi.remote.PeerStatus;
-import org.apache.nifi.remote.RemoteDestination;
 import org.apache.nifi.remote.RemoteResourceInitiator;
+import org.apache.nifi.remote.SiteToSiteDestination;
+import org.apache.nifi.remote.SiteToSiteEventReporter;
 import org.apache.nifi.remote.StandardVersionNegotiator;
 import org.apache.nifi.remote.Transaction;
 import org.apache.nifi.remote.TransferDirection;
@@ -48,12 +39,22 @@ import org.apache.nifi.remote.protocol.ResponseCode;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.DataInputStream;
+import java.io.DataOutputStream;
+import java.io.IOException;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Map;
+import java.util.Set;
+import java.util.UUID;
+import java.util.concurrent.TimeUnit;
+
 public class SocketClientProtocol implements ClientProtocol {
 
     // Version 6 added to support Zero-Leader Clustering, which was introduced in NiFi 1.0.0
     private final VersionNegotiator versionNegotiator = new StandardVersionNegotiator(6, 5, 4, 3, 2, 1);
 
-    private RemoteDestination destination;
+    private SiteToSiteDestination destination;
     private boolean useCompression = false;
 
     private String commsIdentifier;
@@ -69,7 +70,7 @@ public class SocketClientProtocol implements ClientProtocol {
     private int batchCount;
     private long batchSize;
     private long batchMillis;
-    private EventReporter eventReporter;
+    private SiteToSiteEventReporter eventReporter;
 
     public void setPreferredBatchCount(final int count) {
         this.batchCount = count;
@@ -83,11 +84,11 @@ public class SocketClientProtocol implements ClientProtocol {
         this.batchMillis = millis;
     }
 
-    public void setEventReporter(final EventReporter eventReporter) {
+    public void setEventReporter(final SiteToSiteEventReporter eventReporter) {
         this.eventReporter = eventReporter;
     }
 
-    public void setDestination(final RemoteDestination destination) {
+    public void setDestination(final SiteToSiteDestination destination) {
         this.destination = destination;
         this.useCompression = destination.isUseCompression();
     }

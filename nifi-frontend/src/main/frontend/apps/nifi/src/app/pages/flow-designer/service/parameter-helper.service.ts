@@ -15,14 +15,20 @@
  * limitations under the License.
  */
 
-import { Injectable } from '@angular/core';
+import { Injectable, inject } from '@angular/core';
 import { MatDialog } from '@angular/material/dialog';
 import { catchError, EMPTY, filter, map, Observable, switchMap, takeUntil, tap } from 'rxjs';
 import { Store } from '@ngrx/store';
 import { HttpErrorResponse } from '@angular/common/http';
 import { NiFiState } from '../../../state';
 import { Client } from '../../../service/client.service';
-import { EditParameterRequest, EditParameterResponse, ParameterContext, ParameterEntity } from '../../../state/shared';
+import {
+    ConvertToParameterResponse,
+    EditParameterRequest,
+    EditParameterResponse,
+    ParameterContext,
+    ParameterEntity
+} from '../../../state/shared';
 import { EditParameterDialog } from '../../../ui/common/edit-parameter-dialog/edit-parameter-dialog.component';
 import { selectParameterSaving, selectParameterState } from '../state/parameter/parameter.selectors';
 import { ParameterState } from '../state/parameter';
@@ -33,23 +39,16 @@ import { ClusterConnectionService } from '../../../service/cluster-connection.se
 import { ErrorHelper } from '../../../service/error-helper.service';
 import { ParameterContextService } from '../../parameter-contexts/service/parameter-contexts.service';
 
-export interface ConvertToParameterResponse {
-    propertyValue: string;
-    parameterContext?: ParameterContext;
-}
-
 @Injectable({
     providedIn: 'root'
 })
 export class ParameterHelperService {
-    constructor(
-        private dialog: MatDialog,
-        private store: Store<NiFiState>,
-        private parameterContextService: ParameterContextService,
-        private clusterConnectionService: ClusterConnectionService,
-        private client: Client,
-        private errorHelper: ErrorHelper
-    ) {}
+    private dialog = inject(MatDialog);
+    private store = inject<Store<NiFiState>>(Store);
+    private parameterContextService = inject(ParameterContextService);
+    private clusterConnectionService = inject(ClusterConnectionService);
+    private client = inject(Client);
+    private errorHelper = inject(ErrorHelper);
 
     /**
      * Returns a function that can be used to pass into a PropertyTable to convert a Property into a Parameter, inline.
@@ -92,10 +91,11 @@ export class ParameterHelperService {
                     convertToParameterDialogReference.componentInstance.saving$ =
                         this.store.select(selectParameterSaving);
 
-                    convertToParameterDialogReference.componentInstance.exit.pipe(
-                        takeUntil(convertToParameterDialogReference.afterClosed()),
-                        tap(() => ParameterActions.stopPollingParameterContextUpdateRequest())
-                    );
+                    convertToParameterDialogReference.componentInstance.exit
+                        .pipe(takeUntil(convertToParameterDialogReference.afterClosed()))
+                        .subscribe(() =>
+                            this.store.dispatch(ParameterActions.stopPollingParameterContextUpdateRequest())
+                        );
 
                     return convertToParameterDialogReference.componentInstance.editParameter.pipe(
                         takeUntil(convertToParameterDialogReference.afterClosed()),

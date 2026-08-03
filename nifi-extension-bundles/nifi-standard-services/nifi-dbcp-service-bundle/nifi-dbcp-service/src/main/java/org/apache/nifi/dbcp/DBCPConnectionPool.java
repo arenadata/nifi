@@ -16,32 +16,24 @@
  */
 package org.apache.nifi.dbcp;
 
-import java.sql.Driver;
-import java.sql.DriverManager;
-import java.sql.SQLException;
-import java.util.AbstractMap;
-import java.util.List;
-import java.util.Map;
-import java.util.stream.Collectors;
 import org.apache.commons.dbcp2.BasicDataSource;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.Strings;
 import org.apache.nifi.annotation.behavior.DynamicProperties;
 import org.apache.nifi.annotation.behavior.DynamicProperty;
 import org.apache.nifi.annotation.behavior.RequiresInstanceClassLoading;
-import org.apache.nifi.annotation.behavior.Restricted;
-import org.apache.nifi.annotation.behavior.Restriction;
 import org.apache.nifi.annotation.behavior.SupportsSensitiveDynamicProperties;
 import org.apache.nifi.annotation.documentation.CapabilityDescription;
 import org.apache.nifi.annotation.documentation.Tags;
+import org.apache.nifi.annotation.lifecycle.OnRemoved;
 import org.apache.nifi.components.PropertyDescriptor;
 import org.apache.nifi.components.PropertyValue;
-import org.apache.nifi.components.RequiredPermission;
 import org.apache.nifi.components.resource.ResourceReference;
 import org.apache.nifi.components.resource.ResourceReferences;
 import org.apache.nifi.components.resource.ResourceType;
 import org.apache.nifi.controller.ConfigurationContext;
 import org.apache.nifi.controller.VerifiableControllerService;
+import org.apache.nifi.dbcp.utils.DBCPProperties;
 import org.apache.nifi.dbcp.utils.DataSourceConfiguration;
 import org.apache.nifi.dbcp.utils.DriverUtils;
 import org.apache.nifi.expression.AttributeExpression;
@@ -50,10 +42,19 @@ import org.apache.nifi.migration.PropertyConfiguration;
 import org.apache.nifi.processor.exception.ProcessException;
 import org.apache.nifi.processor.util.StandardValidators;
 
+import java.sql.Driver;
+import java.sql.DriverManager;
+import java.sql.SQLException;
+import java.util.AbstractMap;
+import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
+
 import static org.apache.nifi.dbcp.utils.DBCPProperties.DATABASE_URL;
 import static org.apache.nifi.dbcp.utils.DBCPProperties.DB_DRIVERNAME;
 import static org.apache.nifi.dbcp.utils.DBCPProperties.DB_DRIVER_LOCATION;
-import static org.apache.nifi.dbcp.utils.DBCPProperties.DB_PASSWORD;
+import static org.apache.nifi.dbcp.utils.DBCPProperties.DB_PASSWORD_PROVIDER;
+import static org.apache.nifi.dbcp.utils.DBCPProperties.DB_PASSWORD_WITH_PASSWORD_SOURCE;
 import static org.apache.nifi.dbcp.utils.DBCPProperties.DB_USER;
 import static org.apache.nifi.dbcp.utils.DBCPProperties.EVICTION_RUN_PERIOD;
 import static org.apache.nifi.dbcp.utils.DBCPProperties.KERBEROS_USER_SERVICE;
@@ -63,6 +64,9 @@ import static org.apache.nifi.dbcp.utils.DBCPProperties.MAX_TOTAL_CONNECTIONS;
 import static org.apache.nifi.dbcp.utils.DBCPProperties.MAX_WAIT_TIME;
 import static org.apache.nifi.dbcp.utils.DBCPProperties.MIN_EVICTABLE_IDLE_TIME;
 import static org.apache.nifi.dbcp.utils.DBCPProperties.MIN_IDLE;
+import static org.apache.nifi.dbcp.utils.DBCPProperties.PASSWORD_SOURCE;
+import static org.apache.nifi.dbcp.utils.DBCPProperties.PasswordSource.PASSWORD;
+import static org.apache.nifi.dbcp.utils.DBCPProperties.PasswordSource.PASSWORD_PROVIDER;
 import static org.apache.nifi.dbcp.utils.DBCPProperties.SOFT_MIN_EVICTABLE_IDLE_TIME;
 import static org.apache.nifi.dbcp.utils.DBCPProperties.VALIDATION_QUERY;
 import static org.apache.nifi.dbcp.utils.DBCPProperties.extractMillisWithInfinite;
@@ -84,19 +88,15 @@ import static org.apache.nifi.dbcp.utils.DBCPProperties.extractMillisWithInfinit
                 description = "JDBC driver property name prefixed with 'SENSITIVE.' handled as a sensitive property.")
 })
 @RequiresInstanceClassLoading
-@Restricted(
-        restrictions = {
-                @Restriction(
-                        requiredPermission = RequiredPermission.REFERENCE_REMOTE_RESOURCES,
-                        explanation = "Database Driver Location can reference resources over HTTP"
-                )
-        }
-)
+
 public class DBCPConnectionPool extends AbstractDBCPConnectionPool implements DBCPService, VerifiableControllerService {
     /**
      * Property Name Prefix for Sensitive Dynamic Properties
      */
     protected static final String SENSITIVE_PROPERTY_PREFIX = "SENSITIVE.";
+
+    // Hold an instance of the registered driver so we can properly de-register it.
+    private volatile Driver registeredDriver;
 
     private static final List<PropertyDescriptor> PROPERTY_DESCRIPTORS = List.of(
         DATABASE_URL,
@@ -104,7 +104,9 @@ public class DBCPConnectionPool extends AbstractDBCPConnectionPool implements DB
         DB_DRIVER_LOCATION,
         KERBEROS_USER_SERVICE,
         DB_USER,
-        DB_PASSWORD,
+        PASSWORD_SOURCE,
+        DB_PASSWORD_WITH_PASSWORD_SOURCE,
+        DB_PASSWORD_PROVIDER,
         MAX_WAIT_TIME,
         MAX_TOTAL_CONNECTIONS,
         VALIDATION_QUERY,
@@ -126,6 +128,17 @@ public class DBCPConnectionPool extends AbstractDBCPConnectionPool implements DB
         config.removeProperty("kerberos-principal");
         config.removeProperty("kerberos-password");
         config.removeProperty("kerberos-credentials-service");
+        DBCPProperties.OLD_DB_DRIVER_LOCATION_PROPERTY_NAMES.forEach(oldPropertyName ->
+                config.renameProperty(oldPropertyName, DB_DRIVER_LOCATION.getName())
+        );
+        config.renameProperty(DBCPProperties.OLD_VALIDATION_QUERY_PROPERTY_NAME, VALIDATION_QUERY.getName());
+        config.renameProperty(DBCPProperties.OLD_MIN_IDLE_PROPERTY_NAME, MIN_IDLE.getName());
+        config.renameProperty(DBCPProperties.OLD_MAX_IDLE_PROPERTY_NAME, MAX_IDLE.getName());
+        config.renameProperty(DBCPProperties.OLD_MAX_CONN_LIFETIME_PROPERTY_NAME, MAX_CONN_LIFETIME.getName());
+        config.renameProperty(DBCPProperties.OLD_EVICTION_RUN_PERIOD_PROPERTY_NAME, EVICTION_RUN_PERIOD.getName());
+        config.renameProperty(DBCPProperties.OLD_MIN_EVICTABLE_IDLE_TIME_PROPERTY_NAME, MIN_EVICTABLE_IDLE_TIME.getName());
+        config.renameProperty(DBCPProperties.OLD_SOFT_MIN_EVICTABLE_IDLE_TIME_PROPERTY_NAME, SOFT_MIN_EVICTABLE_IDLE_TIME.getName());
+        config.renameProperty(DBCPProperties.OLD_KERBEROS_USER_SERVICE_PROPERTY_NAME, KERBEROS_USER_SERVICE.getName());
     }
 
     BasicDataSource getDataSource() {
@@ -137,7 +150,10 @@ public class DBCPConnectionPool extends AbstractDBCPConnectionPool implements DB
         final String url = context.getProperty(DATABASE_URL).evaluateAttributeExpressions().getValue();
         final String driverName = context.getProperty(DB_DRIVERNAME).evaluateAttributeExpressions().getValue();
         final String user = context.getProperty(DB_USER).evaluateAttributeExpressions().getValue();
-        final String password = context.getProperty(DB_PASSWORD).evaluateAttributeExpressions().getValue();
+        final PropertyValue passwordSourceProperty = context.getProperty(PASSWORD_SOURCE);
+        final String passwordSource = passwordSourceProperty == null ? PASSWORD.getValue() : passwordSourceProperty.getValue();
+        final boolean passwordProviderSelected = PASSWORD_PROVIDER.getValue().equals(passwordSource);
+        final String password = passwordProviderSelected ? null : context.getProperty(DB_PASSWORD_WITH_PASSWORD_SOURCE).evaluateAttributeExpressions().getValue();
         final Integer maxTotal = context.getProperty(MAX_TOTAL_CONNECTIONS).evaluateAttributeExpressions().asInteger();
         final String validationQuery = context.getProperty(VALIDATION_QUERY).evaluateAttributeExpressions().getValue();
         final Long maxWaitMillis = extractMillisWithInfinite(context.getProperty(MAX_WAIT_TIME).evaluateAttributeExpressions());
@@ -197,6 +213,7 @@ public class DBCPConnectionPool extends AbstractDBCPConnectionPool implements DB
                         return new AbstractMap.SimpleEntry<>(descriptor.getName(), propertyValue.evaluateAttributeExpressions().getValue());
                     }
                 })
+                .filter(entry -> entry.getValue() != null)
                 .collect(Collectors.toMap(AbstractMap.SimpleEntry::getKey, AbstractMap.SimpleEntry::getValue));
     }
 
@@ -237,18 +254,41 @@ public class DBCPConnectionPool extends AbstractDBCPConnectionPool implements DB
         }
 
         try {
-            return DriverManager.getDriver(url);
+            final Driver driver = DriverManager.getDriver(url);
+            // Ensure drivers that register themselves during class loading can be set as the registeredDriver.
+            // This ensures drivers that register themselves can be deregistered when the component is removed.
+            if (driver != registeredDriver) {
+                DriverManager.deregisterDriver(registeredDriver);
+
+                registeredDriver = driver;
+                if (!registeredDriver.getClass().getClassLoader().equals(getClass().getClassLoader())) {
+                    getLogger().warn("Registered Driver [{}] created in different ClassLoader: Driver will become unavailable when deregistered", registeredDriver);
+                }
+            }
+            return driver;
         } catch (final SQLException e) {
             // In case the driver is not registered by the implementation, we explicitly try to register it.
+            // deregister existing driver
             try {
-                final Driver driver = (Driver) clazz.getDeclaredConstructor().newInstance();
-                DriverManager.registerDriver(driver);
+                DriverManager.deregisterDriver(registeredDriver);
+                registeredDriver = (Driver) clazz.getDeclaredConstructor().newInstance();
+                DriverManager.registerDriver(registeredDriver);
                 return DriverManager.getDriver(url);
             } catch (final SQLException e2) {
                 throw new ProcessException("No suitable driver for the given Database Connection URL", e2);
             } catch (final Exception e2) {
                 throw new ProcessException("Creating driver instance is failed", e2);
             }
+        }
+    }
+
+    @OnRemoved
+    public void onRemove() {
+        try {
+            // We need to deregister the driver to allow the InstanceClassLoader to be garbage collected.
+            DriverManager.deregisterDriver(registeredDriver);
+        } catch (SQLException e) {
+            getLogger().warn("Potential memory leak: Driver could not be deregistered [{}]", registeredDriver, e);
         }
     }
 }

@@ -17,23 +17,6 @@
 
 package org.apache.nifi.controller.state.providers.local;
 
-import java.io.File;
-import java.io.IOException;
-import java.util.ArrayList;
-import java.util.Collection;
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Optional;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentMap;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.ThreadFactory;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicLong;
-
 import org.apache.nifi.components.PropertyDescriptor;
 import org.apache.nifi.components.state.Scope;
 import org.apache.nifi.components.state.StateMap;
@@ -50,6 +33,23 @@ import org.wali.SerDe;
 import org.wali.SerDeFactory;
 import org.wali.UpdateType;
 import org.wali.WriteAheadRepository;
+
+import java.io.File;
+import java.io.IOException;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ThreadFactory;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * Provides state management for local (standalone) state, backed by a write-ahead log
@@ -99,7 +99,6 @@ public class WriteAheadLocalStateProvider extends AbstractStateProvider {
         .required(true)
         .build();
 
-
     private WriteAheadRepository<StateMapUpdate> writeAheadLog;
     private AtomicLong versionGenerator;
 
@@ -111,7 +110,6 @@ public class WriteAheadLocalStateProvider extends AbstractStateProvider {
     public synchronized void init(final StateProviderInitializationContext context) throws IOException {
         long checkpointIntervalMillis = context.getProperty(CHECKPOINT_INTERVAL).asTimePeriod(TimeUnit.MILLISECONDS);
         alwaysSync = context.getProperty(ALWAYS_SYNC).asBoolean();
-
 
         final File basePath = new File(context.getProperty(PATH).getValue());
 
@@ -168,6 +166,13 @@ public class WriteAheadLocalStateProvider extends AbstractStateProvider {
         properties.add(CHECKPOINT_INTERVAL);
         properties.add(NUM_PARTITIONS);
         return properties;
+    }
+
+    // Visible for testing. Forces a synchronous checkpoint of the underlying Write-Ahead Log so
+    // that tests can deterministically observe the on-disk snapshot without waiting for the
+    // scheduled CheckpointTask to run.
+    void checkpoint() throws IOException {
+        writeAheadLog.checkpoint();
     }
 
     @Override

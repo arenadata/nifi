@@ -19,7 +19,7 @@
     <parent>
         <groupId>org.apache.nifi</groupId>
         <artifactId>nifi-standard-shared-bom</artifactId>
-        <version>2.6.0</version>
+        <version>2.10.0.1</version>
         <relativePath>../nifi-standard-shared-bundle/nifi-standard-shared-bom</relativePath>
     </parent>
 
@@ -28,15 +28,13 @@
 
     <properties>
         <!-- when changing the Azure SDK version, also update msal4j to the version that is required by azure-identity -->
-        <azure.sdk.bom.version>1.2.38</azure.sdk.bom.version>
-        <msal4j.version>1.22.0</msal4j.version>
+        <msal4j.version>1.23.1</msal4j.version>
         <qpid.proton.version>0.34.1</qpid.proton.version>
     </properties>
 
     <modules>
         <module>nifi-azure-processors</module>
         <module>nifi-azure-reporting-task</module>
-        <module>nifi-azure-graph-authorizer</module>
         <module>nifi-azure-nar</module>
         <module>nifi-azure-services-api</module>
         <module>nifi-azure-services-api-nar</module>
@@ -56,7 +54,7 @@
             <dependency>
                 <groupId>com.google.guava</groupId>
                 <artifactId>guava</artifactId>
-                <version>33.4.8-jre</version>
+                <version>33.6.0-jre</version>
             </dependency>
             <!-- Override Apache Qpid Proton J for Azure EventHubs to resolve PROTON-2347 -->
             <dependency>
@@ -64,7 +62,7 @@
                 <artifactId>proton-j</artifactId>
                 <version>${qpid.proton.version}</version>
             </dependency>
-            <!-- Set msal4j version for azure-identity and nifi-azure-graph-authorizer -->
+            <!-- Set msal4j version for azure-identity -->
             <dependency>
                 <groupId>com.microsoft.azure</groupId>
                 <artifactId>msal4j</artifactId>
@@ -80,7 +78,29 @@
             <dependency>
                 <groupId>io.projectreactor.netty</groupId>
                 <artifactId>reactor-netty-http</artifactId>
-                <version>1.2.10</version>
+                <version>1.3.6</version>
+                <exclusions>
+                    <!--
+                        Reactor Netty 1.3 includes HTTP/3 support requiring native QUIC libraries.
+                        Exclude netty-codec-http3 to prevent HTTP/3 initialization.
+                        Explicitly add netty-codec-classes-quic below so Http3.isHttp3Available() can run and
+                        properly detect that native QUIC support is unavailable.
+                    -->
+                    <exclusion>
+                        <groupId>io.netty</groupId>
+                        <artifactId>netty-codec-http3</artifactId>
+                    </exclusion>
+                </exclusions>
+            </dependency>
+            <!--
+                Required for reactor-netty-http Http3.isHttp3Available() to detect
+                that native QUIC support is unavailable. This is a transitive dependency
+                of netty-codec-http3, which is excluded above, so it must be added explicitly.
+            -->
+            <dependency>
+                <groupId>io.netty</groupId>
+                <artifactId>netty-codec-classes-quic</artifactId>
+                <version>${netty.4.version}</version>
             </dependency>
         </dependencies>
     </dependencyManagement>

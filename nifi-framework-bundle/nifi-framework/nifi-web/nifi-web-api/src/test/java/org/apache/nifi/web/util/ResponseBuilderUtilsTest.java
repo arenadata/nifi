@@ -16,10 +16,8 @@
  */
 package org.apache.nifi.web.util;
 
-
 import jakarta.ws.rs.core.HttpHeaders;
 import jakarta.ws.rs.core.Response;
-
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -28,11 +26,11 @@ class ResponseBuilderUtilsTest {
 
     private static final String FILENAME_ASCII = "image.jpg";
 
-    private static final String DISPOSITION_ASCII = "attachment; filename=\"=?UTF-8?Q?%s?=\"; filename*=UTF-8''%s".formatted(FILENAME_ASCII, FILENAME_ASCII);
+    private static final String DISPOSITION_ASCII = "attachment; filename=\"%s\"; filename*=UTF-8''%s".formatted(FILENAME_ASCII, FILENAME_ASCII);
 
     private static final String FILENAME_SPACED = "image label.jpg";
 
-    private static final String DISPOSITION_ENCODED = "attachment; filename=\"=?UTF-8?Q?image_label.jpg?=\"; filename*=UTF-8''image%20label.jpg";
+    private static final String DISPOSITION_ENCODED = "attachment; filename=\"image label.jpg\"; filename*=UTF-8''image%20label.jpg";
 
     @Test
     void testSetContentDisposition() {

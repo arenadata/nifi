@@ -32,6 +32,7 @@ import org.apache.nifi.components.PropertyDescriptor;
 import org.apache.nifi.expression.ExpressionLanguageScope;
 import org.apache.nifi.flowfile.FlowFile;
 import org.apache.nifi.flowfile.attributes.CoreAttributes;
+import org.apache.nifi.migration.PropertyConfiguration;
 import org.apache.nifi.processor.AbstractProcessor;
 import org.apache.nifi.processor.ProcessContext;
 import org.apache.nifi.processor.ProcessSession;
@@ -69,14 +70,13 @@ public class AttributesToCSV extends AbstractProcessor {
     private static final String OUTPUT_MIME_TYPE = "text/csv";
     private static final String SPLIT_REGEX = OUTPUT_SEPARATOR + "(?=(?:[^\"]*\"[^\"]*\")*[^\"]*$)";
 
-    static final AllowableValue OUTPUT_OVERWRITE_CONTENT = new AllowableValue("flowfile-content", "flowfile-content", "The resulting CSV string will be placed into the content of the flowfile." +
-            "Existing flowfile context will be overwritten. 'CSVData' will not be written to at all (neither null nor empty string).");
-    static final AllowableValue OUTPUT_NEW_ATTRIBUTE = new AllowableValue("flowfile-attribute", "flowfile-attribute", "The resulting CSV string will be placed into a new flowfile" +
-            " attribute named 'CSVData'.  The content of the flowfile will not be changed.");
+    static final AllowableValue OUTPUT_OVERWRITE_CONTENT = new AllowableValue("flowfile-content", "flowfile-content", "The resulting CSV string will be placed into the content of the FlowFile." +
+            "Existing FlowFile context will be overwritten. 'CSVData' will not be written to at all (neither null nor empty string).");
+    static final AllowableValue OUTPUT_NEW_ATTRIBUTE = new AllowableValue("flowfile-attribute", "flowfile-attribute", "The resulting CSV string will be placed into a new FlowFile" +
+            " attribute named 'CSVData'.  The content of the FlowFile will not be changed.");
 
     public static final PropertyDescriptor ATTRIBUTES_LIST = new PropertyDescriptor.Builder()
-            .name("attribute-list")
-            .displayName("Attribute List")
+            .name("Attribute List")
             .description("Comma separated list of attributes to be included in the resulting CSV. If this value " +
                     "is left empty then all existing Attributes will be included. This list of attributes is " +
                     "case sensitive and supports attribute names that contain commas. If an attribute specified in the list is not found it will be emitted " +
@@ -90,9 +90,8 @@ public class AttributesToCSV extends AbstractProcessor {
             .build();
 
     public static final PropertyDescriptor ATTRIBUTES_REGEX = new PropertyDescriptor.Builder()
-            .name("attributes-regex")
-            .displayName("Attributes Regular Expression")
-            .description("Regular expression that will be evaluated against the flow file attributes to select "
+            .name("Attributes Regular Expression")
+            .description("Regular expression that will be evaluated against the FlowFile attributes to select "
                     + "the matching attributes. This property can be used in combination with the attributes "
                     + "list property.  The final output will contain a combination of matches found in the ATTRIBUTE_LIST and ATTRIBUTE_REGEX.")
             .required(false)
@@ -102,18 +101,16 @@ public class AttributesToCSV extends AbstractProcessor {
             .build();
 
     public static final PropertyDescriptor DESTINATION = new PropertyDescriptor.Builder()
-            .name("destination")
-            .displayName("Destination")
-            .description("Control if CSV value is written as a new flowfile attribute 'CSVData' " +
-                    "or written in the flowfile content.")
+            .name("Destination")
+            .description("Control if CSV value is written as a new FlowFile attribute 'CSVData' " +
+                    "or written in the FlowFile content.")
             .required(true)
             .allowableValues(OUTPUT_NEW_ATTRIBUTE, OUTPUT_OVERWRITE_CONTENT)
             .defaultValue(OUTPUT_NEW_ATTRIBUTE.getDisplayName())
             .build();
 
     public static final PropertyDescriptor INCLUDE_CORE_ATTRIBUTES = new PropertyDescriptor.Builder()
-            .name("include-core-attributes")
-            .displayName("Include Core Attributes")
+            .name("Include Core Attributes")
             .description("Determines if the FlowFile org.apache.nifi.flowfile.attributes.CoreAttributes, which are " +
                     "contained in every FlowFile, should be included in the final CSV value generated.  Core attributes " +
                     "will be added to the end of the CSVData and CSVSchema strings.  The Attribute List property " +
@@ -125,8 +122,7 @@ public class AttributesToCSV extends AbstractProcessor {
             .build();
 
     public static final PropertyDescriptor NULL_VALUE_FOR_EMPTY_STRING = new PropertyDescriptor.Builder()
-            .name("null-value")
-            .displayName("Null Value")
+            .name("Null Value")
             .description("If true a non existing or empty attribute will be 'null' in the resulting CSV. If false an empty " +
                     "string will be placed in the CSV")
             .required(true)
@@ -135,8 +131,7 @@ public class AttributesToCSV extends AbstractProcessor {
             .defaultValue("false")
             .build();
     public static final PropertyDescriptor INCLUDE_SCHEMA = new PropertyDescriptor.Builder()
-            .name("include-schema")
-            .displayName("Include Schema")
+            .name("Include Schema")
             .description("If true the schema (attribute names) will also be converted to a CSV string which will either be " +
                     "applied to a new attribute named 'CSVSchema' or applied at the first row in the " +
                     "content depending on the DESTINATION property setting.")
@@ -182,7 +177,6 @@ public class AttributesToCSV extends AbstractProcessor {
         return RELATIONSHIPS;
     }
 
-
     private Map<String, String> buildAttributesMapForFlowFile(FlowFile ff, Set<String> attributes, Pattern attPattern) {
         Map<String, String> result;
         Map<String, String> ffAttributes = ff.getAttributes();
@@ -212,14 +206,14 @@ public class AttributesToCSV extends AbstractProcessor {
                 }
             }
         } else {
-            //the user did not give a list of attributes, take all the attributes from the flowfile
+            //the user did not give a list of attributes, take all the attributes from the FlowFile
             result.putAll(ffAttributes);
         }
 
         //now glue on the core attributes if the user wants them.
         if (includeCoreAttributes) {
             for (String coreAttribute : coreAttributes) {
-                //make sure this coreAttribute is applicable to this flowfile.
+                //make sure this coreAttribute is applicable to this FlowFile.
                 String val = ff.getAttribute(coreAttribute);
                 if (ffAttributes.containsKey(coreAttribute)) {
                     if (!StringUtils.isEmpty(val)) {
@@ -264,7 +258,7 @@ public class AttributesToCSV extends AbstractProcessor {
         destinationContent = OUTPUT_OVERWRITE_CONTENT.getValue().equals(context.getProperty(DESTINATION).getValue());
         nullValForEmptyString = context.getProperty(NULL_VALUE_FOR_EMPTY_STRING).asBoolean();
         includeSchema = context.getProperty(INCLUDE_SCHEMA).asBoolean();
-     }
+    }
 
     @Override
     public void onTrigger(ProcessContext context, ProcessSession session) throws ProcessException {
@@ -301,11 +295,11 @@ public class AttributesToCSV extends AbstractProcessor {
         try {
             if (destinationContent) {
                 FlowFile conFlowfile = session.write(original, (in, out) -> {
-                        if (includeSchema) {
-                            sbNames.append(System.lineSeparator());
-                            out.write(sbNames.toString().getBytes());
-                        }
-                        out.write(sbValues.toString().getBytes());
+                    if (includeSchema) {
+                        sbNames.append(System.lineSeparator());
+                        out.write(sbNames.toString().getBytes());
+                    }
+                    out.write(sbValues.toString().getBytes());
                 });
                 conFlowfile = session.putAttribute(conFlowfile, CoreAttributes.MIME_TYPE.key(), OUTPUT_MIME_TYPE);
                 session.transfer(conFlowfile, REL_SUCCESS);
@@ -320,5 +314,15 @@ public class AttributesToCSV extends AbstractProcessor {
             getLogger().error(e.getMessage());
             session.transfer(original, REL_FAILURE);
         }
+    }
+
+    @Override
+    public void migrateProperties(PropertyConfiguration config) {
+        config.renameProperty("attribute-list", ATTRIBUTES_LIST.getName());
+        config.renameProperty("attributes-regex", ATTRIBUTES_REGEX.getName());
+        config.renameProperty("destination", DESTINATION.getName());
+        config.renameProperty("include-core-attributes", INCLUDE_CORE_ATTRIBUTES.getName());
+        config.renameProperty("null-value", NULL_VALUE_FOR_EMPTY_STRING.getName());
+        config.renameProperty("include-schema", INCLUDE_SCHEMA.getName());
     }
 }

@@ -16,18 +16,6 @@
  */
 package org.apache.nifi.processors.email;
 
-import java.io.BufferedInputStream;
-import java.io.IOException;
-import java.io.InputStream;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Enumeration;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Properties;
-import java.util.Set;
-import java.util.concurrent.atomic.AtomicInteger;
 import jakarta.mail.Address;
 import jakarta.mail.BodyPart;
 import jakarta.mail.Header;
@@ -38,7 +26,6 @@ import jakarta.mail.Session;
 import jakarta.mail.internet.MimeBodyPart;
 import jakarta.mail.internet.MimeMessage;
 import jakarta.mail.internet.MimePart;
-
 import org.apache.nifi.annotation.behavior.InputRequirement;
 import org.apache.nifi.annotation.behavior.InputRequirement.Requirement;
 import org.apache.nifi.annotation.behavior.SideEffectFree;
@@ -52,17 +39,31 @@ import org.apache.nifi.components.PropertyDescriptor;
 import org.apache.nifi.expression.ExpressionLanguageScope;
 import org.apache.nifi.flowfile.FlowFile;
 import org.apache.nifi.logging.ComponentLog;
+import org.apache.nifi.migration.PropertyConfiguration;
 import org.apache.nifi.processor.AbstractProcessor;
 import org.apache.nifi.processor.ProcessContext;
 import org.apache.nifi.processor.ProcessSession;
 import org.apache.nifi.processor.Relationship;
 import org.apache.nifi.processor.util.StandardValidators;
 
+import java.io.BufferedInputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Enumeration;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Properties;
+import java.util.Set;
+import java.util.concurrent.atomic.AtomicInteger;
+
 @SupportsBatching
 @SideEffectFree
 @Tags({"split", "email"})
 @InputRequirement(Requirement.INPUT_REQUIRED)
-@CapabilityDescription("Using the flowfile content as source of data, extract header from an RFC compliant  email file adding the relevant attributes to the flowfile. " +
+@CapabilityDescription("Using the FlowFile content as source of data, extract header from an RFC compliant  email file adding the relevant attributes to the FlowFile. " +
         "This processor does not perform extensive RFC validation but still requires a bare minimum compliance with RFC 2822")
 @WritesAttributes({
         @WritesAttribute(attribute = "email.headers.bcc.*", description = "Each individual BCC recipient (if available)"),
@@ -73,7 +74,7 @@ import org.apache.nifi.processor.util.StandardValidators;
         @WritesAttribute(attribute = "email.headers.sent_date", description = "Date the message was sent"),
         @WritesAttribute(attribute = "email.headers.subject", description = "Subject of the message (if available)"),
         @WritesAttribute(attribute = "email.headers.to.*", description = "Each individual TO recipient (if available)"),
-        @WritesAttribute(attribute = "email.attachment_count", description = "Number of attachments of the message" )})
+        @WritesAttribute(attribute = "email.attachment_count", description = "Number of attachments of the message")})
 
 public class ExtractEmailHeaders extends AbstractProcessor {
     public static final String EMAIL_HEADER_BCC = "email.headers.bcc";
@@ -87,9 +88,8 @@ public class ExtractEmailHeaders extends AbstractProcessor {
     public static final String EMAIL_ATTACHMENT_COUNT = "email.attachment_count";
 
     public static final PropertyDescriptor CAPTURED_HEADERS = new PropertyDescriptor.Builder()
-            .name("CAPTURED_HEADERS")
-            .displayName("Additional Header List")
-            .description("COLON separated list of additional headers to be extracted from the flowfile content." +
+            .name("Additional Header List")
+            .description("COLON separated list of additional headers to be extracted from the FlowFile content." +
                     "NOTE the header key is case insensitive and will be matched as lower-case." +
                     " Values will respect email contents.")
             .required(false)
@@ -103,8 +103,7 @@ public class ExtractEmailHeaders extends AbstractProcessor {
     private static final AllowableValue NONSTRICT_ADDRESSING = new AllowableValue("false", "Non-Strict Address Parsing",
         "Accept emails, even if the address is poorly formed and doesn't strictly comply with RFC Validation.");
     public static final PropertyDescriptor STRICT_PARSING = new PropertyDescriptor.Builder()
-            .name("STRICT_ADDRESS_PARSING")
-            .displayName("Email Address Parsing")
+            .name("Email Address Parsing")
             .description("If \"strict\", strict address format parsing rules are applied to mailbox and mailbox list fields, " +
                     "such as \"to\" and \"from\" headers, and FlowFiles with poorly formed addresses will be routed " +
                     "to the failure relationship, similar to messages that fail RFC compliant format validation. " +
@@ -227,6 +226,12 @@ public class ExtractEmailHeaders extends AbstractProcessor {
     @Override
     public final List<PropertyDescriptor> getSupportedPropertyDescriptors() {
         return PROPERTY_DESCRIPTORS;
+    }
+
+    @Override
+    public void migrateProperties(PropertyConfiguration config) {
+        config.renameProperty("CAPTURED_HEADERS", CAPTURED_HEADERS.getName());
+        config.renameProperty("STRICT_ADDRESS_PARSING", STRICT_PARSING.getName());
     }
 
     private static void putAddressListInAttributes(

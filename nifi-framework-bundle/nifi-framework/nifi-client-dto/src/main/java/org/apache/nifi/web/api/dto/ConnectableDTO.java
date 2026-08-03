@@ -17,7 +17,6 @@
 package org.apache.nifi.web.api.dto;
 
 import io.swagger.v3.oas.annotations.media.Schema;
-
 import jakarta.xml.bind.annotation.XmlType;
 
 /**
@@ -58,7 +57,6 @@ public class ConnectableDTO {
     public void setVersionedComponentId(final String id) {
         this.versionedComponentId = id;
     }
-
 
     /**
      * @return type of this connectable component

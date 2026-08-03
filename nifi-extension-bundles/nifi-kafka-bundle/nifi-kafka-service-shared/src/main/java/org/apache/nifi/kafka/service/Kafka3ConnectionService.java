@@ -19,12 +19,11 @@ package org.apache.nifi.kafka.service;
 import org.apache.kafka.clients.admin.Admin;
 import org.apache.kafka.clients.admin.AdminClientConfig;
 import org.apache.kafka.clients.admin.ListTopicsResult;
-import org.apache.kafka.clients.admin.TopicListing;
 import org.apache.kafka.clients.consumer.Consumer;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.clients.consumer.KafkaConsumer;
 import org.apache.kafka.clients.producer.ProducerConfig;
-import org.apache.kafka.common.KafkaFuture;
+import org.apache.kafka.common.config.SslConfigs;
 import org.apache.kafka.common.security.auth.SecurityProtocol;
 import org.apache.kafka.common.serialization.ByteArrayDeserializer;
 import org.apache.nifi.annotation.behavior.DynamicProperty;
@@ -34,6 +33,8 @@ import org.apache.nifi.annotation.lifecycle.OnEnabled;
 import org.apache.nifi.components.ConfigVerificationResult;
 import org.apache.nifi.components.PropertyDescriptor;
 import org.apache.nifi.components.PropertyValue;
+import org.apache.nifi.components.connector.components.ConnectorMethod;
+import org.apache.nifi.components.connector.components.MethodArgument;
 import org.apache.nifi.context.PropertyContext;
 import org.apache.nifi.controller.AbstractControllerService;
 import org.apache.nifi.controller.ConfigurationContext;
@@ -46,10 +47,12 @@ import org.apache.nifi.kafka.service.api.consumer.KafkaConsumerService;
 import org.apache.nifi.kafka.service.api.consumer.PollingContext;
 import org.apache.nifi.kafka.service.api.producer.KafkaProducerService;
 import org.apache.nifi.kafka.service.api.producer.ProducerConfiguration;
+import org.apache.nifi.kafka.service.consumer.Kafka3AssignmentService;
 import org.apache.nifi.kafka.service.consumer.Kafka3ConsumerService;
 import org.apache.nifi.kafka.service.consumer.Subscription;
 import org.apache.nifi.kafka.service.producer.Kafka3ProducerService;
 import org.apache.nifi.kafka.service.security.OAuthBearerLoginCallbackHandler;
+import org.apache.nifi.kafka.service.security.StandardSslEngineFactory;
 import org.apache.nifi.kafka.shared.component.KafkaClientComponent;
 import org.apache.nifi.kafka.shared.property.IsolationLevel;
 import org.apache.nifi.kafka.shared.property.SaslMechanism;
@@ -60,36 +63,33 @@ import org.apache.nifi.kafka.shared.validation.DynamicPropertyValidator;
 import org.apache.nifi.logging.ComponentLog;
 import org.apache.nifi.oauth2.OAuth2AccessTokenProvider;
 import org.apache.nifi.processor.util.StandardValidators;
-import org.apache.nifi.ssl.SSLContextService;
+import org.apache.nifi.ssl.SSLContextProvider;
 
 import java.time.Duration;
 import java.util.ArrayList;
-import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Properties;
+import java.util.Set;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.regex.Pattern;
 
-import static org.apache.nifi.components.ConfigVerificationResult.Outcome.FAILED;
-import static org.apache.nifi.components.ConfigVerificationResult.Outcome.SUCCESSFUL;
 import static org.apache.nifi.kafka.service.security.OAuthBearerLoginCallbackHandler.PROPERTY_KEY_NIFI_OAUTH_2_ACCESS_TOKEN_PROVIDER;
+import static org.apache.nifi.kafka.service.security.StandardSslEngineFactory.SSL_CONTEXT_PROVIDER_PROPERTY;
 import static org.apache.nifi.kafka.shared.property.KafkaClientProperty.SASL_LOGIN_CALLBACK_HANDLER_CLASS;
-import static org.apache.nifi.kafka.shared.property.KafkaClientProperty.SSL_KEYSTORE_LOCATION;
-import static org.apache.nifi.kafka.shared.property.KafkaClientProperty.SSL_KEYSTORE_PASSWORD;
-import static org.apache.nifi.kafka.shared.property.KafkaClientProperty.SSL_KEYSTORE_TYPE;
-import static org.apache.nifi.kafka.shared.property.KafkaClientProperty.SSL_KEY_PASSWORD;
-import static org.apache.nifi.kafka.shared.property.KafkaClientProperty.SSL_TRUSTSTORE_LOCATION;
-import static org.apache.nifi.kafka.shared.property.KafkaClientProperty.SSL_TRUSTSTORE_PASSWORD;
-import static org.apache.nifi.kafka.shared.property.KafkaClientProperty.SSL_TRUSTSTORE_TYPE;
+import static org.apache.nifi.kafka.shared.util.SaslExtensionUtil.SASL_EXTENSION_PROPERTY_PREFIX;
+import static org.apache.nifi.kafka.shared.util.SaslExtensionUtil.isSaslExtensionProperty;
+import static org.apache.nifi.kafka.shared.util.SaslExtensionUtil.removeSaslExtensionPropertyPrefix;
 
 @Tags({"Apache", "Kafka", "Message", "Publish", "Consume"})
-@DynamicProperty(name = "The name of a Kafka configuration property.", value = "The value of a given Kafka configuration property.",
-        description = "These properties will be added on the Kafka configuration after loading any provided configuration properties."
+@DynamicProperty(name = "The name of a Kafka configuration property or a SASL extension property.", value = "The value of the given property.",
+        description = "Kafka configuration properties will be added on the Kafka configuration after loading any provided configuration properties."
                 + " In the event a dynamic property represents a property that was already set, its value will be ignored and WARN message logged."
-                + " For the list of available Kafka properties please refer to: http://kafka.apache.org/documentation.html#configuration.",
+                + " For the list of available Kafka properties please refer to: http://kafka.apache.org/documentation.html#configuration."
+                + " SASL extension properties can be specified in " + SASL_EXTENSION_PROPERTY_PREFIX + "propertyName format (e.g. " + SASL_EXTENSION_PROPERTY_PREFIX + "logicalCluster).",
         expressionLanguageScope = ExpressionLanguageScope.ENVIRONMENT)
 @CapabilityDescription("Provides and manages connections to Kafka Brokers for producer or consumer operations.")
 public class Kafka3ConnectionService extends AbstractControllerService implements KafkaConnectionService, VerifiableControllerService, KafkaClientComponent {
@@ -172,9 +172,7 @@ public class Kafka3ConnectionService extends AbstractControllerService implement
             ACK_WAIT_TIME
     );
 
-    private static final Duration VERIFY_TIMEOUT = Duration.ofSeconds(2);
-    private static final String CONNECTION_STEP = "Kafka Broker Connection";
-    private static final String TOPIC_LISTING_STEP = "Kafka Topic Listing";
+    private static final KafkaConnectionVerifier kafkaConnectionVerifier = new KafkaConnectionVerifier();
 
     private volatile ServiceConfiguration serviceConfiguration;
     private volatile Properties producerProperties;
@@ -200,8 +198,8 @@ public class Kafka3ConnectionService extends AbstractControllerService implement
 
         final SecurityProtocol securityProtocol = context.getProperty(SECURITY_PROTOCOL).asAllowableValue(SecurityProtocol.class);
         final String protocol = switch (securityProtocol) {
-        case SSL, SASL_SSL -> "kafkas";
-        case SASL_PLAINTEXT, PLAINTEXT -> "kafka";
+            case SSL, SASL_SSL -> "kafkas";
+            case SASL_PLAINTEXT, PLAINTEXT -> "kafka";
         };
 
         return String.format("%s://%s", protocol, firstBootstrapServer);
@@ -214,12 +212,26 @@ public class Kafka3ConnectionService extends AbstractControllerService implement
 
     @Override
     protected PropertyDescriptor getSupportedDynamicPropertyDescriptor(final String propertyDescriptorName) {
+        final String propertyName;
+        final String propertyType;
+        final ExpressionLanguageScope expressionLanguageScope;
+
+        if (isSaslExtensionProperty(propertyDescriptorName)) {
+            propertyName = removeSaslExtensionPropertyPrefix(propertyDescriptorName);
+            propertyType = "SASL Extension";
+            expressionLanguageScope = ExpressionLanguageScope.NONE;
+        } else {
+            propertyName = propertyDescriptorName;
+            propertyType = "Kafka Configuration";
+            expressionLanguageScope = ExpressionLanguageScope.ENVIRONMENT;
+        }
+
         return new PropertyDescriptor.Builder()
-                .description("Specifies the value for '" + propertyDescriptorName + "' Kafka Configuration.")
+                .description("Specifies the value for '%s' %s property.".formatted(propertyName, propertyType))
                 .name(propertyDescriptorName)
                 .addValidator(new DynamicPropertyValidator(ProducerConfig.class, ConsumerConfig.class))
                 .dynamic(true)
-                .expressionLanguageSupported(ExpressionLanguageScope.ENVIRONMENT)
+                .expressionLanguageSupported(expressionLanguageScope)
                 .build();
     }
 
@@ -227,18 +239,25 @@ public class Kafka3ConnectionService extends AbstractControllerService implement
     public KafkaConsumerService getConsumerService(final PollingContext pollingContext) {
         Objects.requireNonNull(pollingContext, "Polling Context required");
 
-        final Subscription subscription = createSubscription(pollingContext);
+        final String groupId = pollingContext.getGroupId();
 
         final Properties properties = new Properties();
         properties.putAll(consumerProperties);
-        properties.put(ConsumerConfig.GROUP_ID_CONFIG, subscription.getGroupId());
-        properties.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, subscription.getAutoOffsetReset().getValue());
+        if (groupId != null) {
+            properties.put(ConsumerConfig.GROUP_ID_CONFIG, groupId);
+        }
+        properties.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, pollingContext.getAutoOffsetReset().getValue());
         properties.put(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, "false");
 
         final ByteArrayDeserializer deserializer = new ByteArrayDeserializer();
         final Consumer<byte[], byte[]> consumer = new KafkaConsumer<>(properties, deserializer, deserializer);
 
-        return new Kafka3ConsumerService(getLogger(), consumer, subscription);
+        if (groupId == null) {
+            return new Kafka3AssignmentService(consumer, pollingContext.getTopics());
+        } else {
+            final Subscription subscription = createSubscription(pollingContext);
+            return new Kafka3ConsumerService(getLogger(), consumer, subscription);
+        }
     }
 
     private Subscription createSubscription(final PollingContext pollingContext) {
@@ -266,9 +285,9 @@ public class Kafka3ConnectionService extends AbstractControllerService implement
             properties.put(ProducerConfig.COMPRESSION_TYPE_CONFIG, producerConfiguration.getCompressionCodec());
         }
         final String partitionClass = producerConfiguration.getPartitionClass();
-        if (partitionClass != null && partitionClass.startsWith("org.apache.kafka")
         // Default Partitioner is removed in Kafka 4.0, and partitioner class should be
         // null by default - see KIP-794
+        if (partitionClass != null && partitionClass.startsWith("org.apache.kafka")
                 && !partitionClass.equals("org.apache.kafka.clients.producer.internals.DefaultPartitioner")) {
             properties.put(ProducerConfig.PARTITIONER_CLASS_CONFIG, partitionClass);
         }
@@ -283,42 +302,37 @@ public class Kafka3ConnectionService extends AbstractControllerService implement
         return uri;
     }
 
+    @ConnectorMethod(
+        name = "listTopicNames",
+        description = "Returns a list of topic names available in the Kafka cluster",
+        arguments = {
+            @MethodArgument(name = "context", type = ConfigurationContext.class, description = "The configuration context that specifies connectivity details")
+        })
+    public List<String> listTopicNames(final ConfigurationContext context) throws ExecutionException, InterruptedException {
+        final Properties clientProperties = getClientProperties(context);
+        final Properties consumerProperties = getConsumerProperties(context, clientProperties);
+
+        try (final Admin admin = Admin.create(consumerProperties)) {
+            final ListTopicsResult result = admin.listTopics();
+            final Set<String> topicNames = result.names().get();
+            final List<String> sortedTopicNames = new ArrayList<>(topicNames);
+            sortedTopicNames.sort(String.CASE_INSENSITIVE_ORDER);
+            return sortedTopicNames;
+        }
+    }
+
+
     @Override
     public List<ConfigVerificationResult> verify(final ConfigurationContext configurationContext, final ComponentLog verificationLogger, final Map<String, String> variables) {
-        final List<ConfigVerificationResult> results = new ArrayList<>();
-
-        // Build Admin Client Properties based on configured values and defaults from Consumer Properties
+        // Build Client Properties based on configured values and defaults from Consumer Properties
         final Properties clientProperties = getClientProperties(configurationContext);
         final Properties consumerProperties = getConsumerProperties(configurationContext, clientProperties);
         consumerProperties.putAll(variables);
-        try (final Admin admin = Admin.create(consumerProperties)) {
-            final ListTopicsResult listTopicsResult = admin.listTopics();
 
-            final KafkaFuture<Collection<TopicListing>> requestedListings = listTopicsResult.listings();
-            final Collection<TopicListing> topicListings = requestedListings.get(VERIFY_TIMEOUT.toMillis(), TimeUnit.MILLISECONDS);
-            final String topicListingExplanation = String.format("Topics Found [%d]", topicListings.size());
-            results.add(
-                    new ConfigVerificationResult.Builder()
-                            .verificationStepName(TOPIC_LISTING_STEP)
-                            .outcome(SUCCESSFUL)
-                            .explanation(topicListingExplanation)
-                            .build()
-            );
-        } catch (final Exception e) {
-            verificationLogger.error("Kafka Broker verification failed", e);
-            results.add(
-                    new ConfigVerificationResult.Builder()
-                            .verificationStepName(CONNECTION_STEP)
-                            .outcome(FAILED)
-                            .explanation(e.getMessage())
-                            .build()
-            );
-        }
-
-        return results;
+        return kafkaConnectionVerifier.verify(verificationLogger, consumerProperties);
     }
 
-    private Properties getProducerProperties(final PropertyContext propertyContext, final Properties defaultProperties) {
+    protected Properties getProducerProperties(final PropertyContext propertyContext, final Properties defaultProperties) {
         final Properties properties = new Properties();
         properties.putAll(defaultProperties);
 
@@ -332,7 +346,7 @@ public class Kafka3ConnectionService extends AbstractControllerService implement
         return properties;
     }
 
-    private Properties getConsumerProperties(final PropertyContext propertyContext, final Properties defaultProperties) {
+    protected Properties getConsumerProperties(final PropertyContext propertyContext, final Properties defaultProperties) {
         final Properties properties = new Properties();
         properties.putAll(defaultProperties);
 
@@ -346,7 +360,7 @@ public class Kafka3ConnectionService extends AbstractControllerService implement
         return properties;
     }
 
-    private Properties getClientProperties(final PropertyContext propertyContext) {
+    protected Properties getClientProperties(final PropertyContext propertyContext) {
         final Properties properties = new Properties();
 
         final String configuredBootstrapServers = propertyContext.getProperty(BOOTSTRAP_SERVERS).getValue();
@@ -378,25 +392,11 @@ public class Kafka3ConnectionService extends AbstractControllerService implement
     }
 
     private void setSslProperties(final Properties properties, final PropertyContext context) {
-        final PropertyValue sslContextServiceProperty = context.getProperty(SSL_CONTEXT_SERVICE);
-        if (sslContextServiceProperty.isSet()) {
-            final SSLContextService sslContextService = sslContextServiceProperty.asControllerService(SSLContextService.class);
-            if (sslContextService.isKeyStoreConfigured()) {
-                properties.put(SSL_KEYSTORE_LOCATION.getProperty(), sslContextService.getKeyStoreFile());
-                properties.put(SSL_KEYSTORE_TYPE.getProperty(), sslContextService.getKeyStoreType());
-
-                final String keyStorePassword = sslContextService.getKeyStorePassword();
-                properties.put(SSL_KEYSTORE_PASSWORD.getProperty(), keyStorePassword);
-
-                final String keyPassword = sslContextService.getKeyPassword();
-                final String configuredKeyPassword = keyPassword == null ? keyStorePassword : keyPassword;
-                properties.put(SSL_KEY_PASSWORD.getProperty(), configuredKeyPassword);
-            }
-            if (sslContextService.isTrustStoreConfigured()) {
-                properties.put(SSL_TRUSTSTORE_LOCATION.getProperty(), sslContextService.getTrustStoreFile());
-                properties.put(SSL_TRUSTSTORE_TYPE.getProperty(), sslContextService.getTrustStoreType());
-                properties.put(SSL_TRUSTSTORE_PASSWORD.getProperty(), sslContextService.getTrustStorePassword());
-            }
+        final PropertyValue sslContextProperty = context.getProperty(SSL_CONTEXT_SERVICE);
+        if (sslContextProperty.isSet()) {
+            final SSLContextProvider sslContextProvider = sslContextProperty.asControllerService(SSLContextProvider.class);
+            properties.put(SslConfigs.SSL_ENGINE_FACTORY_CLASS_CONFIG, StandardSslEngineFactory.class.getName());
+            properties.put(SSL_CONTEXT_PROVIDER_PROPERTY, sslContextProvider);
         }
     }
 

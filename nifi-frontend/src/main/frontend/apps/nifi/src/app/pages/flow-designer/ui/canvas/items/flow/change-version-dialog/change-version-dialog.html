@@ -26,7 +26,7 @@
                     <div>
                         <div>Registry</div>
                         <div
-                            class="tertiary-color font-medium overflow-ellipsis overflow-hidden whitespace-nowrap"
+                            class="tertiary-color font-medium text-ellipsis overflow-hidden whitespace-nowrap"
                             [title]="versionControlInformation.registryName">
                             {{ versionControlInformation.registryName }}
                         </div>
@@ -34,7 +34,7 @@
                     <div>
                         <div>Bucket</div>
                         <div
-                            class="tertiary-color font-medium overflow-ellipsis overflow-hidden whitespace-nowrap"
+                            class="tertiary-color font-medium text-ellipsis overflow-hidden whitespace-nowrap"
                             [title]="versionControlInformation.bucketName">
                             {{ versionControlInformation.bucketName }}
                         </div>
@@ -45,7 +45,7 @@
                         @if (versionControlInformation.branch) {
                             <div>Branch</div>
                             <div
-                                class="tertiary-color font-medium overflow-ellipsis overflow-hidden whitespace-nowrap"
+                                class="tertiary-color font-medium text-ellipsis overflow-hidden whitespace-nowrap"
                                 [title]="versionControlInformation.branch">
                                 {{ versionControlInformation.branch }}
                             </div>
@@ -54,7 +54,7 @@
                     <div>
                         <div>Flow Name</div>
                         <div
-                            class="tertiary-color font-medium overflow-ellipsis overflow-hidden whitespace-nowrap"
+                            class="tertiary-color font-medium text-ellipsis overflow-hidden whitespace-nowrap"
                             [title]="versionControlInformation.flowName">
                             {{ versionControlInformation.flowName }}
                         </div>
@@ -78,11 +78,28 @@
                         (matSortChange)="sortData($event)"
                         [matSortActive]="sort.active"
                         [matSortDirection]="sort.direction">
+                        <!-- Current Version Column -->
+                        <ng-container matColumnDef="current">
+                            <th mat-header-cell *matHeaderCellDef></th>
+                            <td mat-cell *matCellDef="let item">
+                                @if (isCurrentVersion(item)) {
+                                    <div class="flex justify-center items-center">
+                                        <i
+                                            class="fa fa-check"
+                                            nifiTooltip
+                                            [tooltipComponentType]="TextTip"
+                                            tooltipInputData="Currently installed version"
+                                            data-qa="current-version-icon"></i>
+                                    </div>
+                                }
+                            </td>
+                        </ng-container>
+
                         <!-- Version Column -->
                         <ng-container matColumnDef="version">
                             <th mat-header-cell *matHeaderCellDef mat-sort-header>Version</th>
                             <td mat-cell *matCellDef="let item">
-                                <div class="overflow-ellipsis overflow-hidden whitespace-nowrap" [title]="item.version">
+                                <div class="text-ellipsis overflow-hidden whitespace-nowrap" [title]="item.version">
                                     {{ item.version }}
                                 </div>
                             </td>
@@ -98,9 +115,7 @@
                         <ng-container matColumnDef="comments">
                             <th mat-header-cell *matHeaderCellDef mat-sort-header>Comments</th>
                             <td mat-cell *matCellDef="let item">
-                                <div
-                                    class="overflow-ellipsis overflow-hidden whitespace-nowrap"
-                                    [title]="item.comments">
+                                <div class="text-ellipsis overflow-hidden whitespace-nowrap" [title]="item.comments">
                                     {{ item.comments }}
                                 </div>
                             </td>
@@ -113,7 +128,8 @@
                             (click)="select(row)"
                             (dblclick)="changeFlowVersion()"
                             [class.selected]="isSelected(row)"
-                            [class.even]="even"></tr>
+                            [class.even]="even"
+                            data-qa="version-row"></tr>
                     </table>
                 </div>
             </div>
@@ -121,7 +137,12 @@
     </mat-dialog-content>
     <mat-dialog-actions align="end">
         <button mat-button mat-dialog-close>Cancel</button>
-        <button [disabled]="!isSelectionValid()" type="button" (click)="changeFlowVersion()" mat-flat-button>
+        <button
+            [disabled]="!isSelectionValid()"
+            type="button"
+            (click)="changeFlowVersion()"
+            mat-flat-button
+            data-qa="change-button">
             Change
         </button>
     </mat-dialog-actions>

@@ -20,12 +20,12 @@ import org.apache.nifi.components.PropertyDescriptor;
 import org.apache.nifi.components.PropertyValue;
 import org.apache.nifi.context.PropertyContext;
 import org.apache.nifi.controller.ConfigurationContext;
+import org.apache.nifi.kafka.shared.aws.AmazonMSKProperty;
 import org.apache.nifi.kafka.shared.login.DelegatingLoginConfigProvider;
 import org.apache.nifi.kafka.shared.login.LoginConfigProvider;
 import org.apache.nifi.kafka.shared.property.SaslMechanism;
 import org.apache.nifi.kafka.shared.property.SecurityProtocol;
 import org.apache.nifi.processor.ProcessContext;
-import org.apache.nifi.ssl.SSLContextService;
 import org.apache.nifi.util.FormatUtils;
 
 import java.util.LinkedHashMap;
@@ -35,19 +35,12 @@ import java.util.concurrent.TimeUnit;
 import java.util.regex.Matcher;
 import java.util.stream.Collectors;
 
+import static org.apache.nifi.kafka.shared.component.KafkaClientComponent.AWS_WEB_IDENTITY_TOKEN_PROVIDER;
 import static org.apache.nifi.kafka.shared.component.KafkaClientComponent.SASL_MECHANISM;
 import static org.apache.nifi.kafka.shared.component.KafkaClientComponent.SECURITY_PROTOCOL;
-import static org.apache.nifi.kafka.shared.component.KafkaClientComponent.SSL_CONTEXT_SERVICE;
 import static org.apache.nifi.kafka.shared.property.KafkaClientProperty.SASL_CLIENT_CALLBACK_HANDLER_CLASS;
 import static org.apache.nifi.kafka.shared.property.KafkaClientProperty.SASL_JAAS_CONFIG;
 import static org.apache.nifi.kafka.shared.property.KafkaClientProperty.SASL_LOGIN_CLASS;
-import static org.apache.nifi.kafka.shared.property.KafkaClientProperty.SSL_KEYSTORE_LOCATION;
-import static org.apache.nifi.kafka.shared.property.KafkaClientProperty.SSL_KEYSTORE_PASSWORD;
-import static org.apache.nifi.kafka.shared.property.KafkaClientProperty.SSL_KEYSTORE_TYPE;
-import static org.apache.nifi.kafka.shared.property.KafkaClientProperty.SSL_KEY_PASSWORD;
-import static org.apache.nifi.kafka.shared.property.KafkaClientProperty.SSL_TRUSTSTORE_LOCATION;
-import static org.apache.nifi.kafka.shared.property.KafkaClientProperty.SSL_TRUSTSTORE_PASSWORD;
-import static org.apache.nifi.kafka.shared.property.KafkaClientProperty.SSL_TRUSTSTORE_TYPE;
 
 /**
  * Standard implementation of Kafka Property Provider based on shared Kafka Property Descriptors
@@ -73,7 +66,6 @@ public class StandardKafkaPropertyProvider implements KafkaPropertyProvider {
         final Map<String, Object> properties = new LinkedHashMap<>();
         setClientProperties(properties, context);
         setSecurityProperties(properties, context);
-        setSslProperties(properties, context);
         return properties;
     }
 
@@ -89,31 +81,13 @@ public class StandardKafkaPropertyProvider implements KafkaPropertyProvider {
             final SaslMechanism saslMechanism = context.getProperty(SASL_MECHANISM).asAllowableValue(SaslMechanism.class);
             if (saslMechanism == SaslMechanism.GSSAPI && isCustomKerberosLoginFound()) {
                 properties.put(SASL_LOGIN_CLASS.getProperty(), SASL_GSSAPI_CUSTOM_LOGIN_CLASS);
-            } else if (saslMechanism == SaslMechanism.AWS_MSK_IAM && isAwsMskIamCallbackHandlerFound()) {
-                properties.put(SASL_CLIENT_CALLBACK_HANDLER_CLASS.getProperty(), SASL_AWS_MSK_IAM_CLIENT_CALLBACK_HANDLER_CLASS);
-            }
-        }
-    }
-
-    private void setSslProperties(final Map<String, Object> properties, final PropertyContext context) {
-        final PropertyValue sslContextServiceProperty = context.getProperty(SSL_CONTEXT_SERVICE);
-        if (sslContextServiceProperty.isSet()) {
-            final SSLContextService sslContextService = sslContextServiceProperty.asControllerService(SSLContextService.class);
-            if (sslContextService.isKeyStoreConfigured()) {
-                properties.put(SSL_KEYSTORE_LOCATION.getProperty(), sslContextService.getKeyStoreFile());
-                properties.put(SSL_KEYSTORE_TYPE.getProperty(), sslContextService.getKeyStoreType());
-
-                final String keyStorePassword = sslContextService.getKeyStorePassword();
-                properties.put(SSL_KEYSTORE_PASSWORD.getProperty(), keyStorePassword);
-
-                final String keyPassword = sslContextService.getKeyPassword();
-                final String configuredKeyPassword = keyPassword == null ? keyStorePassword : keyPassword;
-                properties.put(SSL_KEY_PASSWORD.getProperty(), configuredKeyPassword);
-            }
-            if (sslContextService.isTrustStoreConfigured()) {
-                properties.put(SSL_TRUSTSTORE_LOCATION.getProperty(), sslContextService.getTrustStoreFile());
-                properties.put(SSL_TRUSTSTORE_TYPE.getProperty(), sslContextService.getTrustStoreType());
-                properties.put(SSL_TRUSTSTORE_PASSWORD.getProperty(), sslContextService.getTrustStorePassword());
+            } else if (saslMechanism == SaslMechanism.AWS_MSK_IAM) {
+                final PropertyValue tokenProviderProperty = context.getProperty(AWS_WEB_IDENTITY_TOKEN_PROVIDER);
+                if (tokenProviderProperty != null && tokenProviderProperty.isSet()) {
+                    properties.put(SASL_CLIENT_CALLBACK_HANDLER_CLASS.getProperty(), AmazonMSKProperty.NIFI_AWS_MSK_CALLBACK_HANDLER_CLASS.getProperty());
+                } else if (isAwsMskIamCallbackHandlerFound()) {
+                    properties.put(SASL_CLIENT_CALLBACK_HANDLER_CLASS.getProperty(), SASL_AWS_MSK_IAM_CLIENT_CALLBACK_HANDLER_CLASS);
+                }
             }
         }
     }

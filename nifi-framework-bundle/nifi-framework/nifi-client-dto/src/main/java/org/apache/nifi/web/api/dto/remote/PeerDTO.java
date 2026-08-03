@@ -17,7 +17,6 @@
 package org.apache.nifi.web.api.dto.remote;
 
 import io.swagger.v3.oas.annotations.media.Schema;
-
 import jakarta.xml.bind.annotation.XmlType;
 
 /**
@@ -60,7 +59,6 @@ public class PeerDTO {
     public void setSecure(boolean secure) {
         this.secure = secure;
     }
-
 
     @Schema(description = "The number of flowFiles this peer holds."
     )

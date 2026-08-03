@@ -36,6 +36,7 @@ import org.apache.nifi.expression.AttributeExpression;
 import org.apache.nifi.expression.ExpressionLanguageScope;
 import org.apache.nifi.flowfile.FlowFile;
 import org.apache.nifi.flowfile.attributes.CoreAttributes;
+import org.apache.nifi.migration.PropertyConfiguration;
 import org.apache.nifi.processor.AbstractProcessor;
 import org.apache.nifi.processor.ProcessContext;
 import org.apache.nifi.processor.ProcessSession;
@@ -53,12 +54,17 @@ import org.apache.nifi.serialization.RecordReader;
 import org.apache.nifi.serialization.RecordReaderFactory;
 import org.apache.nifi.serialization.RecordSetWriter;
 import org.apache.nifi.serialization.RecordSetWriterFactory;
+import org.apache.nifi.serialization.SimpleRecordSchema;
 import org.apache.nifi.serialization.WriteResult;
 import org.apache.nifi.serialization.record.DataType;
 import org.apache.nifi.serialization.record.Record;
+import org.apache.nifi.serialization.record.RecordField;
 import org.apache.nifi.serialization.record.RecordFieldType;
 import org.apache.nifi.serialization.record.RecordSchema;
 import org.apache.nifi.serialization.record.type.ArrayDataType;
+import org.apache.nifi.serialization.record.type.ChoiceDataType;
+import org.apache.nifi.serialization.record.type.RecordDataType;
+import org.apache.nifi.serialization.record.util.DataTypeUtils;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -67,6 +73,7 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.Iterator;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.NoSuchElementException;
@@ -106,24 +113,21 @@ public class ForkRecord extends AbstractProcessor {
         "Generated records will preserve the input schema and will contain a one-element array");
 
     public static final PropertyDescriptor RECORD_READER = new PropertyDescriptor.Builder()
-            .name("record-reader")
-            .displayName("Record Reader")
+            .name("Record Reader")
             .description("Specifies the Controller Service to use for reading incoming data")
             .identifiesControllerService(RecordReaderFactory.class)
             .required(true)
             .build();
 
     public static final PropertyDescriptor RECORD_WRITER = new PropertyDescriptor.Builder()
-            .name("record-writer")
-            .displayName("Record Writer")
+            .name("Record Writer")
             .description("Specifies the Controller Service to use for writing out the records")
             .identifiesControllerService(RecordSetWriterFactory.class)
             .required(true)
             .build();
 
     public static final PropertyDescriptor MODE = new PropertyDescriptor.Builder()
-            .name("fork-mode")
-            .displayName("Mode")
+            .name("Mode")
             .description("Specifies the forking mode of the processor")
             .allowableValues(MODE_EXTRACT, MODE_SPLIT)
             .defaultValue(MODE_SPLIT.getValue())
@@ -131,8 +135,7 @@ public class ForkRecord extends AbstractProcessor {
             .build();
 
     public static final PropertyDescriptor INCLUDE_PARENT_FIELDS = new PropertyDescriptor.Builder()
-            .name("include-parent-fields")
-            .displayName("Include Parent Fields")
+            .name("Include Parent Fields")
             .description("This parameter is only valid with the 'extract' mode. If set to true, all the fields "
                     + "from the root level to the given array will be added as fields of each element of the "
                     + "array to fork.")
@@ -247,83 +250,35 @@ public class ForkRecord extends AbstractProcessor {
                 public void process(final InputStream in) throws IOException {
                     try (final RecordReader reader = readerFactory.createRecordReader(originalAttributes, in, original.getSize(), getLogger())) {
 
-                        final RecordSchema writeSchema = writerFactory.getSchema(originalAttributes, reader.getSchema());
-                        final OutputStream out = session.write(outFlowFile);
+                        final Record firstRecord = reader.nextRecord();
 
-                        try (final RecordSetWriter recordSetWriter = writerFactory.createWriter(getLogger(), writeSchema, out, outFlowFile)) {
+                        final RecordSchema readerSchema = reader.getSchema();
+                        final RecordSchema configuredWriterSchema = writerFactory.getSchema(originalAttributes, readerSchema);
+
+                        // we compute the write schema only if the writer is configured to inherit the
+                        // reader schema
+                        final RecordSchema writeSchema;
+                        if (configuredWriterSchema == readerSchema) {
+                            final RecordSchema derivedSchema = determineWriteSchema(firstRecord, readerSchema);
+                            writeSchema = writerFactory.getSchema(originalAttributes, derivedSchema);
+                        } else {
+                            writeSchema = configuredWriterSchema;
+                        }
+
+                        try (final OutputStream out = session.write(outFlowFile);
+                                final RecordSetWriter recordSetWriter = writerFactory.createWriter(getLogger(), writeSchema, out, outFlowFile)) {
 
                             recordSetWriter.beginRecordSet();
 
-                            // we read each record of the input flow file
+                            if (firstRecord != null) {
+                                writeForkedRecords(firstRecord, recordSetWriter, writeSchema);
+                                readCount.incrementAndGet();
+                            }
+
                             Record record;
                             while ((record = reader.nextRecord()) != null) {
-
                                 readCount.incrementAndGet();
-
-                                for (RecordPath recordPath : recordPaths) {
-
-                                    // evaluate record path in each record of the flow file
-                                    Iterator<FieldValue> it = recordPath.evaluate(record).getSelectedFields().iterator();
-
-                                    while (it.hasNext()) {
-                                        FieldValue fieldValue = it.next();
-                                        RecordFieldType fieldType = fieldValue.getField().getDataType().getFieldType();
-
-                                        // we want to have an array here, nothing else allowed
-                                        if (fieldType != RecordFieldType.ARRAY) {
-                                            getLogger().debug("The record path {} is matching a field of type {} when the type ARRAY is expected.", recordPath.getPath(), fieldType);
-                                            continue;
-                                        }
-                                        if (fieldValue.getValue() == null) {
-                                            getLogger().debug("The record path {} is matching a field the value of which is null.", recordPath.getPath());
-                                            continue;
-                                        }
-
-                                        if (isSplitMode) {
-
-                                            Object[] items = (Object[]) fieldValue.getValue();
-                                            for (Object item : items) {
-                                                fieldValue.updateValue(new Object[]{item});
-                                                recordSetWriter.write(record);
-                                            }
-
-                                        } else {
-
-                                            // we get the type of the elements of the array
-                                            final ArrayDataType arrayDataType = (ArrayDataType) fieldValue.getField().getDataType();
-                                            final DataType elementType = arrayDataType.getElementType();
-
-                                            // we want to have records in the array
-                                            if (elementType.getFieldType() != RecordFieldType.RECORD) {
-                                                getLogger().debug("The record path {} is matching an array field with values of type {} when the type RECORD is expected.",
-                                                        recordPath.getPath(), elementType.getFieldType());
-                                                continue;
-                                            }
-
-                                            Object[] records = (Object[]) fieldValue.getValue();
-                                            for (Object elementRecord : records) {
-
-                                                if (elementRecord == null) {
-                                                    continue;
-                                                }
-
-                                                Record recordToWrite = (Record) elementRecord;
-
-                                                if (addParentFields) {
-                                                    // in this case we want to recursively add the parent fields into the record to write
-                                                    // but we need to ensure that the Record has the appropriate schema for that
-                                                    recordToWrite.incorporateSchema(writeSchema);
-                                                    recursivelyAddParentFields(recordToWrite, fieldValue);
-                                                }
-
-                                                recordSetWriter.write(recordToWrite);
-                                            }
-
-                                        }
-
-                                    }
-
-                                }
+                                writeForkedRecords(record, recordSetWriter, writeSchema);
                             }
 
                             final WriteResult writeResult = recordSetWriter.finishRecordSet();
@@ -347,6 +302,162 @@ public class ForkRecord extends AbstractProcessor {
                     }
                 }
 
+                private RecordSchema determineWriteSchema(final Record firstRecord, final RecordSchema readerSchema) throws SchemaNotFoundException, IOException {
+                    if (isSplitMode || firstRecord == null) {
+                        return readerSchema;
+                    }
+
+                    final Map<String, RecordField> fieldMap = new LinkedHashMap<>();
+
+                    for (RecordPath recordPath : recordPaths) {
+                        final Iterator<FieldValue> iterator = recordPath.evaluate(firstRecord).getSelectedFields().iterator();
+                        while (iterator.hasNext()) {
+                            final FieldValue fieldValue = iterator.next();
+                            Object fieldObject = fieldValue.getValue();
+                            if (fieldObject instanceof List<?>) {
+                                fieldObject = ((List<?>) fieldObject).toArray();
+                            }
+
+                            DataType dataType = fieldValue.getField().getDataType();
+                            if (dataType.getFieldType() == RecordFieldType.CHOICE) {
+                                DataType chosen = null;
+                                if (fieldObject != null) {
+                                    chosen = DataTypeUtils.chooseDataType(fieldObject, (ChoiceDataType) dataType);
+                                }
+                                if (chosen == null) {
+                                    for (final DataType possible : ((ChoiceDataType) dataType).getPossibleSubTypes()) {
+                                        if (((ArrayDataType) possible).getElementType().getFieldType() == RecordFieldType.RECORD) {
+                                            chosen = possible;
+                                            break;
+                                        }
+                                        if (chosen == null) {
+                                            chosen = possible;
+                                        }
+                                    }
+                                }
+                                if (chosen != null) {
+                                    dataType = chosen;
+                                }
+                            }
+
+                            if (!(dataType instanceof ArrayDataType arrayDataType)) {
+                                continue;
+                            }
+
+                            final DataType elementType = arrayDataType.getElementType();
+
+                            if (elementType.getFieldType() != RecordFieldType.RECORD) {
+                                continue;
+                            }
+
+                            final RecordSchema elementSchema = ((RecordDataType) elementType).getChildSchema();
+                            for (final RecordField elementField : elementSchema.getFields()) {
+                                fieldMap.put(elementField.getFieldName(), elementField);
+                            }
+
+                            if (addParentFields) {
+                                addParentFieldSchemas(fieldMap, fieldValue);
+                            }
+                        }
+                    }
+
+                    final RecordSchema schema = new SimpleRecordSchema(new ArrayList<>(fieldMap.values()));
+                    return writerFactory.getSchema(originalAttributes, schema);
+                }
+
+                private void addParentFieldSchemas(final Map<String, RecordField> fieldMap, final FieldValue fieldValue) {
+                    try {
+                        final FieldValue parentField = fieldValue.getParent().get();
+                        final Record parentRecord = fieldValue.getParentRecord().get();
+
+                        for (final RecordField field : parentRecord.getSchema().getFields()) {
+                            if (!field.getFieldName().equals(fieldValue.getField().getFieldName())) {
+                                fieldMap.putIfAbsent(field.getFieldName(), field);
+                            }
+                        }
+
+                        addParentFieldSchemas(fieldMap, parentField);
+                    } catch (NoSuchElementException e) {
+                        return; // No parent field, nothing to do. NOTE: A return statement is needed to ensure this method does not recurse infinitely.
+                    }
+                }
+
+                private void writeForkedRecords(final Record record, final RecordSetWriter recordSetWriter, final RecordSchema writeSchema) throws IOException {
+                    for (RecordPath recordPath : recordPaths) {
+                        final Iterator<FieldValue> it = recordPath.evaluate(record).getSelectedFields().iterator();
+
+                        while (it.hasNext()) {
+                            final FieldValue fieldValue = it.next();
+                            Object fieldObject = fieldValue.getValue();
+                            if (fieldObject instanceof List<?>) {
+                                fieldObject = ((List<?>) fieldObject).toArray();
+                            }
+
+                            DataType dataType = fieldValue.getField().getDataType();
+                            if (dataType.getFieldType() == RecordFieldType.CHOICE) {
+                                DataType chosen = null;
+                                if (fieldObject != null) {
+                                    chosen = DataTypeUtils.chooseDataType(fieldObject, (ChoiceDataType) dataType);
+                                }
+                                if (chosen == null) {
+                                    for (final DataType possible : ((ChoiceDataType) dataType).getPossibleSubTypes()) {
+                                        if (possible.getFieldType() == RecordFieldType.ARRAY) {
+                                            if (((ArrayDataType) possible).getElementType().getFieldType() == RecordFieldType.RECORD) {
+                                                chosen = possible;
+                                                break;
+                                            }
+                                            if (chosen == null) {
+                                                chosen = possible;
+                                            }
+                                        }
+                                    }
+                                }
+                                if (chosen != null) {
+                                    dataType = chosen;
+                                }
+                            }
+
+                            if (!(dataType instanceof ArrayDataType) || fieldObject == null) {
+                                getLogger().debug("The record path {} is matching a field of type {} when the type ARRAY is expected.", recordPath.getPath(), dataType.getFieldType());
+                                continue;
+                            }
+
+                            if (isSplitMode) {
+                                final Object[] items = (Object[]) fieldObject;
+                                for (final Object item : items) {
+                                    fieldValue.updateValue(new Object[]{item});
+                                    recordSetWriter.write(record);
+                                }
+                            } else {
+                                final ArrayDataType arrayDataType = (ArrayDataType) dataType;
+                                final DataType elementType = arrayDataType.getElementType();
+
+                                if (elementType.getFieldType() != RecordFieldType.RECORD) {
+                                    getLogger().debug("The record path {} is matching an array field with values of type {} when the type RECORD is expected.",
+                                            recordPath.getPath(), elementType.getFieldType());
+                                    continue;
+                                }
+
+                                final Object[] records = (Object[]) fieldObject;
+                                for (final Object elementRecord : records) {
+                                    if (elementRecord == null) {
+                                        continue;
+                                    }
+
+                                    final Record recordToWrite = (Record) elementRecord;
+
+                                    if (addParentFields) {
+                                        recordToWrite.incorporateSchema(writeSchema);
+                                        recursivelyAddParentFields(recordToWrite, fieldValue);
+                                    }
+
+                                    recordSetWriter.write(recordToWrite);
+                                }
+                            }
+                        }
+                    }
+                }
+
                 private void recursivelyAddParentFields(Record recordToWrite, FieldValue fieldValue) {
                     try {
                         // we get the parent data
@@ -367,7 +478,7 @@ public class ForkRecord extends AbstractProcessor {
                         // recursive call
                         recursivelyAddParentFields(recordToWrite, parentField);
                     } catch (NoSuchElementException e) {
-                        return;
+                        return; // NOTE: A return statement is needed to ensure this method does not recurse infinitely.
                     }
                 }
             });
@@ -385,4 +496,11 @@ public class ForkRecord extends AbstractProcessor {
         session.transfer(original, REL_ORIGINAL);
     }
 
+    @Override
+    public void migrateProperties(PropertyConfiguration config) {
+        config.renameProperty("record-reader", RECORD_READER.getName());
+        config.renameProperty("record-writer", RECORD_WRITER.getName());
+        config.renameProperty("fork-mode", MODE.getName());
+        config.renameProperty("include-parent-fields", INCLUDE_PARENT_FIELDS.getName());
+    }
 }

@@ -32,12 +32,11 @@ under the License.
     <exclude-pattern>.*/antlr/Protobuf3Lexer\.java</exclude-pattern>
     <exclude-pattern>.*/path/RecordPathParser\.java</exclude-pattern>
     <exclude-pattern>.*/path/RecordPathLexer\.java</exclude-pattern>
-    <exclude-pattern>.*/generated/.+?\.java</exclude-pattern>
+    <exclude-pattern>.*/generated.*/.+?\.java</exclude-pattern>
 
     <rule ref="category/java/bestpractices.xml/AvoidMessageDigestField" />
     <rule ref="category/java/bestpractices.xml/AvoidReassigningCatchVariables" />
     <rule ref="category/java/bestpractices.xml/DoubleBraceInitialization" />
-    <rule ref="category/java/bestpractices.xml/ExhaustiveSwitchHasDefault" />
     <rule ref="category/java/bestpractices.xml/ForLoopCanBeForeach" />
     <rule ref="category/java/bestpractices.xml/LooseCoupling">
         <!--Classes below excluded from this rule due to their prevalence within the code base.-->
@@ -92,13 +91,11 @@ under the License.
     <rule ref="category/java/errorprone.xml/ClassCastExceptionWithToArray" />
     <rule ref="category/java/errorprone.xml/DontUseFloatTypeForLoopIndices" />
     <rule ref="category/java/errorprone.xml/EmptyCatchBlock" />
-    <rule ref="category/java/errorprone.xml/ImplicitSwitchFallThrough" />
     <rule ref="category/java/errorprone.xml/JumbledIncrementer" />
     <rule ref="category/java/errorprone.xml/MisplacedNullCheck" />
     <rule ref="category/java/errorprone.xml/ReturnFromFinallyBlock" />
     <rule ref="category/java/errorprone.xml/UnconditionalIfStatement" />
     <rule ref="category/java/errorprone.xml/UnnecessaryConversionTemporary" />
-    <rule ref="category/java/errorprone.xml/UselessOperationOnImmutable" />
 
     <rule ref="category/java/multithreading.xml/AvoidThreadGroup" />
     <rule ref="category/java/multithreading.xml/DontCallThreadRun" />

@@ -15,12 +15,12 @@
  * limitations under the License.
  */
 
-import { Component, Inject } from '@angular/core';
+import { Component, inject } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { MAT_DIALOG_DATA, MatDialogModule } from '@angular/material/dialog';
 import { FlowAnalysisRule, FlowAnalysisRuleViolation } from '../../../../../state/flow-analysis';
 import { Store } from '@ngrx/store';
-import { navigateToComponentDocumentation } from 'apps/nifi/src/app/state/documentation/documentation.actions';
+import { navigateToComponentDocumentation } from '../../../../../../../state/documentation/documentation.actions';
 import { selectCurrentProcessGroupId } from '../../../../../state/flow/flow.selectors';
 import { MatButton } from '@angular/material/button';
 import { ComponentType } from '@nifi/shared';
@@ -37,15 +37,17 @@ interface Data {
     styleUrl: './violation-details-dialog.component.scss'
 })
 export class ViolationDetailsDialogComponent {
+    data = inject<Data>(MAT_DIALOG_DATA);
+    private store = inject(Store);
+
     violation: FlowAnalysisRuleViolation;
     rule: FlowAnalysisRule;
     currentProcessGroupId$ = this.store.select(selectCurrentProcessGroupId);
     currentProcessGroupId = '';
 
-    constructor(
-        @Inject(MAT_DIALOG_DATA) public data: Data,
-        private store: Store
-    ) {
+    constructor() {
+        const data = this.data;
+
         this.violation = data.violation;
         this.rule = data.rule;
         this.currentProcessGroupId$.subscribe((pgId) => {

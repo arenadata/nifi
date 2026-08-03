@@ -22,27 +22,45 @@ import org.apache.nifi.vault.hashicorp.config.HashiCorpVaultConfiguration;
 import org.apache.nifi.vault.hashicorp.config.HashiCorpVaultProperties;
 import org.apache.nifi.vault.hashicorp.config.HashiCorpVaultPropertySource;
 import org.springframework.core.env.PropertySource;
-import org.springframework.vault.authentication.SimpleSessionManager;
+import org.springframework.http.client.ClientHttpRequestFactory;
+import org.springframework.http.client.JdkClientHttpRequestFactory;
+import org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler;
+import org.springframework.vault.authentication.LifecycleAwareSessionManager;
 import org.springframework.vault.client.ClientHttpRequestFactoryFactory;
+import org.springframework.vault.client.VaultClient;
+import org.springframework.vault.client.VaultClients;
+import org.springframework.vault.client.VaultEndpoint;
 import org.springframework.vault.core.VaultKeyValueOperations;
 import org.springframework.vault.core.VaultKeyValueOperationsSupport.KeyValueBackend;
 import org.springframework.vault.core.VaultTemplate;
 import org.springframework.vault.core.VaultTransitOperations;
 import org.springframework.vault.support.Ciphertext;
+import org.springframework.vault.support.ClientOptions;
 import org.springframework.vault.support.Plaintext;
 import org.springframework.vault.support.VaultResponseSupport;
+import org.springframework.web.client.RestTemplate;
 
+import java.io.Closeable;
+import java.io.IOException;
+import java.net.http.HttpClient;
+import java.security.GeneralSecurityException;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import javax.net.ssl.SSLContext;
 
 /**
  * Implements the VaultCommunicationService using Spring Vault
  */
-public class StandardHashiCorpVaultCommunicationService implements HashiCorpVaultCommunicationService {
+public class StandardHashiCorpVaultCommunicationService implements HashiCorpVaultCommunicationService, Closeable {
+    private static final String SSL_CONTEXT_PROPERTY = SSLContext.class.getName();
+
+    private final LifecycleAwareSessionManager sessionManager;
+    private final ThreadPoolTaskScheduler taskScheduler;
     private final VaultTemplate vaultTemplate;
     private final VaultTransitOperations transitOperations;
     private final Map<String, VaultKeyValueOperations> keyValueOperationsMap;
@@ -56,9 +74,48 @@ public class StandardHashiCorpVaultCommunicationService implements HashiCorpVaul
     public StandardHashiCorpVaultCommunicationService(final PropertySource<?>... propertySources) throws HashiCorpVaultConfigurationException {
         final HashiCorpVaultConfiguration vaultConfiguration = new HashiCorpVaultConfiguration(propertySources);
 
-        vaultTemplate = new VaultTemplate(vaultConfiguration.vaultEndpoint(),
-                ClientHttpRequestFactoryFactory.create(vaultConfiguration.clientOptions(), vaultConfiguration.sslConfiguration()),
-                new SimpleSessionManager(vaultConfiguration.clientAuthentication()));
+        taskScheduler = new ThreadPoolTaskScheduler();
+        taskScheduler.setThreadNamePrefix("hashicorp-vault-");
+        taskScheduler.setDaemon(true);
+        taskScheduler.afterPropertiesSet();
+
+        final ClientHttpRequestFactory clientHttpRequestFactory;
+
+        final ClientOptions clientOptions = vaultConfiguration.clientOptions();
+        final PropertySource<?> propertySource = propertySources[0];
+        final Object sslContextProperty = propertySource.getProperty(SSL_CONTEXT_PROPERTY);
+        if (sslContextProperty instanceof SSLContext sslContext) {
+            // Customize HttpClient construction with configured SSLContext
+            final HttpClient.Builder httpClientBuilder = HttpClient.newBuilder();
+            httpClientBuilder.connectTimeout(clientOptions.getConnectionTimeout());
+            httpClientBuilder.followRedirects(HttpClient.Redirect.ALWAYS);
+            httpClientBuilder.sslContext(sslContext);
+
+            final HttpClient httpClient = httpClientBuilder.build();
+            final JdkClientHttpRequestFactory jdkClientHttpRequestFactory = new JdkClientHttpRequestFactory(httpClient);
+            jdkClientHttpRequestFactory.setReadTimeout(clientOptions.getReadTimeout());
+            clientHttpRequestFactory = jdkClientHttpRequestFactory;
+        } else {
+            // Build with standard Spring Vault methods
+            try {
+                clientHttpRequestFactory = ClientHttpRequestFactoryFactory.JdkHttpClient.usingJdkHttpClient(clientOptions, vaultConfiguration.sslConfiguration());
+            } catch (final GeneralSecurityException | IOException e) {
+                throw new IllegalArgumentException(e);
+            }
+        }
+
+        final VaultEndpoint vaultEndpoint = vaultConfiguration.vaultEndpoint();
+        final RestTemplate restTemplate = VaultClients.createRestTemplate(vaultEndpoint, clientHttpRequestFactory);
+
+        final VaultClient.Builder vaultClientBuilder = VaultClient.builder(restTemplate).endpoint(vaultEndpoint);
+        final String namespace = vaultConfiguration.getNamespace();
+        if (namespace != null && !namespace.isEmpty()) {
+            vaultClientBuilder.defaultNamespace(namespace);
+        }
+        final VaultClient vaultClient = vaultClientBuilder.build();
+
+        sessionManager = new LifecycleAwareSessionManager(vaultConfiguration.clientAuthentication(), taskScheduler, vaultClient);
+        vaultTemplate = new VaultTemplate(vaultClient, sessionManager);
 
         transitOperations = vaultTemplate.opsForTransit();
         keyValueBackend = vaultConfiguration.getKeyValueBackend();
@@ -77,6 +134,12 @@ public class StandardHashiCorpVaultCommunicationService implements HashiCorpVaul
      */
     public StandardHashiCorpVaultCommunicationService(final HashiCorpVaultProperties vaultProperties) throws HashiCorpVaultConfigurationException {
         this(new HashiCorpVaultPropertySource(vaultProperties));
+    }
+
+    @Override
+    public void close() {
+        sessionManager.destroy();
+        taskScheduler.destroy();
     }
 
     @Override
@@ -152,7 +215,27 @@ public class StandardHashiCorpVaultCommunicationService implements HashiCorpVaul
 
     @Override
     public List<String> listKeyValueSecrets(final String keyValuePath, final String version) {
-        return vaultTemplate.opsForKeyValue(keyValuePath, KeyValueBackend.valueOf(version)).list("/");
+        final VaultKeyValueOperations keyValueOperations = vaultTemplate.opsForKeyValue(keyValuePath, KeyValueBackend.valueOf(version));
+        return listKeyValueSecrets(keyValueOperations, "");
+    }
+
+    private List<String> listKeyValueSecrets(final VaultKeyValueOperations keyValueOperations, final String path) {
+        final String requestPath = path.isEmpty() ? "/" : path;
+        final List<String> keys = keyValueOperations.list(requestPath);
+        if (keys == null || keys.isEmpty()) {
+            return Collections.emptyList();
+        }
+
+        final List<String> secretPaths = new ArrayList<>();
+        for (final String key : keys) {
+            final String fullKey = path.isEmpty() ? key : path + key;
+            if (key.endsWith("/")) {
+                secretPaths.addAll(listKeyValueSecrets(keyValueOperations, fullKey));
+            } else {
+                secretPaths.add(fullKey);
+            }
+        }
+        return secretPaths;
     }
 
     private static class SecretData {

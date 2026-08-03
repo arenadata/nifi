@@ -17,12 +17,15 @@
 package org.apache.nifi.controller.repository;
 
 import org.apache.nifi.connectable.Connectable;
+import org.apache.nifi.connectable.FlowFileActivity;
 import org.apache.nifi.controller.lifecycle.TaskTermination;
+import org.apache.nifi.controller.metrics.GaugeRecord;
 import org.apache.nifi.controller.repository.claim.ContentClaim;
 import org.apache.nifi.controller.repository.claim.ContentClaimWriteCache;
 import org.apache.nifi.controller.repository.metrics.PerformanceTracker;
 import org.apache.nifi.flowfile.FlowFile;
 import org.apache.nifi.processor.ProcessSession;
+import org.apache.nifi.processor.metrics.CommitTiming;
 import org.apache.nifi.provenance.InternalProvenanceReporter;
 import org.apache.nifi.provenance.ProvenanceRepository;
 import org.junit.jupiter.api.BeforeEach;
@@ -32,6 +35,8 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.Captor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.mockito.junit.jupiter.MockitoSettings;
+import org.mockito.quality.Strictness;
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
@@ -40,16 +45,20 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isA;
 import static org.mockito.ArgumentMatchers.isNull;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
+@MockitoSettings(strictness = Strictness.LENIENT)
 class StandardProcessSessionTest {
     private static final String BACKOFF_PERIOD = "5 s";
 
@@ -62,6 +71,10 @@ class StandardProcessSessionTest {
     private static final long BYTES_READ = CONTENT.length;
 
     private static final long BYTES_WRITTEN = CONTENT.length;
+
+    private static final String GAUGE_NAME = "freeMemory";
+
+    private static final double GAUGE_VALUE = 64.5;
 
     @Mock
     RepositoryContext repositoryContext;
@@ -99,6 +112,9 @@ class StandardProcessSessionTest {
     @Captor
     ArgumentCaptor<FlowFileEvent> flowFileEventCaptor;
 
+    @Captor
+    ArgumentCaptor<GaugeRecord> gaugeRecordCaptor;
+
     StandardProcessSession session;
 
     @BeforeEach
@@ -107,6 +123,8 @@ class StandardProcessSessionTest {
         when(repositoryContext.createContentClaimWriteCache(isA(PerformanceTracker.class))).thenReturn(contentClaimWriteCache);
         when(repositoryContext.getConnectable()).thenReturn(connectable);
         when(connectable.getIdentifier()).thenReturn(Connectable.class.getSimpleName());
+        final FlowFileActivity flowFileActivity = mock(FlowFileActivity.class);
+        when(connectable.getFlowFileActivity()).thenReturn(flowFileActivity);
 
         session = new StandardProcessSession(repositoryContext, taskTermination, performanceTracker);
     }
@@ -114,6 +132,7 @@ class StandardProcessSessionTest {
     @Test
     void testExportToPathFlowFileEventBytes() throws IOException {
         setRepositoryContext();
+        when(repositoryContext.getContentRepository()).thenReturn(contentRepository);
 
         final Path destination = getDestination();
         when(contentRepository.exportTo(isNull(), eq(destination), eq(APPEND_DISABLED), anyLong(), anyLong())).thenReturn(EXPECTED_BYTES);
@@ -129,6 +148,7 @@ class StandardProcessSessionTest {
     @Test
     void testExportToOutputStreamFlowFileEventBytes() throws IOException {
         setRepositoryContext();
+        when(repositoryContext.getContentRepository()).thenReturn(contentRepository);
 
         FlowFile flowFile = session.create();
 
@@ -148,6 +168,51 @@ class StandardProcessSessionTest {
         assertFlowFileEventMatched(BYTES_READ, BYTES_WRITTEN);
     }
 
+    @Test
+    void testRecordGaugeNow() {
+        session.recordGauge(GAUGE_NAME, GAUGE_VALUE, CommitTiming.NOW);
+
+        verify(repositoryContext).recordGauge(gaugeRecordCaptor.capture());
+        final GaugeRecord gaugeRecord = gaugeRecordCaptor.getValue();
+
+        assertEquals(GAUGE_NAME, gaugeRecord.name());
+        assertEquals(GAUGE_VALUE, gaugeRecord.value());
+    }
+
+    @Test
+    void testRecordGaugeSessionCommitted() {
+        session.recordGauge(GAUGE_NAME, GAUGE_VALUE, CommitTiming.SESSION_COMMITTED);
+
+        setRepositoryContext();
+        session.commit();
+
+        verify(repositoryContext).recordGauge(gaugeRecordCaptor.capture());
+        final GaugeRecord gaugeRecord = gaugeRecordCaptor.getValue();
+
+        assertEquals(GAUGE_NAME, gaugeRecord.name());
+        assertEquals(GAUGE_VALUE, gaugeRecord.value());
+    }
+
+    @Test
+    void testCreateLineage() {
+        final long firstFlowFileId = 1;
+        final long secondFlowFileId = 2;
+        when(repositoryContext.getNextFlowFileSequence()).thenReturn(firstFlowFileId, secondFlowFileId);
+
+        final FlowFile firstFlowFile = session.create();
+
+        assertNotNull(firstFlowFile);
+        assertNotEquals(0, firstFlowFile.getLineageStartDate());
+        assertEquals(firstFlowFile.getEntryDate(), firstFlowFile.getLineageStartDate());
+        assertEquals(firstFlowFileId, firstFlowFile.getId());
+        assertEquals(firstFlowFileId, firstFlowFile.getLineageStartIndex());
+
+        final FlowFile secondFlowFile = session.create();
+        assertNotNull(secondFlowFile);
+        assertEquals(secondFlowFileId, secondFlowFile.getId());
+        assertEquals(secondFlowFileId, secondFlowFile.getLineageStartIndex());
+    }
+
     private void assertFlowFileEventMatched(final long bytesRead, final long bytesWritten) throws IOException {
         verify(flowFileEventRepository).updateRepository(flowFileEventCaptor.capture(), anyString());
         final FlowFileEvent flowFileEvent = flowFileEventCaptor.getValue();
@@ -157,7 +222,6 @@ class StandardProcessSessionTest {
     }
 
     private void setRepositoryContext() {
-        when(repositoryContext.getContentRepository()).thenReturn(contentRepository);
         when(repositoryContext.getProvenanceRepository()).thenReturn(provenanceRepository);
         when(repositoryContext.getFlowFileRepository()).thenReturn(flowFileRepository);
         when(repositoryContext.getFlowFileEventRepository()).thenReturn(flowFileEventRepository);

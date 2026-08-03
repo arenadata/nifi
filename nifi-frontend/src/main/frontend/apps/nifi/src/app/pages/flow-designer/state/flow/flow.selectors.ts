@@ -19,10 +19,19 @@ import { flowFeatureKey, FlowState, SelectedComponent } from './index';
 import { createSelector } from '@ngrx/store';
 import { CanvasState, selectCanvasState } from '../index';
 import { ComponentType, selectCurrentRoute } from '@nifi/shared';
+import {
+    detectOverlappingConnections,
+    OverlappingConnectionGroup
+} from '../../../../ui/common/overlap-detection.utils';
 
 export const selectFlowState = createSelector(selectCanvasState, (state: CanvasState) => state[flowFeatureKey]);
 
 export const selectFlowLoadingStatus = createSelector(selectFlowState, (state: FlowState) => state.status);
+
+export const selectHasFlowData = createSelector(
+    selectFlowState,
+    (state: FlowState) => state.flow.processGroupFlow.id !== ''
+);
 
 export const selectChangeVersionRequest = createSelector(
     selectFlowState,
@@ -274,3 +283,14 @@ export const selectMaxZIndex = (componentType: ComponentType.Connection | Compon
 };
 
 export const selectFlowAnalysisOpen = createSelector(selectFlowState, (state: FlowState) => state.flowAnalysisOpen);
+
+export const selectOverlappingConnections = createSelector(
+    selectConnections,
+    selectCurrentProcessGroupId,
+    (connections: any[], processGroupId: string): OverlappingConnectionGroup[] => {
+        if (!connections) {
+            return [];
+        }
+        return detectOverlappingConnections(connections, processGroupId);
+    }
+);

@@ -19,17 +19,19 @@ package org.apache.nifi.processors.standard;
 
 import org.apache.nifi.flowfile.attributes.CoreAttributes;
 import org.apache.nifi.util.MockFlowFile;
+import org.apache.nifi.util.PropertyMigrationResult;
 import org.apache.nifi.util.TestRunner;
 import org.apache.nifi.util.TestRunners;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.HashSet;
-import java.util.List;
 import java.util.regex.Pattern;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -46,16 +48,21 @@ public class TestAttributesToCSV {
     private static final String OUTPUT_MIME_TYPE = "text/csv";
     private static final String SPLIT_REGEX = OUTPUT_SEPARATOR + "(?=(?:[^\"]*\"[^\"]*\")*[^\"]*$)";
     private static final String newline = System.lineSeparator();
+    private TestRunner testRunner;
+
+    @BeforeEach
+    void setUp() {
+        testRunner = TestRunners.newTestRunner(new AttributesToCSV());
+    }
 
     @Test
     public void testAttrListNoCoreNullOffNewAttrToAttribute() {
-        final TestRunner testRunner = TestRunners.newTestRunner(new AttributesToCSV());
         testRunner.setProperty(AttributesToCSV.DESTINATION, OUTPUT_NEW_ATTRIBUTE);
         testRunner.setProperty(AttributesToCSV.INCLUDE_CORE_ATTRIBUTES, "false");
         testRunner.setProperty(AttributesToCSV.NULL_VALUE_FOR_EMPTY_STRING, "false");
 
-        final String NON_PRESENT_ATTRIBUTE_KEY = "beach-type";
-        testRunner.setProperty(AttributesToCSV.ATTRIBUTES_LIST, NON_PRESENT_ATTRIBUTE_KEY);
+        final String nonPresentAttributeKey = "beach-type";
+        testRunner.setProperty(AttributesToCSV.ATTRIBUTES_LIST, nonPresentAttributeKey);
         testRunner.enqueue(new byte[0]);
         testRunner.run();
 
@@ -70,15 +77,14 @@ public class TestAttributesToCSV {
 
     @Test
     public void testAttrListNoCoreNullOffNewAttrToContent() {
-        final TestRunner testRunner = TestRunners.newTestRunner(new AttributesToCSV());
         //set the destination of the csv string to be an attribute
         testRunner.setProperty(AttributesToCSV.DESTINATION, OUTPUT_NEW_ATTRIBUTE);
         testRunner.setProperty(AttributesToCSV.INCLUDE_CORE_ATTRIBUTES, "false");
         testRunner.setProperty(AttributesToCSV.NULL_VALUE_FOR_EMPTY_STRING, "false");
 
         //use only one attribute, which does not exist, as the list of attributes to convert to csv
-        final String NON_PRESENT_ATTRIBUTE_KEY = "beach-type";
-        testRunner.setProperty(AttributesToCSV.ATTRIBUTES_LIST, NON_PRESENT_ATTRIBUTE_KEY);
+        final String nonPresentAttributeKey = "beach-type";
+        testRunner.setProperty(AttributesToCSV.ATTRIBUTES_LIST, nonPresentAttributeKey);
         testRunner.enqueue(new byte[0]);
         testRunner.run();
 
@@ -93,13 +99,12 @@ public class TestAttributesToCSV {
 
     @Test
     public void testAttrListNoCoreNullOffTwoNewAttrToAttribute() {
-        final TestRunner testRunner = TestRunners.newTestRunner(new AttributesToCSV());
         testRunner.setProperty(AttributesToCSV.DESTINATION, OUTPUT_NEW_ATTRIBUTE);
         testRunner.setProperty(AttributesToCSV.INCLUDE_CORE_ATTRIBUTES, "false");
         testRunner.setProperty(AttributesToCSV.NULL_VALUE_FOR_EMPTY_STRING, "false");
 
-        final String NON_PRESENT_ATTRIBUTE_KEY = "beach-type,beach-length";
-        testRunner.setProperty(AttributesToCSV.ATTRIBUTES_LIST, NON_PRESENT_ATTRIBUTE_KEY);
+        final String nonPresentAttributeKey = "beach-type,beach-length";
+        testRunner.setProperty(AttributesToCSV.ATTRIBUTES_LIST, nonPresentAttributeKey);
         testRunner.enqueue(new byte[0]);
         testRunner.run();
 
@@ -114,13 +119,12 @@ public class TestAttributesToCSV {
 
     @Test
     public void testAttrListNoCoreNullTwoNewAttrToAttribute() {
-        final TestRunner testRunner = TestRunners.newTestRunner(new AttributesToCSV());
         testRunner.setProperty(AttributesToCSV.DESTINATION, OUTPUT_NEW_ATTRIBUTE);
         testRunner.setProperty(AttributesToCSV.INCLUDE_CORE_ATTRIBUTES, "false");
         testRunner.setProperty(AttributesToCSV.NULL_VALUE_FOR_EMPTY_STRING, "true");
 
-        final String NON_PRESENT_ATTRIBUTE_KEY = "beach-type,beach-length";
-        testRunner.setProperty(AttributesToCSV.ATTRIBUTES_LIST, NON_PRESENT_ATTRIBUTE_KEY);
+        final String nonPresentAttributeKey = "beach-type,beach-length";
+        testRunner.setProperty(AttributesToCSV.ATTRIBUTES_LIST, nonPresentAttributeKey);
         testRunner.enqueue(new byte[0]);
         testRunner.run();
 
@@ -135,7 +139,6 @@ public class TestAttributesToCSV {
 
     @Test
     public void testNoAttrListNoCoreNullOffToAttribute() {
-        final TestRunner testRunner = TestRunners.newTestRunner(new AttributesToCSV());
         //set the destination of the csv string to be an attribute
         testRunner.setProperty(AttributesToCSV.DESTINATION, OUTPUT_NEW_ATTRIBUTE);
         testRunner.setProperty(AttributesToCSV.INCLUDE_CORE_ATTRIBUTES, "false");
@@ -154,7 +157,6 @@ public class TestAttributesToCSV {
 
     @Test
     public void testNoAttrListNoCoreNullToAttribute() {
-        final TestRunner testRunner = TestRunners.newTestRunner(new AttributesToCSV());
         testRunner.setProperty(AttributesToCSV.DESTINATION, OUTPUT_NEW_ATTRIBUTE);
         testRunner.setProperty(AttributesToCSV.INCLUDE_CORE_ATTRIBUTES, "false");
         testRunner.setProperty(AttributesToCSV.NULL_VALUE_FOR_EMPTY_STRING, "true");
@@ -170,10 +172,8 @@ public class TestAttributesToCSV {
                 .getFirst().assertAttributeEquals("CSVData", "");
     }
 
-
     @Test
     public void testNoAttrListCoreNullOffToContent() {
-        final TestRunner testRunner = TestRunners.newTestRunner(new AttributesToCSV());
         testRunner.setProperty(AttributesToCSV.DESTINATION, OUTPUT_OVERWRITE_CONTENT);
         testRunner.setProperty(AttributesToCSV.INCLUDE_CORE_ATTRIBUTES, "true");
         testRunner.setProperty(AttributesToCSV.NULL_VALUE_FOR_EMPTY_STRING, "false");
@@ -211,7 +211,6 @@ public class TestAttributesToCSV {
 
     @Test
     public void testNoAttrListCoreNullOffToAttribute() {
-        final TestRunner testRunner = TestRunners.newTestRunner(new AttributesToCSV());
         testRunner.setProperty(AttributesToCSV.INCLUDE_CORE_ATTRIBUTES, "true");
         testRunner.setProperty(AttributesToCSV.NULL_VALUE_FOR_EMPTY_STRING, "false");
 
@@ -247,7 +246,6 @@ public class TestAttributesToCSV {
 
     @Test
     public void testNoAttrListNoCoreNullOffToContent() {
-        final TestRunner testRunner = TestRunners.newTestRunner(new AttributesToCSV());
         testRunner.setProperty(AttributesToCSV.DESTINATION, OUTPUT_OVERWRITE_CONTENT);
         testRunner.setProperty(AttributesToCSV.INCLUDE_CORE_ATTRIBUTES, "false");
         testRunner.setProperty(AttributesToCSV.NULL_VALUE_FOR_EMPTY_STRING, "false");
@@ -277,13 +275,10 @@ public class TestAttributesToCSV {
         assertTrue(contentValues.contains("Malibu Beach"));
         assertTrue(contentValues.contains("\"California, US\""));
         assertTrue(contentValues.contains("\"This is our family's favorite beach. We highly recommend it. \n\nThanks, Jim\""));
-
     }
-
 
     @Test
     public void testAttrListNoCoreNullOffToAttribute() {
-        final TestRunner testRunner = TestRunners.newTestRunner(new AttributesToCSV());
         testRunner.setProperty(AttributesToCSV.DESTINATION, OUTPUT_NEW_ATTRIBUTE);
         testRunner.setProperty(AttributesToCSV.INCLUDE_CORE_ATTRIBUTES, "false");
         testRunner.setProperty(AttributesToCSV.ATTRIBUTES_LIST, "beach-name,beach-location,beach-endorsement");
@@ -307,19 +302,18 @@ public class TestAttributesToCSV {
 
         final String attributeData = flowFile.getAttribute(OUTPUT_ATTRIBUTE_NAME);
 
-        Set<String> CSVDataValues = new HashSet<>(getStrings(attributeData));
+        Set<String> csvDataValues = new HashSet<>(getStrings(attributeData));
 
-        assertEquals(3, CSVDataValues.size());
+        assertEquals(3, csvDataValues.size());
 
-        assertTrue(CSVDataValues.contains("Malibu Beach"));
-        assertTrue(CSVDataValues.contains("\"California, US\""));
-        assertTrue(CSVDataValues.contains("\"This is our family's favorite beach. We highly recommend it. \n\nThanks, Jim\""));
+        assertTrue(csvDataValues.contains("Malibu Beach"));
+        assertTrue(csvDataValues.contains("\"California, US\""));
+        assertTrue(csvDataValues.contains("\"This is our family's favorite beach. We highly recommend it. \n\nThanks, Jim\""));
 
     }
 
     @Test
     public void testAttrListCoreNullOffToAttribute() {
-        final TestRunner testRunner = TestRunners.newTestRunner(new AttributesToCSV());
         testRunner.setProperty(AttributesToCSV.DESTINATION, OUTPUT_NEW_ATTRIBUTE);
         testRunner.setProperty(AttributesToCSV.INCLUDE_CORE_ATTRIBUTES, "true");
         testRunner.setProperty(AttributesToCSV.ATTRIBUTES_LIST, "beach-name,beach-location,beach-endorsement");
@@ -344,22 +338,21 @@ public class TestAttributesToCSV {
 
         final String attributeData = flowFile.getAttribute(OUTPUT_ATTRIBUTE_NAME);
 
-        Set<String> CSVDataValues = new HashSet<>(getStrings(attributeData));
+        Set<String> csvDataValues = new HashSet<>(getStrings(attributeData));
 
-        assertEquals(6, CSVDataValues.size());
+        assertEquals(6, csvDataValues.size());
 
-        assertTrue(CSVDataValues.contains("Malibu Beach"));
-        assertTrue(CSVDataValues.contains("\"California, US\""));
-        assertTrue(CSVDataValues.contains("\"This is our family's favorite beach. We highly recommend it. \n\nThanks, Jim\""));
+        assertTrue(csvDataValues.contains("Malibu Beach"));
+        assertTrue(csvDataValues.contains("\"California, US\""));
+        assertTrue(csvDataValues.contains("\"This is our family's favorite beach. We highly recommend it. \n\nThanks, Jim\""));
 
-        assertTrue(CSVDataValues.contains(flowFile.getAttribute("filename")));
-        assertTrue(CSVDataValues.contains(flowFile.getAttribute("path")));
-        assertTrue(CSVDataValues.contains(flowFile.getAttribute("uuid")));
+        assertTrue(csvDataValues.contains(flowFile.getAttribute("filename")));
+        assertTrue(csvDataValues.contains(flowFile.getAttribute("path")));
+        assertTrue(csvDataValues.contains(flowFile.getAttribute("uuid")));
     }
 
     @Test
     public void testAttrListNoCoreNullOffOverrideCoreByAttrListToAttribute() {
-        final TestRunner testRunner = TestRunners.newTestRunner(new AttributesToCSV());
         testRunner.setProperty(AttributesToCSV.DESTINATION, OUTPUT_NEW_ATTRIBUTE);
         testRunner.setProperty(AttributesToCSV.INCLUDE_CORE_ATTRIBUTES, "false");
         testRunner.setProperty(AttributesToCSV.ATTRIBUTES_LIST, "beach-name,beach-location,beach-endorsement,uuid");
@@ -384,23 +377,21 @@ public class TestAttributesToCSV {
 
         final String attributeData = flowFile.getAttribute(OUTPUT_ATTRIBUTE_NAME);
 
-        Set<String> CSVDataValues = new HashSet<>(getStrings(attributeData));
+        Set<String> csvDataValues = new HashSet<>(getStrings(attributeData));
 
-        assertEquals(4, CSVDataValues.size());
+        assertEquals(4, csvDataValues.size());
 
-        assertTrue(CSVDataValues.contains("Malibu Beach"));
-        assertTrue(CSVDataValues.contains("\"California, US\""));
-        assertTrue(CSVDataValues.contains("\"This is our family's favorite beach. We highly recommend it. \n\nThanks, Jim\""));
+        assertTrue(csvDataValues.contains("Malibu Beach"));
+        assertTrue(csvDataValues.contains("\"California, US\""));
+        assertTrue(csvDataValues.contains("\"This is our family's favorite beach. We highly recommend it. \n\nThanks, Jim\""));
 
-
-        assertFalse(CSVDataValues.contains(flowFile.getAttribute("filename")));
-        assertFalse(CSVDataValues.contains(flowFile.getAttribute("path")));
-        assertTrue(CSVDataValues.contains(flowFile.getAttribute("uuid")));
+        assertFalse(csvDataValues.contains(flowFile.getAttribute("filename")));
+        assertFalse(csvDataValues.contains(flowFile.getAttribute("path")));
+        assertTrue(csvDataValues.contains(flowFile.getAttribute("uuid")));
     }
 
     @Test
     public void testAttrListFromExpCoreNullOffToAttribute() {
-        final TestRunner testRunner = TestRunners.newTestRunner(new AttributesToCSV());
         testRunner.setProperty(AttributesToCSV.DESTINATION, OUTPUT_NEW_ATTRIBUTE);
         testRunner.setProperty(AttributesToCSV.INCLUDE_CORE_ATTRIBUTES, "true");
         testRunner.setProperty(AttributesToCSV.ATTRIBUTES_LIST, "${myAttribs}");
@@ -427,17 +418,17 @@ public class TestAttributesToCSV {
 
         String attributeData = flowFile.getAttribute(OUTPUT_ATTRIBUTE_NAME);
 
-        Set<String> CSVDataValues = new HashSet<>(getStrings(attributeData));
+        Set<String> csvDataValues = new HashSet<>(getStrings(attributeData));
 
-        assertEquals(6, CSVDataValues.size());
+        assertEquals(6, csvDataValues.size());
 
-        assertTrue(CSVDataValues.contains("Malibu Beach"));
-        assertTrue(CSVDataValues.contains("\"California, US\""));
-        assertTrue(CSVDataValues.contains("\"This is our family's favorite beach. We highly recommend it. \n\nThanks, Jim\""));
+        assertTrue(csvDataValues.contains("Malibu Beach"));
+        assertTrue(csvDataValues.contains("\"California, US\""));
+        assertTrue(csvDataValues.contains("\"This is our family's favorite beach. We highly recommend it. \n\nThanks, Jim\""));
 
-        assertTrue(CSVDataValues.contains(flowFile.getAttribute("filename")));
-        assertTrue(CSVDataValues.contains(flowFile.getAttribute("path")));
-        assertTrue(CSVDataValues.contains(flowFile.getAttribute("uuid")));
+        assertTrue(csvDataValues.contains(flowFile.getAttribute("filename")));
+        assertTrue(csvDataValues.contains(flowFile.getAttribute("path")));
+        assertTrue(csvDataValues.contains(flowFile.getAttribute("uuid")));
 
         //Test flow file 1 with ATTRIBUTE_LIST populated from expression language containing commas (output should be he same)
         flowFile = flowFilesForRelationship.getFirst();
@@ -446,28 +437,25 @@ public class TestAttributesToCSV {
 
         attributeData = flowFile.getAttribute(OUTPUT_ATTRIBUTE_NAME);
 
-        CSVDataValues = new HashSet<>(getStrings(attributeData));
+        csvDataValues = new HashSet<>(getStrings(attributeData));
 
-        assertEquals(6, CSVDataValues.size());
+        assertEquals(6, csvDataValues.size());
 
-        assertTrue(CSVDataValues.contains("Malibu Beach"));
-        assertTrue(CSVDataValues.contains("\"California, US\""));
-        assertTrue(CSVDataValues.contains("\"This is our family's favorite beach. We highly recommend it. \n\nThanks, Jim\""));
+        assertTrue(csvDataValues.contains("Malibu Beach"));
+        assertTrue(csvDataValues.contains("\"California, US\""));
+        assertTrue(csvDataValues.contains("\"This is our family's favorite beach. We highly recommend it. \n\nThanks, Jim\""));
 
-        assertTrue(CSVDataValues.contains(flowFile.getAttribute("filename")));
-        assertTrue(CSVDataValues.contains(flowFile.getAttribute("path")));
-        assertTrue(CSVDataValues.contains(flowFile.getAttribute("uuid")));
-
+        assertTrue(csvDataValues.contains(flowFile.getAttribute("filename")));
+        assertTrue(csvDataValues.contains(flowFile.getAttribute("path")));
+        assertTrue(csvDataValues.contains(flowFile.getAttribute("uuid")));
     }
 
     @Test
     public void testAttrListWithCommasInNameFromExpCoreNullOffToAttribute() {
-        final TestRunner testRunner = TestRunners.newTestRunner(new AttributesToCSV());
         testRunner.setProperty(AttributesToCSV.DESTINATION, OUTPUT_NEW_ATTRIBUTE);
         testRunner.setProperty(AttributesToCSV.INCLUDE_CORE_ATTRIBUTES, "true");
         testRunner.setProperty(AttributesToCSV.ATTRIBUTES_LIST, "${myAttribs}");
         testRunner.setProperty(AttributesToCSV.NULL_VALUE_FOR_EMPTY_STRING, "false");
-
 
         Map<String, String> attrsCommaInName = Map.of("beach,name", "Malibu Beach",
                     "beach,location", "California, US",
@@ -490,17 +478,17 @@ public class TestAttributesToCSV {
 
         String attributeData = flowFile.getAttribute(OUTPUT_ATTRIBUTE_NAME);
 
-        Set<String> CSVDataValues = new HashSet<>(getStrings(attributeData));
+        Set<String> csvDataValues = new HashSet<>(getStrings(attributeData));
 
-        assertEquals(6, CSVDataValues.size());
+        assertEquals(6, csvDataValues.size());
 
-        assertTrue(CSVDataValues.contains("Malibu Beach"));
-        assertTrue(CSVDataValues.contains("\"California, US\""));
-        assertTrue(CSVDataValues.contains("\"This is our family's favorite beach. We highly recommend it. \n\nThanks, Jim\""));
+        assertTrue(csvDataValues.contains("Malibu Beach"));
+        assertTrue(csvDataValues.contains("\"California, US\""));
+        assertTrue(csvDataValues.contains("\"This is our family's favorite beach. We highly recommend it. \n\nThanks, Jim\""));
 
-        assertTrue(CSVDataValues.contains(flowFile.getAttribute("filename")));
-        assertTrue(CSVDataValues.contains(flowFile.getAttribute("path")));
-        assertTrue(CSVDataValues.contains(flowFile.getAttribute("uuid")));
+        assertTrue(csvDataValues.contains(flowFile.getAttribute("filename")));
+        assertTrue(csvDataValues.contains(flowFile.getAttribute("path")));
+        assertTrue(csvDataValues.contains(flowFile.getAttribute("uuid")));
 
         //Test flow file 1 with ATTRIBUTE_LIST populated from expression language containing commas (output should be he same)
         flowFile = flowFilesForRelationship.getFirst();
@@ -509,24 +497,21 @@ public class TestAttributesToCSV {
 
         attributeData = flowFile.getAttribute(OUTPUT_ATTRIBUTE_NAME);
 
-        CSVDataValues = new HashSet<>(getStrings(attributeData));
+        csvDataValues = new HashSet<>(getStrings(attributeData));
 
-        assertEquals(6, CSVDataValues.size());
+        assertEquals(6, csvDataValues.size());
 
-        assertTrue(CSVDataValues.contains("Malibu Beach"));
-        assertTrue(CSVDataValues.contains("\"California, US\""));
-        assertTrue(CSVDataValues.contains("\"This is our family's favorite beach. We highly recommend it. \n\nThanks, Jim\""));
+        assertTrue(csvDataValues.contains("Malibu Beach"));
+        assertTrue(csvDataValues.contains("\"California, US\""));
+        assertTrue(csvDataValues.contains("\"This is our family's favorite beach. We highly recommend it. \n\nThanks, Jim\""));
 
-        assertTrue(CSVDataValues.contains(flowFile.getAttribute("filename")));
-        assertTrue(CSVDataValues.contains(flowFile.getAttribute("path")));
-        assertTrue(CSVDataValues.contains(flowFile.getAttribute("uuid")));
-
+        assertTrue(csvDataValues.contains(flowFile.getAttribute("filename")));
+        assertTrue(csvDataValues.contains(flowFile.getAttribute("path")));
+        assertTrue(csvDataValues.contains(flowFile.getAttribute("uuid")));
     }
-
 
     @Test
     public void testAttrListFromExpNoCoreNullOffOverrideCoreByAttrListToAttribute() {
-        final TestRunner testRunner = TestRunners.newTestRunner(new AttributesToCSV());
         testRunner.setProperty(AttributesToCSV.DESTINATION, OUTPUT_NEW_ATTRIBUTE);
         testRunner.setProperty(AttributesToCSV.INCLUDE_CORE_ATTRIBUTES, "false");
         testRunner.setProperty(AttributesToCSV.ATTRIBUTES_LIST, "${myAttribs}");
@@ -552,23 +537,21 @@ public class TestAttributesToCSV {
 
         final String attributeData = flowFile.getAttribute(OUTPUT_ATTRIBUTE_NAME);
 
-        Set<String> CSVDataValues = new HashSet<>(getStrings(attributeData));
+        Set<String> csvDataValues = new HashSet<>(getStrings(attributeData));
 
-        assertEquals(3, CSVDataValues.size());
+        assertEquals(3, csvDataValues.size());
 
-        assertTrue(CSVDataValues.contains("Malibu Beach"));
-        assertTrue(CSVDataValues.contains("\"California, US\""));
-        assertTrue(CSVDataValues.contains("\"This is our family's favorite beach. We highly recommend it. \n\nThanks, Jim\""));
+        assertTrue(csvDataValues.contains("Malibu Beach"));
+        assertTrue(csvDataValues.contains("\"California, US\""));
+        assertTrue(csvDataValues.contains("\"This is our family's favorite beach. We highly recommend it. \n\nThanks, Jim\""));
 
-
-        assertFalse(CSVDataValues.contains(flowFile.getAttribute("filename")));
-        assertFalse(CSVDataValues.contains(flowFile.getAttribute("path")));
-        assertFalse(CSVDataValues.contains(flowFile.getAttribute("uuid")));
+        assertFalse(csvDataValues.contains(flowFile.getAttribute("filename")));
+        assertFalse(csvDataValues.contains(flowFile.getAttribute("path")));
+        assertFalse(csvDataValues.contains(flowFile.getAttribute("uuid")));
     }
 
     @Test
     public void testAttributesRegex() {
-        final TestRunner testRunner = TestRunners.newTestRunner(new AttributesToCSV());
         testRunner.setProperty(AttributesToCSV.DESTINATION, OUTPUT_NEW_ATTRIBUTE);
         testRunner.setProperty(AttributesToCSV.INCLUDE_CORE_ATTRIBUTES, "false");
         testRunner.setProperty(AttributesToCSV.ATTRIBUTES_REGEX, "${myRegEx}");
@@ -594,23 +577,21 @@ public class TestAttributesToCSV {
 
         final String attributeData = flowFile.getAttribute(OUTPUT_ATTRIBUTE_NAME);
 
-        Set<String> CSVDataValues = new HashSet<>(getStrings(attributeData));
+        Set<String> csvDataValues = new HashSet<>(getStrings(attributeData));
 
-        assertEquals(3, CSVDataValues.size());
+        assertEquals(3, csvDataValues.size());
 
-        assertTrue(CSVDataValues.contains("Malibu Beach"));
-        assertTrue(CSVDataValues.contains("\"California, US\""));
-        assertTrue(CSVDataValues.contains("\"This is our family's favorite beach. We highly recommend it. \n\nThanks, Jim\""));
+        assertTrue(csvDataValues.contains("Malibu Beach"));
+        assertTrue(csvDataValues.contains("\"California, US\""));
+        assertTrue(csvDataValues.contains("\"This is our family's favorite beach. We highly recommend it. \n\nThanks, Jim\""));
 
-
-        assertFalse(CSVDataValues.contains(flowFile.getAttribute("filename")));
-        assertFalse(CSVDataValues.contains(flowFile.getAttribute("path")));
-        assertFalse(CSVDataValues.contains(flowFile.getAttribute("uuid")));
+        assertFalse(csvDataValues.contains(flowFile.getAttribute("filename")));
+        assertFalse(csvDataValues.contains(flowFile.getAttribute("path")));
+        assertFalse(csvDataValues.contains(flowFile.getAttribute("uuid")));
     }
 
     @Test
     public void testAttributesRegexAndList() {
-        final TestRunner testRunner = TestRunners.newTestRunner(new AttributesToCSV());
         testRunner.setProperty(AttributesToCSV.DESTINATION, OUTPUT_NEW_ATTRIBUTE);
         testRunner.setProperty(AttributesToCSV.INCLUDE_CORE_ATTRIBUTES, "false");
         testRunner.setProperty(AttributesToCSV.ATTRIBUTES_REGEX, "${myRegEx}");
@@ -639,25 +620,23 @@ public class TestAttributesToCSV {
 
         final String attributeData = flowFile.getAttribute(OUTPUT_ATTRIBUTE_NAME);
 
-        Set<String> CSVDataValues = new HashSet<>(getStrings(attributeData));
+        Set<String> csvDataValues = new HashSet<>(getStrings(attributeData));
 
-        assertEquals(5, CSVDataValues.size());
+        assertEquals(5, csvDataValues.size());
 
-        assertTrue(CSVDataValues.contains("Malibu Beach"));
-        assertTrue(CSVDataValues.contains("\"California, US\""));
-        assertTrue(CSVDataValues.contains("\"This is our family's favorite beach. We highly recommend it. \n\nThanks, Jim\""));
-        assertTrue(CSVDataValues.contains("A+ Rating"));
-        assertTrue(CSVDataValues.contains("Avg Temp: 61f"));
+        assertTrue(csvDataValues.contains("Malibu Beach"));
+        assertTrue(csvDataValues.contains("\"California, US\""));
+        assertTrue(csvDataValues.contains("\"This is our family's favorite beach. We highly recommend it. \n\nThanks, Jim\""));
+        assertTrue(csvDataValues.contains("A+ Rating"));
+        assertTrue(csvDataValues.contains("Avg Temp: 61f"));
 
-        assertFalse(CSVDataValues.contains(flowFile.getAttribute("filename")));
-        assertFalse(CSVDataValues.contains(flowFile.getAttribute("path")));
-        assertFalse(CSVDataValues.contains(flowFile.getAttribute("uuid")));
+        assertFalse(csvDataValues.contains(flowFile.getAttribute("filename")));
+        assertFalse(csvDataValues.contains(flowFile.getAttribute("path")));
+        assertFalse(csvDataValues.contains(flowFile.getAttribute("uuid")));
     }
-
 
     @Test
     public void testSchemaToAttribute() {
-        final TestRunner testRunner = TestRunners.newTestRunner(new AttributesToCSV());
         testRunner.setProperty(AttributesToCSV.DESTINATION, OUTPUT_NEW_ATTRIBUTE);
         testRunner.setProperty(AttributesToCSV.INCLUDE_CORE_ATTRIBUTES, "false");
         testRunner.setProperty(AttributesToCSV.NULL_VALUE_FOR_EMPTY_STRING, "false");
@@ -687,7 +666,6 @@ public class TestAttributesToCSV {
 
     @Test
     public void testSchemaToContent() {
-        final TestRunner testRunner = TestRunners.newTestRunner(new AttributesToCSV());
         //set the destination of the csv string to be an attribute
         testRunner.setProperty(AttributesToCSV.DESTINATION, OUTPUT_OVERWRITE_CONTENT);
         testRunner.setProperty(AttributesToCSV.INCLUDE_CORE_ATTRIBUTES, "false");
@@ -717,10 +695,8 @@ public class TestAttributesToCSV {
         assertEquals(contentDataString.split(newline)[1], "Malibu Beach,\"California, US\"");
     }
 
-
     @Test
     public void testSchemaWithCoreAttribuesToAttribute() {
-        final TestRunner testRunner = TestRunners.newTestRunner(new AttributesToCSV());
         testRunner.setProperty(AttributesToCSV.DESTINATION, OUTPUT_NEW_ATTRIBUTE);
         testRunner.setProperty(AttributesToCSV.INCLUDE_CORE_ATTRIBUTES, "true");
         testRunner.setProperty(AttributesToCSV.NULL_VALUE_FOR_EMPTY_STRING, "false");
@@ -752,7 +728,6 @@ public class TestAttributesToCSV {
 
     @Test
     public void testSchemaWithCoreAttribuesToContent() {
-        final TestRunner testRunner = TestRunners.newTestRunner(new AttributesToCSV());
         //set the destination of the csv string to be an attribute
         testRunner.setProperty(AttributesToCSV.DESTINATION, OUTPUT_OVERWRITE_CONTENT);
         testRunner.setProperty(AttributesToCSV.INCLUDE_CORE_ATTRIBUTES, "true");
@@ -785,8 +760,23 @@ public class TestAttributesToCSV {
         assertEquals(contentDataString.split(newline)[0], "beach-name,beach-location,path,filename,uuid");
         assertEquals(contentDataString.split(newline)[1], "Malibu Beach,\"California, US\"," + path + "," + filename + "," + uuid);
     }
+
+    @Test
+    void testMigrateProperties() {
+        final Map<String, String> expectedRenamed = Map.ofEntries(
+                Map.entry("attribute-list", AttributesToCSV.ATTRIBUTES_LIST.getName()),
+                Map.entry("attributes-regex", AttributesToCSV.ATTRIBUTES_REGEX.getName()),
+                Map.entry("destination", AttributesToCSV.DESTINATION.getName()),
+                Map.entry("include-core-attributes", AttributesToCSV.INCLUDE_CORE_ATTRIBUTES.getName()),
+                Map.entry("null-value", AttributesToCSV.NULL_VALUE_FOR_EMPTY_STRING.getName()),
+                Map.entry("include-schema", AttributesToCSV.INCLUDE_SCHEMA.getName())
+        );
+
+        final PropertyMigrationResult propertyMigrationResult = testRunner.migrateProperties();
+        assertEquals(expectedRenamed, propertyMigrationResult.getPropertiesRenamed());
+    }
+
     private List<String> getStrings(String sdata) {
         return Arrays.asList(Pattern.compile(SPLIT_REGEX).split(sdata));
     }
-
 }

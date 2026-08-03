@@ -86,8 +86,6 @@ public class HashiCorpVaultParameterProvider extends AbstractParameterProvider i
             SECRET_NAME_PATTERN
     );
 
-    private HashiCorpVaultCommunicationService vaultCommunicationService;
-
     @Override
     protected List<PropertyDescriptor> getSupportedPropertyDescriptors() {
         return PROPERTY_DESCRIPTORS;
@@ -95,9 +93,8 @@ public class HashiCorpVaultParameterProvider extends AbstractParameterProvider i
 
     @Override
     public List<ParameterGroup> fetchParameters(final ConfigurationContext context) {
-        if (vaultCommunicationService == null) {
-            vaultCommunicationService = getVaultCommunicationService(context);
-        }
+        // Always get fresh communication service to ensure configuration changes are reflected
+        final HashiCorpVaultCommunicationService vaultCommunicationService = getVaultCommunicationService(context);
 
         final List<ParameterGroup> parameterGroups = getParameterGroups(vaultCommunicationService, context);
         return parameterGroups;
@@ -117,7 +114,7 @@ public class HashiCorpVaultParameterProvider extends AbstractParameterProvider i
         for (final String secretName : secretNames) {
             final Map<String, String> keyValues = vaultCommunicationService.readKeyValueSecretMap(kvPath, secretName, kvVersion);
             final List<Parameter> parameters = new ArrayList<>();
-            keyValues.forEach( (key, value) -> {
+            keyValues.forEach((key, value) -> {
                 parameters.add(new Parameter.Builder()
                         .name(key)
                         .value(value)
@@ -135,13 +132,6 @@ public class HashiCorpVaultParameterProvider extends AbstractParameterProvider i
                 .collect(Collectors.toList());
         getLogger().info("Fetched parameter groups {}, containing a total of {} parameters", parameterGroupNames, parameterCount);
         return parameterGroups;
-    }
-
-    @Override
-    public void onPropertyModified(final PropertyDescriptor descriptor, final String oldValue, final String newValue) {
-        if (VAULT_CLIENT_SERVICE.equals(descriptor)) {
-            vaultCommunicationService = null;
-        }
     }
 
     @Override

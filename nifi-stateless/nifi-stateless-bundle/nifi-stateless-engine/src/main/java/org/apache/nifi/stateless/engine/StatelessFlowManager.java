@@ -21,6 +21,7 @@ import org.apache.nifi.annotation.lifecycle.OnAdded;
 import org.apache.nifi.annotation.lifecycle.OnConfigurationRestored;
 import org.apache.nifi.authorization.resource.Authorizable;
 import org.apache.nifi.bundle.BundleCoordinate;
+import org.apache.nifi.components.connector.ConnectorNode;
 import org.apache.nifi.components.state.StateManager;
 import org.apache.nifi.connectable.Connectable;
 import org.apache.nifi.connectable.ConnectableType;
@@ -29,6 +30,7 @@ import org.apache.nifi.connectable.Funnel;
 import org.apache.nifi.connectable.LocalPort;
 import org.apache.nifi.connectable.Port;
 import org.apache.nifi.connectable.StandardConnection;
+import org.apache.nifi.controller.ClusterTopologyProvider;
 import org.apache.nifi.controller.ConfigurationContext;
 import org.apache.nifi.controller.ControllerService;
 import org.apache.nifi.controller.FlowAnalysisRuleNode;
@@ -91,6 +93,18 @@ import static java.util.Objects.requireNonNull;
 
 public class StatelessFlowManager extends AbstractFlowManager implements FlowManager {
     private static final Logger logger = LoggerFactory.getLogger(StatelessFlowManager.class);
+
+    private static final ClusterTopologyProvider STANDALONE_CLUSTER_TOPOLOGY_PROVIDER = new ClusterTopologyProvider() {
+        @Override
+        public int getLocalNodeOrdinal() {
+            return 0;
+        }
+
+        @Override
+        public int getConnectedNodeCount() {
+            return 1;
+        }
+    };
 
     private final StatelessEngine statelessEngine;
     private final SSLContext sslContext;
@@ -225,7 +239,7 @@ public class StatelessFlowManager extends AbstractFlowManager implements FlowMan
     }
 
     @Override
-    public ProcessGroup createProcessGroup(final String id) {
+    public ProcessGroup createProcessGroup(final String id, final String connectorId) {
         final ProcessGroup created = new StandardProcessGroup(id, statelessEngine.getControllerServiceProvider(),
             statelessEngine.getProcessScheduler(),
             statelessEngine.getPropertyEncryptor(),
@@ -234,9 +248,11 @@ public class StatelessFlowManager extends AbstractFlowManager implements FlowMan
             this,
             statelessEngine.getReloadComponent(),
             new StatelessNodeTypeProvider(),
+            STANDALONE_CLUSTER_TOPOLOGY_PROVIDER,
             null,
             group -> null,
-            statelessEngine.getAssetManager());
+            statelessEngine.getAssetManager(),
+            connectorId);
 
         onProcessGroupAdded(created);
         return created;
@@ -440,6 +456,21 @@ public class StatelessFlowManager extends AbstractFlowManager implements FlowMan
 
     @Override
     public void removeRootControllerService(final ControllerServiceNode service) {
+    }
+
+    @Override
+    public ConnectorNode createConnector(final String type, final String id, final BundleCoordinate coordinate, final boolean firstTimeAdded, final boolean registerLogObserver) {
+        throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public List<ConnectorNode> getAllConnectors() {
+        return List.of();
+    }
+
+    @Override
+    public ConnectorNode getConnector(final String id) {
+        return null;
     }
 
     @Override

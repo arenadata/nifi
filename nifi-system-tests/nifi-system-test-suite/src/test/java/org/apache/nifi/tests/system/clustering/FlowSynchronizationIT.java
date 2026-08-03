@@ -78,7 +78,6 @@ public class FlowSynchronizationIT extends NiFiSystemIT {
         return createTwoNodeInstanceFactory();
     }
 
-
     @Test
     public void testParameterUpdateWhileNodeDisconnected() throws NiFiClientException, IOException, InterruptedException {
         // Add Parameter context with Param1 = 1
@@ -158,7 +157,6 @@ public class FlowSynchronizationIT extends NiFiSystemIT {
         // Reconnect node and wait for it to fully connect
         reconnectNode(2);
         waitForAllNodesConnected();
-
 
         // Make sure all processors on Node 2 have a sensitive value set
         switchClientToNode(2);
@@ -308,7 +306,6 @@ public class FlowSynchronizationIT extends NiFiSystemIT {
         assertEquals("good-bye", node2ParamValue);
     }
 
-
     @Test
     public void testReconnectionWithUpdatedConnection() throws NiFiClientException, IOException, InterruptedException {
         // Create connection between two processors
@@ -351,7 +348,6 @@ public class FlowSynchronizationIT extends NiFiSystemIT {
         });
     }
 
-
     @Test
     public void testCannotRemoveComponentsWhileNodeDisconnected() throws NiFiClientException, IOException, InterruptedException {
         final ProcessorEntity generate = getClientUtil().createProcessor("GenerateFlowFile");
@@ -377,7 +373,6 @@ public class FlowSynchronizationIT extends NiFiSystemIT {
         getNifiClient().getProcessorClient().deleteProcessor(generate);
         getNifiClient().getProcessorClient().deleteProcessor(terminate);
     }
-
 
     @Test
     public void testComponentStatesRestoredOnReconnect() throws NiFiClientException, IOException, InterruptedException {
@@ -415,7 +410,6 @@ public class FlowSynchronizationIT extends NiFiSystemIT {
             return "STOPPED".equalsIgnoreCase(latestGenerate.getComponent().getState());
         });
     }
-
 
     @Test
     public void testComponentsRecreatedOnRestart() throws NiFiClientException, IOException, InterruptedException {
@@ -490,7 +484,7 @@ public class FlowSynchronizationIT extends NiFiSystemIT {
         waitFor(() -> {
             final ControllerServiceDTO updatedNode2SleepService = getNifiClient().getControllerServicesClient(DO_NOT_REPLICATE).getControllerService(sleepService.getId()).getComponent();
             return updatedNode2SleepService.getState().equals("ENABLED");
-        });
+        }, 100L, "SleepService to be ENABLED on Node 2");
 
         final Set<ControllerServiceEntity> groupServices = getNifiClient().getFlowClient(DO_NOT_REPLICATE).getControllerServices(group.getId()).getControllerServices();
         assertEquals(1, groupServices.size());
@@ -505,13 +499,13 @@ public class FlowSynchronizationIT extends NiFiSystemIT {
         waitFor(() -> {
             final ControllerServiceDTO updatedNode2CountService = getNifiClient().getControllerServicesClient(DO_NOT_REPLICATE).getControllerService(countService.getId()).getComponent();
             return updatedNode2CountService.getState().equals("ENABLED");
-        });
+        }, 100L, "CountService to be ENABLED on Node 2");
 
         waitFor(() -> {
             final ProcessorDTO updatedNode2CountProc = getNifiClient().getProcessorClient(DO_NOT_REPLICATE).getProcessor(node2CountProc.getId()).getComponent();
             final String processorState = updatedNode2CountProc.getState();
             return RUNNING_STATE.equals(processorState);
-        });
+        }, 100L, "CountFlowFiles processor to be RUNNING on Node 2");
 
         final PortDTO node2InputPort = node2GroupContents.getInputPorts().iterator().next().getComponent();
         assertEquals(inPort.getId(), node2InputPort.getId());
@@ -519,7 +513,7 @@ public class FlowSynchronizationIT extends NiFiSystemIT {
         waitFor(() -> {
             final PortDTO updatedNode2InputPort = getNifiClient().getInputPortClient(DO_NOT_REPLICATE).getInputPort(node2InputPort.getId()).getComponent();
             return updatedNode2InputPort.getState().equals(RUNNING_STATE);
-        });
+        }, 100L, "Input Port to be RUNNING on Node 2");
 
         final PortDTO node2OutputPort = node2GroupContents.getOutputPorts().iterator().next().getComponent();
         assertEquals(outPort.getId(), node2OutputPort.getId());
@@ -527,14 +521,13 @@ public class FlowSynchronizationIT extends NiFiSystemIT {
         waitFor(() -> {
             final PortDTO updatedNode2OutputPort = getNifiClient().getOutputPortClient(DO_NOT_REPLICATE).getOutputPort(node2OutputPort.getId()).getComponent();
             return updatedNode2OutputPort.getState().equals(RUNNING_STATE);
-        });
+        }, 100L, "Output Port to be RUNNING on Node 2");
 
         waitFor(() -> {
             final ReportingTaskEntity updatedNode2ReportingTask = getNifiClient().getReportingTasksClient(DO_NOT_REPLICATE).getReportingTask(reportingTask.getId());
             return updatedNode2ReportingTask.getComponent().getState().equals(RUNNING_STATE);
-        });
+        }, 100L, "ReportingTask to be RUNNING on Node 2");
     }
-
 
     @Test
     public void testReconnectAddsProcessor() throws NiFiClientException, IOException, InterruptedException {
@@ -606,9 +599,14 @@ public class FlowSynchronizationIT extends NiFiSystemIT {
 
         // Delete the CountFlowFiles processor, and countB and countC services, disable A.
         getClientUtil().stopProcessor(countFlowFiles);
+        // Ensure the processor has fully stopped before disabling services to avoid race conditions
+        getClientUtil().waitForStoppedProcessor(countFlowFiles.getId());
         getNifiClient().getConnectionClient().deleteConnection(connection);
         getNifiClient().getProcessorClient().deleteProcessor(countFlowFiles);
-        getClientUtil().disableControllerServices("root", true);
+        getClientUtil().disableControllerService(countA);
+        getClientUtil().disableControllerService(countB);
+        getClientUtil().disableControllerService(countC);
+        getClientUtil().waitForControllerServicesDisabled(countC.getParentGroupId(), countA.getId(), countB.getId(), countC.getId());
         getNifiClient().getControllerServicesClient().deleteControllerService(countC);
         getNifiClient().getControllerServicesClient().deleteControllerService(countB);
 
@@ -688,9 +686,11 @@ public class FlowSynchronizationIT extends NiFiSystemIT {
         });
     }
 
-
     @Test
     public void testUnnecessaryProcessorsAndConnectionsRemoved() throws NiFiClientException, IOException, InterruptedException {
+        // We make assertions about the number of components in the flow so make sure that we start with an empty flow.
+        destroyFlow();
+
         final ProcessorEntity generate = getClientUtil().createProcessor("GenerateFlowFile");
         getClientUtil().updateProcessorSchedulingPeriod(generate, "10 mins");
 
@@ -710,6 +710,9 @@ public class FlowSynchronizationIT extends NiFiSystemIT {
 
         waitForQueueCount(connection.getId(), 0);
 
+        getClientUtil().stopProcessor(generate);
+        getClientUtil().stopProcessor(terminate);
+
         // Reconnect the node to the cluster
         switchClientToNode(1);
         reconnectNode(2);
@@ -722,11 +725,14 @@ public class FlowSynchronizationIT extends NiFiSystemIT {
             final ProcessGroupFlowEntity flow = getNifiClient().getFlowClient(DO_NOT_REPLICATE).getProcessGroup("root");
             final FlowDTO flowDto = flow.getProcessGroupFlow().getFlow();
 
-            if (flowDto.getProcessors().size() != 1) {
+            final int processorCount = flowDto.getProcessors().size();
+            final int connectionCount = flowDto.getConnections().size();
+            if (processorCount != 1 || connectionCount != 0) {
+                logger.info("Waiting for Node 2 to have 1 processor and 0 connections but found {} processors and {} connections", processorCount, connectionCount);
                 return false;
             }
 
-            return flowDto.getConnections().isEmpty();
+            return true;
         });
     }
 
@@ -763,7 +769,6 @@ public class FlowSynchronizationIT extends NiFiSystemIT {
             return ControllerServiceState.DISABLED.name().equals(currentService.getComponent().getState());
         });
     }
-
 
     @Test
     public void testReconnectWithRunningProcessorUnchanged() throws NiFiClientException, IOException, InterruptedException {
@@ -803,7 +808,6 @@ public class FlowSynchronizationIT extends NiFiSystemIT {
         reconnectNode(2);
         waitForAllNodesConnected();
     }
-
 
     private VersionedDataflow getNode2Flow() throws IOException {
         final File instanceDir = getNiFiInstance().getNodeInstance(2).getInstanceDirectory();

@@ -31,6 +31,7 @@ import {
 import * as StatusHistoryActions from '../../../../state/status-history/status-history.actions';
 import * as ErrorActions from '../../../../state/error/error.actions';
 import * as CopyActions from '../../../../state/copy/copy.actions';
+import * as EmptyQueueActions from '../../../../state/empty-queue/empty-queue.actions';
 import {
     asyncScheduler,
     catchError,
@@ -53,8 +54,6 @@ import {
     CreateConnectionDialogRequest,
     CreateProcessGroupDialogRequest,
     DeleteComponentResponse,
-    DisableComponentRequest,
-    EnableComponentRequest,
     GroupComponentsDialogRequest,
     ImportFromRegistryDialogRequest,
     LoadProcessGroupResponse,
@@ -66,26 +65,19 @@ import {
     SaveVersionRequest,
     SelectedComponent,
     Snippet,
-    StartComponentRequest,
-    StopComponentRequest,
     StopVersionControlRequest,
     StopVersionControlResponse,
-    UpdateComponentFailure,
-    UpdateComponentRequest,
-    UpdateComponentResponse,
-    UpdateConnectionSuccess,
-    UpdateProcessorRequest,
-    UpdateProcessorResponse,
     VersionControlInformationEntity
 } from './index';
 import { Action, Store } from '@ngrx/store';
 import {
     selectAnySelectedComponentIds,
+    selectBreadcrumbs,
     selectChangeVersionRequest,
     selectCurrentParameterContext,
     selectCurrentProcessGroupId,
     selectCurrentProcessGroupRevision,
-    selectFlowLoadingStatus,
+    selectHasFlowData,
     selectInputPort,
     selectMaxZIndex,
     selectOutputPort,
@@ -101,12 +93,23 @@ import {
 import { ConnectionManager } from '../../service/manager/connection-manager.service';
 import { MatDialog, MatDialogRef } from '@angular/material/dialog';
 import { CreatePort } from '../../ui/canvas/items/port/create-port/create-port.component';
-import { EditPort } from '../../ui/canvas/items/port/edit-port/edit-port.component';
+import { EditPort } from '../../../../ui/common/component-dialogs/edit-port/edit-port.component';
 import {
     BranchEntity,
     BucketEntity,
+    DisableComponentRequest,
+    EnableComponentRequest,
     OpenChangeComponentVersionDialogRequest,
+    ParameterContextEntity,
     RegistryClientEntity,
+    StartComponentRequest,
+    StopComponentRequest,
+    UpdateComponentFailure,
+    UpdateComponentRequest,
+    UpdateComponentResponse,
+    UpdateConnectionSuccess,
+    UpdateProcessorRequest,
+    UpdateProcessorResponse,
     VersionedFlowEntity,
     VersionedFlowSnapshotMetadataEntity
 } from '../../../../state/shared';
@@ -116,18 +119,19 @@ import { CanvasUtils } from '../../service/canvas-utils.service';
 import { CanvasView } from '../../service/canvas-view.service';
 import { NiFiState } from '../../../../state';
 import { CreateProcessor } from '../../ui/canvas/items/processor/create-processor/create-processor.component';
-import { EditProcessor } from '../../ui/canvas/items/processor/edit-processor/edit-processor.component';
+import { EditProcessor } from '../../../../ui/common/component-dialogs/edit-processor/edit-processor.component';
 import { BirdseyeView } from '../../service/birdseye-view.service';
 import { CreateRemoteProcessGroup } from '../../ui/canvas/items/remote-process-group/create-remote-process-group/create-remote-process-group.component';
 import { CreateProcessGroup } from '../../ui/canvas/items/process-group/create-process-group/create-process-group.component';
 import { CreateConnection } from '../../ui/canvas/items/connection/create-connection/create-connection.component';
-import { EditConnectionComponent } from '../../ui/canvas/items/connection/edit-connection/edit-connection.component';
+import { EditConnectionComponent } from '../../../../ui/common/component-dialogs/edit-connection/edit-connection.component';
 import { OkDialog } from '../../../../ui/common/ok-dialog/ok-dialog.component';
 import { GroupComponents } from '../../ui/canvas/items/process-group/group-components/group-components.component';
-import { EditProcessGroup } from '../../ui/canvas/items/process-group/edit-process-group/edit-process-group.component';
+import { EditProcessGroup } from '../../../../ui/common/component-dialogs/edit-process-group/edit-process-group.component';
 import { ControllerServiceService } from '../../service/controller-service.service';
 import {
     ComponentType,
+    ComponentTypeNamePipe,
     isDefinedAndNotNull,
     LARGE_DIALOG,
     MEDIUM_DIALOG,
@@ -142,8 +146,9 @@ import { ParameterHelperService } from '../../service/parameter-helper.service';
 import { RegistryService } from '../../service/registry.service';
 import { ImportFromRegistry } from '../../ui/canvas/items/flow/import-from-registry/import-from-registry.component';
 import { selectCurrentUser } from '../../../../state/current-user/current-user.selectors';
+import { selectPrioritizerTypes } from '../../../../state/extension-types/extension-types.selectors';
 import { NoRegistryClientsDialog } from '../../ui/common/no-registry-clients-dialog/no-registry-clients-dialog.component';
-import { EditRemoteProcessGroup } from '../../ui/canvas/items/remote-process-group/edit-remote-process-group/edit-remote-process-group.component';
+import { EditRemoteProcessGroup } from '../../../../ui/common/component-dialogs/edit-remote-process-group/edit-remote-process-group.component';
 import { HttpErrorResponse } from '@angular/common/http';
 import { SaveVersionDialog } from '../../ui/canvas/items/flow/save-version-dialog/save-version-dialog.component';
 import { ChangeVersionDialog } from '../../ui/canvas/items/flow/change-version-dialog/change-version-dialog';
@@ -153,7 +158,7 @@ import { ClusterConnectionService } from '../../../../service/cluster-connection
 import { ExtensionTypesService } from '../../../../service/extension-types.service';
 import { ChangeComponentVersionDialog } from '../../../../ui/common/change-component-version-dialog/change-component-version-dialog';
 import { SnippetService } from '../../service/snippet.service';
-import { EditLabel } from '../../ui/canvas/items/label/edit-label/edit-label.component';
+import { EditLabel } from '../../../../ui/common/component-dialogs/edit-label/edit-label.component';
 import { ErrorHelper } from '../../../../service/error-helper.service';
 import { selectConnectedStateChanged } from '../../../../state/cluster-summary/cluster-summary.selectors';
 import { resetConnectedStateChanged } from '../../../../state/cluster-summary/cluster-summary.actions';
@@ -180,34 +185,35 @@ import { ParameterContextService } from '../../../parameter-contexts/service/par
 
 @Injectable()
 export class FlowEffects {
+    private actions$ = inject(Actions);
+    private store = inject<Store<NiFiState>>(Store);
+    private storage = inject(Storage);
+    private flowService = inject(FlowService);
+    private controllerServiceService = inject(ControllerServiceService);
+    private registryService = inject(RegistryService);
+    private client = inject(Client);
+    private canvasUtils = inject(CanvasUtils);
+    private canvasView = inject(CanvasView);
+    private birdseyeView = inject(BirdseyeView);
+    private connectionManager = inject(ConnectionManager);
+    private clusterConnectionService = inject(ClusterConnectionService);
+    private snippetService = inject(SnippetService);
+    private router = inject(Router);
+    private dialog = inject(MatDialog);
+    private propertyTableHelperService = inject(PropertyTableHelperService);
+    private parameterHelperService = inject(ParameterHelperService);
+    private parameterContextService = inject(ParameterContextService);
+    private extensionTypesService = inject(ExtensionTypesService);
+    private errorHelper = inject(ErrorHelper);
+    private componentTypeNamePipe = inject(ComponentTypeNamePipe);
+    private copyPasteService = inject(CopyPasteService);
+
     private createProcessGroupDialogRef: MatDialogRef<CreateProcessGroup, any> | undefined;
     private editProcessGroupDialogRef: MatDialogRef<EditProcessGroup, any> | undefined;
     private destroyRef = inject(DestroyRef);
-    private lastReload: number = 0;
+    private lastReload = 0;
 
-    constructor(
-        private actions$: Actions,
-        private store: Store<NiFiState>,
-        private storage: Storage,
-        private flowService: FlowService,
-        private controllerServiceService: ControllerServiceService,
-        private registryService: RegistryService,
-        private client: Client,
-        private canvasUtils: CanvasUtils,
-        private canvasView: CanvasView,
-        private birdseyeView: BirdseyeView,
-        private connectionManager: ConnectionManager,
-        private clusterConnectionService: ClusterConnectionService,
-        private snippetService: SnippetService,
-        private router: Router,
-        private dialog: MatDialog,
-        private propertyTableHelperService: PropertyTableHelperService,
-        private parameterHelperService: ParameterHelperService,
-        private parameterContextService: ParameterContextService,
-        private extensionTypesService: ExtensionTypesService,
-        private errorHelper: ErrorHelper,
-        private copyPasteService: CopyPasteService
-    ) {
+    constructor() {
         this.store
             .select(selectDocumentVisibilityState)
             .pipe(
@@ -249,11 +255,11 @@ export class FlowEffects {
             ofType(FlowActions.loadProcessGroup),
             map((action) => action.request),
             concatLatestFrom(() => [
-                this.store.select(selectFlowLoadingStatus),
+                this.store.select(selectHasFlowData),
                 this.store.select(selectConnectedStateChanged)
             ]),
             tap(() => this.store.dispatch(resetConnectedStateChanged())),
-            switchMap(([request, status, connectedStateChanged]) =>
+            switchMap(([request, hasFlowData, connectedStateChanged]) =>
                 combineLatest([
                     this.flowService.getFlow(request.id),
                     this.flowService.getFlowStatus(),
@@ -274,7 +280,7 @@ export class FlowEffects {
                         });
                     }),
                     catchError((errorResponse: HttpErrorResponse) =>
-                        of(this.errorHelper.handleLoadingError(status, errorResponse))
+                        of(this.errorHelper.handleLoadingError(hasFlowData, errorResponse))
                     )
                 )
             )
@@ -1364,26 +1370,37 @@ export class FlowEffects {
                 ofType(FlowActions.openEditPortDialog),
                 map((action) => action.request),
                 tap((request) => {
-                    this.dialog
-                        .open(EditPort, {
-                            ...MEDIUM_DIALOG,
-                            data: request
-                        })
-                        .afterClosed()
-                        .subscribe(() => {
+                    const editDialogReference = this.dialog.open(EditPort, {
+                        ...MEDIUM_DIALOG,
+                        data: request
+                    });
+
+                    editDialogReference.componentInstance.saving$ = this.store.select(selectSaving);
+
+                    editDialogReference.componentInstance.editPort
+                        .pipe(takeUntil(editDialogReference.afterClosed()))
+                        .subscribe((updateComponentRequest) => {
                             this.store.dispatch(
-                                FlowActions.selectComponents({
-                                    request: {
-                                        components: [
-                                            {
-                                                id: request.entity.id,
-                                                componentType: request.type
-                                            }
-                                        ]
-                                    }
+                                FlowActions.updateComponent({
+                                    request: updateComponentRequest
                                 })
                             );
                         });
+
+                    editDialogReference.afterClosed().subscribe(() => {
+                        this.store.dispatch(
+                            FlowActions.selectComponents({
+                                request: {
+                                    components: [
+                                        {
+                                            id: request.entity.id,
+                                            componentType: request.type
+                                        }
+                                    ]
+                                }
+                            })
+                        );
+                    });
                 })
             ),
         { dispatch: false }
@@ -1395,26 +1412,37 @@ export class FlowEffects {
                 ofType(FlowActions.openEditLabelDialog),
                 map((action) => action.request),
                 tap((request) => {
-                    this.dialog
-                        .open(EditLabel, {
-                            ...MEDIUM_DIALOG,
-                            data: request
-                        })
-                        .afterClosed()
-                        .subscribe(() => {
+                    const editDialogReference = this.dialog.open(EditLabel, {
+                        ...MEDIUM_DIALOG,
+                        data: request
+                    });
+
+                    editDialogReference.componentInstance.saving$ = this.store.select(selectSaving);
+
+                    editDialogReference.componentInstance.editLabel
+                        .pipe(takeUntil(editDialogReference.afterClosed()))
+                        .subscribe((updateComponentRequest) => {
                             this.store.dispatch(
-                                FlowActions.selectComponents({
-                                    request: {
-                                        components: [
-                                            {
-                                                id: request.entity.id,
-                                                componentType: request.type
-                                            }
-                                        ]
-                                    }
+                                FlowActions.updateComponent({
+                                    request: updateComponentRequest
                                 })
                             );
                         });
+
+                    editDialogReference.afterClosed().subscribe(() => {
+                        this.store.dispatch(
+                            FlowActions.selectComponents({
+                                request: {
+                                    components: [
+                                        {
+                                            id: request.entity.id,
+                                            componentType: request.type
+                                        }
+                                    ]
+                                }
+                            })
+                        );
+                    });
                 })
             ),
         { dispatch: false }
@@ -1492,7 +1520,7 @@ export class FlowEffects {
                 }),
                 tap(([request, parameterContext, processGroupId]) => {
                     const processorId: string = request.entity.id;
-                    let runStatusChanged: boolean = false;
+                    let runStatusChanged = false;
 
                     const editDialogReference = this.dialog.open(EditProcessor, {
                         ...XL_DIALOG,
@@ -1671,7 +1699,6 @@ export class FlowEffects {
                                 stopComponent({
                                     request: {
                                         id: stopComponentRequest.id,
-                                        uri: stopComponentRequest.uri,
                                         type: ComponentType.Processor,
                                         revision: stopComponentRequest.revision,
                                         errorStrategy: 'snackbar'
@@ -1688,7 +1715,6 @@ export class FlowEffects {
                                 disableComponent({
                                     request: {
                                         id: disableComponentsRequest.id,
-                                        uri: disableComponentsRequest.uri,
                                         type: ComponentType.Processor,
                                         revision: disableComponentsRequest.revision,
                                         errorStrategy: 'snackbar'
@@ -1705,7 +1731,6 @@ export class FlowEffects {
                                 enableComponent({
                                     request: {
                                         id: enableComponentsRequest.id,
-                                        uri: enableComponentsRequest.uri,
                                         type: ComponentType.Processor,
                                         revision: enableComponentsRequest.revision,
                                         errorStrategy: 'snackbar'
@@ -1722,7 +1747,6 @@ export class FlowEffects {
                                 startComponent({
                                     request: {
                                         id: startComponentRequest.id,
-                                        uri: startComponentRequest.uri,
                                         type: ComponentType.Processor,
                                         revision: startComponentRequest.revision,
                                         errorStrategy: 'snackbar'
@@ -1816,6 +1840,9 @@ export class FlowEffects {
                     });
 
                     editDialogReference.componentInstance.saving$ = this.store.select(selectSaving);
+                    editDialogReference.componentInstance.availablePrioritizers$ =
+                        this.store.select(selectPrioritizerTypes);
+                    editDialogReference.componentInstance.breadcrumbs$ = this.store.select(selectBreadcrumbs);
 
                     editDialogReference.componentInstance.getChildOutputPorts = (groupId: string): Observable<any> => {
                         return this.flowService.getFlow(groupId).pipe(
@@ -1845,6 +1872,24 @@ export class FlowEffects {
                     editDialogReference.componentInstance.selectRemoteProcessGroup = (id: string) => {
                         return this.store.select(selectRemoteProcessGroup(id));
                     };
+
+                    editDialogReference.componentInstance.getConnectionSourceComponentId = (connection: any) =>
+                        this.canvasUtils.getConnectionSourceComponentId(connection);
+                    editDialogReference.componentInstance.calculateCollisionBends = (
+                        sourceId: string,
+                        destId: string,
+                        connectionId: string
+                    ) => this.canvasUtils.calculateBendPointsForCollisionAvoidanceByIds(sourceId, destId, connectionId);
+
+                    editDialogReference.componentInstance.editConnection
+                        .pipe(takeUntil(editDialogReference.afterClosed()))
+                        .subscribe((updateRequest) => {
+                            this.store.dispatch(
+                                FlowActions.updateConnection({
+                                    request: updateRequest
+                                })
+                            );
+                        });
 
                     editDialogReference.afterClosed().subscribe((response) => {
                         if (response == 'CANCELLED') {
@@ -1885,6 +1930,8 @@ export class FlowEffects {
                     });
 
                     this.editProcessGroupDialogRef.componentInstance.saving$ = this.store.select(selectSaving);
+                    this.editProcessGroupDialogRef.componentInstance.currentUser$ =
+                        this.store.select(selectCurrentUser);
                     this.editProcessGroupDialogRef.componentInstance.parameterContexts =
                         request.parameterContexts || [];
 
@@ -1900,6 +1947,16 @@ export class FlowEffects {
                                         payload,
                                         errorStrategy: 'banner'
                                     }
+                                })
+                            );
+                        });
+
+                    this.editProcessGroupDialogRef.componentInstance.openNewParameterContext
+                        .pipe(takeUntil(this.editProcessGroupDialogRef.afterClosed()))
+                        .subscribe((parameterContexts: ParameterContextEntity[]) => {
+                            this.store.dispatch(
+                                ParameterActions.openNewParameterContextDialog({
+                                    request: { parameterContexts }
                                 })
                             );
                         });
@@ -2945,6 +3002,28 @@ export class FlowEffects {
         { dispatch: false }
     );
 
+    navigateToComponents$ = createEffect(
+        () =>
+            this.actions$.pipe(
+                ofType(FlowActions.navigateToComponents),
+                map((action) => action.request),
+                concatLatestFrom(() => this.store.select(selectCurrentProcessGroupId)),
+                tap(([request, currentProcessGroupId]) => {
+                    if (request.processGroupId) {
+                        this.router.navigate([
+                            '/process-groups',
+                            request.processGroupId,
+                            'bulk',
+                            request.ids.join(',')
+                        ]);
+                    } else {
+                        this.router.navigate(['/process-groups', currentProcessGroupId, 'bulk', request.ids.join(',')]);
+                    }
+                })
+            ),
+        { dispatch: false }
+    );
+
     navigateWithoutTransform$ = createEffect(
         () =>
             this.actions$.pipe(
@@ -2972,16 +3051,16 @@ export class FlowEffects {
         () =>
             this.actions$.pipe(
                 ofType(FlowActions.navigateToProvenanceForComponent),
-                map((action) => action.id),
+                map((action) => ({ id: action.id, componentType: action.componentType })),
                 concatLatestFrom(() => this.store.select(selectCurrentProcessGroupId)),
-                tap(([componentId, processGroupId]) => {
+                tap(([{ id: componentId, componentType }, processGroupId]) => {
                     this.router.navigate(['/provenance'], {
                         queryParams: { componentId },
                         state: {
                             backNavigation: {
-                                route: ['/process-groups', processGroupId, ComponentType.Processor, componentId],
+                                route: ['/process-groups', processGroupId, componentType, componentId],
                                 routeBoundary: ['/provenance'],
-                                context: 'Processor'
+                                context: this.componentTypeNamePipe.transform(componentType)
                             } as BackNavigation
                         }
                     });
@@ -3124,7 +3203,7 @@ export class FlowEffects {
                     case ComponentType.InputPort:
                     case ComponentType.OutputPort:
                     case ComponentType.Processor:
-                        if ('uri' in request && 'revision' in request) {
+                        if ('revision' in request) {
                             return from(this.flowService.enableComponent(request)).pipe(
                                 map((response) => {
                                     return FlowActions.enableComponentSuccess({
@@ -3150,7 +3229,7 @@ export class FlowEffects {
                         }
                         return of(
                             FlowActions.flowSnackbarError({
-                                error: `Enabling ${request.type} requires both uri and revision properties`
+                                error: `Enabling ${request.type} requires a revision property`
                             })
                         );
                     case ComponentType.ProcessGroup:
@@ -3260,7 +3339,7 @@ export class FlowEffects {
                     case ComponentType.InputPort:
                     case ComponentType.OutputPort:
                     case ComponentType.Processor:
-                        if ('uri' in request && 'revision' in request) {
+                        if ('revision' in request) {
                             return from(this.flowService.disableComponent(request)).pipe(
                                 map((response) => {
                                     return FlowActions.disableComponentSuccess({
@@ -3286,7 +3365,7 @@ export class FlowEffects {
                         }
                         return of(
                             FlowActions.flowSnackbarError({
-                                error: `Disabling ${request.type} requires both uri and revision properties`
+                                error: `Disabling ${request.type} requires a revision property`
                             })
                         );
                     case ComponentType.ProcessGroup:
@@ -3397,7 +3476,7 @@ export class FlowEffects {
                     case ComponentType.OutputPort:
                     case ComponentType.Processor:
                     case ComponentType.RemoteProcessGroup:
-                        if ('uri' in request && 'revision' in request) {
+                        if ('revision' in request) {
                             return from(this.flowService.startComponent(request)).pipe(
                                 map((response) => {
                                     return FlowActions.startComponentSuccess({
@@ -3423,7 +3502,7 @@ export class FlowEffects {
                         }
                         return of(
                             FlowActions.flowSnackbarError({
-                                error: `Starting ${request.type} requires both uri and revision properties`
+                                error: `Starting ${request.type} requires a revision property`
                             })
                         );
                     case ComponentType.ProcessGroup:
@@ -3597,7 +3676,7 @@ export class FlowEffects {
                     case ComponentType.OutputPort:
                     case ComponentType.Processor:
                     case ComponentType.RemoteProcessGroup:
-                        if ('uri' in request && 'revision' in request) {
+                        if ('revision' in request) {
                             return from(this.flowService.stopComponent(request)).pipe(
                                 map((response) => {
                                     return FlowActions.stopComponentSuccess({
@@ -3623,7 +3702,7 @@ export class FlowEffects {
                         }
                         return of(
                             FlowActions.flowSnackbarError({
-                                error: `Stopping ${request.type} requires both uri and revision properties`
+                                error: `Stopping ${request.type} requires a revision property`
                             })
                         );
                     case ComponentType.ProcessGroup:
@@ -4617,5 +4696,112 @@ export class FlowEffects {
                 })
             ),
         { dispatch: false }
+    );
+
+    /*
+        Clear Bulletins Effects
+    */
+
+    clearBulletinsForComponent$ = createEffect(() =>
+        this.actions$.pipe(
+            ofType(FlowActions.clearBulletinsForComponent),
+            map((action) => action.request),
+            switchMap((request) =>
+                from(this.flowService.clearBulletinForComponent(request)).pipe(
+                    map((response) =>
+                        FlowActions.clearBulletinsForComponentSuccess({
+                            response: {
+                                componentId: response.componentId,
+                                bulletinsCleared: response.bulletinsCleared,
+                                bulletins: response.bulletins || [],
+                                componentType: request.componentType
+                            }
+                        })
+                    ),
+                    catchError((errorResponse: HttpErrorResponse) => of(this.snackBarOrFullScreenError(errorResponse)))
+                )
+            )
+        )
+    );
+
+    clearBulletinsForProcessGroup$ = createEffect(() =>
+        this.actions$.pipe(
+            ofType(FlowActions.clearBulletinsForProcessGroup),
+            map((action) => action.request),
+            switchMap((request) =>
+                from(this.flowService.clearBulletinsForProcessGroup(request)).pipe(
+                    map((response) =>
+                        FlowActions.clearBulletinsForProcessGroupSuccess({
+                            response: {
+                                processGroupId: request.processGroupId,
+                                bulletinsCleared: response.bulletinsCleared
+                            }
+                        })
+                    ),
+                    catchError((errorResponse: HttpErrorResponse) => of(this.snackBarOrFullScreenError(errorResponse)))
+                )
+            )
+        )
+    );
+
+    clearBulletinsForProcessGroupSuccess$ = createEffect(() =>
+        this.actions$.pipe(
+            ofType(FlowActions.clearBulletinsForProcessGroupSuccess),
+            map((action) => action.response),
+            concatLatestFrom(() => this.store.select(selectCurrentProcessGroupId)),
+            switchMap(([response, currentProcessGroupId]) => {
+                // If we cleared bulletins for the currently viewed process group, reload the entire flow
+                if (response.processGroupId === currentProcessGroupId) {
+                    return of(FlowActions.reloadFlow());
+                } else {
+                    // If it's a child process group visible on the canvas, reload just that child
+                    return of(
+                        FlowActions.loadChildProcessGroup({
+                            request: { id: response.processGroupId }
+                        })
+                    );
+                }
+            })
+        )
+    );
+
+    /**
+     * Refreshes the affected connection or process group after a queue has been emptied
+     * from the flow designer. Listens for the shared queueEmptied event and filters on
+     * source so that connector-canvas-initiated empties do not trigger flow-designer
+     * refreshes.
+     */
+    refreshAfterQueueEmptied$ = createEffect(() =>
+        this.actions$.pipe(
+            ofType(EmptyQueueActions.queueEmptied),
+            filter((action) => action.source === 'flow-designer'),
+            concatLatestFrom(() => this.store.select(selectCurrentProcessGroupId)),
+            switchMap(([action, currentProcessGroupId]) => {
+                const refreshActions: Action[] = [];
+
+                if (action.connectionId) {
+                    refreshActions.push(FlowActions.loadConnection({ id: action.connectionId }));
+                } else if (action.processGroupId) {
+                    if (action.processGroupId === currentProcessGroupId) {
+                        refreshActions.push(
+                            FlowActions.loadProcessGroup({
+                                request: {
+                                    id: action.processGroupId,
+                                    transitionRequired: false
+                                }
+                            })
+                        );
+                    } else {
+                        refreshActions.push(
+                            FlowActions.loadChildProcessGroup({
+                                request: { id: action.processGroupId }
+                            })
+                        );
+                    }
+                }
+
+                return from(refreshActions);
+            })
+        )
     );
 }

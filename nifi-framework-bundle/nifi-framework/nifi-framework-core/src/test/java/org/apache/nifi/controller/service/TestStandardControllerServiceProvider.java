@@ -20,15 +20,16 @@ package org.apache.nifi.controller.service;
 import org.apache.nifi.bundle.Bundle;
 import org.apache.nifi.bundle.BundleCoordinate;
 import org.apache.nifi.components.PropertyDescriptor;
-import org.apache.nifi.components.state.Scope;
 import org.apache.nifi.components.state.StateManager;
 import org.apache.nifi.components.state.StateManagerProvider;
-import org.apache.nifi.components.state.StateMap;
 import org.apache.nifi.components.validation.ValidationStatus;
 import org.apache.nifi.components.validation.ValidationTrigger;
+import org.apache.nifi.components.validation.VerifiableComponentFactory;
+import org.apache.nifi.controller.ComponentNode;
 import org.apache.nifi.controller.ExtensionBuilder;
 import org.apache.nifi.controller.FlowController;
 import org.apache.nifi.controller.LoggableComponent;
+import org.apache.nifi.controller.MockStateManagerProvider;
 import org.apache.nifi.controller.NodeTypeProvider;
 import org.apache.nifi.controller.ProcessScheduler;
 import org.apache.nifi.controller.ProcessorNode;
@@ -43,7 +44,6 @@ import org.apache.nifi.controller.service.mock.MockProcessGroup;
 import org.apache.nifi.controller.service.mock.ServiceA;
 import org.apache.nifi.controller.service.mock.ServiceB;
 import org.apache.nifi.controller.service.mock.ServiceC;
-import org.apache.nifi.controller.state.StandardStateMap;
 import org.apache.nifi.engine.FlowEngine;
 import org.apache.nifi.groups.ProcessGroup;
 import org.apache.nifi.nar.ExtensionDiscoveringManager;
@@ -62,61 +62,33 @@ import org.junit.jupiter.api.Timeout;
 import org.mockito.Mockito;
 import org.mockito.stubbing.Answer;
 
-import java.io.IOException;
+import java.net.URL;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
+import java.util.Set;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 public class TestStandardControllerServiceProvider {
 
-    private static StateManagerProvider stateManagerProvider = new StateManagerProvider() {
-        @Override
-        public StateManager getStateManager(final String componentId, final boolean dropStateKeySupported) {
-            final StateManager stateManager = Mockito.mock(StateManager.class);
-            final StateMap emptyStateMap = new StandardStateMap(Collections.emptyMap(), Optional.empty());
-            try {
-                Mockito.when(stateManager.getState(any(Scope.class))).thenReturn(emptyStateMap);
-            } catch (IOException e) {
-                throw new AssertionError();
-            }
-
-            return stateManager;
-        }
-
-        @Override
-        public void shutdown() {
-        }
-
-        @Override
-        public void enableClusterProvider() {
-        }
-
-        @Override
-        public void disableClusterProvider() {
-        }
-
-        @Override
-        public void onComponentRemoved(final String componentId) {
-        }
-
-        @Override
-        public boolean isClusterProviderEnabled() {
-            return false;
-        }
-    };
+    private static final StateManagerProvider stateManagerProvider = new MockStateManagerProvider();
 
     private static NiFiProperties niFiProperties;
     private static ExtensionDiscoveringManager extensionManager;
@@ -125,7 +97,9 @@ public class TestStandardControllerServiceProvider {
 
     @BeforeAll
     public static void setNiFiProps() {
-        niFiProperties = NiFiProperties.createBasicNiFiProperties(TestStandardControllerServiceProvider.class.getResource("/conf/nifi.properties").getFile());
+        final URL propertiesUrl = TestStandardControllerServiceProvider.class.getResource("/conf/nifi.properties");
+        assertNotNull(propertiesUrl);
+        niFiProperties = NiFiProperties.createBasicNiFiProperties(propertiesUrl.getFile());
 
         // load the system bundle
         systemBundle = SystemBundle.create(niFiProperties);
@@ -161,7 +135,6 @@ public class TestStandardControllerServiceProvider {
         serviceNode.setProperties(props);
     }
 
-
     private ControllerServiceNode createControllerService(final String type, final String id, final BundleCoordinate bundleCoordinate, final ControllerServiceProvider serviceProvider) {
         final ControllerServiceNode serviceNode = new ExtensionBuilder()
             .identifier(id)
@@ -172,6 +145,7 @@ public class TestStandardControllerServiceProvider {
             .nodeTypeProvider(Mockito.mock(NodeTypeProvider.class))
             .validationTrigger(Mockito.mock(ValidationTrigger.class))
             .reloadComponent(Mockito.mock(ReloadComponent.class))
+            .verifiableComponentFactory(Mockito.mock(VerifiableComponentFactory.class))
             .stateManagerProvider(Mockito.mock(StateManagerProvider.class))
             .extensionManager(extensionManager)
             .buildControllerService();
@@ -180,7 +154,6 @@ public class TestStandardControllerServiceProvider {
 
         return serviceNode;
     }
-
 
     @Test
     public void testDisableControllerService() {
@@ -201,7 +174,7 @@ public class TestStandardControllerServiceProvider {
 
     @Test
     @Timeout(10)
-    public void testEnableDisableWithReference() throws InterruptedException {
+    public void testEnableDisableWithReference() {
         final ProcessGroup group = new MockProcessGroup(flowManager);
         final FlowManager flowManager = Mockito.mock(FlowManager.class);
 
@@ -217,41 +190,22 @@ public class TestStandardControllerServiceProvider {
 
         setProperty(serviceNodeA, ServiceA.OTHER_SERVICE.getName(), "B");
 
-        try {
-            provider.enableControllerService(serviceNodeA);
-        } catch (final IllegalStateException expected) {
-        }
+        // Enable Controller Service A and wait for completion
+        final CompletableFuture<Void> enableServiceA = provider.enableControllerService(serviceNodeA);
+        enableServiceA.join();
+        assertEquals(ValidationStatus.VALID, serviceNodeA.getValidationStatus());
+        assertEquals(ControllerServiceState.ENABLED, serviceNodeA.getState());
+        assertEquals(ValidationStatus.VALID, serviceNodeB.getValidationStatus());
+        assertEquals(ControllerServiceState.ENABLED, serviceNodeB.getState());
 
-        assertSame(ControllerServiceState.ENABLING, serviceNodeA.getState());
-
-        serviceNodeB.performValidation();
-        assertSame(ValidationStatus.VALID, serviceNodeB.getValidationStatus(5, TimeUnit.SECONDS));
-        provider.enableControllerService(serviceNodeB);
-
-        serviceNodeA.performValidation();
-
-        final long maxTime = System.nanoTime() + TimeUnit.SECONDS.toNanos(10);
-        // Wait for Service A to become ENABLED. This will happen in a background thread after approximately 5 seconds, now that Service A is valid.
-        while (serviceNodeA.getState() != ControllerServiceState.ENABLED && System.nanoTime() <= maxTime) {
-            Thread.sleep(5L);
-        }
-        assertSame(ControllerServiceState.ENABLED, serviceNodeA.getState());
         assertThrows(IllegalStateException.class, () -> provider.disableControllerService(serviceNodeB));
 
-        provider.disableControllerService(serviceNodeA);
-        waitForServiceState(serviceNodeA, ControllerServiceState.DISABLED);
-
-        provider.disableControllerService(serviceNodeB);
-        waitForServiceState(serviceNodeB, ControllerServiceState.DISABLED);
-    }
-
-    private void waitForServiceState(final ControllerServiceNode service, final ControllerServiceState desiredState) {
-        while (service.getState() != desiredState) {
-            try {
-                Thread.sleep(50L);
-            } catch (final InterruptedException ignored) {
-            }
-        }
+        final CompletableFuture<Void> disableServiceA = provider.disableControllerService(serviceNodeA);
+        disableServiceA.join();
+        assertEquals(ControllerServiceState.DISABLED, serviceNodeA.getState());
+        final CompletableFuture<Void> disableServiceB = provider.disableControllerService(serviceNodeB);
+        disableServiceB.join();
+        assertEquals(ControllerServiceState.DISABLED, serviceNodeB.getState());
     }
 
     @Test
@@ -405,6 +359,7 @@ public class TestStandardControllerServiceProvider {
 
     private ProcessorNode createProcessor(final StandardProcessScheduler scheduler, final ControllerServiceProvider serviceProvider) {
         final ReloadComponent reloadComponent = Mockito.mock(ReloadComponent.class);
+        final VerifiableComponentFactory verifiableComponentFactory = Mockito.mock(VerifiableComponentFactory.class);
 
         final Processor processor = new DummyProcessor();
         final MockProcessContext context = new MockProcessContext(processor, Mockito.mock(StateManager.class));
@@ -414,10 +369,10 @@ public class TestStandardControllerServiceProvider {
         final LoggableComponent<Processor> dummyProcessor = new LoggableComponent<>(processor, systemBundle.getBundleDetails().getCoordinate(), null);
         final ProcessorNode procNode = new StandardProcessorNode(dummyProcessor, mockInitContext.getIdentifier(),
                 new StandardValidationContextFactory(serviceProvider), scheduler, serviceProvider,
-                reloadComponent, extensionManager, new SynchronousValidationTrigger());
+                reloadComponent, verifiableComponentFactory, extensionManager, new SynchronousValidationTrigger());
 
         final FlowManager flowManager = Mockito.mock(FlowManager.class);
-        final FlowController flowController = Mockito.mock(FlowController.class );
+        final FlowController flowController = Mockito.mock(FlowController.class);
         Mockito.when(flowController.getFlowManager()).thenReturn(flowManager);
         Mockito.when(flowController.getStateManagerProvider()).thenReturn(stateManagerProvider);
 
@@ -451,6 +406,107 @@ public class TestStandardControllerServiceProvider {
         assertEquals(ScheduledState.STOPPED, procNode.getScheduledState());
     }
 
+    /**
+     * Test that unscheduleReferencingComponents handles processors in STARTING state.
+     * This scenario can occur when a processor references an invalid controller service
+     * (e.g., after a restart when the controller service configuration became invalid).
+     * The processor might be stuck in STARTING state and should still be stopped.
+     */
+    @Test
+    public void testUnscheduleReferencingComponentsIncludesStartingProcessors() {
+        final ProcessGroup procGroup = new MockProcessGroup(flowManager);
+
+        final FlowManager flowManager = mock(FlowManager.class);
+        when(flowManager.getGroup(anyString())).thenReturn(procGroup);
+
+        final StandardProcessScheduler scheduler = createScheduler();
+        final StandardControllerServiceProvider provider = new StandardControllerServiceProvider(scheduler, null, flowManager, extensionManager);
+        final ControllerServiceNode serviceNode = createControllerService(ServiceA.class.getName(), "1", systemBundle.getBundleDetails().getCoordinate(), provider);
+
+        // Create a mock processor that is in STARTING state
+        final ProcessorNode mockProcNode = mock(ProcessorNode.class);
+        when(mockProcNode.getPhysicalScheduledState()).thenReturn(ScheduledState.STARTING);
+        when(mockProcNode.isRunning()).thenReturn(false); // isRunning() returns false for STARTING
+        when(mockProcNode.getScheduledState()).thenReturn(ScheduledState.RUNNING);
+
+        // Mock the process group and stop processor behavior
+        final ProcessGroup mockProcessGroup = mock(ProcessGroup.class);
+        when(mockProcNode.getProcessGroup()).thenReturn(mockProcessGroup);
+        when(mockProcessGroup.stopProcessor(mockProcNode)).thenReturn(CompletableFuture.completedFuture(null));
+
+        serviceNode.addReference(mockProcNode, PropertyDescriptor.NULL_DESCRIPTOR);
+
+        // The unscheduleReferencingComponents should include the processor in STARTING state
+        // This verifies that the method checks for both RUNNING and STARTING states
+        provider.unscheduleReferencingComponents(serviceNode);
+
+        // Verify that verifyCanStop was called on the processor (indicating it was considered for stopping)
+        verify(mockProcNode).verifyCanStop();
+        // Verify that stopProcessor was called
+        verify(mockProcessGroup).stopProcessor(mockProcNode);
+    }
+
+    /**
+     * Test that getActiveReferences in StandardControllerServiceReference considers
+     * processors in STARTING state as active (in addition to RUNNING).
+     */
+    @Test
+    public void testGetActiveReferencesIncludesStartingProcessors() {
+        final ProcessGroup procGroup = new MockProcessGroup(flowManager);
+
+        final FlowManager flowManager = mock(FlowManager.class);
+        when(flowManager.getGroup(anyString())).thenReturn(procGroup);
+
+        final StandardProcessScheduler scheduler = createScheduler();
+        final StandardControllerServiceProvider provider = new StandardControllerServiceProvider(scheduler, null, flowManager, extensionManager);
+        final ControllerServiceNode serviceNode = createControllerService(ServiceA.class.getName(), "1", systemBundle.getBundleDetails().getCoordinate(), provider);
+
+        // Create a mock processor that is in STARTING state
+        final ProcessorNode mockProcNode = mock(ProcessorNode.class);
+        when(mockProcNode.getPhysicalScheduledState()).thenReturn(ScheduledState.STARTING);
+        when(mockProcNode.isRunning()).thenReturn(false); // isRunning() returns false for STARTING
+        when(mockProcNode.getScheduledState()).thenReturn(ScheduledState.RUNNING);
+
+        serviceNode.addReference(mockProcNode, PropertyDescriptor.NULL_DESCRIPTOR);
+
+        // Get active references - should include the STARTING processor
+        final Set<ComponentNode> activeReferences = serviceNode.getReferences().getActiveReferences();
+
+        // The STARTING processor should be considered active
+        assertTrue(activeReferences.contains(mockProcNode),
+            "Processor in STARTING state should be considered an active reference");
+    }
+
+    /**
+     * Test that getActiveReferences does not include processors in STOPPED state.
+     */
+    @Test
+    public void testGetActiveReferencesExcludesStoppedProcessors() {
+        final ProcessGroup procGroup = new MockProcessGroup(flowManager);
+
+        final FlowManager flowManager = mock(FlowManager.class);
+        when(flowManager.getGroup(anyString())).thenReturn(procGroup);
+
+        final StandardProcessScheduler scheduler = createScheduler();
+        final StandardControllerServiceProvider provider = new StandardControllerServiceProvider(scheduler, null, flowManager, extensionManager);
+        final ControllerServiceNode serviceNode = createControllerService(ServiceA.class.getName(), "1", systemBundle.getBundleDetails().getCoordinate(), provider);
+
+        // Create a mock processor that is in STOPPED state
+        final ProcessorNode mockProcNode = mock(ProcessorNode.class);
+        when(mockProcNode.getPhysicalScheduledState()).thenReturn(ScheduledState.STOPPED);
+        when(mockProcNode.isRunning()).thenReturn(false);
+        when(mockProcNode.getScheduledState()).thenReturn(ScheduledState.STOPPED);
+
+        serviceNode.addReference(mockProcNode, PropertyDescriptor.NULL_DESCRIPTOR);
+
+        // Get active references - should NOT include the STOPPED processor
+        final Set<ComponentNode> activeReferences = serviceNode.getReferences().getActiveReferences();
+
+        // The STOPPED processor should NOT be considered active
+        assertFalse(activeReferences.contains(mockProcNode),
+            "Processor in STOPPED state should not be considered an active reference");
+    }
+
     @Test
     public void validateEnableServices() {
         final FlowManager flowManager = Mockito.mock(FlowManager.class);
@@ -462,37 +518,37 @@ public class TestStandardControllerServiceProvider {
 
         Mockito.when(flowManager.getGroup(Mockito.anyString())).thenReturn(procGroup);
 
-        ControllerServiceNode A = createControllerService(ServiceA.class.getName(), "A", systemBundle.getBundleDetails().getCoordinate(), provider);
-        ControllerServiceNode B = createControllerService(ServiceA.class.getName(), "B", systemBundle.getBundleDetails().getCoordinate(), provider);
-        ControllerServiceNode C = createControllerService(ServiceA.class.getName(), "C", systemBundle.getBundleDetails().getCoordinate(), provider);
-        ControllerServiceNode D = createControllerService(ServiceB.class.getName(), "D", systemBundle.getBundleDetails().getCoordinate(), provider);
-        ControllerServiceNode E = createControllerService(ServiceA.class.getName(), "E", systemBundle.getBundleDetails().getCoordinate(), provider);
-        ControllerServiceNode F = createControllerService(ServiceB.class.getName(), "F", systemBundle.getBundleDetails().getCoordinate(), provider);
+        ControllerServiceNode serviceA = createControllerService(ServiceA.class.getName(), "A", systemBundle.getBundleDetails().getCoordinate(), provider);
+        ControllerServiceNode serviceB = createControllerService(ServiceA.class.getName(), "B", systemBundle.getBundleDetails().getCoordinate(), provider);
+        ControllerServiceNode serviceC = createControllerService(ServiceA.class.getName(), "C", systemBundle.getBundleDetails().getCoordinate(), provider);
+        ControllerServiceNode serviceD = createControllerService(ServiceB.class.getName(), "D", systemBundle.getBundleDetails().getCoordinate(), provider);
+        ControllerServiceNode serviceE = createControllerService(ServiceA.class.getName(), "E", systemBundle.getBundleDetails().getCoordinate(), provider);
+        ControllerServiceNode serviceF = createControllerService(ServiceB.class.getName(), "F", systemBundle.getBundleDetails().getCoordinate(), provider);
 
-        procGroup.addControllerService(A);
-        procGroup.addControllerService(B);
-        procGroup.addControllerService(C);
-        procGroup.addControllerService(D);
-        procGroup.addControllerService(E);
-        procGroup.addControllerService(F);
+        procGroup.addControllerService(serviceA);
+        procGroup.addControllerService(serviceB);
+        procGroup.addControllerService(serviceC);
+        procGroup.addControllerService(serviceD);
+        procGroup.addControllerService(serviceE);
+        procGroup.addControllerService(serviceF);
 
-        setProperty(A, ServiceA.OTHER_SERVICE.getName(), "B");
-        setProperty(B, ServiceA.OTHER_SERVICE.getName(), "D");
-        setProperty(C, ServiceA.OTHER_SERVICE.getName(), "B");
-        setProperty(C, ServiceA.OTHER_SERVICE_2.getName(), "D");
-        setProperty(E, ServiceA.OTHER_SERVICE.getName(), "A");
-        setProperty(E, ServiceA.OTHER_SERVICE_2.getName(), "F");
+        setProperty(serviceA, ServiceA.OTHER_SERVICE.getName(), "B");
+        setProperty(serviceB, ServiceA.OTHER_SERVICE.getName(), "D");
+        setProperty(serviceC, ServiceA.OTHER_SERVICE.getName(), "B");
+        setProperty(serviceC, ServiceA.OTHER_SERVICE_2.getName(), "D");
+        setProperty(serviceE, ServiceA.OTHER_SERVICE.getName(), "A");
+        setProperty(serviceE, ServiceA.OTHER_SERVICE_2.getName(), "F");
 
-        final List<ControllerServiceNode> serviceNodes = Arrays.asList(A, B, C, D, E, F);
+        final List<ControllerServiceNode> serviceNodes = Arrays.asList(serviceA, serviceB, serviceC, serviceD, serviceE, serviceF);
         serviceNodes.stream().forEach(ControllerServiceNode::performValidation);
         provider.enableControllerServices(serviceNodes);
 
-        assertTrue(A.isActive());
-        assertTrue(B.isActive());
-        assertTrue(C.isActive());
-        assertTrue(D.isActive());
-        assertTrue(E.isActive());
-        assertTrue(F.isActive());
+        assertTrue(serviceA.isActive());
+        assertTrue(serviceB.isActive());
+        assertTrue(serviceC.isActive());
+        assertTrue(serviceD.isActive());
+        assertTrue(serviceE.isActive());
+        assertTrue(serviceF.isActive());
     }
 
     /**
@@ -511,35 +567,35 @@ public class TestStandardControllerServiceProvider {
 
         Mockito.when(flowManager.getGroup(Mockito.anyString())).thenReturn(procGroup);
 
-        ControllerServiceNode A = createControllerService(ServiceC.class.getName(), "A", systemBundle.getBundleDetails().getCoordinate(), provider);
-        ControllerServiceNode B = createControllerService(ServiceA.class.getName(), "B", systemBundle.getBundleDetails().getCoordinate(), provider);
-        ControllerServiceNode C = createControllerService(ServiceB.class.getName(), "C", systemBundle.getBundleDetails().getCoordinate(), provider);
-        ControllerServiceNode D = createControllerService(ServiceA.class.getName(), "D", systemBundle.getBundleDetails().getCoordinate(), provider);
-        ControllerServiceNode F = createControllerService(ServiceA.class.getName(), "F", systemBundle.getBundleDetails().getCoordinate(), provider);
+        ControllerServiceNode serviceA = createControllerService(ServiceC.class.getName(), "A", systemBundle.getBundleDetails().getCoordinate(), provider);
+        ControllerServiceNode serviceB = createControllerService(ServiceA.class.getName(), "B", systemBundle.getBundleDetails().getCoordinate(), provider);
+        ControllerServiceNode serviceC = createControllerService(ServiceB.class.getName(), "C", systemBundle.getBundleDetails().getCoordinate(), provider);
+        ControllerServiceNode serviceD = createControllerService(ServiceA.class.getName(), "D", systemBundle.getBundleDetails().getCoordinate(), provider);
+        ControllerServiceNode serviceF = createControllerService(ServiceA.class.getName(), "F", systemBundle.getBundleDetails().getCoordinate(), provider);
 
-        procGroup.addControllerService(A);
-        procGroup.addControllerService(B);
-        procGroup.addControllerService(C);
-        procGroup.addControllerService(D);
-        procGroup.addControllerService(F);
+        procGroup.addControllerService(serviceA);
+        procGroup.addControllerService(serviceB);
+        procGroup.addControllerService(serviceC);
+        procGroup.addControllerService(serviceD);
+        procGroup.addControllerService(serviceF);
 
-        setProperty(A, ServiceC.REQ_SERVICE_1.getName(), "B");
-        setProperty(A, ServiceC.REQ_SERVICE_2.getName(), "D");
-        setProperty(B, ServiceA.OTHER_SERVICE.getName(), "C");
+        setProperty(serviceA, ServiceC.REQ_SERVICE_1.getName(), "B");
+        setProperty(serviceA, ServiceC.REQ_SERVICE_2.getName(), "D");
+        setProperty(serviceB, ServiceA.OTHER_SERVICE.getName(), "C");
 
-        setProperty(F, ServiceA.OTHER_SERVICE.getName(), "D");
-        setProperty(D, ServiceA.OTHER_SERVICE.getName(), "C");
+        setProperty(serviceF, ServiceA.OTHER_SERVICE.getName(), "D");
+        setProperty(serviceD, ServiceA.OTHER_SERVICE.getName(), "C");
 
-        final List<ControllerServiceNode> services = Arrays.asList(C, F, A, B, D);
+        final List<ControllerServiceNode> services = Arrays.asList(serviceC, serviceF, serviceA, serviceB, serviceD);
         services.forEach(ControllerServiceNode::performValidation);
 
         provider.enableControllerServices(services);
 
-        assertTrue(A.isActive());
-        assertTrue(B.isActive());
-        assertTrue(C.isActive());
-        assertTrue(D.isActive());
-        assertTrue(F.isActive());
+        assertTrue(serviceA.isActive());
+        assertTrue(serviceB.isActive());
+        assertTrue(serviceC.isActive());
+        assertTrue(serviceD.isActive());
+        assertTrue(serviceF.isActive());
     }
 
     @Test

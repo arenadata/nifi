@@ -44,7 +44,6 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-
 public abstract class AbstractTestRecordReaderWriter {
     protected ProvenanceEventRecord createEvent() {
         return TestUtil.createEvent();
@@ -63,7 +62,7 @@ public abstract class AbstractTestRecordReaderWriter {
 
         final TocReader tocReader = new StandardTocReader(tocFile);
         final String expectedTransitUri = "nifi://unit-test";
-            final int expectedBlockIndex = 0;
+        final int expectedBlockIndex = 0;
 
         assertRecoveredRecord(journalFile, tocReader, expectedTransitUri, expectedBlockIndex);
 
@@ -83,7 +82,6 @@ public abstract class AbstractTestRecordReaderWriter {
         }
     }
 
-
     @Test
     public void testSingleRecordCompressed() throws IOException {
         final File journalFile = new File("target/storage/" + UUID.randomUUID() + "/testSimpleWrite.gz");
@@ -102,7 +100,6 @@ public abstract class AbstractTestRecordReaderWriter {
         FileUtils.deleteFile(journalFile.getParentFile(), true);
     }
 
-
     @Test
     public void testMultipleRecordsSameBlockCompressed() throws IOException {
         final File journalFile = new File("target/storage/" + UUID.randomUUID() + "/testSimpleWrite.gz");
@@ -120,7 +117,7 @@ public abstract class AbstractTestRecordReaderWriter {
         final TocReader tocReader = new StandardTocReader(tocFile);
 
         try (final FileInputStream fis = new FileInputStream(journalFile);
-            final RecordReader reader = createReader(fis, journalFile.getName(), tocReader, 2048)) {
+                final RecordReader reader = createReader(fis, journalFile.getName(), tocReader, 2048)) {
             for (int i = 0; i < 10; i++) {
                 assertEquals(0, reader.getBlockIndex());
 
@@ -141,7 +138,6 @@ public abstract class AbstractTestRecordReaderWriter {
         FileUtils.deleteFile(journalFile.getParentFile(), true);
     }
 
-
     @Test
     public void testMultipleRecordsMultipleBlocksCompressed() throws IOException {
         final File journalFile = new File("target/storage/" + UUID.randomUUID() + "/testSimpleWrite.gz");
@@ -159,7 +155,7 @@ public abstract class AbstractTestRecordReaderWriter {
         final TocReader tocReader = new StandardTocReader(tocFile);
 
         try (final FileInputStream fis = new FileInputStream(journalFile);
-            final RecordReader reader = createReader(fis, journalFile.getName(), tocReader, 2048)) {
+                final RecordReader reader = createReader(fis, journalFile.getName(), tocReader, 2048)) {
             for (int i = 0; i < 10; i++) {
                 final StandardProvenanceEventRecord recovered = reader.nextRecord();
                 assertNotNull(recovered);
@@ -200,7 +196,7 @@ public abstract class AbstractTestRecordReaderWriter {
         final TocReader tocReader = new StandardTocReader(tocFile);
 
         try (final FileInputStream fis = new FileInputStream(journalFile);
-            final RecordReader reader = createReader(fis, journalFile.getName(), tocReader, 2048)) {
+                final RecordReader reader = createReader(fis, journalFile.getName(), tocReader, 2048)) {
 
             for (int i = 0; i < numEvents; i++) {
                 final Optional<ProvenanceEventRecord> eventOption = reader.skipToEvent(i);
@@ -216,7 +212,7 @@ public abstract class AbstractTestRecordReaderWriter {
         }
 
         try (final FileInputStream fis = new FileInputStream(journalFile);
-            final RecordReader reader = createReader(fis, journalFile.getName(), tocReader, 2048)) {
+                final RecordReader reader = createReader(fis, journalFile.getName(), tocReader, 2048)) {
 
             for (int i = 0; i < 3; i++) {
                 final Optional<ProvenanceEventRecord> eventOption = reader.skipToEvent(8);

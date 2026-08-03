@@ -30,6 +30,7 @@ import org.apache.nifi.annotation.documentation.Tags;
 import org.apache.nifi.components.PropertyDescriptor;
 import org.apache.nifi.expression.AttributeExpression;
 import org.apache.nifi.flowfile.FlowFile;
+import org.apache.nifi.migration.PropertyConfiguration;
 import org.apache.nifi.processor.ProcessContext;
 import org.apache.nifi.processor.ProcessSession;
 import org.apache.nifi.processor.Relationship;
@@ -38,6 +39,7 @@ import org.apache.nifi.processors.standard.sql.RecordSqlWriter;
 import org.apache.nifi.processors.standard.sql.SqlWriter;
 import org.apache.nifi.serialization.RecordSetWriterFactory;
 import org.apache.nifi.util.db.JdbcCommon;
+import org.apache.nifi.util.db.JdbcProperties;
 
 import java.util.Collections;
 import java.util.List;
@@ -46,7 +48,6 @@ import java.util.Set;
 import static org.apache.nifi.util.db.JdbcProperties.DEFAULT_PRECISION;
 import static org.apache.nifi.util.db.JdbcProperties.DEFAULT_SCALE;
 import static org.apache.nifi.util.db.JdbcProperties.USE_AVRO_LOGICAL_TYPES;
-
 
 @InputRequirement(Requirement.INPUT_ALLOWED)
 @Tags({"sql", "select", "jdbc", "query", "database", "record"})
@@ -85,15 +86,15 @@ import static org.apache.nifi.util.db.JdbcProperties.USE_AVRO_LOGICAL_TYPES;
         @WritesAttribute(attribute = "executesql.query.fetchtime", description = "Duration of the result set fetch time in milliseconds"),
         @WritesAttribute(attribute = "executesql.resultset.index", description = "Assuming multiple result sets are returned, "
                 + "the zero based index of this result set."),
-        @WritesAttribute(attribute = "executesql.error.message", description = "If processing an incoming flow file causes "
-                + "an Exception, the Flow File is routed to failure and this attribute is set to the exception message."),
-        @WritesAttribute(attribute = "fragment.identifier", description = "If 'Max Rows Per Flow File' is set then all FlowFiles from the same query result set "
+        @WritesAttribute(attribute = "executesql.error.message", description = "If processing an incoming FlowFile causes "
+                + "an Exception, the FlowFile is routed to failure and this attribute is set to the exception message."),
+        @WritesAttribute(attribute = "fragment.identifier", description = "If 'Max Rows Per FlowFile' is set then all FlowFiles from the same query result set "
                 + "will have the same value for the fragment.identifier attribute. This can then be used to correlate the results."),
-        @WritesAttribute(attribute = "fragment.count", description = "If 'Max Rows Per Flow File' is set then this is the total number of  "
+        @WritesAttribute(attribute = "fragment.count", description = "If 'Max Rows Per FlowFile' is set then this is the total number of  "
                 + "FlowFiles produced by a single ResultSet. This can be used in conjunction with the "
                 + "fragment.identifier attribute in order to know how many FlowFiles belonged to the same incoming ResultSet. If Output Batch Size is set, then this "
                 + "attribute will not be populated."),
-        @WritesAttribute(attribute = "fragment.index", description = "If 'Max Rows Per Flow File' is set then the position of this FlowFile in the list of "
+        @WritesAttribute(attribute = "fragment.index", description = "If 'Max Rows Per FlowFile' is set then the position of this FlowFile in the list of "
                 + "outgoing FlowFiles that were all derived from the same result set FlowFile. This can be "
                 + "used in conjunction with the fragment.identifier attribute to know which FlowFiles originated from the same query result set and in what order  "
                 + "FlowFiles were produced"),
@@ -131,10 +132,8 @@ import static org.apache.nifi.util.db.JdbcProperties.USE_AVRO_LOGICAL_TYPES;
 })
 public class ExecuteSQLRecord extends AbstractExecuteSQL {
 
-
     public static final PropertyDescriptor RECORD_WRITER_FACTORY = new PropertyDescriptor.Builder()
-            .name("esqlrecord-record-writer")
-            .displayName("Record Writer")
+            .name("Record Writer")
             .description("Specifies the Controller Service to use for writing results to a FlowFile. The Record Writer may use Inherit Schema to emulate the inferred schema behavior, i.e. "
                     + "an explicit schema need not be defined in the writer, and will be supplied by the same logic used to infer the schema from the column types.")
             .identifiesControllerService(RecordSetWriterFactory.class)
@@ -142,8 +141,7 @@ public class ExecuteSQLRecord extends AbstractExecuteSQL {
             .build();
 
     public static final PropertyDescriptor NORMALIZE_NAMES = new PropertyDescriptor.Builder()
-            .name("esqlrecord-normalize")
-            .displayName("Normalize Table/Column Names")
+            .name("Normalize Table/Column Names")
             .description("Whether to change characters in column names. For example, colons and periods will be changed to underscores.")
             .allowableValues("true", "false")
             .defaultValue("false")
@@ -171,6 +169,16 @@ public class ExecuteSQLRecord extends AbstractExecuteSQL {
             REL_SUCCESS,
             REL_FAILURE
     );
+
+    @Override
+    public void migrateProperties(PropertyConfiguration config) {
+        super.migrateProperties(config);
+        config.renameProperty("esqlrecord-record-writer", RECORD_WRITER_FACTORY.getName());
+        config.renameProperty("esqlrecord-normalize", NORMALIZE_NAMES.getName());
+        config.renameProperty(JdbcProperties.OLD_USE_AVRO_LOGICAL_TYPES_PROPERTY_NAME, USE_AVRO_LOGICAL_TYPES.getName());
+        config.renameProperty(JdbcProperties.OLD_DEFAULT_PRECISION_PROPERTY_NAME, DEFAULT_PRECISION.getName());
+        config.renameProperty(JdbcProperties.OLD_DEFAULT_SCALE_PROPERTY_NAME, DEFAULT_SCALE.getName());
+    }
 
     public ExecuteSQLRecord() {
         relationships = RELATIONSHIPS;

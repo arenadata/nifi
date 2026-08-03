@@ -20,10 +20,13 @@ import com.maxmind.geoip2.DatabaseReader;
 import org.apache.nifi.annotation.lifecycle.OnScheduled;
 import org.apache.nifi.annotation.lifecycle.OnStopped;
 import org.apache.nifi.components.PropertyDescriptor;
+import org.apache.nifi.components.ValidationResult;
+import org.apache.nifi.components.Validator;
 import org.apache.nifi.components.resource.ResourceCardinality;
 import org.apache.nifi.components.resource.ResourceType;
 import org.apache.nifi.expression.AttributeExpression;
 import org.apache.nifi.expression.ExpressionLanguageScope;
+import org.apache.nifi.migration.PropertyConfiguration;
 import org.apache.nifi.processor.AbstractProcessor;
 import org.apache.nifi.processor.ProcessContext;
 import org.apache.nifi.processor.Relationship;
@@ -42,14 +45,12 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
+import java.util.regex.Pattern;
 
 public abstract class AbstractEnrichIP extends AbstractProcessor {
 
     public static final PropertyDescriptor GEO_DATABASE_FILE = new PropertyDescriptor.Builder()
-            // Name has been left untouched so that we don't cause a breaking change
-            // but ideally this should be renamed to MaxMind Database File or something similar
-            .name("Geo Database File")
-            .displayName("MaxMind Database File")
+            .name("MaxMind Database File")
             .description("Path to Maxmind IP Enrichment Database File")
             .required(true)
             .identifiesExternalResource(ResourceCardinality.SINGLE, ResourceType.FILE, ResourceType.DIRECTORY)
@@ -65,23 +66,42 @@ public abstract class AbstractEnrichIP extends AbstractProcessor {
             .addValidator(StandardValidators.createAttributeExpressionLanguageValidator(AttributeExpression.ResultType.STRING))
             .build();
 
+    private static final Pattern LOG_LEVEL_PATTERN = Pattern.compile("^(?:INFO|DEBUG|WARN|ERROR)$");
+    private static final Validator LOG_LEVEL_VALIDATOR = (subject, input, context) -> {
+        final boolean matches = LOG_LEVEL_PATTERN.matcher(input).matches();
+        if (matches || context.isExpressionLanguagePresent(input)) {
+            return (new ValidationResult.Builder())
+                    .subject(subject)
+                    .input(input)
+                    .valid(true)
+                    .build();
+        } else {
+            return (new ValidationResult.Builder())
+                    .subject(subject)
+                    .valid(false)
+                    .explanation(String.format("%s must be either INFO, DEBUG, WARN or ERROR", subject))
+                    .input(input)
+                    .build();
+        }
+    };
+
     public static final PropertyDescriptor LOG_LEVEL = new PropertyDescriptor.Builder()
             .name("Log Level")
             .required(true)
             .description("The Log Level to use when an IP is not found in the database. Accepted values: INFO, DEBUG, WARN, ERROR.")
-            .addValidator(StandardValidators.NON_EMPTY_VALIDATOR)
+            .addValidator(LOG_LEVEL_VALIDATOR)
             .defaultValue(MessageLogLevel.WARN.toString())
             .expressionLanguageSupported(ExpressionLanguageScope.FLOWFILE_ATTRIBUTES)
             .build();
 
     public static final Relationship REL_FOUND = new Relationship.Builder()
             .name("found")
-            .description("Where to route flow files after successfully enriching attributes with data provided by database")
+            .description("Where to route FlowFiles after successfully enriching attributes with data provided by database")
             .build();
 
     public static final Relationship REL_NOT_FOUND = new Relationship.Builder()
             .name("not found")
-            .description("Where to route flow files after unsuccessfully enriching attributes because no data was found")
+            .description("Where to route FlowFiles after unsuccessfully enriching attributes because no data was found")
             .build();
 
     enum MessageLogLevel {
@@ -131,6 +151,11 @@ public abstract class AbstractEnrichIP extends AbstractProcessor {
         stopWatch.stop();
         getLogger().info("Completed loading of Maxmind Database.  Elapsed time was {} milliseconds.", stopWatch.getDuration(TimeUnit.MILLISECONDS));
         databaseReaderRef.set(reader);
+    }
+
+    @Override
+    public void migrateProperties(PropertyConfiguration config) {
+        config.renameProperty("Geo Database File", GEO_DATABASE_FILE.getName());
     }
 
     @OnStopped

@@ -18,8 +18,6 @@ package org.apache.nifi.processors.standard;
 
 import org.apache.nifi.annotation.behavior.InputRequirement;
 import org.apache.nifi.annotation.behavior.InputRequirement.Requirement;
-import org.apache.nifi.annotation.behavior.Restricted;
-import org.apache.nifi.annotation.behavior.Restriction;
 import org.apache.nifi.annotation.behavior.TriggerWhenEmpty;
 import org.apache.nifi.annotation.behavior.WritesAttribute;
 import org.apache.nifi.annotation.behavior.WritesAttributes;
@@ -28,7 +26,6 @@ import org.apache.nifi.annotation.documentation.SeeAlso;
 import org.apache.nifi.annotation.documentation.Tags;
 import org.apache.nifi.annotation.lifecycle.OnScheduled;
 import org.apache.nifi.components.PropertyDescriptor;
-import org.apache.nifi.components.RequiredPermission;
 import org.apache.nifi.expression.ExpressionLanguageScope;
 import org.apache.nifi.flowfile.FlowFile;
 import org.apache.nifi.flowfile.attributes.CoreAttributes;
@@ -73,7 +70,10 @@ import java.util.regex.Pattern;
 @TriggerWhenEmpty
 @InputRequirement(Requirement.INPUT_FORBIDDEN)
 @Tags({"local", "files", "filesystem", "ingest", "ingress", "get", "source", "input"})
-@CapabilityDescription("Creates FlowFiles from files in a directory.  NiFi will ignore files it doesn't have at least read permissions for.")
+@CapabilityDescription("""
+        Reads files from a directory and streams them into the contents of new FlowFiles.
+        NiFi will ignore files it doesn't have at least read permissions for.
+        """)
 @WritesAttributes({
     @WritesAttribute(attribute = "filename", description = "The filename is set to the name of the file on disk"),
     @WritesAttribute(attribute = "path", description = "The path is set to the relative path of the file's directory on disk. For example, "
@@ -91,16 +91,7 @@ import java.util.regex.Pattern;
     @WritesAttribute(attribute = "absolute.path", description = "The full/absolute path from where a file was picked up. The current 'path' "
             + "attribute is still populated, but may be a relative path")})
 @SeeAlso({PutFile.class, FetchFile.class})
-@Restricted(
-        restrictions = {
-                @Restriction(
-                        requiredPermission = RequiredPermission.READ_FILESYSTEM,
-                        explanation = "Provides operator the ability to read from any file that NiFi has access to."),
-                @Restriction(
-                        requiredPermission = RequiredPermission.WRITE_FILESYSTEM,
-                        explanation = "Provides operator the ability to delete any file that NiFi has access to.")
-        }
-)
+
 public class GetFile extends AbstractProcessor {
 
     public static final PropertyDescriptor DIRECTORY = new PropertyDescriptor.Builder()
@@ -119,10 +110,12 @@ public class GetFile extends AbstractProcessor {
             .build();
     public static final PropertyDescriptor KEEP_SOURCE_FILE = new PropertyDescriptor.Builder()
             .name("Keep Source File")
-            .description("If true, the file is not deleted after it has been copied to the Content Repository; "
-                    + "this causes the file to be picked up continually and is useful for testing purposes.  "
-                    + "If not keeping original NiFi will need write permissions on the directory it is pulling "
-                    + "from otherwise it will ignore the file.")
+            .description("""
+                    If true, the file is not deleted after it has been copied to the Content Repository;
+                    this causes the file to be picked up continually and is useful for testing purposes.
+                    If not keeping the source file, NiFi will need write permissions on the directory
+                    where the file is located in order to delete it; otherwise the file will be ignored.
+                    """)
             .required(true)
             .allowableValues("true", "false")
             .defaultValue("false")
@@ -175,10 +168,12 @@ public class GetFile extends AbstractProcessor {
             .build();
     public static final PropertyDescriptor POLLING_INTERVAL = new PropertyDescriptor.Builder()
             .name("Polling Interval")
-            .description("Indicates how long to wait before performing a directory listing")
+            .description("""
+                    Indicates the amount of time between performing directory listings to find new files
+                    that appear in the Input Directory""")
             .required(true)
             .addValidator(StandardValidators.TIME_PERIOD_VALIDATOR)
-            .defaultValue("0 sec")
+            .defaultValue("30 sec")
             .build();
     public static final PropertyDescriptor BATCH_SIZE = new PropertyDescriptor.Builder()
             .name("Batch Size")
@@ -286,7 +281,7 @@ public class GetFile extends AbstractProcessor {
                 }
 
                 //Verify that if we're not keeping original that we have write permissions on the directory the file is in
-                if (keepOriginal == false && !Files.isWritable(file.toPath().getParent())) {
+                if (!keepOriginal && !Files.isWritable(file.toPath().getParent())) {
                     return false;
                 }
                 return filePattern.matcher(file.getName()).matches();
@@ -420,9 +415,6 @@ public class GetFile extends AbstractProcessor {
                 final Path filePath = file.toPath();
                 final Path relativePath = directoryPath.relativize(filePath.getParent());
                 String relativePathString = relativePath.toString() + "/";
-                if (relativePathString.isEmpty()) {
-                    relativePathString = "./";
-                }
                 final Path absPath = filePath.toAbsolutePath();
                 final String absPathString = absPath.getParent().toString() + "/";
 

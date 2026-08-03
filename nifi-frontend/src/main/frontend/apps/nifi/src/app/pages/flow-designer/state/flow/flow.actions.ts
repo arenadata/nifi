@@ -20,6 +20,8 @@ import {
     CenterComponentRequest,
     ChangeColorRequest,
     ChangeVersionDialogRequest,
+    ClearBulletinsForGroupRequest,
+    ClearBulletinsForGroupResponse,
     ComponentEntity,
     ConfirmStopVersionControlRequest,
     CreateComponentRequest,
@@ -33,16 +35,12 @@ import {
     CreateRemoteProcessGroupRequest,
     DeleteComponentRequest,
     DeleteComponentResponse,
-    DisableComponentRequest,
     DisableComponentResponse,
     DisableComponentsRequest,
     DisableProcessGroupRequest,
     DisableProcessGroupResponse,
     DownloadFlowRequest,
-    EditComponentDialogRequest,
-    EditConnectionDialogRequest,
     EditCurrentProcessGroupRequest,
-    EnableComponentRequest,
     EnableComponentResponse,
     EnableComponentsRequest,
     EnableProcessGroupRequest,
@@ -66,6 +64,7 @@ import {
     MoveComponentsRequest,
     MoveToFrontRequest,
     NavigateToComponentRequest,
+    NavigateToComponentsRequest,
     NavigateToControllerServicesRequest,
     NavigateToManageComponentPoliciesRequest,
     NavigateToParameterContext,
@@ -84,13 +83,11 @@ import {
     SaveToVersionControlRequest,
     SaveVersionDialogRequest,
     SelectComponentsRequest,
-    StartComponentRequest,
     StartComponentResponse,
     StartComponentsRequest,
     StartPollingProcessorUntilStoppedRequest,
     StartProcessGroupRequest,
     StartProcessGroupResponse,
-    StopComponentRequest,
     StopComponentResponse,
     StopComponentsRequest,
     StopProcessGroupRequest,
@@ -98,21 +95,33 @@ import {
     StopVersionControlRequest,
     StopVersionControlResponse,
     TerminateThreadsRequest,
+    UpdatePositionsRequest,
+    UploadProcessGroupRequest,
+    VersionControlInformationEntity
+} from './index';
+import { StatusHistoryRequest } from '../../../../state/status-history';
+import {
+    ClearBulletinsRequest,
+    ClearBulletinsResponse,
+    DisableComponentRequest,
+    EditComponentDialogRequest,
+    EditConnectionDialogRequest,
+    EnableComponentRequest,
+    FetchComponentVersionsRequest,
+    RegistryClientEntity,
+    StartComponentRequest,
+    StopComponentRequest,
     UpdateComponentFailure,
     UpdateComponentRequest,
     UpdateComponentResponse,
     UpdateConnectionRequest,
     UpdateConnectionSuccess,
-    UpdatePositionsRequest,
     UpdateProcessorRequest,
-    UpdateProcessorResponse,
-    UploadProcessGroupRequest,
-    VersionControlInformationEntity
-} from './index';
-import { StatusHistoryRequest } from '../../../../state/status-history';
-import { FetchComponentVersionsRequest, RegistryClientEntity } from '../../../../state/shared';
+    UpdateProcessorResponse
+} from '../../../../state/shared';
 import { ErrorContext } from '../../../../state/error';
 import { CopyResponseContext, CopyResponseEntity } from '../../../../state/copy';
+import { ComponentType } from '@nifi/shared';
 
 const CANVAS_PREFIX = '[Canvas]';
 
@@ -561,6 +570,11 @@ export const navigateToComponent = createAction(
     props<{ request: NavigateToComponentRequest }>()
 );
 
+export const navigateToComponents = createAction(
+    `${CANVAS_PREFIX} Navigate To Components`,
+    props<{ request: NavigateToComponentsRequest }>()
+);
+
 export const navigateWithoutTransform = createAction(
     `${CANVAS_PREFIX} Navigate Without Transform`,
     props<{ url: string[] }>()
@@ -601,7 +615,7 @@ export const renderConnectionsForComponent = createAction(
 
 export const navigateToProvenanceForComponent = createAction(
     `${CANVAS_PREFIX} Navigate To Provenance For Component`,
-    props<{ id: string }>()
+    props<{ id: string; componentType: ComponentType }>()
 );
 
 export const replayLastProvenanceEvent = createAction(
@@ -656,6 +670,30 @@ export const disableCurrentProcessGroup = createAction(`${CANVAS_PREFIX} Disable
 export const runOnce = createAction(`${CANVAS_PREFIX} Run Once`, props<{ request: RunOnceRequest }>());
 
 export const runOnceSuccess = createAction(`${CANVAS_PREFIX} Run Once Success`, props<{ response: RunOnceResponse }>());
+
+/*
+    Clear Bulletins
+*/
+
+export const clearBulletinsForComponent = createAction(
+    `${CANVAS_PREFIX} Clear Bulletins For Component`,
+    props<{ request: ClearBulletinsRequest }>()
+);
+
+export const clearBulletinsForComponentSuccess = createAction(
+    `${CANVAS_PREFIX} Clear Bulletins For Component Success`,
+    props<{ response: ClearBulletinsResponse }>()
+);
+
+export const clearBulletinsForProcessGroup = createAction(
+    `${CANVAS_PREFIX} Clear Bulletins For Process Group`,
+    props<{ request: ClearBulletinsForGroupRequest }>()
+);
+
+export const clearBulletinsForProcessGroupSuccess = createAction(
+    `${CANVAS_PREFIX} Clear Bulletins For Process Group Success`,
+    props<{ response: ClearBulletinsForGroupResponse }>()
+);
 
 export const startComponent = createAction(
     `${CANVAS_PREFIX} Start Component`,

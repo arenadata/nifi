@@ -25,6 +25,7 @@ import org.apache.nifi.components.Validator;
 import org.apache.nifi.expression.AttributeExpression;
 import org.apache.nifi.expression.ExpressionLanguageScope;
 import org.apache.nifi.logging.ComponentLog;
+import org.apache.nifi.migration.PropertyConfiguration;
 import org.apache.nifi.processor.AbstractSessionFactoryProcessor;
 import org.apache.nifi.processor.ProcessContext;
 import org.apache.nifi.processor.ProcessSession;
@@ -108,13 +109,12 @@ public abstract class AbstractMQTTProcessor extends AbstractSessionFactoryProces
 
     public static final PropertyDescriptor PROP_BROKER_URI = new PropertyDescriptor.Builder()
             .name("Broker URI")
-            .description("Broker URI(s)")
             .description("The URI(s) to use to connect to the MQTT broker (e.g., tcp://localhost:1883). The 'tcp', 'ssl', 'ws' and 'wss' schemes are supported. " +
                     "In order to use 'ssl', the SSL Context Service property must be set. When a comma-separated URI list is set (e.g., tcp://localhost:1883,tcp://localhost:1884), " +
                     "the processor will use a round-robin algorithm to connect to the brokers on connection failure.")
             .required(true)
             .expressionLanguageSupported(ExpressionLanguageScope.ENVIRONMENT)
-            .addValidator(StandardValidators.NON_BLANK_VALIDATOR)
+            .addValidator(StandardValidators.URI_LIST_VALIDATOR)
             .build();
 
     public static final PropertyDescriptor PROP_CLIENTID = new PropertyDescriptor.Builder()
@@ -186,7 +186,7 @@ public abstract class AbstractMQTTProcessor extends AbstractSessionFactoryProces
             .build();
 
     public static final PropertyDescriptor PROP_CLEAN_SESSION = new PropertyDescriptor.Builder()
-            .name("Session state")
+            .name("Session State")
             .description("Whether to start a fresh or resume previous flows. See the allowable value descriptions for more details.")
             .required(true)
             .allowableValues(
@@ -206,8 +206,8 @@ public abstract class AbstractMQTTProcessor extends AbstractSessionFactoryProces
             .build();
 
     public static final PropertyDescriptor PROP_CONN_TIMEOUT = new PropertyDescriptor.Builder()
-            .name("Connection Timeout (seconds)")
-            .description("Maximum time interval the client will wait for the network connection to the MQTT server " +
+            .name("Connection Timeout")
+            .description("Maximum time interval (in seconds), the client will wait for the network connection to the MQTT server " +
                     "to be established. The default timeout is 30 seconds. " +
                     "A value of 0 disables timeout processing meaning the client will wait until the network connection is made successfully or fails.")
             .required(false)
@@ -216,8 +216,8 @@ public abstract class AbstractMQTTProcessor extends AbstractSessionFactoryProces
             .build();
 
     public static final PropertyDescriptor PROP_KEEP_ALIVE_INTERVAL = new PropertyDescriptor.Builder()
-            .name("Keep Alive Interval (seconds)")
-            .description("Defines the maximum time interval between messages sent or received. It enables the " +
+            .name("Keep Alive")
+            .description("Defines the maximum time interval (in seconds), between messages sent or received. It enables the " +
                     "client to detect if the server is no longer available, without having to wait for the TCP/IP timeout. " +
                     "The client will ensure that at least one message travels across the network within each keep alive period. In the absence of a data-related message during the time period, " +
                     "the client sends a very small \"ping\" message, which the server will acknowledge. A value of 0 disables keepalive processing in the client.")
@@ -227,22 +227,19 @@ public abstract class AbstractMQTTProcessor extends AbstractSessionFactoryProces
             .build();
 
     public static final PropertyDescriptor BASE_RECORD_READER = new PropertyDescriptor.Builder()
-            .name("record-reader")
-            .displayName("Record Reader")
+            .name("Record Reader")
             .identifiesControllerService(RecordReaderFactory.class)
             .required(false)
             .build();
 
     public static final PropertyDescriptor BASE_RECORD_WRITER = new PropertyDescriptor.Builder()
-            .name("record-writer")
-            .displayName("Record Writer")
+            .name("Record Writer")
             .identifiesControllerService(RecordSetWriterFactory.class)
             .required(false)
             .build();
 
     public static final PropertyDescriptor BASE_MESSAGE_DEMARCATOR = new PropertyDescriptor.Builder()
-            .name("message-demarcator")
-            .displayName("Message Demarcator")
+            .name("Message Demarcator")
             .required(false)
             .addValidator(Validator.VALID)
             .expressionLanguageSupported(ExpressionLanguageScope.ENVIRONMENT)
@@ -335,7 +332,6 @@ public abstract class AbstractMQTTProcessor extends AbstractSessionFactoryProces
         return mqttClientFactory.create();
     }
 
-
     @Override
     public final void onTrigger(final ProcessContext context, final ProcessSessionFactory sessionFactory) throws ProcessException {
         if (processSessionFactory == null) {
@@ -353,6 +349,16 @@ public abstract class AbstractMQTTProcessor extends AbstractSessionFactoryProces
     }
 
     public abstract void onTrigger(final ProcessContext context, final ProcessSession session) throws ProcessException;
+
+    @Override
+    public void migrateProperties(PropertyConfiguration config) {
+        config.renameProperty("record-reader", BASE_RECORD_READER.getName());
+        config.renameProperty("record-writer", BASE_RECORD_WRITER.getName());
+        config.renameProperty("message-demarcator", BASE_MESSAGE_DEMARCATOR.getName());
+        config.renameProperty("Connection Timeout (seconds)", PROP_CONN_TIMEOUT.getName());
+        config.renameProperty("Keep Alive Interval (seconds)", PROP_KEEP_ALIVE_INTERVAL.getName());
+        config.renameProperty("Session state", PROP_CLEAN_SESSION.getName());
+    }
 
     protected boolean isConnected() {
         return (mqttClient != null && mqttClient.isConnected());

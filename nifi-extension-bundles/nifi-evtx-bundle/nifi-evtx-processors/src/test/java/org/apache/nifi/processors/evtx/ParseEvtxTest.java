@@ -29,6 +29,7 @@ import org.apache.nifi.processors.evtx.parser.MalformedChunkException;
 import org.apache.nifi.processors.evtx.parser.Record;
 import org.apache.nifi.processors.evtx.parser.bxml.RootNode;
 import org.apache.nifi.util.MockFlowFile;
+import org.apache.nifi.util.PropertyMigrationResult;
 import org.apache.nifi.util.TestRunner;
 import org.apache.nifi.util.TestRunners;
 import org.apache.nifi.xml.processing.parsers.StandardDocumentProvider;
@@ -44,7 +45,6 @@ import org.w3c.dom.Element;
 import org.w3c.dom.Node;
 import org.w3c.dom.NodeList;
 
-import javax.xml.stream.XMLStreamException;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -53,6 +53,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicReference;
+import javax.xml.stream.XMLStreamException;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -457,6 +458,17 @@ public class ParseEvtxTest {
     @Test
     public void testChunkBasedParseCorrectNumberOfFlowFilesFromAResizedFile() {
         testValidEvents(ParseEvtx.CHUNK, "3778_events_not_exported.evtx", 16);
+    }
+
+    @Test
+    void testMigrateProperties() {
+        final TestRunner testRunner = TestRunners.newTestRunner(ParseEvtx.class);
+        final Map<String, String> expectedRenamed = Map.of(
+                "granularity", ParseEvtx.GRANULARITY.getName()
+        );
+
+        final PropertyMigrationResult propertyMigrationResult = testRunner.migrateProperties();
+        assertEquals(expectedRenamed, propertyMigrationResult.getPropertiesRenamed());
     }
 
     private void testValidEvents(String granularity, String filename, int expectedCount) {

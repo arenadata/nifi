@@ -16,10 +16,13 @@
  */
 package org.apache.nifi.groups;
 
+import org.apache.nifi.authorization.resource.Authorizable;
 import org.apache.nifi.authorization.resource.ComponentAuthorizable;
 import org.apache.nifi.components.VersionedComponent;
+import org.apache.nifi.components.connector.ConnectorNode;
 import org.apache.nifi.connectable.Connectable;
 import org.apache.nifi.connectable.Connection;
+import org.apache.nifi.connectable.FlowFileActivity;
 import org.apache.nifi.connectable.Funnel;
 import org.apache.nifi.connectable.Port;
 import org.apache.nifi.connectable.Positionable;
@@ -137,6 +140,28 @@ public interface ProcessGroup extends ComponentAuthorizable, Positionable, Versi
     void setName(String name);
 
     /**
+     * @return the ID of the Connector that is responsible for this Process Group, or an empty optional if no Connector is associated
+     */
+    Optional<String> getConnectorIdentifier();
+
+    /**
+     * Returns the owning Connector for this Process Group, traversing the Process Group hierarchy until a Process Group
+     * is found that is associated with a Connector. If no Process Group in the hierarchy is associated with a Connector,
+     * an empty Optional is returned. This is useful for determining whether a component is managed by a Connector.
+     *
+     * <p>The default implementation returns {@link Optional#empty()}. Implementations that can resolve a
+     * {@link ConnectorNode} from a connector identifier (typically via a FlowManager) should override this method
+     * and walk the parent chain using {@link #getConnectorIdentifier()} and {@link #getParent()} to locate the
+     * owning Connector.</p>
+     *
+     * @return an Optional containing the owning ConnectorNode, or empty if this Process Group and all of its ancestors are
+     * not managed by a Connector
+     */
+    default Optional<ConnectorNode> findOwningConnector() {
+        return Optional.empty();
+    }
+
+    /**
      * @return the user-set comments about this ProcessGroup, or
      * <code>null</code> if no comments have been set
      */
@@ -244,7 +269,6 @@ public interface ProcessGroup extends ComponentAuthorizable, Positionable, Versi
      */
     void enableOutputPort(Port port);
 
-
     /**
      * Starts the given Processor
      *
@@ -256,7 +280,7 @@ public interface ProcessGroup extends ComponentAuthorizable, Positionable, Versi
      * @throws IllegalStateException if the processor is not valid, or is
      *             already running
      */
-    Future<Void> startProcessor(ProcessorNode processor, boolean failIfStopping);
+    CompletableFuture<Void> startProcessor(ProcessorNode processor, boolean failIfStopping);
 
     /**
      * Runs the given Processor once and the stops it by calling the provided callback.
@@ -598,13 +622,6 @@ public interface ProcessGroup extends ComponentAuthorizable, Positionable, Versi
     Funnel findFunnel(String id);
 
     /**
-     * Gets a collection of identifiers representing all ancestor controller services
-     *
-     * @return collection of ancestor controller service identifiers
-     */
-    Set<String> getAncestorServiceIds();
-
-    /**
      * @param id of the Controller Service
      * @param includeDescendantGroups whether or not to include descendant process groups
      * @param includeAncestorGroups whether or not to include ancestor process groups
@@ -943,6 +960,16 @@ public interface ProcessGroup extends ComponentAuthorizable, Positionable, Versi
     void updateFlow(VersionedExternalFlow proposedSnapshot, String componentIdSeed, boolean verifyNotDirty, boolean updateSettings, boolean updateDescendantVersionedFlows);
 
     /**
+     * Updates the Process Group to match the proposed flow, using the Instance Identifier of each component in the
+     * proposed flow as the runtime identifier for that component. This is intended for use when restoring a previously
+     * persisted flow where the original runtime identifiers must be preserved (for example, so that queued FlowFiles
+     * in the FlowFile Repository can be re-associated with their Connections after a restart).
+     *
+     * @param proposedSnapshot the proposed flow whose Instance Identifiers should be used as runtime identifiers
+     */
+    void restoreFlowPreservingIdentifiers(VersionedExternalFlow proposedSnapshot);
+
+    /**
      * Updates the Process Group to match the proposed flow
      *
      * @param proposedSnapshot the proposed flow
@@ -1202,6 +1229,35 @@ public interface ProcessGroup extends ComponentAuthorizable, Positionable, Versi
     QueueSize getQueueSize();
 
     /**
+     * Get Map of Attribute Names and Values to provide additional context for logging
+     *
+     * @return Map of Attribute Names and Values
+     */
+    Map<String, String> getLoggingAttributes();
+
+    /**
+     * Returns the connector-managed MDC attributes assigned to this Process Group. When this group is part of a
+     * Connector's managed flow, these attributes (for example, connectorId and connectorName) are inherited from the
+     * Connector's managed root group so that logs and status metrics emitted by components in the flow can be
+     * attributed to the Connector. Returns an empty map when this group is not part of a Connector flow.
+     *
+     * @return an immutable map of connector logging attributes; never {@code null}
+     */
+    default Map<String, String> getConnectorLoggingAttributes() {
+        return Map.of();
+    }
+
+    /**
+     * Assigns the connector-managed MDC attributes for this Process Group and cascades them to all descendant Process
+     * Groups, so that components anywhere in a Connector's managed flow log with consistent connector context. An empty
+     * or {@code null} map clears any previously assigned attributes.
+     *
+     * @param attributes the connector logging attributes to assign
+     */
+    default void setConnectorLoggingAttributes(final Map<String, String> attributes) {
+    }
+
+    /**
      * @return the log file suffix of the ProcessGroup for dedicated logging
      */
     String getLogFileSuffix();
@@ -1262,4 +1318,26 @@ public interface ProcessGroup extends ComponentAuthorizable, Positionable, Versi
      * @return the configured maximum amount of time that a Stateless Flow can run before it times out and is considered a failure
      */
     String getStatelessFlowTimeout();
+
+    /**
+     * @return the FlowFileActivity for this Process Group
+     */
+    FlowFileActivity getFlowFileActivity();
+
+    /**
+     * Sets an explicit Authorizable that is to be used as the Process Group's parent for the purposes of authorization.
+     * If not set, the Process Group's parent group will be used.
+     * @param parent the parent Authorizable to set, or null to clear any explicit parent
+     */
+    void setExplicitParentAuthorizable(Authorizable parent);
+
+    /**
+     * Deletes any data in any FlowFile Queues in this Process Group and any child Process Groups
+     * and removes any components (Controller Services, Processors, Connections, etc.) from this Process Group
+     * and any child Process Groups. Because the emptying of FlowFile Queues may be a long-running operation,
+     * this method returns a CompletableFuture that will be completed once the purge operation has finished.
+     *
+     * @return a CompletableFuture that will be completed once the purge operation has finished
+     */
+    CompletableFuture<Void> purge();
 }

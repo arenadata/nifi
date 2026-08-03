@@ -52,23 +52,24 @@ import java.util.Optional;
 import java.util.function.BiPredicate;
 
 public abstract class AbstractJsonRowRecordReader implements RecordReader {
+    public static final String OBSOLETE_ALLOW_COMMENTS = "Allow Comments";
+
     public static final String DEFAULT_MAX_STRING_LENGTH = "20 MB";
 
     public static final PropertyDescriptor MAX_STRING_LENGTH = new PropertyDescriptor.Builder()
             .name("Max String Length")
-            .description("The maximum allowed length of a string value when parsing the JSON document")
+            .description("The maximum allowed length of a string value when parsing the document")
             .required(true)
             .defaultValue(DEFAULT_MAX_STRING_LENGTH)
             .addValidator(StandardValidators.DATA_SIZE_VALIDATOR)
             .build();
 
-    public static final PropertyDescriptor ALLOW_COMMENTS = new PropertyDescriptor.Builder()
-            .name("Allow Comments")
-            .description("Whether to allow comments when parsing the JSON document")
+    public static final PropertyDescriptor PARSING_STRATEGY = new PropertyDescriptor.Builder()
+            .name("Parsing Strategy")
+            .description("Set the strategy for the level of JSON specification conformity required")
             .required(true)
-            .allowableValues("true", "false")
-            .defaultValue("false")
-            .addValidator(StandardValidators.BOOLEAN_VALIDATOR)
+            .allowableValues(ParsingStrategy.class)
+            .defaultValue(ParsingStrategy.STANDARD)
             .build();
 
     private final ComponentLog logger;
@@ -84,7 +85,6 @@ public abstract class AbstractJsonRowRecordReader implements RecordReader {
 
     // Keeps track of whether or not we've skipped to the starting field for the current object when using the NESTED_FIELD strategy
     private boolean skippedToStartField = false;
-
 
     /**
      * Constructor with initial logic for JSON to NiFi record parsing.
@@ -144,7 +144,6 @@ public abstract class AbstractJsonRowRecordReader implements RecordReader {
     protected Optional<String> getTimestampFormat() {
         return Optional.ofNullable(timestampFormat);
     }
-
 
     @Override
     public Record nextRecord(final boolean coerceTypes, final boolean dropUnknownFields) throws IOException, MalformedRecordException {
@@ -370,7 +369,6 @@ public abstract class AbstractJsonRowRecordReader implements RecordReader {
         return new MapRecord(childSchema, childValues, serializedForm);
     }
 
-
     private JsonNode getNextJsonNode() throws IOException, MalformedRecordException {
         try {
             while (true) {
@@ -453,7 +451,6 @@ public abstract class AbstractJsonRowRecordReader implements RecordReader {
     }
 
     protected abstract Record convertJsonNodeToRecord(JsonNode nextNode, RecordSchema schema, boolean coerceTypes, boolean dropUnknownFields) throws IOException, MalformedRecordException;
-
 
     public Map<String, String> getCapturedFields() {
         return capturedFields;

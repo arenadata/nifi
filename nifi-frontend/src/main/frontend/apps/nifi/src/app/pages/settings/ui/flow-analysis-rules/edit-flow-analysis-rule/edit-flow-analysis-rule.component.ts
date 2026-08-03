@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-import { Component, EventEmitter, Inject, Input, Output } from '@angular/core';
+import { Component, EventEmitter, Input, Output, inject } from '@angular/core';
 import { MAT_DIALOG_DATA, MatDialogModule } from '@angular/material/dialog';
 import { MatInputModule } from '@angular/material/input';
 import { MatButtonModule } from '@angular/material/button';
@@ -27,9 +27,16 @@ import { AbstractControl, FormBuilder, FormControl, FormGroup, ReactiveFormsModu
 import { Observable, of } from 'rxjs';
 import { Client } from '../../../../../service/client.service';
 import { InlineServiceCreationRequest, InlineServiceCreationResponse, Property } from '../../../../../state/shared';
-import { CopyDirective, NiFiCommon, NifiTooltipDirective, TextTip, SelectOption } from '@nifi/shared';
+import {
+    CopyDirective,
+    NiFiCommon,
+    NifiSpinnerDirective,
+    NifiTooltipDirective,
+    TextTip,
+    SelectOption,
+    ComponentType
+} from '@nifi/shared';
 import { PropertyTable } from '../../../../../ui/common/property-table/property-table.component';
-import { NifiSpinnerDirective } from '../../../../../ui/common/spinner/nifi-spinner.directive';
 import {
     EditFlowAnalysisRuleDialogRequest,
     FlowAnalysisRuleEntity,
@@ -42,7 +49,7 @@ import {
     VerifyPropertiesRequestContext
 } from '../../../../../state/property-verification';
 import { PropertyVerification } from '../../../../../ui/common/property-verification/property-verification.component';
-import { TabbedDialog } from '../../../../../ui/common/tabbed-dialog/tabbed-dialog.component';
+import { TabbedDialog, TABBED_DIALOG_ID } from '../../../../../ui/common/tabbed-dialog/tabbed-dialog.component';
 import { ErrorContextKey } from '../../../../../state/error';
 import { ContextErrorBanner } from '../../../../../ui/common/context-error-banner/context-error-banner.component';
 
@@ -65,9 +72,21 @@ import { ContextErrorBanner } from '../../../../../ui/common/context-error-banne
         ContextErrorBanner,
         CopyDirective
     ],
-    styleUrls: ['./edit-flow-analysis-rule.component.scss']
+    styleUrls: ['./edit-flow-analysis-rule.component.scss'],
+    providers: [
+        {
+            provide: TABBED_DIALOG_ID,
+            useValue: 'edit-flow-analysis-rule-selected-index'
+        }
+    ]
 })
 export class EditFlowAnalysisRule extends TabbedDialog {
+    request = inject<EditFlowAnalysisRuleDialogRequest>(MAT_DIALOG_DATA);
+    private formBuilder = inject(FormBuilder);
+    private client = inject(Client);
+    private nifiCommon = inject(NiFiCommon);
+    private clusterConnectionService = inject(ClusterConnectionService);
+
     @Input() createNewProperty!: (existingProperties: string[], allowsSensitive: boolean) => Observable<Property>;
     @Input() createNewService!: (request: InlineServiceCreationRequest) => Observable<InlineServiceCreationResponse>;
     @Input() saving$!: Observable<boolean>;
@@ -95,14 +114,9 @@ export class EditFlowAnalysisRule extends TabbedDialog {
         }
     ];
 
-    constructor(
-        @Inject(MAT_DIALOG_DATA) public request: EditFlowAnalysisRuleDialogRequest,
-        private formBuilder: FormBuilder,
-        private client: Client,
-        private nifiCommon: NiFiCommon,
-        private clusterConnectionService: ClusterConnectionService
-    ) {
-        super('edit-flow-analysis-rule-selected-index');
+    constructor() {
+        super();
+        const request = this.request;
 
         this.readonly =
             !request.flowAnalysisRule.permissions.canWrite || request.flowAnalysisRule.status.runStatus !== 'DISABLED';
@@ -187,7 +201,8 @@ export class EditFlowAnalysisRule extends TabbedDialog {
     verifyClicked(entity: FlowAnalysisRuleEntity): void {
         this.verify.next({
             entity,
-            properties: this.getModifiedProperties()
+            properties: this.getModifiedProperties(),
+            componentType: ComponentType.FlowAnalysisRule
         });
     }
 

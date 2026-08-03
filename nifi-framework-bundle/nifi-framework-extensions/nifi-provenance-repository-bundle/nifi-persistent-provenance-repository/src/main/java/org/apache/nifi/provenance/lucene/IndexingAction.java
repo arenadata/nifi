@@ -52,7 +52,6 @@ public class IndexingAction {
         doc.add(new StringField(field.getSearchableFieldName(), value.toLowerCase(), store));
     }
 
-
     public void index(final StandardProvenanceEventRecord record, final IndexWriter indexWriter, final Integer blockIndex) throws IOException {
         final Document doc = new Document();
         addField(doc, SearchableFields.FlowFileUUID, record.getFlowFileUuid(), Store.NO);
@@ -81,7 +80,7 @@ public class IndexingAction {
             doc.add(new LongPoint(SearchableFields.FileSize.getSearchableFieldName(), record.getFileSize()));
             doc.add(new StringField(FieldNames.STORAGE_FILENAME, storageFilename, Store.YES));
 
-            if ( blockIndex == null ) {
+            if (blockIndex == null) {
                 doc.add(new LongPoint(FieldNames.STORAGE_FILE_OFFSET, record.getStorageByteOffset()));
                 doc.add(new StoredField(FieldNames.STORAGE_FILE_OFFSET, record.getStorageByteOffset()));
             } else {

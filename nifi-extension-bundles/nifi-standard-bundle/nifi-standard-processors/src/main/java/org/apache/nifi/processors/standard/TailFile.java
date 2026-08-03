@@ -20,8 +20,6 @@ import org.apache.commons.io.FileUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.nifi.annotation.behavior.InputRequirement;
 import org.apache.nifi.annotation.behavior.InputRequirement.Requirement;
-import org.apache.nifi.annotation.behavior.Restricted;
-import org.apache.nifi.annotation.behavior.Restriction;
 import org.apache.nifi.annotation.behavior.Stateful;
 import org.apache.nifi.annotation.behavior.TriggerSerially;
 import org.apache.nifi.annotation.behavior.WritesAttribute;
@@ -34,13 +32,13 @@ import org.apache.nifi.annotation.notification.OnPrimaryNodeStateChange;
 import org.apache.nifi.components.AllowableValue;
 import org.apache.nifi.components.PropertyDescriptor;
 import org.apache.nifi.components.PropertyDescriptor.Builder;
-import org.apache.nifi.components.RequiredPermission;
 import org.apache.nifi.components.ValidationContext;
 import org.apache.nifi.components.ValidationResult;
 import org.apache.nifi.components.state.Scope;
 import org.apache.nifi.components.state.StateMap;
 import org.apache.nifi.flowfile.FlowFile;
 import org.apache.nifi.flowfile.attributes.CoreAttributes;
+import org.apache.nifi.migration.PropertyConfiguration;
 import org.apache.nifi.processor.AbstractProcessor;
 import org.apache.nifi.processor.DataUnit;
 import org.apache.nifi.processor.ProcessContext;
@@ -104,14 +102,8 @@ import static org.apache.nifi.processor.util.StandardValidators.REGULAR_EXPRESSI
         + "ingesting files that have been compressed when 'rolled over'.")
 @Stateful(scopes = {Scope.LOCAL, Scope.CLUSTER}, description = "Stores state about where in the Tailed File it left off so that on restart it does not have to duplicate data. "
         + "State is stored either local or clustered depend on the <File Location> property.")
-@WritesAttribute(attribute = "tailfile.original.path", description = "Path of the original file the flow file comes from.")
-@Restricted(
-        restrictions = {
-                @Restriction(
-                        requiredPermission = RequiredPermission.READ_FILESYSTEM,
-                        explanation = "Provides operator the ability to read from any file that NiFi has access to.")
-        }
-)
+@WritesAttribute(attribute = "tailfile.original.path", description = "Path of the original file the FlowFile comes from.")
+
 @DefaultSchedule(strategy = SchedulingStrategy.TIMER_DRIVEN, period = "30 sec")
 public class TailFile extends AbstractProcessor {
 
@@ -140,8 +132,7 @@ public class TailFile extends AbstractProcessor {
             + "data in the File to Tail that has already been written.");
 
     static final PropertyDescriptor BASE_DIRECTORY = new Builder()
-            .name("tail-base-directory")
-            .displayName("Base directory")
+            .name("Base Directory")
             .description("Base directory used to look for files to tail. This property is required when using Multifile mode.")
             .expressionLanguageSupported(ENVIRONMENT)
             .addValidator(StandardValidators.FILE_EXISTS_VALIDATOR)
@@ -149,8 +140,7 @@ public class TailFile extends AbstractProcessor {
             .build();
 
     static final PropertyDescriptor MODE = new Builder()
-            .name("tail-mode")
-            .displayName("Tailing mode")
+            .name("Tailing Mode")
             .description("Mode to use: single file will tail only one file, multiple file will look for a list of file. In Multiple mode"
                     + " the Base directory is required.")
             .expressionLanguageSupported(NONE)
@@ -160,10 +150,9 @@ public class TailFile extends AbstractProcessor {
             .build();
 
     static final PropertyDescriptor FILENAME = new Builder()
-            .displayName("File(s) to Tail")
-            .name("File to Tail")
+            .name("Files to Tail")
             .description("Path of the file to tail in case of single file mode. If using multifile mode, regular expression to find files "
-                    + "to tail in the base directory. In case recursivity is set to true, the regular expression will be used to match the "
+                    + "to tail in the base directory. In case recursive is set to true, the regular expression will be used to match the "
                     + "path starting from the base directory (see additional details for examples).")
             .expressionLanguageSupported(ENVIRONMENT)
             .addValidator(StandardValidators.createRegexValidator(0, Integer.MAX_VALUE, true))
@@ -196,8 +185,7 @@ public class TailFile extends AbstractProcessor {
         .build();
 
     static final PropertyDescriptor STATE_LOCATION = new Builder()
-            .displayName("State Location")
-            .name("File Location") //retained name of property for backward compatibility of configs
+            .name("State Location")
             .description("Specifies where the state is located either local or cluster so that state can be stored "
                     + "appropriately in order to ensure that all data is consumed without duplicating data upon restart of NiFi")
             .required(true)
@@ -215,8 +203,7 @@ public class TailFile extends AbstractProcessor {
             .build();
 
     static final PropertyDescriptor RECURSIVE = new Builder()
-            .name("tailfile-recursive-lookup")
-            .displayName("Recursive lookup")
+            .name("Recursive Lookup")
             .description("When using Multiple files mode, this property defines if files must be listed recursively or not"
                     + " in the base directory.")
             .allowableValues("true", "false")
@@ -225,8 +212,7 @@ public class TailFile extends AbstractProcessor {
             .build();
 
     static final PropertyDescriptor LOOKUP_FREQUENCY = new Builder()
-            .name("tailfile-lookup-frequency")
-            .displayName("Lookup frequency")
+            .name("Lookup Frequency")
             .description("Only used in Multiple files mode. It specifies the minimum "
                     + "duration the processor will wait before listing again the files to tail.")
             .required(false)
@@ -235,8 +221,7 @@ public class TailFile extends AbstractProcessor {
             .build();
 
     static final PropertyDescriptor MAXIMUM_AGE = new Builder()
-            .name("tailfile-maximum-age")
-            .displayName("Maximum age")
+            .name("Maximum Age")
             .description("Only used in Multiple files mode. It specifies the necessary "
                     + "minimum duration to consider that no new messages will be appended in a file regarding its last "
                     + "modification date. This should not be set too low to avoid duplication of data in case new messages "
@@ -247,8 +232,7 @@ public class TailFile extends AbstractProcessor {
             .build();
 
     static final PropertyDescriptor REREAD_ON_NUL = new Builder()
-            .name("reread-on-nul")
-            .displayName("Reread when NUL encountered")
+            .name("Reread on NUL Encountered")
             .description("If this option is set to 'true', when a NUL character is read, the processor will yield and try to read the same part again later. "
                 + "(Note: Yielding may delay the processing of other files tailed by this processor, not just the one with the NUL character.) "
                 + "The purpose of this flag is to allow users to handle cases where reading a file may return temporary NUL values. "
@@ -283,9 +267,8 @@ public class TailFile extends AbstractProcessor {
         .build();
 
     static final PropertyDescriptor PRE_ALLOCATED_BUFFER_SIZE = new Builder()
-            .name("pre-allocated-buffer-size")
-            .displayName("Pre-Allocated Buffer Size")
-            .description("Sets the amount of memory that is pre-allocated for each tailed file.")
+            .name("Preallocated Buffer Size")
+            .description("Sets the amount of memory that is preallocated for each tailed file.")
             .required(true)
             .addValidator(DATA_SIZE_VALIDATOR)
             .expressionLanguageSupported(NONE)
@@ -719,6 +702,19 @@ public class TailFile extends AbstractProcessor {
         }
     }
 
+    @Override
+    public void migrateProperties(PropertyConfiguration config) {
+        config.renameProperty("tail-base-directory", BASE_DIRECTORY.getName());
+        config.renameProperty("tail-mode", MODE.getName());
+        config.renameProperty("File to Tail", FILENAME.getName());
+        config.renameProperty("File Location", STATE_LOCATION.getName());
+        config.renameProperty("tailfile-recursive-lookup", RECURSIVE.getName());
+        config.renameProperty("tailfile-lookup-frequency", LOOKUP_FREQUENCY.getName());
+        config.renameProperty("tailfile-maximum-age", MAXIMUM_AGE.getName());
+        config.renameProperty("reread-on-nul", REREAD_ON_NUL.getName());
+        config.renameProperty("pre-allocated-buffer-size", PRE_ALLOCATED_BUFFER_SIZE.getName());
+    }
+
     private List<String> collectKeysToBeRemoved(Map<String, String> sessionStates) {
         List<String> keysToRemove = new ArrayList<>();
         List<String> filesToRemove = sessionStates.entrySet().stream()
@@ -1030,8 +1026,7 @@ public class TailFile extends AbstractProcessor {
                                 throw new NulCharacterEncounteredException(rePos);
                             }
                         }
-                        // fallthrough
-                        // is intentional since if reReadOnNul is false, ASCII NUL is to be treated as a regular character
+                        // fall through - intentional since if reReadOnNul is false, ASCII NUL is to be treated as a regular character
                         default: {
                             if (seenCR) {
                                 seenCR = false;
@@ -1418,7 +1413,7 @@ public class TailFile extends AbstractProcessor {
                     abort.set(ncee);
 
                     // Log the fact that we encountered a NUL character and yield. But we don't re-throw the Exception because
-                    // we want to continue on with the same logic of transferring non-zero flowfiles, removing 0-byte flowfiles,
+                    // we want to continue on with the same logic of transferring non-zero FlowFiles, removing 0-byte FlowFiles,
                     // and maintaining our state.
                     getLogger().info("Encountered NUL character when tailing file {}; will yield", tailFile);
                     context.yield();

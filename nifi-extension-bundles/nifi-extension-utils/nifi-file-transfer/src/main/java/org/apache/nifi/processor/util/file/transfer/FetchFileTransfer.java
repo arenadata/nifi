@@ -59,6 +59,7 @@ public abstract class FetchFileTransfer extends AbstractProcessor {
     public static final AllowableValue COMPLETION_MOVE = new AllowableValue("Move File", "Move File", "Move the file to the directory specified by the <Move Destination Directory> property");
     public static final AllowableValue COMPLETION_DELETE = new AllowableValue("Delete File", "Delete File", "Deletes the original file from the remote system");
     public static final String FAILURE_REASON_ATTRIBUTE = "fetch.failure.reason";
+    public static final String OLD_FILE_NOT_FOUND_LOG_LEVEL_PROPERTY_NAME = "fetchfiletransfer-notfound-loglevel";
 
     public static final PropertyDescriptor HOSTNAME = new PropertyDescriptor.Builder()
         .name("Hostname")
@@ -116,8 +117,7 @@ public abstract class FetchFileTransfer extends AbstractProcessor {
         .build();
 
     public static final PropertyDescriptor FILE_NOT_FOUND_LOG_LEVEL = new PropertyDescriptor.Builder()
-        .displayName("Log level when file not found")
-        .name("fetchfiletransfer-notfound-loglevel")
+        .name("Log Level When File Not Found")
         .description("Log level to use in case the file does not exist when the processor is triggered")
         .allowableValues(LogLevel.values())
         .defaultValue(LogLevel.ERROR.toString()) // backward compatibility support
@@ -158,7 +158,7 @@ public abstract class FetchFileTransfer extends AbstractProcessor {
     );
 
     private final Map<Tuple<String, Integer>, BlockingQueue<FileTransferIdleWrapper>> fileTransferMap = new HashMap<>();
-    private final long IDLE_CONNECTION_MILLIS = TimeUnit.SECONDS.toMillis(10L); // amount of time to wait before closing an idle connection
+    private static final long IDLE_CONNECTION_MILLIS = TimeUnit.SECONDS.toMillis(10L); // amount of time to wait before closing an idle connection
     private volatile long lastClearTime = System.currentTimeMillis();
     private LogLevel levelFileNotFound = LogLevel.ERROR;
 
@@ -171,7 +171,6 @@ public abstract class FetchFileTransfer extends AbstractProcessor {
     public void onScheduled(final ProcessContext context) {
         levelFileNotFound = LogLevel.valueOf(context.getProperty(FILE_NOT_FOUND_LOG_LEVEL).getValue());
     }
-
 
     /**
      * Close connections that are idle or optionally close all connections.
@@ -372,7 +371,6 @@ public abstract class FetchFileTransfer extends AbstractProcessor {
             }
         }
     }
-
 
     /**
      * Creates a new instance of a FileTransfer that can be used to pull files from a remote system.

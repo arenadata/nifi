@@ -17,31 +17,32 @@
 
 package org.apache.nifi.processors.gcp.vision;
 
-import static org.apache.nifi.expression.ExpressionLanguageScope.FLOWFILE_ATTRIBUTES;
-
 import com.google.longrunning.Operation;
 import com.google.protobuf.ByteString;
-import com.google.protobuf.GeneratedMessageV3;
 import com.google.protobuf.InvalidProtocolBufferException;
+import com.google.protobuf.Message;
 import com.google.protobuf.util.JsonFormat;
 import com.google.rpc.Status;
-import java.nio.charset.StandardCharsets;
-import java.util.List;
-import java.util.Set;
-import java.util.stream.Stream;
 import org.apache.nifi.components.PropertyDescriptor;
 import org.apache.nifi.flowfile.FlowFile;
 import org.apache.nifi.flowfile.attributes.CoreAttributes;
+import org.apache.nifi.migration.PropertyConfiguration;
 import org.apache.nifi.processor.ProcessContext;
 import org.apache.nifi.processor.ProcessSession;
 import org.apache.nifi.processor.Relationship;
 import org.apache.nifi.processor.exception.ProcessException;
 import org.apache.nifi.processor.util.StandardValidators;
 
-abstract public class AbstractGetGcpVisionAnnotateOperationStatus extends AbstractGcpVisionProcessor {
+import java.nio.charset.StandardCharsets;
+import java.util.List;
+import java.util.Set;
+import java.util.stream.Stream;
+
+import static org.apache.nifi.expression.ExpressionLanguageScope.FLOWFILE_ATTRIBUTES;
+
+public abstract class AbstractGetGcpVisionAnnotateOperationStatus extends AbstractGcpVisionProcessor {
     public static final PropertyDescriptor OPERATION_KEY = new PropertyDescriptor.Builder()
-            .name("operationKey")
-            .displayName("GCP Operation Key")
+            .name("GCP Operation Key")
             .description("The unique identifier of the Vision operation.")
             .defaultValue("${operationKey}")
             .required(true)
@@ -90,7 +91,7 @@ abstract public class AbstractGetGcpVisionAnnotateOperationStatus extends Abstra
             Operation operation = getVisionClient().getOperationsClient().getOperation(operationKey);
             getLogger().info("{}", operation);
             if (operation.getDone() && !operation.hasError()) {
-                GeneratedMessageV3 response = deserializeResponse(operation.getResponse().getValue());
+                Message response = deserializeResponse(operation.getResponse().getValue());
                 FlowFile childFlowFile = session.create(flowFile);
                 session.write(childFlowFile, out -> out.write(JsonFormat.printer().print(response).getBytes(StandardCharsets.UTF_8)));
                 session.putAttribute(childFlowFile, CoreAttributes.MIME_TYPE.key(), "application/json");
@@ -109,5 +110,11 @@ abstract public class AbstractGetGcpVisionAnnotateOperationStatus extends Abstra
         }
     }
 
-    abstract protected GeneratedMessageV3 deserializeResponse(ByteString responseValue) throws InvalidProtocolBufferException;
+    @Override
+    public void migrateProperties(PropertyConfiguration config) {
+        super.migrateProperties(config);
+        config.renameProperty("operationKey", OPERATION_KEY.getName());
+    }
+
+    protected abstract Message deserializeResponse(ByteString responseValue) throws InvalidProtocolBufferException;
 }

@@ -21,6 +21,12 @@ import org.apache.nifi.xml.processing.ProcessingException;
 import org.apache.nifi.xml.processing.stream.StandardXMLEventReaderProvider;
 import org.apache.nifi.xml.processing.stream.XMLEventReaderProvider;
 
+import java.io.EOFException;
+import java.io.IOException;
+import java.io.InputStream;
+import java.util.Iterator;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import javax.xml.stream.XMLEventReader;
 import javax.xml.stream.XMLStreamException;
 import javax.xml.stream.events.Attribute;
@@ -28,12 +34,6 @@ import javax.xml.stream.events.Characters;
 import javax.xml.stream.events.StartElement;
 import javax.xml.stream.events.XMLEvent;
 import javax.xml.transform.stream.StreamSource;
-import java.io.EOFException;
-import java.io.IOException;
-import java.io.InputStream;
-import java.util.Iterator;
-import java.util.LinkedHashMap;
-import java.util.Map;
 
 public class XmlRecordSource implements RecordSource<XmlNode> {
 
@@ -129,7 +129,7 @@ public class XmlRecordSource implements RecordSource<XmlNode> {
             return new XmlTextNode(nodeName, content.toString().trim());
         } else {
             final String textContent = content.toString().trim();
-            if (!textContent.equals("")) {
+            if (!textContent.isEmpty() && contentFieldName != null) {
                 childNodes.put(contentFieldName, new XmlTextNode(contentFieldName, textContent));
             }
 
@@ -151,9 +151,9 @@ public class XmlRecordSource implements RecordSource<XmlNode> {
     }
 
     private void addXmlAttributesToChildNodes(StartElement startElement, Map<String, XmlNode> childNodes) {
-        final Iterator<?> attributeIterator = startElement.getAttributes();
+        final Iterator<Attribute> attributeIterator = startElement.getAttributes();
         while (attributeIterator.hasNext()) {
-            final Attribute attribute = (Attribute) attributeIterator.next();
+            final Attribute attribute = attributeIterator.next();
             final String rawName = attribute.getName().getLocalPart();
             final String fieldName = attributePrefix == null ? rawName : attributePrefix + rawName;
             childNodes.put(fieldName, new XmlTextNode(fieldName, attribute.getValue()));

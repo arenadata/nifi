@@ -30,8 +30,8 @@ import org.junit.jupiter.params.provider.MethodSource;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
-import java.util.Arrays;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -58,7 +58,6 @@ class TestMapRecord {
         new RecordField("string", RecordFieldType.STRING.getDataType()),
         new RecordField("number", RecordFieldType.INT.getDataType())
     );
-
 
     @Test
     void testRenameClearsSerializedForm() {
@@ -254,7 +253,6 @@ class TestMapRecord {
         assertEquals("33", record.getAsString(withAlias, withAlias.getDataType().getFormat()));
     }
 
-
     @Test
     void testDefaultValueWithAliasValue() {
         final List<RecordField> fields = new ArrayList<>();
@@ -286,8 +284,8 @@ class TestMapRecord {
 
     @Test
     void testNestedSchema() {
-        final String FOO_TEST_VAL = "test!";
-        final String NESTED_RECORD_VALUE = "Hello, world!";
+        final String fooTestVal = "test!";
+        final String nestedRecordValue = "Hello, world!";
 
         final List<RecordField> fields = new ArrayList<>();
         fields.add(new RecordField("foo", RecordFieldType.STRING.getDataType(), null, set("bar", "baz")));
@@ -300,10 +298,10 @@ class TestMapRecord {
         RecordSchema fullSchema = new SimpleRecordSchema(fields);
 
         Map<String, Object> nestedValues = new HashMap<>();
-        nestedValues.put("test", NESTED_RECORD_VALUE);
+        nestedValues.put("test", nestedRecordValue);
         Record nestedRecord = new MapRecord(nestedSchema, nestedValues);
         Map<String, Object> values = new HashMap<>();
-        values.put("foo", FOO_TEST_VAL);
+        values.put("foo", fooTestVal);
         values.put("nested", nestedRecord);
 
         List<Record> list = new ArrayList<>();
@@ -315,12 +313,12 @@ class TestMapRecord {
         Record record = new MapRecord(fullSchema, values);
 
         Map<String, Object> fullConversion = ((MapRecord) record).toMap(true);
-        assertEquals(FOO_TEST_VAL, fullConversion.get("foo"));
+        assertEquals(fooTestVal, fullConversion.get("foo"));
         assertInstanceOf(Map.class, fullConversion.get("nested"));
 
         Map<String, Object> nested = (Map<String, Object>) fullConversion.get("nested");
         assertEquals(1, nested.size());
-        assertEquals(NESTED_RECORD_VALUE, nested.get("test"));
+        assertEquals(nestedRecordValue, nested.get("test"));
 
         assertInstanceOf(List.class, fullConversion.get("list"));
         List recordList = (List) fullConversion.get("list");
@@ -329,8 +327,50 @@ class TestMapRecord {
             assertInstanceOf(Map.class, rec);
             Map<String, Object> map = (Map<String, Object>) rec;
             assertEquals(1, map.size());
-            assertEquals(NESTED_RECORD_VALUE, map.get("test"));
+            assertEquals(nestedRecordValue, map.get("test"));
         }
+    }
+
+    @Test
+    void testNestedSchemaWithEmptyArray() throws Exception {
+        final String testValue = "test!";
+        final String nestedRecordValue = "Hello, world!";
+
+        final List<RecordField> fields = new ArrayList<>();
+        fields.add(new RecordField("foo", RecordFieldType.STRING.getDataType(), null, set("bar", "baz")));
+        List<RecordField> nestedFields = new ArrayList<>();
+        nestedFields.add(new RecordField("test", RecordFieldType.STRING.getDataType()));
+        RecordSchema nestedSchema = new SimpleRecordSchema(nestedFields);
+        RecordDataType nestedType = new RecordDataType(nestedSchema);
+        fields.add(new RecordField("nested", nestedType));
+        fields.add(new RecordField("array", new ArrayDataType(nestedType)));
+        RecordSchema fullSchema = new SimpleRecordSchema(fields);
+
+        Map<String, Object> nestedValues = new HashMap<>();
+        nestedValues.put("test", nestedRecordValue);
+        Record nestedRecord = new MapRecord(nestedSchema, nestedValues);
+        Map<String, Object> values = new HashMap<>();
+        values.put("foo", testValue);
+        values.put("nested", nestedRecord);
+
+        values.put("array", new Object[0]);
+
+        Record record = new MapRecord(fullSchema, values);
+
+        Map<String, Object> fullConversion = null;
+        fullConversion = ((MapRecord) record).toMap(true);
+
+        assertEquals(testValue, fullConversion.get("foo"));
+        assertInstanceOf(Map.class, fullConversion.get("nested"));
+
+        Map<String, Object> nested = (Map<String, Object>) fullConversion.get("nested");
+        assertEquals(1, nested.size());
+        assertEquals(nestedRecordValue, nested.get("test"));
+
+        Object arrayFieldName = fullConversion.get("array");
+        assertInstanceOf(Object[].class, arrayFieldName);
+        Object[] recordArray = (Object[]) arrayFieldName;
+        assertEquals(0, recordArray.length);
     }
 
     @ParameterizedTest

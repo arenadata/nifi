@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-import { Injectable } from '@angular/core';
+import { Injectable, inject } from '@angular/core';
 import { Actions, createEffect, ofType } from '@ngrx/effects';
 import { concatLatestFrom } from '@ngrx/operators';
 import { NiFiState } from '../../../../state';
@@ -24,7 +24,7 @@ import { asyncScheduler, catchError, from, interval, map, of, startWith, switchM
 import * as FlowAnalysisActions from './flow-analysis.actions';
 import { HttpErrorResponse } from '@angular/common/http';
 import { FlowAnalysisService } from '../../service/flow-analysis.service';
-import { ErrorHelper } from 'apps/nifi/src/app/service/error-helper.service';
+import { ErrorHelper } from '../../../../service/error-helper.service';
 import { selectCurrentProcessGroupId } from '../flow/flow.selectors';
 import { Router } from '@angular/router';
 import { MatDialog } from '@angular/material/dialog';
@@ -33,14 +33,12 @@ import { ViolationDetailsDialogComponent } from '../../ui/canvas/header/flow-ana
 
 @Injectable()
 export class FlowAnalysisEffects {
-    constructor(
-        private actions$: Actions,
-        private store: Store<NiFiState>,
-        private flowAnalysisService: FlowAnalysisService,
-        private errorHelper: ErrorHelper,
-        private router: Router,
-        private dialog: MatDialog
-    ) {}
+    private actions$ = inject(Actions);
+    private store = inject<Store<NiFiState>>(Store);
+    private flowAnalysisService = inject(FlowAnalysisService);
+    private errorHelper = inject(ErrorHelper);
+    private router = inject(Router);
+    private dialog = inject(MatDialog);
 
     startPollingFlowAnalysis$ = createEffect(() =>
         this.actions$.pipe(

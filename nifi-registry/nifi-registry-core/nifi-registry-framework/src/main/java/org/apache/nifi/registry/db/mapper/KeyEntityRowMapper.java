@@ -17,8 +17,8 @@
 package org.apache.nifi.registry.db.mapper;
 
 import org.apache.nifi.registry.db.entity.KeyEntity;
+import org.jspecify.annotations.Nullable;
 import org.springframework.jdbc.core.RowMapper;
-import org.springframework.lang.Nullable;
 
 import java.sql.ResultSet;
 import java.sql.SQLException;

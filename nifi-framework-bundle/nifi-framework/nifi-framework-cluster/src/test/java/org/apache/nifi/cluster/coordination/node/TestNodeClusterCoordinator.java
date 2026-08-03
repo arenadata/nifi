@@ -22,6 +22,7 @@ import org.apache.nifi.cluster.protocol.ConnectionRequest;
 import org.apache.nifi.cluster.protocol.ConnectionResponse;
 import org.apache.nifi.cluster.protocol.DataFlow;
 import org.apache.nifi.cluster.protocol.NodeIdentifier;
+import org.apache.nifi.cluster.protocol.ProtocolException;
 import org.apache.nifi.cluster.protocol.StandardDataFlow;
 import org.apache.nifi.cluster.protocol.impl.ClusterCoordinationProtocolSenderListener;
 import org.apache.nifi.cluster.protocol.message.ConnectionRequestMessage;
@@ -87,7 +88,6 @@ public class TestNodeClusterCoordinator {
         final StateManager stateManager = Mockito.mock(StateManager.class);
         when(stateManager.getState(any(Scope.class))).thenReturn(new MockStateMap(Collections.emptyMap(), 1));
         when(stateManagerProvider.getStateManager(anyString())).thenReturn(stateManager);
-
 
         final EventReporter eventReporter = Mockito.mock(EventReporter.class);
         final RevisionManager revisionManager = Mockito.mock(RevisionManager.class);
@@ -494,6 +494,32 @@ public class TestNodeClusterCoordinator {
         assertEquals(4848, registeredId.getLoadBalancePort());
     }
 
+    @Test
+    @Timeout(value = 10)
+    public void testConnectionRequestCancelsPendingDisconnect() throws InterruptedException {
+        final NodeIdentifier nodeId1 = createNodeId(1);
+        final NodeIdentifier nodeId2 = createNodeId(2);
+        coordinator.updateNodeStatus(new NodeConnectionStatus(nodeId1, NodeConnectionState.CONNECTED));
+        coordinator.updateNodeStatus(new NodeConnectionStatus(nodeId2, NodeConnectionState.CONNECTED));
+
+        while (nodeStatuses.size() < 2) {
+            Thread.sleep(10L);
+        }
+        nodeStatuses.clear();
+
+        Mockito.doThrow(new ProtocolException("Simulated")).when(senderListener).disconnect(any());
+        coordinator.requestNodeDisconnect(nodeId2, DisconnectionCode.USER_DISCONNECTED, "Unit Test");
+
+        final Thread disconnectThread = coordinator.getPendingDisconnectionThread(nodeId2);
+        assertNotNull(disconnectThread);
+        assertTrue(disconnectThread.isAlive());
+
+        requestConnection(nodeId2, coordinator);
+
+        assertNull(coordinator.getPendingDisconnectionThread(nodeId2));
+        assertTrue(disconnectThread.isInterrupted());
+    }
+
     private NodeIdentifier createNodeId(final int index) {
         return new NodeIdentifier(String.valueOf(index), "localhost", 8000 + index, "localhost", 9000 + index, "localhost", 10000 + index, 11000 + index, false);
     }
@@ -504,7 +530,6 @@ public class TestNodeClusterCoordinator {
         requestMsg.setConnectionRequest(request);
         return coordinator.handle(requestMsg, Collections.emptySet());
     }
-
 
     private static class FirstVoteWinsFlowElection implements FlowElection {
         private DataFlow dataFlow;

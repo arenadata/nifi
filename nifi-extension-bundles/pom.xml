@@ -18,7 +18,7 @@
     <parent>
         <groupId>org.apache.nifi</groupId>
         <artifactId>nifi-extension-bom</artifactId>
-        <version>2.6.0</version>
+        <version>2.10.0.1</version>
         <relativePath>../nifi-extension-bom</relativePath>
     </parent>
     <artifactId>nifi-extension-bundles</artifactId>
@@ -38,7 +38,6 @@
         <module>nifi-enrich-bundle</module>
         <module>nifi-hl7-bundle</module>
         <module>nifi-mongodb-bundle</module>
-        <module>nifi-asana-bundle</module>
         <module>nifi-media-bundle</module>
         <module>nifi-avro-bundle</module>
         <module>nifi-azure-bundle</module>
@@ -78,6 +77,7 @@
         <module>nifi-salesforce-bundle</module>
         <module>nifi-zendesk-bundle</module>
         <module>nifi-hubspot-bundle</module>
+        <module>nifi-iceberg-bundle</module>
         <module>nifi-dropbox-bundle</module>
         <module>nifi-airtable-bundle</module>
         <module>nifi-workday-bundle</module>
@@ -95,5 +95,6 @@
         <module>nifi-github-bundle</module>
         <module>nifi-gitlab-bundle</module>
         <module>nifi-atlassian-bundle</module>
+        <module>nifi-couchbase-bundle</module>
     </modules>
 </project>

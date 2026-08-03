@@ -28,6 +28,7 @@ import org.apache.nifi.components.PropertyDescriptor;
 import org.apache.nifi.expression.ExpressionLanguageScope;
 import org.apache.nifi.flowfile.FlowFile;
 import org.apache.nifi.flowfile.attributes.CoreAttributes;
+import org.apache.nifi.migration.PropertyConfiguration;
 import org.apache.nifi.processor.ProcessContext;
 import org.apache.nifi.processor.ProcessSession;
 import org.apache.nifi.processor.Relationship;
@@ -62,30 +63,26 @@ import java.util.concurrent.locks.Lock;
         + "Each field provided by the MaxMind database can be directed to a field of the user's choosing by providing a record path for that field configuration. ")
 public class GeoEnrichIPRecord extends AbstractEnrichIP {
     public static final PropertyDescriptor READER = new PropertyDescriptor.Builder()
-            .name("geo-enrich-ip-record-reader")
-            .displayName("Record Reader")
-            .description("Record reader service to use for reading the flowfile contents.")
+            .name("Record Reader")
+            .description("Record reader service to use for reading the FlowFile contents.")
             .required(true)
             .identifiesControllerService(RecordReaderFactory.class)
             .build();
     public static final PropertyDescriptor WRITER = new PropertyDescriptor.Builder()
-            .name("geo-enrich-ip-record-writer")
-            .displayName("Record Writer")
-            .description("Record writer service to use for enriching the flowfile contents.")
+            .name("Record Writer")
+            .description("Record writer service to use for enriching the FlowFile contents.")
             .required(true)
             .identifiesControllerService(RecordSetWriterFactory.class)
             .build();
     public static final PropertyDescriptor IP_RECORD_PATH = new PropertyDescriptor.Builder()
-            .name("geo-enrich-ip-ip-record-path")
-            .displayName("IP Address Record Path")
+            .name("IP Address Record Path")
             .description("The record path to retrieve the IP address for doing the lookup.")
             .addValidator(StandardValidators.NON_EMPTY_EL_VALIDATOR)
             .expressionLanguageSupported(ExpressionLanguageScope.FLOWFILE_ATTRIBUTES)
             .required(true)
             .build();
     public static final PropertyDescriptor SPLIT_FOUND_NOT_FOUND = new PropertyDescriptor.Builder()
-            .name("geo-enrich-ip-split-found-not-found")
-            .displayName("Separate Enriched From Not Enriched")
+            .name("Separate Enriched From Not Enriched")
             .description("Separate records that have been enriched from ones that have not. Default behavior is " +
                     "to send everything to the found relationship if even one record is enriched.")
             .allowableValues("true", "false")
@@ -95,48 +92,42 @@ public class GeoEnrichIPRecord extends AbstractEnrichIP {
             .build();
 
     public static final PropertyDescriptor GEO_CITY = new PropertyDescriptor.Builder()
-            .name("geo-enrich-ip-city-record-path")
-            .displayName("City Record Path")
+            .name("City Record Path")
             .description("Record path for putting the city identified for the IP address")
             .required(false)
             .addValidator(StandardValidators.NON_EMPTY_EL_VALIDATOR)
             .expressionLanguageSupported(ExpressionLanguageScope.FLOWFILE_ATTRIBUTES)
             .build();
     public static final PropertyDescriptor GEO_LATITUDE = new PropertyDescriptor.Builder()
-            .name("geo-enrich-ip-latitude-record-path")
-            .displayName("Latitude Record Path")
+            .name("Latitude Record Path")
             .description("Record path for putting the latitude identified for this IP address")
             .required(false)
             .addValidator(StandardValidators.NON_EMPTY_EL_VALIDATOR)
             .expressionLanguageSupported(ExpressionLanguageScope.FLOWFILE_ATTRIBUTES)
             .build();
     public static final PropertyDescriptor GEO_LONGITUDE = new PropertyDescriptor.Builder()
-            .name("geo-enrich-ip-longitude-record-path")
-            .displayName("Longitude Record Path")
+            .name("Longitude Record Path")
             .description("Record path for putting the longitude identified for this IP address")
             .required(false)
             .addValidator(StandardValidators.NON_EMPTY_EL_VALIDATOR)
             .expressionLanguageSupported(ExpressionLanguageScope.FLOWFILE_ATTRIBUTES)
             .build();
     public static final PropertyDescriptor GEO_COUNTRY = new PropertyDescriptor.Builder()
-            .name("geo-enrich-ip-country-record-path")
-            .displayName("Country Record Path")
+            .name("Country Record Path")
             .description("Record path for putting the country identified for this IP address")
             .required(false)
             .addValidator(StandardValidators.NON_EMPTY_EL_VALIDATOR)
             .expressionLanguageSupported(ExpressionLanguageScope.FLOWFILE_ATTRIBUTES)
             .build();
     public static final PropertyDescriptor GEO_COUNTRY_ISO = new PropertyDescriptor.Builder()
-            .name("geo-enrich-ip-country-iso-record-path")
-            .displayName("Country ISO Code Record Path")
+            .name("Country ISO Code Record Path")
             .description("Record path for putting the ISO Code for the country identified")
             .required(false)
             .addValidator(StandardValidators.NON_EMPTY_EL_VALIDATOR)
             .expressionLanguageSupported(ExpressionLanguageScope.FLOWFILE_ATTRIBUTES)
             .build();
     public static final PropertyDescriptor GEO_POSTAL_CODE = new PropertyDescriptor.Builder()
-            .name("geo-enrich-ip-country-postal-record-path")
-            .displayName("Country Postal Code Record Path")
+            .name("Country Postal Code Record Path")
             .description("Record path for putting the postal code for the country identified")
             .required(false)
             .addValidator(StandardValidators.NON_EMPTY_EL_VALIDATOR)
@@ -145,7 +136,7 @@ public class GeoEnrichIPRecord extends AbstractEnrichIP {
 
     public static final Relationship REL_ORIGINAL = new Relationship.Builder()
             .name("original")
-            .description("The original input flowfile goes to this relationship regardless of whether the content was enriched or not.")
+            .description("The original input FlowFile goes to this relationship regardless of whether the content was enriched or not.")
             .build();
 
     public static final Set<Relationship> RELATIONSHIPS = Set.of(
@@ -323,6 +314,21 @@ public class GeoEnrichIPRecord extends AbstractEnrichIP {
         }
     }
 
+    @Override
+    public void migrateProperties(PropertyConfiguration config) {
+        super.migrateProperties(config);
+        config.renameProperty("geo-enrich-ip-record-reader", READER.getName());
+        config.renameProperty("geo-enrich-ip-record-writer", WRITER.getName());
+        config.renameProperty("geo-enrich-ip-ip-record-path", IP_RECORD_PATH.getName());
+        config.renameProperty("geo-enrich-ip-split-found-not-found", SPLIT_FOUND_NOT_FOUND.getName());
+        config.renameProperty("geo-enrich-ip-city-record-path", GEO_CITY.getName());
+        config.renameProperty("geo-enrich-ip-latitude-record-path", GEO_LATITUDE.getName());
+        config.renameProperty("geo-enrich-ip-longitude-record-path", GEO_LONGITUDE.getName());
+        config.renameProperty("geo-enrich-ip-country-record-path", GEO_COUNTRY.getName());
+        config.renameProperty("geo-enrich-ip-country-iso-record-path", GEO_COUNTRY_ISO.getName());
+        config.renameProperty("geo-enrich-ip-country-postal-record-path", GEO_POSTAL_CODE.getName());
+    }
+
     private Map<String, String> buildAttributes(int recordCount, String mimeType) {
         Map<String, String> retVal = new HashMap<>();
         retVal.put(CoreAttributes.MIME_TYPE.key(), mimeType);
@@ -374,16 +380,16 @@ public class GeoEnrichIPRecord extends AbstractEnrichIP {
 
         if (response == null) {
             return false;
-        } else if (response.getCity() == null) {
+        } else if (response.city() == null) {
             return false;
         }
 
-        boolean city = update(GEO_CITY, cached, record, response.getCity().getName());
-        boolean country = update(GEO_COUNTRY, cached, record, response.getCountry().getName());
-        boolean iso = update(GEO_COUNTRY_ISO, cached, record, response.getCountry().getIsoCode());
-        boolean lat = update(GEO_LATITUDE, cached, record, response.getLocation().getLatitude());
-        boolean lon = update(GEO_LONGITUDE, cached, record, response.getLocation().getLongitude());
-        boolean postal = update(GEO_POSTAL_CODE, cached, record, response.getPostal().getCode());
+        boolean city = update(GEO_CITY, cached, record, response.city().name());
+        boolean country = update(GEO_COUNTRY, cached, record, response.country().name());
+        boolean iso = update(GEO_COUNTRY_ISO, cached, record, response.country().isoCode());
+        boolean lat = update(GEO_LATITUDE, cached, record, response.location().latitude());
+        boolean lon = update(GEO_LONGITUDE, cached, record, response.location().longitude());
+        boolean postal = update(GEO_POSTAL_CODE, cached, record, response.postal().code());
 
         retVal = (city || country || iso || lat || lon || postal);
 

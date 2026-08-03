@@ -91,8 +91,8 @@ public class AccessPolicyResource extends ApplicationResource {
             extensions = {
                     @Extension(
                             name = "access-policy", properties = {
-                            @ExtensionProperty(name = "action", value = "write"),
-                            @ExtensionProperty(name = "resource", value = "/policies")}
+                                    @ExtensionProperty(name = "action", value = "write"),
+                                    @ExtensionProperty(name = "resource", value = "/policies")}
                     )
             }
     )
@@ -127,8 +127,8 @@ public class AccessPolicyResource extends ApplicationResource {
             extensions = {
                     @Extension(
                             name = "access-policy", properties = {
-                            @ExtensionProperty(name = "action", value = "read"),
-                            @ExtensionProperty(name = "resource", value = "/policies")}
+                                    @ExtensionProperty(name = "action", value = "read"),
+                                    @ExtensionProperty(name = "resource", value = "/policies")}
                     )
             }
     )
@@ -163,8 +163,8 @@ public class AccessPolicyResource extends ApplicationResource {
             extensions = {
                     @Extension(
                             name = "access-policy", properties = {
-                            @ExtensionProperty(name = "action", value = "read"),
-                            @ExtensionProperty(name = "resource", value = "/policies")}
+                                    @ExtensionProperty(name = "action", value = "read"),
+                                    @ExtensionProperty(name = "resource", value = "/policies")}
                     )
             }
     )
@@ -174,7 +174,6 @@ public class AccessPolicyResource extends ApplicationResource {
         final AccessPolicy accessPolicy = serviceFacade.getAccessPolicy(identifier);
         return generateOkResponse(accessPolicy).build();
     }
-
 
     /**
      * Retrieve a specified access policy for a given (action, resource) pair.
@@ -201,8 +200,8 @@ public class AccessPolicyResource extends ApplicationResource {
             extensions = {
                     @Extension(
                             name = "access-policy", properties = {
-                            @ExtensionProperty(name = "action", value = "read"),
-                            @ExtensionProperty(name = "resource", value = "/policies")}
+                                    @ExtensionProperty(name = "action", value = "read"),
+                                    @ExtensionProperty(name = "resource", value = "/policies")}
                     )
             }
     )
@@ -219,7 +218,6 @@ public class AccessPolicyResource extends ApplicationResource {
         final AccessPolicy accessPolicy = serviceFacade.getAccessPolicy(resource, requestAction);
         return generateOkResponse(accessPolicy).build();
     }
-
 
     /**
      * Update an access policy.
@@ -246,8 +244,8 @@ public class AccessPolicyResource extends ApplicationResource {
             extensions = {
                     @Extension(
                             name = "access-policy", properties = {
-                            @ExtensionProperty(name = "action", value = "write"),
-                            @ExtensionProperty(name = "resource", value = "/policies")}
+                                    @ExtensionProperty(name = "action", value = "write"),
+                                    @ExtensionProperty(name = "resource", value = "/policies")}
                     )
             }
     )
@@ -268,7 +266,6 @@ public class AccessPolicyResource extends ApplicationResource {
         final AccessPolicy createdPolicy = serviceFacade.updateAccessPolicy(requestAccessPolicy);
         return generateOkResponse(createdPolicy).build();
     }
-
 
     /**
      * Remove a specified access policy.
@@ -293,8 +290,8 @@ public class AccessPolicyResource extends ApplicationResource {
             extensions = {
                     @Extension(
                             name = "access-policy", properties = {
-                            @ExtensionProperty(name = "action", value = "delete"),
-                            @ExtensionProperty(name = "resource", value = "/policies")}
+                                    @ExtensionProperty(name = "action", value = "delete"),
+                                    @ExtensionProperty(name = "resource", value = "/policies")}
                     )
             }
     )
@@ -333,8 +330,8 @@ public class AccessPolicyResource extends ApplicationResource {
             extensions = {
                     @Extension(
                             name = "access-policy", properties = {
-                            @ExtensionProperty(name = "action", value = "read"),
-                            @ExtensionProperty(name = "resource", value = "/policies")}
+                                    @ExtensionProperty(name = "action", value = "read"),
+                                    @ExtensionProperty(name = "resource", value = "/policies")}
                     )
             }
     )

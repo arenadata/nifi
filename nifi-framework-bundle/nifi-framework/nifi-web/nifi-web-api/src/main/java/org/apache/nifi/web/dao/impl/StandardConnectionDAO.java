@@ -16,23 +16,28 @@
  */
 package org.apache.nifi.web.dao.impl;
 
+import jakarta.ws.rs.WebApplicationException;
 import org.apache.nifi.authorization.Authorizer;
 import org.apache.nifi.authorization.RequestAction;
 import org.apache.nifi.authorization.resource.Authorizable;
 import org.apache.nifi.authorization.resource.DataAuthorizable;
 import org.apache.nifi.authorization.user.NiFiUser;
 import org.apache.nifi.authorization.user.NiFiUserUtils;
+import org.apache.nifi.components.connector.ConnectorNode;
+import org.apache.nifi.components.connector.ConnectorState;
+import org.apache.nifi.components.connector.ConnectorSyncMode;
+import org.apache.nifi.components.connector.FrameworkFlowContext;
 import org.apache.nifi.connectable.Connectable;
 import org.apache.nifi.connectable.ConnectableType;
 import org.apache.nifi.connectable.Connection;
-import org.apache.nifi.controller.queue.LoadBalanceCompression;
-import org.apache.nifi.controller.queue.LoadBalanceStrategy;
 import org.apache.nifi.connectable.Position;
 import org.apache.nifi.controller.FlowController;
 import org.apache.nifi.controller.exception.ValidationException;
 import org.apache.nifi.controller.queue.DropFlowFileStatus;
 import org.apache.nifi.controller.queue.FlowFileQueue;
 import org.apache.nifi.controller.queue.ListFlowFileStatus;
+import org.apache.nifi.controller.queue.LoadBalanceCompression;
+import org.apache.nifi.controller.queue.LoadBalanceStrategy;
 import org.apache.nifi.controller.repository.ContentNotFoundException;
 import org.apache.nifi.controller.repository.FlowFileRecord;
 import org.apache.nifi.flowfile.FlowFilePrioritizer;
@@ -52,8 +57,6 @@ import org.apache.nifi.web.api.dto.PositionDTO;
 import org.apache.nifi.web.dao.ConnectionDAO;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
-import jakarta.ws.rs.WebApplicationException;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Repository;
 
@@ -77,20 +80,56 @@ public class StandardConnectionDAO extends ComponentDAO implements ConnectionDAO
     private Authorizer authorizer;
 
     private Connection locateConnection(final String connectionId) {
-        final ProcessGroup rootGroup = flowController.getFlowManager().getRootGroup();
-        final Connection connection = rootGroup.findConnection(connectionId);
+        return locateConnection(connectionId, false);
+    }
 
-        if (connection == null) {
-            throw new ResourceNotFoundException(String.format("Unable to find connection with id '%s'.", connectionId));
-        } else {
+    Connection locateConnection(final String connectionId, final boolean includeConnectorManaged) {
+        final ProcessGroup rootGroup = flowController.getFlowManager().getRootGroup();
+        Connection connection = rootGroup.findConnection(connectionId);
+
+        if (connection != null) {
             return connection;
         }
+
+        for (final ConnectorNode connector : flowController.getConnectorRepository().getConnectors(ConnectorSyncMode.LOCAL_ONLY)) {
+            final FrameworkFlowContext flowContext = connector.getActiveFlowContext();
+            if (flowContext == null) {
+                continue;
+            }
+
+            final ProcessGroup managedGroup = flowContext.getManagedProcessGroup();
+            connection = managedGroup.findConnection(connectionId);
+            if (connection != null) {
+                if (!includeConnectorManaged) {
+                    verifyAccessibleForComponentOperation(connection.getProcessGroup(), connectionId);
+                }
+
+                return connection;
+            }
+        }
+
+        throw new ResourceNotFoundException(String.format("Unable to find connection with id '%s'.", connectionId));
     }
 
     @Override
     public boolean hasConnection(String id) {
         final ProcessGroup rootGroup = flowController.getFlowManager().getRootGroup();
-        return rootGroup.findConnection(id) != null;
+        if (rootGroup.findConnection(id) != null) {
+            return true;
+        }
+
+        for (final ConnectorNode connector : flowController.getConnectorRepository().getConnectors(ConnectorSyncMode.LOCAL_ONLY)) {
+            if (connector.getCurrentState() != ConnectorState.TROUBLESHOOTING) {
+                continue;
+            }
+
+            final FrameworkFlowContext flowContext = connector.getActiveFlowContext();
+            if (flowContext != null && flowContext.getManagedProcessGroup().findConnection(id) != null) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     @Override
@@ -106,7 +145,7 @@ public class StandardConnectionDAO extends ComponentDAO implements ConnectionDAO
 
     @Override
     public DropFlowFileStatus getFlowFileDropRequest(String connectionId, String dropRequestId) {
-        final Connection connection = locateConnection(connectionId);
+        final Connection connection = locateConnection(connectionId, true);
         final FlowFileQueue queue = connection.getFlowFileQueue();
 
         final DropFlowFileStatus dropRequest = queue.getDropFlowFileStatus(dropRequestId);
@@ -119,7 +158,7 @@ public class StandardConnectionDAO extends ComponentDAO implements ConnectionDAO
 
     @Override
     public ListFlowFileStatus getFlowFileListingRequest(String connectionId, String listingRequestId) {
-        final Connection connection = locateConnection(connectionId);
+        final Connection connection = locateConnection(connectionId, true);
         final FlowFileQueue queue = connection.getFlowFileQueue();
 
         final ListFlowFileStatus listRequest = queue.getListFlowFileStatus(listingRequestId);
@@ -133,7 +172,7 @@ public class StandardConnectionDAO extends ComponentDAO implements ConnectionDAO
     @Override
     public FlowFileRecord getFlowFile(String id, String flowFileUuid) {
         try {
-            final Connection connection = locateConnection(id);
+            final Connection connection = locateConnection(id, true);
             final FlowFileQueue queue = connection.getFlowFileQueue();
             final FlowFileRecord flowFile = queue.getFlowFile(flowFileUuid);
 
@@ -343,7 +382,7 @@ public class StandardConnectionDAO extends ComponentDAO implements ConnectionDAO
 
     @Override
     public DropFlowFileStatus createFlowFileDropRequest(String id, String dropRequestId) {
-        final Connection connection = locateConnection(id);
+        final Connection connection = locateConnection(id, true);
         final FlowFileQueue queue = connection.getFlowFileQueue();
 
         final NiFiUser user = NiFiUserUtils.getNiFiUser();
@@ -356,7 +395,7 @@ public class StandardConnectionDAO extends ComponentDAO implements ConnectionDAO
 
     @Override
     public ListFlowFileStatus createFlowFileListingRequest(String id, String listingRequestId) {
-        final Connection connection = locateConnection(id);
+        final Connection connection = locateConnection(id, true);
         final FlowFileQueue queue = connection.getFlowFileQueue();
 
         // ensure we can list
@@ -451,7 +490,7 @@ public class StandardConnectionDAO extends ComponentDAO implements ConnectionDAO
 
     @Override
     public void verifyList(String id) {
-        final Connection connection = locateConnection(id);
+        final Connection connection = locateConnection(id, true);
         final FlowFileQueue queue = connection.getFlowFileQueue();
         verifyList(queue);
     }
@@ -624,7 +663,7 @@ public class StandardConnectionDAO extends ComponentDAO implements ConnectionDAO
 
     @Override
     public DropFlowFileStatus deleteFlowFileDropRequest(String connectionId, String dropRequestId) {
-        final Connection connection = locateConnection(connectionId);
+        final Connection connection = locateConnection(connectionId, true);
         final FlowFileQueue queue = connection.getFlowFileQueue();
 
         final DropFlowFileStatus dropFlowFileStatus = queue.cancelDropFlowFileRequest(dropRequestId);
@@ -637,7 +676,7 @@ public class StandardConnectionDAO extends ComponentDAO implements ConnectionDAO
 
     @Override
     public ListFlowFileStatus deleteFlowFileListingRequest(String connectionId, String listingRequestId) {
-        final Connection connection = locateConnection(connectionId);
+        final Connection connection = locateConnection(connectionId, true);
         final FlowFileQueue queue = connection.getFlowFileQueue();
 
         final ListFlowFileStatus listFlowFileStatus = queue.cancelListFlowFileRequest(listingRequestId);
@@ -653,7 +692,7 @@ public class StandardConnectionDAO extends ComponentDAO implements ConnectionDAO
         try {
             final NiFiUser user = NiFiUserUtils.getNiFiUser();
 
-            final Connection connection = locateConnection(id);
+            final Connection connection = locateConnection(id, true);
             final FlowFileQueue queue = connection.getFlowFileQueue();
             final FlowFileRecord flowFile = queue.getFlowFile(flowFileUuid);
 
@@ -677,7 +716,9 @@ public class StandardConnectionDAO extends ComponentDAO implements ConnectionDAO
 
             // get the content
             final InputStream content = flowController.getContent(flowFile, user.getIdentity(), requestUri);
-            return new DownloadableContent(filename, type, content);
+            final long contentLength = flowFile.getSize();
+
+            return new DownloadableContent(filename, type, content, contentLength);
         } catch (final ContentNotFoundException cnfe) {
             throw new ResourceNotFoundException("Unable to find the specified content.");
         } catch (final IOException ioe) {

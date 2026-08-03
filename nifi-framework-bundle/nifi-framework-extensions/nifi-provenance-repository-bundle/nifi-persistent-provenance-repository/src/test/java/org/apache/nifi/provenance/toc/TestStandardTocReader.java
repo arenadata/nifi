@@ -16,9 +16,7 @@
  */
 package org.apache.nifi.provenance.toc;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import org.junit.jupiter.api.Test;
 
 import java.io.DataOutputStream;
 import java.io.File;
@@ -27,7 +25,9 @@ import java.io.IOException;
 import java.io.OutputStream;
 import java.util.UUID;
 
-import org.junit.jupiter.api.Test;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 public class TestStandardTocReader {
 
@@ -47,7 +47,6 @@ public class TestStandardTocReader {
             file.delete();
         }
 
-
         try (final OutputStream out = new FileOutputStream(file)) {
             out.write(0);
             out.write(1);
@@ -61,7 +60,6 @@ public class TestStandardTocReader {
             file.delete();
         }
     }
-
 
     @Test
     public void testGetBlockIndexV1() throws IOException {

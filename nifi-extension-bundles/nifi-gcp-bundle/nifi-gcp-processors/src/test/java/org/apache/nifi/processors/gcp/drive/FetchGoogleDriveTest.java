@@ -16,25 +16,18 @@
  */
 package org.apache.nifi.processors.gcp.drive;
 
-import static java.nio.charset.StandardCharsets.UTF_8;
-import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.when;
-
 import com.google.api.client.http.HttpTransport;
 import com.google.api.services.drive.Drive;
-import java.io.ByteArrayInputStream;
-import java.io.IOException;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-
 import com.google.api.services.drive.model.File;
 import com.google.api.services.drive.model.User;
 import org.apache.nifi.flowfile.FlowFile;
+import org.apache.nifi.migration.ProxyServiceMigration;
 import org.apache.nifi.processor.ProcessContext;
+import org.apache.nifi.processors.gcp.util.GoogleUtils;
 import org.apache.nifi.provenance.ProvenanceEventType;
 import org.apache.nifi.util.MockFlowFile;
+import org.apache.nifi.util.PropertyMigrationResult;
+import org.apache.nifi.util.TestRunner;
 import org.apache.nifi.util.TestRunners;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -43,6 +36,18 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.NullSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.junit.jupiter.MockitoExtension;
+
+import java.io.ByteArrayInputStream;
+import java.io.IOException;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+
+import static java.nio.charset.StandardCharsets.UTF_8;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
 public class FetchGoogleDriveTest extends AbstractGoogleDriveTest {
@@ -173,9 +178,24 @@ public class FetchGoogleDriveTest extends AbstractGoogleDriveTest {
 
         testRunner.assertAllFlowFilesTransferred(FetchGoogleDrive.REL_FAILURE, 1);
         final List<MockFlowFile> flowFiles = testRunner.getFlowFilesForRelationship(PutGoogleDrive.REL_FAILURE);
-        final MockFlowFile ff0 = flowFiles.get(0);
+        final MockFlowFile ff0 = flowFiles.getFirst();
         ff0.assertAttributeEquals(GoogleDriveAttributes.ERROR_MESSAGE, "Error during download");
         assertNoProvenanceEvent();
+    }
+
+    @Test
+    void testMigrateProperties() {
+        final TestRunner testRunner = TestRunners.newTestRunner(FetchGoogleDrive.class);
+        final Map<String, String> expectedRenamed = Map.ofEntries(
+                Map.entry("drive-file-id", FetchGoogleDrive.FILE_ID.getName()),
+                Map.entry(GoogleDriveTrait.OLD_CONNECT_TIMEOUT_PROPERTY_NAME, GoogleDriveTrait.CONNECT_TIMEOUT.getName()),
+                Map.entry(GoogleDriveTrait.OLD_READ_TIMEOUT_PROPERTY_NAME, GoogleDriveTrait.READ_TIMEOUT.getName()),
+                Map.entry(GoogleUtils.OLD_GCP_CREDENTIALS_PROVIDER_SERVICE_PROPERTY_NAME, GoogleUtils.GCP_CREDENTIALS_PROVIDER_SERVICE.getName()),
+                Map.entry(ProxyServiceMigration.OBSOLETE_PROXY_CONFIGURATION_SERVICE, ProxyServiceMigration.PROXY_CONFIGURATION_SERVICE)
+        );
+
+        final PropertyMigrationResult propertyMigrationResult = testRunner.migrateProperties();
+        assertEquals(expectedRenamed, propertyMigrationResult.getPropertiesRenamed());
     }
 
     private void mockFileDownloadSuccess(String fileId) throws IOException {

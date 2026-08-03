@@ -36,9 +36,9 @@ import org.apache.nifi.controller.ValidationContextFactory;
 import org.apache.nifi.controller.service.ControllerServiceNode;
 import org.apache.nifi.controller.service.ControllerServiceProvider;
 import org.apache.nifi.controller.service.StandardConfigurationContext;
+import org.apache.nifi.flowanalysis.EnforcementPolicy;
 import org.apache.nifi.flowanalysis.FlowAnalysisRule;
 import org.apache.nifi.flowanalysis.FlowAnalysisRuleState;
-import org.apache.nifi.flowanalysis.EnforcementPolicy;
 import org.apache.nifi.flowanalysis.VerifiableFlowAnalysisRule;
 import org.apache.nifi.groups.ProcessGroup;
 import org.apache.nifi.logging.ComponentLog;
@@ -89,7 +89,6 @@ public abstract class AbstractFlowAnalysisRuleNode extends AbstractComponentNode
                 flowAnalysisRule.getComponent().getClass().getSimpleName(), flowAnalysisRule.getComponent().getClass().getCanonicalName(),
                 reloadComponent, extensionManager, validationTrigger, false);
     }
-
 
     public AbstractFlowAnalysisRuleNode(final LoggableComponent<FlowAnalysisRule> flowAnalysisRule, final String id, final ControllerServiceProvider controllerServiceProvider,
                                         final ValidationContextFactory validationContextFactory, final RuleViolationsManager ruleViolationsManager,
@@ -283,7 +282,7 @@ public abstract class AbstractFlowAnalysisRuleNode extends AbstractComponentNode
         } catch (Exception e) {
             final Throwable cause = e instanceof InvocationTargetException ? e.getCause() : e;
 
-            final ComponentLog componentLog = new SimpleProcessLogger(getIdentifier(), getFlowAnalysisRule(), new StandardLoggingContext(null));
+            final ComponentLog componentLog = new SimpleProcessLogger(getIdentifier(), getFlowAnalysisRule(), new StandardLoggingContext());
 
             componentLog.error("Failed to invoke {} method", cause);
 

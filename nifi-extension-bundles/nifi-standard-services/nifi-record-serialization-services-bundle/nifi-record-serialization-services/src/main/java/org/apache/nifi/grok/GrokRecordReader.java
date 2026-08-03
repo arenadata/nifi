@@ -17,6 +17,17 @@
 
 package org.apache.nifi.grok;
 
+import io.krakens.grok.api.Grok;
+import org.apache.nifi.serialization.MalformedRecordException;
+import org.apache.nifi.serialization.RecordReader;
+import org.apache.nifi.serialization.record.DataType;
+import org.apache.nifi.serialization.record.MapRecord;
+import org.apache.nifi.serialization.record.Record;
+import org.apache.nifi.serialization.record.RecordField;
+import org.apache.nifi.serialization.record.RecordFieldType;
+import org.apache.nifi.serialization.record.RecordSchema;
+import org.apache.nifi.serialization.record.util.DataTypeUtils;
+
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStream;
@@ -29,18 +40,6 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
-
-import org.apache.nifi.serialization.MalformedRecordException;
-import org.apache.nifi.serialization.RecordReader;
-import org.apache.nifi.serialization.record.DataType;
-import org.apache.nifi.serialization.record.MapRecord;
-import org.apache.nifi.serialization.record.Record;
-import org.apache.nifi.serialization.record.RecordField;
-import org.apache.nifi.serialization.record.RecordFieldType;
-import org.apache.nifi.serialization.record.RecordSchema;
-import org.apache.nifi.serialization.record.util.DataTypeUtils;
-
-import io.krakens.grok.api.Grok;
 
 public class GrokRecordReader implements RecordReader {
     private final BufferedReader reader;
@@ -216,7 +215,6 @@ public class GrokRecordReader implements RecordReader {
         return new MapRecord(schema, converted);
     }
 
-
     private boolean isStartOfStackTrace(final String line) {
         if (line == null) {
             return false;
@@ -261,7 +259,6 @@ public class GrokRecordReader implements RecordReader {
         return STACK_TRACE_PATTERN.matcher(line).find();
     }
 
-
     protected Object convert(final DataType fieldType, final Object rawValue, final String fieldName) {
         if (fieldType == null) {
             return rawValue;
@@ -280,7 +277,6 @@ public class GrokRecordReader implements RecordReader {
 
         return DataTypeUtils.convertType(rawValue, fieldType, fieldName);
     }
-
 
     @Override
     public RecordSchema getSchema() {

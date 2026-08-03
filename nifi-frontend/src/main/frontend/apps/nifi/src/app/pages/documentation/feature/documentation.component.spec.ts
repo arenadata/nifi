@@ -24,6 +24,10 @@ import { Navigation } from '../../../ui/common/navigation/navigation.component';
 import { Documentation } from './documentation.component';
 import { extensionTypesFeatureKey } from '../../../state/extension-types';
 import { initialExtensionsTypesState } from '../../../state/extension-types/extension-types.reducer';
+import { initialState as initialErrorState } from '../../../state/error/error.reducer';
+import { errorFeatureKey } from '../../../state/error';
+import { initialState as initialCurrentUserState } from '../../../state/current-user/current-user.reducer';
+import { currentUserFeatureKey } from '../../../state/current-user';
 import { MatAccordion, MatExpansionModule } from '@angular/material/expansion';
 import { BannerText } from '../../../ui/common/banner-text/banner-text.component';
 import { FormsModule, ReactiveFormsModule } from '@angular/forms';
@@ -31,6 +35,7 @@ import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatInputModule } from '@angular/material/input';
 import { NoopAnimationsModule } from '@angular/platform-browser/animations';
 import { RouterTestingModule } from '@angular/router/testing';
+import { selectCurrentRoute } from '@nifi/shared';
 
 describe('Documentation', () => {
     let component: Documentation;
@@ -55,8 +60,20 @@ describe('Documentation', () => {
             providers: [
                 provideMockStore({
                     initialState: {
+                        [errorFeatureKey]: initialErrorState,
+                        [currentUserFeatureKey]: initialCurrentUserState,
                         [extensionTypesFeatureKey]: initialExtensionsTypesState
-                    }
+                    },
+                    selectors: [
+                        {
+                            selector: selectCurrentRoute,
+                            value: {
+                                params: {},
+                                routeConfig: { path: 'overview' },
+                                url: [{ path: 'overview' }]
+                            }
+                        }
+                    ]
                 })
             ]
         });

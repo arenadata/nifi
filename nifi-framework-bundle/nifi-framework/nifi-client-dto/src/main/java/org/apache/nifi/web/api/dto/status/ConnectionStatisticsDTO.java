@@ -18,10 +18,10 @@
 package org.apache.nifi.web.api.dto.status;
 
 import io.swagger.v3.oas.annotations.media.Schema;
-import org.apache.nifi.web.api.dto.util.TimeAdapter;
-
 import jakarta.xml.bind.annotation.XmlType;
 import jakarta.xml.bind.annotation.adapters.XmlJavaTypeAdapter;
+import org.apache.nifi.web.api.dto.util.TimeAdapter;
+
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
@@ -79,7 +79,6 @@ public class ConnectionStatisticsDTO implements Cloneable {
         final ConnectionStatisticsDTO other = new ConnectionStatisticsDTO();
         other.setId(getId());
         other.setAggregateSnapshot(getAggregateSnapshot().clone());
-
 
         final List<NodeConnectionStatisticsSnapshotDTO> nodeStatuses = getNodeSnapshots();
         final List<NodeConnectionStatisticsSnapshotDTO> nodeStatusClones = new ArrayList<>(nodeStatuses.size());

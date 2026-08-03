@@ -36,6 +36,7 @@ import org.apache.nifi.components.ValidationResult;
 import org.apache.nifi.expression.ExpressionLanguageScope;
 import org.apache.nifi.flowfile.FlowFile;
 import org.apache.nifi.flowfile.attributes.CoreAttributes;
+import org.apache.nifi.migration.PropertyConfiguration;
 import org.apache.nifi.processor.ProcessContext;
 import org.apache.nifi.processor.ProcessSession;
 import org.apache.nifi.processor.ProcessorInitializationContext;
@@ -85,7 +86,6 @@ import static org.apache.nifi.processors.mqtt.common.MqttConstants.ALLOWABLE_VAL
 import static org.apache.nifi.processors.mqtt.common.MqttConstants.ALLOWABLE_VALUE_QOS_1;
 import static org.apache.nifi.processors.mqtt.common.MqttConstants.ALLOWABLE_VALUE_QOS_2;
 
-
 @Tags({"subscribe", "MQTT", "IOT", "consume", "listen"})
 @InputRequirement(InputRequirement.Requirement.INPUT_FORBIDDEN)
 @TriggerSerially
@@ -103,26 +103,26 @@ import static org.apache.nifi.processors.mqtt.common.MqttConstants.ALLOWABLE_VAL
         + "instance of this processor. A high value for this property could represent a lot of data being stored in memory.")
 public class ConsumeMQTT extends AbstractMQTTProcessor {
 
-    public final static String RECORD_COUNT_KEY = "record.count";
-    public final static String BROKER_ATTRIBUTE_KEY = "mqtt.broker";
-    public final static String TOPIC_ATTRIBUTE_KEY = "mqtt.topic";
-    public final static String TOPIC_SEGMENT_PREFIX = "mqtt.topic.segment.";
-    public final static String TOPIC_SEPARATOR = "/";
-    public final static String QOS_ATTRIBUTE_KEY = "mqtt.qos";
-    public final static String IS_DUPLICATE_ATTRIBUTE_KEY = "mqtt.isDuplicate";
-    public final static String IS_RETAINED_ATTRIBUTE_KEY = "mqtt.isRetained";
+    public static final String RECORD_COUNT_KEY = "record.count";
+    public static final String BROKER_ATTRIBUTE_KEY = "mqtt.broker";
+    public static final String TOPIC_ATTRIBUTE_KEY = "mqtt.topic";
+    public static final String TOPIC_SEGMENT_PREFIX = "mqtt.topic.segment.";
+    public static final String TOPIC_SEPARATOR = "/";
+    public static final String QOS_ATTRIBUTE_KEY = "mqtt.qos";
+    public static final String IS_DUPLICATE_ATTRIBUTE_KEY = "mqtt.isDuplicate";
+    public static final String IS_RETAINED_ATTRIBUTE_KEY = "mqtt.isRetained";
 
-    public final static String TOPIC_FIELD_KEY = "_topic";
-    public final static String TOPIC_SEGMENTS_FIELD_KEY = "_topicSegments";
-    public final static String QOS_FIELD_KEY = "_qos";
-    public final static String IS_DUPLICATE_FIELD_KEY = "_isDuplicate";
-    public final static String IS_RETAINED_FIELD_KEY = "_isRetained";
+    public static final String TOPIC_FIELD_KEY = "_topic";
+    public static final String TOPIC_SEGMENTS_FIELD_KEY = "_topicSegments";
+    public static final String QOS_FIELD_KEY = "_qos";
+    public static final String IS_DUPLICATE_FIELD_KEY = "_isDuplicate";
+    public static final String IS_RETAINED_FIELD_KEY = "_isRetained";
 
-    private final static String COUNTER_PARSE_FAILURES = "Parse Failures";
-    private final static String COUNTER_RECORDS_RECEIVED = "Records Received";
-    private final static String COUNTER_RECORDS_PROCESSED = "Records Processed";
+    private static final String COUNTER_PARSE_FAILURES = "Parse Failures";
+    private static final String COUNTER_RECORDS_RECEIVED = "Records Received";
+    private static final String COUNTER_RECORDS_PROCESSED = "Records Processed";
 
-    private final static int MAX_MESSAGES_PER_FLOW_FILE = 10000;
+    private static final int MAX_MESSAGES_PER_FLOW_FILE = 10000;
 
     public static final PropertyDescriptor PROP_GROUPID = new PropertyDescriptor.Builder()
             .name("Group ID")
@@ -140,8 +140,7 @@ public class ConsumeMQTT extends AbstractMQTTProcessor {
             .build();
 
     public static final PropertyDescriptor PROP_QOS = new PropertyDescriptor.Builder()
-            .name("Quality of Service(QoS)")
-            .displayName("Quality of Service (QoS)")
+            .name("Quality of Service")
             .description("The Quality of Service (QoS) to receive the message with. Accepts values '0', '1' or '2'; '0' for 'at most once', '1' for 'at least once', '2' for 'exactly once'.")
             .required(true)
             .defaultValue(ALLOWABLE_VALUE_QOS_0.getValue())
@@ -180,8 +179,7 @@ public class ConsumeMQTT extends AbstractMQTTProcessor {
             .build();
 
     public static final PropertyDescriptor ADD_ATTRIBUTES_AS_FIELDS = new PropertyDescriptor.Builder()
-            .name("add-attributes-as-fields")
-            .displayName("Add attributes as fields")
+            .name("Add Attributes as Fields")
             .description("If setting this property to true, default fields "
                     + "are going to be added in each record: _topic, _qos, _isDuplicate, _isRetained.")
             .required(true)
@@ -376,6 +374,13 @@ public class ConsumeMQTT extends AbstractMQTTProcessor {
         } else {
             transferQueue(session);
         }
+    }
+
+    @Override
+    public void migrateProperties(PropertyConfiguration config) {
+        super.migrateProperties(config);
+        config.renameProperty("Quality of Service(QoS)", PROP_QOS.getName());
+        config.renameProperty("add-attributes-as-fields", ADD_ATTRIBUTES_AS_FIELDS.getName());
     }
 
     private void initializeClient(ProcessContext context) {

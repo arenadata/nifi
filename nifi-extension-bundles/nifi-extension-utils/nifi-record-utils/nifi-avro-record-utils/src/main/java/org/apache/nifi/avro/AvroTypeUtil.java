@@ -17,33 +17,6 @@
 
 package org.apache.nifi.avro;
 
-import java.io.InputStream;
-import java.math.BigDecimal;
-import java.math.RoundingMode;
-import java.nio.ByteBuffer;
-import java.nio.charset.Charset;
-import java.nio.charset.StandardCharsets;
-import java.sql.Blob;
-import java.sql.Time;
-import java.sql.Timestamp;
-import java.time.Duration;
-import java.time.Instant;
-import java.time.LocalDate;
-import java.time.LocalTime;
-import java.time.ZoneId;
-import java.time.ZonedDateTime;
-import java.time.temporal.ChronoUnit;
-import java.util.AbstractMap;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Map;
-import java.util.Optional;
-import java.util.Set;
-import java.util.concurrent.TimeUnit;
-import java.util.function.Function;
 import org.apache.avro.Conversions;
 import org.apache.avro.JsonProperties;
 import org.apache.avro.LogicalType;
@@ -82,6 +55,35 @@ import org.apache.nifi.serialization.record.util.DataTypeUtils;
 import org.apache.nifi.serialization.record.util.IllegalTypeConversionException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import java.io.InputStream;
+import java.math.BigDecimal;
+import java.math.RoundingMode;
+import java.nio.ByteBuffer;
+import java.nio.charset.Charset;
+import java.nio.charset.StandardCharsets;
+import java.sql.Blob;
+import java.sql.Date;
+import java.sql.Time;
+import java.sql.Timestamp;
+import java.time.Duration;
+import java.time.Instant;
+import java.time.LocalDate;
+import java.time.LocalTime;
+import java.time.ZoneId;
+import java.time.ZonedDateTime;
+import java.time.temporal.ChronoUnit;
+import java.util.AbstractMap;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
+import java.util.concurrent.TimeUnit;
+import java.util.function.Function;
 
 public class AvroTypeUtil {
     private static final Logger logger = LoggerFactory.getLogger(AvroTypeUtil.class);
@@ -204,7 +206,7 @@ public class AvroTypeUtil {
     }
 
     private static Schema buildAvroSchema(final DataType dataType, final String fieldName, String fieldNamePrefix, final boolean nullable) {
-       Schema schema = null;
+        Schema schema = null;
 
         switch (dataType.getFieldType()) {
             case ARRAY:
@@ -713,7 +715,6 @@ public class AvroTypeUtil {
                     return DataTypeUtils.toInteger(rawValue, fieldName);
                 }
 
-
                 if (LOGICAL_TYPE_DATE.equals(logicalType.getName())) {
                     final String format = determineDataType(fieldSchema).getFormat();
                     final FieldConverter<Object, LocalDate> fieldConverter = StandardFieldConverterRegistry.getRegistry().getFieldConverter(LocalDate.class);
@@ -983,7 +984,7 @@ public class AvroTypeUtil {
 
                 values.put(fieldName, coercedValue);
             } catch (Exception ex) {
-                logger.debug("fail to convert field {}", fieldName, ex );
+                logger.debug("fail to convert field {}", fieldName, ex);
                 throw ex;
             }
         }
@@ -1017,13 +1018,27 @@ public class AvroTypeUtil {
             }
         }
 
+        final Optional<Schema> matchingFixed = findFixedSchemaMatchingSize(fieldSchema.getTypes(), originalValue);
+        if (matchingFixed.isPresent()) {
+            try {
+                return conversion.apply(matchingFixed.get());
+            } catch (IllegalTypeConversionException e) {
+                logger.debug("Failed to convert value {} to fixed schema {}", originalValue, matchingFixed.get(), e);
+            }
+        }
+
         final Optional<Schema> mostSuitableType = DataTypeUtils.findMostSuitableType(
                 originalValue,
                 getNonNullSubSchemas(fieldSchema),
                 AvroTypeUtil::determineDataType
         );
+
         if (mostSuitableType.isPresent()) {
-            return conversion.apply(mostSuitableType.get());
+            try {
+                return conversion.apply(mostSuitableType.get());
+            } catch (IllegalTypeConversionException e) {
+                logger.debug("Failed to convert value {} to most suitable schema {}", originalValue, mostSuitableType.get(), e);
+            }
         }
 
         for (final Schema subSchema : fieldSchema.getTypes()) {
@@ -1060,6 +1075,36 @@ public class AvroTypeUtil {
         return null;
     }
 
+    private static Optional<Schema> findFixedSchemaMatchingSize(final List<Schema> subSchemas, final Object value) {
+        final Integer binarySize = getBinarySize(value);
+        if (binarySize == null) {
+            return Optional.empty();
+        }
+
+        return subSchemas.stream()
+            .filter(schema -> schema.getType() == Type.FIXED && schema.getFixedSize() == binarySize)
+            .findFirst();
+    }
+
+    private static Integer getBinarySize(final Object value) {
+        if (value instanceof byte[]) {
+            return ((byte[]) value).length;
+        }
+        if (value instanceof ByteBuffer byteBuffer) {
+            return byteBuffer.remaining();
+        }
+        if (value instanceof Object[] objects) {
+            if (objects.length == 0 || objects[0] instanceof Byte) {
+                return objects.length;
+            }
+        }
+        if (value instanceof GenericFixed fixed) {
+            return fixed.bytes().length;
+        }
+
+        return null;
+    }
+
     private static boolean isCompatibleDataType(final Object value, final DataType dataType) {
         if (value == null) {
             return false;
@@ -1090,7 +1135,6 @@ public class AvroTypeUtil {
         return DataTypeUtils.isCompatibleDataType(value, dataType);
     }
 
-
     /**
      * Convert an Avro object to a normal Java objects for further processing.
      * The counter-part method which convert a raw value to an Avro object is {@link #convertToAvroObject(Object, Schema, String, Charset)}
@@ -1110,9 +1154,26 @@ public class AvroTypeUtil {
                 final String logicalName = logicalType.getName();
                 if (LOGICAL_TYPE_DATE.equals(logicalName)) {
                     // date logical name means that the value is number of days since Jan 1, 1970
-                    return java.sql.Date.valueOf(LocalDate.ofEpochDay((int) value));
+                    // Handle both Integer (legacy) and LocalDate (newer Avro libraries).
+                    final LocalDate localDate;
+                    if (value instanceof LocalDate ld) {
+                        localDate = ld;
+                    } else {
+                        localDate = LocalDate.ofEpochDay((int) value);
+                    }
+
+                    // Convert to ZonedDateTime using system default zone to allow for later conversion to Instant
+                    final ZonedDateTime zonedDate = localDate.atStartOfDay(ZoneId.systemDefault());
+
+                    // Create Date from Instant epoch millis to preserve proleptic Gregorian calendar for pre-1582 dates
+                    final long epochMillis = zonedDate.toInstant().toEpochMilli();
+                    return new Date(epochMillis);
                 } else if (LOGICAL_TYPE_TIME_MILLIS.equals(logicalName)) {
                     // time-millis logical name means that the value is number of milliseconds since midnight.
+                    // Handle both Integer (legacy) and LocalTime (newer Avro libraries)
+                    if (value instanceof LocalTime localTime) {
+                        return Time.valueOf(localTime);
+                    }
                     return new Time((int) value);
                 }
 
@@ -1126,10 +1187,22 @@ public class AvroTypeUtil {
 
                 final String logicalName = logicalType.getName();
                 if (LOGICAL_TYPE_TIME_MICROS.equals(logicalName)) {
+                    // Handle both Long (legacy) and LocalTime (newer Avro libraries)
+                    if (value instanceof LocalTime localTime) {
+                        return Time.valueOf(localTime);
+                    }
                     return new Time(TimeUnit.MICROSECONDS.toMillis((long) value));
                 } else if (LOGICAL_TYPE_TIMESTAMP_MILLIS.equals(logicalName)) {
+                    // Handle both Long (legacy) and Instant (newer Avro libraries)
+                    if (value instanceof Instant instant) {
+                        return Timestamp.from(instant);
+                    }
                     return new Timestamp((long) value);
                 } else if (LOGICAL_TYPE_TIMESTAMP_MICROS.equals(logicalName)) {
+                    // Handle both Long (legacy) and Instant (newer Avro libraries)
+                    if (value instanceof Instant instant) {
+                        return Timestamp.from(instant);
+                    }
                     return new Timestamp(TimeUnit.MICROSECONDS.toMillis((long) value));
                 }
                 break;

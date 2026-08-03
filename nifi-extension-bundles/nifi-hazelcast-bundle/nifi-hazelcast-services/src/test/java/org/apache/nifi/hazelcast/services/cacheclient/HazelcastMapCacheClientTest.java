@@ -16,7 +16,6 @@
  */
 package org.apache.nifi.hazelcast.services.cacheclient;
 
-
 import org.apache.nifi.components.PropertyValue;
 import org.apache.nifi.controller.ConfigurationContext;
 import org.apache.nifi.controller.ControllerServiceInitializationContext;
@@ -49,14 +48,14 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 @ExtendWith(MockitoExtension.class)
 public class HazelcastMapCacheClientTest {
 
-    private final static long TTL = 0;
-    private final static String CACHE_NAME = "cache";
-    private final static String KEY = "key";
-    private final static String VALUE = "lorem ipsum";
-    private final static String VALUE_2 = "lorem ipsum dolor sit amet";
-    private final static String VALUE_3 = "cras ac felis tincidunt";
+    private static final long TTL = 0;
+    private static final String CACHE_NAME = "cache";
+    private static final String KEY = "key";
+    private static final String VALUE = "lorem ipsum";
+    private static final String VALUE_2 = "lorem ipsum dolor sit amet";
+    private static final String VALUE_3 = "cras ac felis tincidunt";
 
-    private final static DummyStringSerializer SERIALIZER = new DummyStringSerializer();
+    private static final DummyStringSerializer SERIALIZER = new DummyStringSerializer();
 
     @Mock
     private HazelcastCacheManager hazelcastCacheService;

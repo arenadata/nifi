@@ -26,6 +26,7 @@ import org.apache.nifi.processor.util.listen.response.ChannelResponder;
 import org.apache.nifi.provenance.ProvenanceEventRecord;
 import org.apache.nifi.provenance.ProvenanceEventType;
 import org.apache.nifi.util.MockFlowFile;
+import org.apache.nifi.util.PropertyMigrationResult;
 import org.apache.nifi.util.TestRunner;
 import org.apache.nifi.util.TestRunners;
 import org.junit.jupiter.api.BeforeEach;
@@ -52,7 +53,6 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 public class TestListenUDP {
 
     private static final String LOCALHOST = "localhost";
-
 
     private TestRunner runner;
 
@@ -135,13 +135,15 @@ public class TestListenUDP {
     public void testBatchingWithDifferentSenders() {
         final String sender1 = "sender1";
         final String sender2 = "sender2";
+        final String senderPort1 = "senderPort1";
+        final String senderPort2 = "senderPort2";
         final byte[] message = "test message".getBytes(StandardCharsets.UTF_8);
 
         final List<StandardEvent<DatagramChannel>> mockEvents = new ArrayList<>();
-        mockEvents.add(new StandardEvent<>(sender1, message, responder));
-        mockEvents.add(new StandardEvent<>(sender1, message, responder));
-        mockEvents.add(new StandardEvent<>(sender2, message, responder));
-        mockEvents.add(new StandardEvent<>(sender2, message, responder));
+        mockEvents.add(new StandardEvent<>(sender1, senderPort1, message, responder));
+        mockEvents.add(new StandardEvent<>(sender1, senderPort1, message, responder));
+        mockEvents.add(new StandardEvent<>(sender2, senderPort2, message, responder));
+        mockEvents.add(new StandardEvent<>(sender2, senderPort2, message, responder));
 
         MockListenUDP mockListenUDP = new MockListenUDP(mockEvents);
         runner = TestRunners.newTestRunner(mockListenUDP);
@@ -166,6 +168,14 @@ public class TestListenUDP {
 
         runner.run(5);
         runner.assertAllFlowFilesTransferred(ListenUDP.REL_SUCCESS, 0);
+    }
+
+    @Test
+    public void testMigrateProperties() {
+        final TestRunner migrationRunner = TestRunners.newTestRunner(ListenUDP.class);
+        final PropertyMigrationResult migrationResult = migrationRunner.migrateProperties();
+        assertEquals(ListenerProperties.MESSAGE_DELIMITER.getName(),
+                migrationResult.getPropertiesRenamed().get(ListenerProperties.OLD_MESSAGE_DELIMITER_PROPERTY_NAME));
     }
 
     @Test
@@ -204,6 +214,7 @@ public class TestListenUDP {
             flowFile.assertContentEquals("This is message " + (i + 1));
             assertEquals(String.valueOf(port), flowFile.getAttribute(ListenUDP.UDP_PORT_ATTR));
             assertTrue(StringUtils.isNotEmpty(flowFile.getAttribute(ListenUDP.UDP_SENDER_ATTR)));
+            assertTrue(StringUtils.isNumeric(flowFile.getAttribute(ListenUDP.UDP_SENDER_PORT_ATTR)));
         }
     }
 

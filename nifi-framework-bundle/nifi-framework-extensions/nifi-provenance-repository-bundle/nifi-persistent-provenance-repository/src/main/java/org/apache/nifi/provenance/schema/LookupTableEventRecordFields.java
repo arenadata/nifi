@@ -17,16 +17,16 @@
 
 package org.apache.nifi.provenance.schema;
 
-import static org.apache.nifi.repository.schema.Repetition.EXACTLY_ONE;
-import static org.apache.nifi.repository.schema.Repetition.ZERO_OR_MORE;
-import static org.apache.nifi.repository.schema.Repetition.ZERO_OR_ONE;
-
 import org.apache.nifi.repository.schema.ComplexRecordField;
 import org.apache.nifi.repository.schema.FieldType;
 import org.apache.nifi.repository.schema.MapRecordField;
 import org.apache.nifi.repository.schema.RecordField;
 import org.apache.nifi.repository.schema.SimpleRecordField;
 import org.apache.nifi.repository.schema.UnionRecordField;
+
+import static org.apache.nifi.repository.schema.Repetition.EXACTLY_ONE;
+import static org.apache.nifi.repository.schema.Repetition.ZERO_OR_MORE;
+import static org.apache.nifi.repository.schema.Repetition.ZERO_OR_ONE;
 
 public class LookupTableEventRecordFields {
 
@@ -71,7 +71,6 @@ public class LookupTableEventRecordFields {
             CONTENT_CLAIM_CONTAINER, CONTENT_CLAIM_SECTION, CONTENT_CLAIM_IDENTIFIER, CONTENT_CLAIM_OFFSET, CONTENT_CLAIM_SIZE);
     public static final RecordField CURRENT_CONTENT_CLAIM = new UnionRecordField(EventFieldNames.CONTENT_CLAIM,
             EXACTLY_ONE, NO_VALUE, UNCHANGED_VALUE, CURRENT_CONTENT_CLAIM_EXPLICIT);
-
 
     // EventType-Specific fields
     // for FORK, JOIN, CLONE, REPLAY

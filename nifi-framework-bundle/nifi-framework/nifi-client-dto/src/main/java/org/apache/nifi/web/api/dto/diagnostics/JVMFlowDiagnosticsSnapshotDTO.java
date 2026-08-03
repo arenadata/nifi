@@ -17,14 +17,12 @@
 
 package org.apache.nifi.web.api.dto.diagnostics;
 
-import java.util.HashSet;
-import java.util.Set;
-
+import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.xml.bind.annotation.XmlType;
-
 import org.apache.nifi.web.api.dto.BundleDTO;
 
-import io.swagger.v3.oas.annotations.media.Schema;
+import java.util.HashSet;
+import java.util.Set;
 
 @XmlType(name = "jvmFlowDiagnosticsSnapshot")
 public class JVMFlowDiagnosticsSnapshotDTO implements Cloneable {
@@ -50,7 +48,6 @@ public class JVMFlowDiagnosticsSnapshotDTO implements Cloneable {
     public void setTimeZone(String timeZone) {
         this.timeZone = timeZone;
     }
-
 
     @Schema(description = "The number of timer-driven threads that are active")
     public Integer getActiveTimerDrivenThreads() {

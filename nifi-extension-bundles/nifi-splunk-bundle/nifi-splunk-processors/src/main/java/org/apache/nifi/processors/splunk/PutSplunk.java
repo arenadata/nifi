@@ -16,17 +16,6 @@
  */
 package org.apache.nifi.processors.splunk;
 
-import java.io.BufferedInputStream;
-import java.io.ByteArrayOutputStream;
-import java.io.IOException;
-import java.io.InputStream;
-import java.nio.charset.StandardCharsets;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Collection;
-import java.util.List;
-import java.util.concurrent.atomic.AtomicLong;
-
 import org.apache.commons.io.IOUtils;
 import org.apache.nifi.annotation.behavior.InputRequirement;
 import org.apache.nifi.annotation.behavior.TriggerWhenEmpty;
@@ -49,6 +38,17 @@ import org.apache.nifi.processor.exception.ProcessException;
 import org.apache.nifi.processor.util.put.AbstractPutEventProcessor;
 import org.apache.nifi.stream.io.ByteCountingInputStream;
 import org.apache.nifi.stream.io.util.NonThreadSafeCircularBuffer;
+
+import java.io.BufferedInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collection;
+import java.util.List;
+import java.util.concurrent.atomic.AtomicLong;
 
 @InputRequirement(InputRequirement.Requirement.INPUT_REQUIRED)
 @Tags({"splunk", "logs", "tcp", "udp"})
@@ -101,11 +101,13 @@ public class PutSplunk extends AbstractPutEventProcessor<byte[]> {
     }
 
     @Override
-    public void onTrigger(ProcessContext context, ProcessSessionFactory sessionFactory) throws ProcessException {
+    public void onTrigger(final ProcessContext context, final ProcessSessionFactory sessionFactory) throws ProcessException {
         // first complete any batches from previous executions
+        boolean completedAny = false;
         FlowFileMessageBatch batch;
         while ((batch = completeBatches.poll()) != null) {
             batch.completeSession();
+            completedAny = true;
         }
 
         // create a session and try to get a FlowFile, if none available then close any idle senders
@@ -113,6 +115,12 @@ public class PutSplunk extends AbstractPutEventProcessor<byte[]> {
         final FlowFile flowFile = session.get();
 
         if (flowFile == null) {
+            // The processor is annotated with @TriggerWhenEmpty so onTrigger is invoked even with no input,
+            // allowing async send callbacks to drain completeBatches. Yield when nothing was drained to avoid
+            // a busy scheduling loop on an idle processor.
+            if (!completedAny) {
+                context.yield();
+            }
             return;
         }
 
@@ -261,7 +269,7 @@ public class PutSplunk extends AbstractPutEventProcessor<byte[]> {
             byte[] message = new byte[length + 1];
 
             for (int i = 0; i < length; i++) {
-               message[i] = buf[i];
+                message[i] = buf[i];
             }
             message[message.length - 1] = NEW_LINE_CHAR;
             return message;

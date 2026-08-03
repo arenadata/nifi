@@ -19,6 +19,7 @@ package org.apache.nifi.processors.websocket;
 import org.apache.nifi.controller.ControllerService;
 import org.apache.nifi.provenance.ProvenanceEventRecord;
 import org.apache.nifi.util.MockFlowFile;
+import org.apache.nifi.util.PropertyMigrationResult;
 import org.apache.nifi.util.TestRunner;
 import org.apache.nifi.util.TestRunners;
 import org.apache.nifi.websocket.AbstractWebSocketSession;
@@ -27,12 +28,16 @@ import org.apache.nifi.websocket.WebSocketMessage;
 import org.apache.nifi.websocket.WebSocketService;
 import org.apache.nifi.websocket.WebSocketSession;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Stream;
 
 import static org.apache.nifi.processors.websocket.WebSocketProcessorAttributes.ATTR_WS_CS_ID;
 import static org.apache.nifi.processors.websocket.WebSocketProcessorAttributes.ATTR_WS_ENDPOINT_ID;
@@ -49,7 +54,6 @@ import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.when;
-
 
 public class TestPutWebSocket {
 
@@ -266,5 +270,38 @@ public class TestPutWebSocket {
         assertEquals(2, provenanceEvents.size());
     }
 
+    @Test
+    void testMigrateProperties() {
+        final TestRunner runner = TestRunners.newTestRunner(PutWebSocket.class);
+        final Map<String, String> expectedRenamed = Map.ofEntries(
+                Map.entry("websocket-session-id", PutWebSocket.PROP_WS_SESSION_ID.getName()),
+                Map.entry("websocket-controller-service-id", PutWebSocket.PROP_WS_CONTROLLER_SERVICE_ID.getName()),
+                Map.entry("websocket-endpoint-id", PutWebSocket.PROP_WS_CONTROLLER_SERVICE_ENDPOINT.getName()),
+                Map.entry("websocket-message-type", PutWebSocket.PROP_WS_MESSAGE_TYPE.getName())
+        );
 
+        final PropertyMigrationResult propertyMigrationResult = runner.migrateProperties();
+        assertEquals(expectedRenamed, propertyMigrationResult.getPropertiesRenamed());
+    }
+
+    @ParameterizedTest
+    @MethodSource("webSocketMessageTypeArgs")
+    void testWebSocketMessageType(String type, boolean valid) {
+        final TestRunner runner = TestRunners.newTestRunner(PutWebSocket.class);
+        runner.setProperty(PutWebSocket.PROP_WS_MESSAGE_TYPE, type);
+
+        if (valid) {
+            runner.assertValid();
+        } else {
+            runner.assertNotValid();
+        }
+    }
+
+    private static Stream<Arguments> webSocketMessageTypeArgs() {
+        return Stream.of(
+                Arguments.argumentSet("Valid type TEXT", WebSocketMessage.Type.TEXT.name(), true),
+                Arguments.argumentSet("Valid type BINARY", WebSocketMessage.Type.BINARY.name(), true),
+                Arguments.argumentSet("Invalid type", "INVALID_TYPE", false)
+        );
+    }
 }

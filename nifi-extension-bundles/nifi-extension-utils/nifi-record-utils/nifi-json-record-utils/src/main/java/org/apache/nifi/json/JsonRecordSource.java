@@ -33,15 +33,13 @@ public class JsonRecordSource implements RecordSource<JsonNode> {
 
     private static final StreamReadConstraints DEFAULT_STREAM_READ_CONSTRAINTS = StreamReadConstraints.defaults();
 
-    private static final boolean ALLOW_COMMENTS_ENABLED = true;
-
-    private static final TokenParserFactory defaultTokenParserFactory = new JsonParserFactory(DEFAULT_STREAM_READ_CONSTRAINTS, ALLOW_COMMENTS_ENABLED);
+    private static final TokenParserFactory DEFAULT_TOKEN_PARSER_FACTORY = new JsonParserFactory(DEFAULT_STREAM_READ_CONSTRAINTS, ParsingStrategy.LENIENT);
 
     private final JsonParser jsonParser;
     private final StartingFieldStrategy strategy;
 
     public JsonRecordSource(final InputStream in) throws IOException {
-        this(in, null, null, defaultTokenParserFactory);
+        this(in, null, null, DEFAULT_TOKEN_PARSER_FACTORY);
     }
 
     public JsonRecordSource(final InputStream in, final StartingFieldStrategy strategy, final String startingFieldName, final TokenParserFactory tokenParserFactory) throws IOException {
@@ -50,7 +48,9 @@ public class JsonRecordSource implements RecordSource<JsonNode> {
 
         if (strategy == StartingFieldStrategy.NESTED_FIELD) {
             final SerializedString serializedNestedField = new SerializedString(startingFieldName);
-            while (!jsonParser.nextFieldName(serializedNestedField) && jsonParser.hasCurrentToken());
+            while (!jsonParser.nextFieldName(serializedNestedField) && jsonParser.hasCurrentToken()) {
+                // continue to next field
+            }
             logger.debug("Parsing starting at nested field [{}]", startingFieldName);
         }
     }

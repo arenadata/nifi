@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-import { AfterViewInit, ChangeDetectorRef, Component, forwardRef, Input } from '@angular/core';
+import { AfterViewInit, ChangeDetectorRef, Component, forwardRef, Input, inject } from '@angular/core';
 import { ControlValueAccessor, FormsModule, NG_VALUE_ACCESSOR } from '@angular/forms';
 import { MatButtonModule } from '@angular/material/button';
 import { MatDialogModule } from '@angular/material/dialog';
@@ -71,6 +71,10 @@ export interface ParameterItem {
     ]
 })
 export class ParameterTable implements AfterViewInit, ControlValueAccessor {
+    private store = inject<Store<ParameterContextListingState>>(Store);
+    private changeDetector = inject(ChangeDetectorRef);
+    private nifiCommon = inject(NiFiCommon);
+
     @Input() createNewParameter!: (existingParameters: string[]) => Observable<EditParameterResponse>;
     @Input() editParameter!: (parameter: Parameter) => Observable<EditParameterResponse>;
     @Input() canAddParameters = true;
@@ -93,13 +97,7 @@ export class ParameterTable implements AfterViewInit, ControlValueAccessor {
     onTouched!: () => void;
     onChange!: (parameters: ParameterEntity[]) => void;
 
-    showInheritedParameters: boolean = true;
-
-    constructor(
-        private store: Store<ParameterContextListingState>,
-        private changeDetector: ChangeDetectorRef,
-        private nifiCommon: NiFiCommon
-    ) {}
+    showInheritedParameters = true;
 
     ngAfterViewInit(): void {
         this.initFilter();
@@ -175,7 +173,7 @@ export class ParameterTable implements AfterViewInit, ControlValueAccessor {
         }
         return parameters.slice().sort((a, b) => {
             const isAsc = sort.direction === 'asc';
-            let retVal = 0;
+            let retVal: number;
             switch (sort.active) {
                 case 'name':
                     retVal = this.nifiCommon.compareString(
@@ -533,6 +531,12 @@ export class ParameterTable implements AfterViewInit, ControlValueAccessor {
 
     selectParameter(item: ParameterItem | null): void {
         this.selectedItem = item;
+    }
+
+    doubleClicked(item: ParameterItem): void {
+        if (this.canEdit(item) && !this.isDisabled) {
+            this.editClicked(item);
+        }
     }
 
     isSelected(item: ParameterItem): boolean {

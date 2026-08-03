@@ -33,6 +33,7 @@ import org.apache.nifi.dbcp.DBCPService;
 import org.apache.nifi.expression.ExpressionLanguageScope;
 import org.apache.nifi.flowfile.FlowFile;
 import org.apache.nifi.flowfile.attributes.FragmentAttributes;
+import org.apache.nifi.migration.PropertyConfiguration;
 import org.apache.nifi.processor.AbstractSessionFactoryProcessor;
 import org.apache.nifi.processor.FlowFileFilter;
 import org.apache.nifi.processor.ProcessContext;
@@ -126,8 +127,7 @@ public class PutSQL extends AbstractSessionFactoryProcessor {
             .build();
 
     static final PropertyDescriptor SQL_STATEMENT = new PropertyDescriptor.Builder()
-            .name("putsql-sql-statement")
-            .displayName("SQL Statement")
+            .name("SQL Statement")
             .description("The SQL statement to execute. The statement can be empty, a constant value, or built from attributes "
                     + "using Expression Language. If this property is specified, it will be used regardless of the content of "
                     + "incoming FlowFiles. If this property is empty, the content of the incoming FlowFile is expected "
@@ -138,8 +138,7 @@ public class PutSQL extends AbstractSessionFactoryProcessor {
             .build();
 
     static final PropertyDescriptor AUTO_COMMIT = new PropertyDescriptor.Builder()
-            .name("database-session-autocommit")
-            .displayName("Database Session AutoCommit")
+            .name("Database Session AutoCommit")
             .description("The autocommit mode to set on the database connection being used. If set to false, the operation(s) will be explicitly committed or rolled back "
                     + "(based on success or failure respectively), if set to true the driver/database handles the commit/rollback.")
             .allowableValues("true", "false")
@@ -220,6 +219,13 @@ public class PutSQL extends AbstractSessionFactoryProcessor {
     private static final String ERROR_SQL_STATE_ATTR = "error.sql.state";
 
     @Override
+    public void migrateProperties(PropertyConfiguration config) {
+        config.renameProperty("putsql-sql-statement", SQL_STATEMENT.getName());
+        config.renameProperty("database-session-autocommit", AUTO_COMMIT.getName());
+        config.renameProperty(RollbackOnFailure.OLD_ROLLBACK_ON_FAILURE_PROPERTY_NAME, RollbackOnFailure.ROLLBACK_ON_FAILURE.getName());
+    }
+
+    @Override
     protected List<PropertyDescriptor> getSupportedPropertyDescriptors() {
         return PROPERTY_DESCRIPTORS;
     }
@@ -227,12 +233,12 @@ public class PutSQL extends AbstractSessionFactoryProcessor {
     @Override
     protected final Collection<ValidationResult> customValidate(ValidationContext context) {
         final Collection<ValidationResult> results = new ArrayList<>();
-        final String support_transactions = context.getProperty(SUPPORT_TRANSACTIONS).getValue();
-        final String rollback_on_failure = context.getProperty(RollbackOnFailure.ROLLBACK_ON_FAILURE).getValue();
-        final String auto_commit = context.getProperty(AUTO_COMMIT).getValue();
+        final String supportTransactions = context.getProperty(SUPPORT_TRANSACTIONS).getValue();
+        final String rollbackOnFailure = context.getProperty(RollbackOnFailure.ROLLBACK_ON_FAILURE).getValue();
+        final String autoCommit = context.getProperty(AUTO_COMMIT).getValue();
 
-        if (auto_commit.equalsIgnoreCase("true")) {
-            if (support_transactions.equalsIgnoreCase("true")) {
+        if (autoCommit.equalsIgnoreCase("true")) {
+            if (supportTransactions.equalsIgnoreCase("true")) {
                 results.add(new ValidationResult.Builder()
                                 .subject(SUPPORT_TRANSACTIONS.getDisplayName())
                                 .explanation(format("'%s' cannot be set to 'true' when '%s' is also set to 'true'."
@@ -240,7 +246,7 @@ public class PutSQL extends AbstractSessionFactoryProcessor {
                                         SUPPORT_TRANSACTIONS.getDisplayName(), AUTO_COMMIT.getDisplayName()))
                                 .build());
             }
-            if (rollback_on_failure.equalsIgnoreCase("true")) {
+            if (rollbackOnFailure.equalsIgnoreCase("true")) {
                 results.add(new ValidationResult.Builder()
                         .subject(RollbackOnFailure.ROLLBACK_ON_FAILURE.getDisplayName())
                         .explanation(format("'%s' cannot be set to 'true' when '%s' is also set to 'true'."
@@ -276,7 +282,6 @@ public class PutSQL extends AbstractSessionFactoryProcessor {
     private BiFunction<FunctionContext, ErrorTypes, ErrorTypes.Result> adjustError;
     private ExceptionHandler<FunctionContext> exceptionHandler;
 
-
     private final FetchFlowFiles<FunctionContext> fetchFlowFiles = (c, s, fc, r) -> {
         final FlowFilePoll poll = pollFlowFiles(c, s, fc, r);
         if (poll == null) {
@@ -304,7 +309,6 @@ public class PutSQL extends AbstractSessionFactoryProcessor {
         }
         return connection;
     };
-
 
     @FunctionalInterface
     private interface GroupingFunction {
@@ -764,7 +768,6 @@ public class PutSQL extends AbstractSessionFactoryProcessor {
         return new FlowFilePoll(validFlowFiles, fragmentedTransaction);
     }
 
-
     /**
      * Returns the key that was generated from the given statement, or <code>null</code> if no key
      * was generated or it could not be determined.
@@ -904,7 +907,8 @@ public class PutSQL extends AbstractSessionFactoryProcessor {
             int errorCode = ((SQLException) exception).getErrorCode();
             String sqlState = ((SQLException) exception).getSQLState();
 
-            if (errorCode > 0) {
+            // Handle positive and negative error codes
+            if (errorCode != 0) {
                 attributes.put(ERROR_CODE_ATTR, valueOf(errorCode));
             }
 
@@ -1000,7 +1004,6 @@ public class PutSQL extends AbstractSessionFactoryProcessor {
         }
     }
 
-
     /**
      * A simple, immutable data structure to hold a List of FlowFiles and an indicator as to whether
      * or not those FlowFiles represent a "fragmented transaction" - that is, a collection of FlowFiles
@@ -1025,7 +1028,6 @@ public class PutSQL extends AbstractSessionFactoryProcessor {
             return fragmentedTransaction;
         }
     }
-
 
     private static class FragmentedEnclosure extends StatementFlowFileEnclosure {
 

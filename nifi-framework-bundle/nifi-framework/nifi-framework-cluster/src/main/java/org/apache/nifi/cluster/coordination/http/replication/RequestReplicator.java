@@ -52,7 +52,11 @@ public interface RequestReplicator {
      * will contain the results that are immediately available, as well as an identifier for obtaining an updated result
      * later. NOTE: This method will ALWAYS indicate that the request has been replicated.
      *
-     * @param user the user making the request
+     * <p>If {@code user} is {@code null}, the replicated request will not include an {@code X-ProxiedEntitiesChain}
+     * header. This is used for internal cluster node requests (e.g., connector state polling) where the requesting
+     * identity is the node itself, authenticated via its TLS certificate, rather than a proxied end user.</p>
+     *
+     * @param user the user making the request, or {@code null} for direct cluster node requests
      * @param method the HTTP method (e.g., POST, PUT)
      * @param uri the base request URI (up to, but not including, the query string)
      * @param entity an entity
@@ -104,7 +108,6 @@ public interface RequestReplicator {
      */
     AsyncClusterResponse replicate(Set<NodeIdentifier> nodeIds, String method, URI uri, Object entity, Map<String, String> headers, boolean indicateReplicated,
         boolean performVerification);
-
 
     /**
      * Forwards a request to the Cluster Coordinator so that it is able to replicate the request to all nodes in the cluster.

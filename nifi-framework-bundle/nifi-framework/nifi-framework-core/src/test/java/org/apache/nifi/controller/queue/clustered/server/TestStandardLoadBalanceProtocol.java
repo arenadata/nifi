@@ -27,6 +27,7 @@ import org.apache.nifi.controller.repository.ContentRepository;
 import org.apache.nifi.controller.repository.FlowFileRecord;
 import org.apache.nifi.controller.repository.FlowFileRepository;
 import org.apache.nifi.controller.repository.RepositoryRecord;
+import org.apache.nifi.controller.repository.RepositoryRecordType;
 import org.apache.nifi.controller.repository.claim.ContentClaim;
 import org.apache.nifi.controller.repository.claim.ResourceClaim;
 import org.apache.nifi.provenance.ProvenanceEventRecord;
@@ -79,7 +80,7 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.when;
 
 public class TestStandardLoadBalanceProtocol {
-    private final LoadBalanceAuthorizer ALWAYS_AUTHORIZED = (sslSocket) -> sslSocket == null ? null : "authorized.mydomain.com";
+    private static final LoadBalanceAuthorizer ALWAYS_AUTHORIZED = (sslSocket) -> sslSocket == null ? null : "authorized.mydomain.com";
     private FlowFileRepository flowFileRepo;
     private ContentRepository contentRepo;
     private ProvenanceRepository provenanceRepo;
@@ -92,7 +93,6 @@ public class TestStandardLoadBalanceProtocol {
     private List<FlowFileRecord> flowFileQueueReceiveRecords;
 
     private ConcurrentMap<ContentClaim, byte[]> claimContents;
-
 
     @BeforeEach
     public void setup() throws IOException, IllegalClusterStateException {
@@ -161,7 +161,6 @@ public class TestStandardLoadBalanceProtocol {
         }).when(provenanceRepo).registerEvents(anyCollection());
     }
 
-
     @Test
     public void testSimpleFlowFileTransaction() throws IOException, IllegalClusterStateException {
         final StandardLoadBalanceProtocol protocol = new StandardLoadBalanceProtocol(flowFileRepo, contentRepo, provenanceRepo, flowController, ALWAYS_AUTHORIZED);
@@ -208,6 +207,10 @@ public class TestStandardLoadBalanceProtocol {
         Mockito.verify(provenanceRepo, times(1)).registerEvents(anyList());
         Mockito.verify(flowFileQueue, times(0)).putAll(anyCollection());
         Mockito.verify(flowFileQueue, times(1)).receiveFromPeer(anyCollection());
+
+        // Repository records for received FlowFiles must be CREATE so that the FlowFile Repository
+        // increments the Content Claim's truncation reference count for each received FlowFile.
+        assertTrue(flowFileRepoUpdateRecords.stream().allMatch(record -> record.getType() == RepositoryRecordType.CREATE));
     }
 
     @Test
@@ -272,8 +275,8 @@ public class TestStandardLoadBalanceProtocol {
         assertEquals(4, flowFileQueueReceiveRecords.size());
 
         assertTrue(provRepoUpdateRecords.stream().allMatch(event -> event.getEventType() == ProvenanceEventType.RECEIVE));
+        assertTrue(flowFileRepoUpdateRecords.stream().allMatch(record -> record.getType() == RepositoryRecordType.CREATE));
     }
-
 
     @Test
     public void testMultipleFlowFilesWithoutCheckingSpace() throws IOException {

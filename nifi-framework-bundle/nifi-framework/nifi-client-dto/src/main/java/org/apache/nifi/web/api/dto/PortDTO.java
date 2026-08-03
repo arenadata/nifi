@@ -17,8 +17,8 @@
 package org.apache.nifi.web.api.dto;
 
 import io.swagger.v3.oas.annotations.media.Schema;
-
 import jakarta.xml.bind.annotation.XmlType;
+
 import java.util.Collection;
 
 /**
@@ -134,7 +134,6 @@ public class PortDTO extends ComponentDTO {
     public void setValidationErrors(Collection<String> validationErrors) {
         this.validationErrors = validationErrors;
     }
-
 
     /**
      * @return whether this port can be accessed remotely via Site-to-Site protocol.

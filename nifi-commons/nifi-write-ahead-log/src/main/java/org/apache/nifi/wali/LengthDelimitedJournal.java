@@ -222,7 +222,6 @@ public class LengthDelimitedJournal<T> implements WriteAheadJournal<T> {
         return new SerDeAndVersion(serde, serdeVersion);
     }
 
-
     // Visible/overrideable for testing.
     protected void createOverflowDirectory(final Path path) throws IOException {
         Files.createDirectories(path);
@@ -230,12 +229,12 @@ public class LengthDelimitedJournal<T> implements WriteAheadJournal<T> {
 
     @Override
     public void update(final Collection<T> records, final RecordLookup<T> recordLookup) throws IOException {
-        if (!headerWritten) {
-            throw new IllegalStateException("Cannot update journal file " + journalFile + " because no header has been written yet.");
-        }
-
         if (records.isEmpty()) {
             return;
+        }
+
+        if (!headerWritten) {
+            throw new IllegalStateException("Cannot update journal file " + journalFile + " because no header has been written yet.");
         }
 
         checkState();
@@ -343,7 +342,6 @@ public class LengthDelimitedJournal<T> implements WriteAheadJournal<T> {
             streamPool.returnObject(bados);
         }
     }
-
 
     private void checkState() throws IOException {
         final Throwable cause = this.poisonCause;
@@ -477,8 +475,10 @@ public class LengthDelimitedJournal<T> implements WriteAheadJournal<T> {
 
                         switch (updateType) {
                             case DELETE: {
-                                idsRemoved.add(recordId);
-                                transactionRecordMap.remove(recordId);
+                                if (recordId != null) {
+                                    idsRemoved.add(recordId);
+                                    transactionRecordMap.remove(recordId);
+                                }
                                 break;
                             }
                             case SWAP_IN: {
@@ -488,7 +488,9 @@ public class LengthDelimitedJournal<T> implements WriteAheadJournal<T> {
                                 } else {
                                     swapLocationsRemoved.add(location);
                                     swapLocationsAdded.remove(location);
-                                    transactionRecordMap.put(recordId, record);
+                                    if (recordId != null) {
+                                        transactionRecordMap.put(recordId, record);
+                                    }
                                 }
                                 break;
                             }
@@ -499,15 +501,40 @@ public class LengthDelimitedJournal<T> implements WriteAheadJournal<T> {
                                 } else {
                                     swapLocationsRemoved.remove(location);
                                     swapLocationsAdded.add(location);
-                                    idsRemoved.add(recordId);
-                                    transactionRecordMap.remove(recordId);
+                                    if (recordId != null) {
+                                        idsRemoved.add(recordId);
+                                        transactionRecordMap.remove(recordId);
+                                    }
                                 }
 
                                 break;
                             }
+                            case SWAP_FILE_DELETED: {
+                                final String location = serde.getLocation(record);
+                                if (location != null) {
+                                    swapLocationsRemoved.add(location);
+                                    swapLocationsAdded.remove(location);
+                                }
+                                break;
+                            }
+                            case SWAP_FILE_RENAMED: {
+                                final String originalLocation = serde.getOriginalLocation(record);
+                                final String newLocation = serde.getLocation(record);
+                                if (originalLocation != null) {
+                                    swapLocationsRemoved.add(originalLocation);
+                                    swapLocationsAdded.remove(originalLocation);
+                                }
+                                if (newLocation != null) {
+                                    swapLocationsAdded.add(newLocation);
+                                    swapLocationsRemoved.remove(newLocation);
+                                }
+                                break;
+                            }
                             default: {
-                                transactionRecordMap.put(recordId, record);
-                                idsRemoved.remove(recordId);
+                                if (recordId != null) {
+                                    transactionRecordMap.put(recordId, record);
+                                    idsRemoved.remove(recordId);
+                                }
                                 break;
                             }
                         }
@@ -584,7 +611,6 @@ public class LengthDelimitedJournal<T> implements WriteAheadJournal<T> {
 
         return true;
     }
-
 
     @Override
     public synchronized JournalSummary getSummary() {

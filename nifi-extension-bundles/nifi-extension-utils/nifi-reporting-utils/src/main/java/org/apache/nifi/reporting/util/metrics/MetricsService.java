@@ -16,20 +16,19 @@
  */
 package org.apache.nifi.reporting.util.metrics;
 
-import java.util.HashMap;
-import java.util.Map;
-import java.util.concurrent.TimeUnit;
-
-import javax.json.JsonBuilderFactory;
-import javax.json.JsonObject;
-import javax.json.JsonObjectBuilder;
-import javax.json.JsonValue;
-
+import jakarta.json.JsonBuilderFactory;
+import jakarta.json.JsonObject;
+import jakarta.json.JsonObjectBuilder;
+import jakarta.json.JsonValue;
 import org.apache.nifi.controller.status.ProcessGroupStatus;
 import org.apache.nifi.controller.status.ProcessorStatus;
 import org.apache.nifi.metrics.jvm.JvmMetrics;
 import org.apache.nifi.processor.DataUnit;
 import org.apache.nifi.reporting.util.metrics.api.MetricFields;
+
+import java.util.HashMap;
+import java.util.Map;
+import java.util.concurrent.TimeUnit;
 
 /**
  * A service used to produce key/value metrics based on a given input.
@@ -141,7 +140,13 @@ public class MetricsService {
         metrics.put(MetricNames.JVM_HEAP_USED, virtualMachineMetrics.heapUsed(DataUnit.B));
         metrics.put(MetricNames.JVM_HEAP_USAGE, virtualMachineMetrics.heapUsage());
         metrics.put(MetricNames.JVM_NON_HEAP_USAGE, virtualMachineMetrics.nonHeapUsage());
-        metrics.put(MetricNames.JVM_FILE_DESCRIPTOR_USAGE, virtualMachineMetrics.fileDescriptorUsage());
+        double fileDescriptorUsage = virtualMachineMetrics.fileDescriptorUsage();
+
+        if (Double.isNaN(fileDescriptorUsage)) {
+            fileDescriptorUsage = -1.0;
+        }
+
+        metrics.put(MetricNames.JVM_FILE_DESCRIPTOR_USAGE, fileDescriptorUsage);
         return metrics;
     }
 
@@ -207,8 +212,8 @@ public class MetricsService {
                 .add(MetricFields.TIMESTAMP, currentTimeMillis);
 
         objectBuilder
-        .add(MetricNames.CORES, availableProcessors)
-        .add(MetricNames.LOAD1MN, systemLoad);
+            .add(MetricNames.CORES, availableProcessors)
+            .add(MetricNames.LOAD1MN, systemLoad);
 
         Map<String, Integer> integerMetrics = getIntegerMetrics(virtualMachineMetrics);
         for (String key : integerMetrics.keySet()) {

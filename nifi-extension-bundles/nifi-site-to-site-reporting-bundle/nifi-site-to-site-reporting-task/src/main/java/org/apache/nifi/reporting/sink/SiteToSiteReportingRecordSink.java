@@ -16,10 +16,6 @@
  */
 package org.apache.nifi.reporting.sink;
 
-import java.io.ByteArrayOutputStream;
-import java.io.IOException;
-import java.util.List;
-import java.util.Map;
 import org.apache.nifi.annotation.documentation.CapabilityDescription;
 import org.apache.nifi.annotation.documentation.Tags;
 import org.apache.nifi.annotation.lifecycle.OnDisabled;
@@ -45,6 +41,11 @@ import org.apache.nifi.serialization.WriteResult;
 import org.apache.nifi.serialization.record.Record;
 import org.apache.nifi.serialization.record.RecordSchema;
 import org.apache.nifi.serialization.record.RecordSet;
+
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.util.List;
+import java.util.Map;
 
 @Tags({ "db", "s2s", "site", "record"})
 @CapabilityDescription("Provides a service to write records using a configured RecordSetWriter over a Site-to-Site connection.")
@@ -79,8 +80,10 @@ public class SiteToSiteReportingRecordSink extends AbstractControllerService imp
 
     @Override
     public void migrateProperties(final PropertyConfiguration config) {
+        RecordSinkService.super.migrateProperties(config);
         ProxyServiceMigration.migrateProxyProperties(config, SiteToSiteUtils.PROXY_CONFIGURATION_SERVICE,
                 SiteToSiteUtils.OBSOLETE_PROXY_HOST, SiteToSiteUtils.OBSOLETE_PROXY_PORT, SiteToSiteUtils.OBSOLETE_PROXY_USERNAME, SiteToSiteUtils.OBSOLETE_PROXY_PASSWORD);
+        config.renameProperty(SiteToSiteUtils.OBSOLETE_TRANSPORT_PROTOCOL, SiteToSiteUtils.TRANSPORT_PROTOCOL.getName());
     }
 
     @OnEnabled

@@ -49,8 +49,8 @@ import java.util.function.Function;
 
 import static com.google.protobuf.CodedInputStream.decodeZigZag32;
 import static com.google.protobuf.TextFormat.unsignedToString;
-import static org.apache.nifi.services.protobuf.FieldType.STRING;
 import static org.apache.nifi.services.protobuf.FieldType.BYTES;
+import static org.apache.nifi.services.protobuf.FieldType.STRING;
 
 /**
  * The class is responsible for creating Record by mapping the provided proto schema fields with the list of Unknown fields parsed from encoded proto data.
@@ -259,14 +259,14 @@ public class ProtobufDataConverter {
     private Object convertFixed32Fields(ProtoField protoField, List<Integer> values, RecordSchema recordSchema) {
         final String typeName = protoField.getProtoType().getSimpleName();
         final Function<Integer, Object> valueConverter =
-                switch (FieldType.findValue(typeName)) {
-                    case FIXED32 -> Integer::toUnsignedLong;
-                    case SFIXED32 -> value -> value;
-                    case FLOAT -> Float::intBitsToFloat;
-                    default ->
-                            throw new IllegalStateException(String.format("Incompatible value was received for field [%s]," +
-                                    " [%s] is not Fixed32 field type", protoField.getFieldName(), typeName));
-                };
+            switch (FieldType.findValue(typeName)) {
+                case FIXED32 -> Integer::toUnsignedLong;
+                case SFIXED32 -> value -> value;
+                case FLOAT -> Float::intBitsToFloat;
+                default ->
+                        throw new IllegalStateException(String.format("Incompatible value was received for field [%s]," +
+                                " [%s] is not Fixed32 field type", protoField.getFieldName(), typeName));
+            };
 
         return resolveFieldValue(protoField, values, valueConverter, recordSchema);
     }
@@ -281,14 +281,14 @@ public class ProtobufDataConverter {
     private Object convertFixed64Fields(ProtoField protoField, List<Long> values, RecordSchema recordSchema) {
         final String typeName = protoField.getProtoType().getSimpleName();
         final Function<Long, Object> valueConverter =
-                switch (FieldType.findValue(typeName)) {
-                    case FIXED64 -> value -> new BigInteger(unsignedToString(value));
-                    case SFIXED64 -> value -> value;
-                    case DOUBLE -> Double::longBitsToDouble;
-                    default ->
-                            throw new IllegalStateException(String.format("Incompatible value was received for field [%s]," +
-                                    " [%s] is not Fixed64 field type", protoField.getFieldName(), typeName));
-                };
+            switch (FieldType.findValue(typeName)) {
+                case FIXED64 -> value -> new BigInteger(unsignedToString(value));
+                case SFIXED64 -> value -> value;
+                case DOUBLE -> Double::longBitsToDouble;
+                default ->
+                        throw new IllegalStateException(String.format("Incompatible value was received for field [%s]," +
+                                " [%s] is not Fixed64 field type", protoField.getFieldName(), typeName));
+            };
 
         return resolveFieldValue(protoField, values, valueConverter, recordSchema);
     }

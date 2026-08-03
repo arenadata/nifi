@@ -26,8 +26,8 @@ import org.apache.nifi.distributed.cache.client.MapCacheClientService;
 import org.apache.nifi.distributed.cache.client.Serializer;
 import org.apache.nifi.distributed.cache.client.exception.DeserializationException;
 import org.apache.nifi.distributed.cache.protocol.ProtocolVersion;
-import org.apache.nifi.distributed.cache.server.CacheServer;
 import org.apache.nifi.distributed.cache.server.AbstractCacheServer;
+import org.apache.nifi.distributed.cache.server.CacheServer;
 import org.apache.nifi.distributed.cache.server.EvictionPolicy;
 import org.apache.nifi.event.transport.EventServer;
 import org.apache.nifi.event.transport.configuration.ShutdownQuietPeriod;
@@ -38,12 +38,12 @@ import org.apache.nifi.event.transport.netty.ByteArrayMessageNettyEventServerFac
 import org.apache.nifi.event.transport.netty.NettyEventServerFactory;
 import org.apache.nifi.logging.ComponentLog;
 import org.apache.nifi.processor.DataUnit;
-import org.apache.nifi.processor.Processor;
 import org.apache.nifi.remote.StandardVersionNegotiator;
 import org.apache.nifi.reporting.InitializationException;
 import org.apache.nifi.util.MockConfigurationContext;
 import org.apache.nifi.util.MockControllerServiceInitializationContext;
 import org.apache.nifi.util.MockPropertyValue;
+import org.apache.nifi.util.NoOpProcessor;
 import org.apache.nifi.util.TestRunner;
 import org.apache.nifi.util.TestRunners;
 import org.junit.jupiter.api.AfterEach;
@@ -51,7 +51,6 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
-import javax.net.ssl.SSLContext;
 import java.io.File;
 import java.io.IOException;
 import java.io.OutputStream;
@@ -63,6 +62,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
+import javax.net.ssl.SSLContext;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -84,7 +84,7 @@ public class TestDistributedMapServerAndClient {
             FileUtils.cleanDirectory(dataFile);
         }
 
-        runner = TestRunners.newTestRunner(Mockito.mock(Processor.class));
+        runner = TestRunners.newTestRunner(NoOpProcessor.class);
 
         server = new MapCacheServer();
         runner.addControllerService("server", server);

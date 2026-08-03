@@ -26,7 +26,7 @@ import java.util.Map;
 
 public class FlowFileUnpackagerV2 implements FlowFileUnpackager {
 
-    private final byte readBuffer[] = new byte[8192];
+    private final byte[] readBuffer = new byte[8192];
     private Map<String, String> nextAttributes = null;
     private boolean haveReadSomething = false;
 
@@ -42,7 +42,7 @@ public class FlowFileUnpackagerV2 implements FlowFileUnpackager {
             return null;
         }
         if (numAttributes == 0) {
-            throw new IOException("flow files cannot have zero attributes");
+            throw new IOException("FlowFiles cannot have zero attributes");
         }
         for (int i = 0; i < numAttributes; i++) { //read each attribute key/value pair
             final String key = readString(in);

@@ -16,18 +16,12 @@
  */
 package org.apache.nifi.processors.dropbox;
 
-import static java.lang.String.format;
-import static java.lang.String.valueOf;
-
 import com.dropbox.core.DbxRequestConfig;
 import com.dropbox.core.http.HttpRequestor;
 import com.dropbox.core.http.OkHttp3Requestor;
 import com.dropbox.core.oauth.DbxCredential;
 import com.dropbox.core.v2.DbxClientV2;
 import com.dropbox.core.v2.files.FileMetadata;
-import java.net.Proxy;
-import java.util.HashMap;
-import java.util.Map;
 import okhttp3.Credentials;
 import okhttp3.OkHttpClient;
 import org.apache.nifi.components.PropertyDescriptor;
@@ -36,13 +30,20 @@ import org.apache.nifi.dropbox.credentials.service.DropboxCredentialService;
 import org.apache.nifi.processor.ProcessContext;
 import org.apache.nifi.proxy.ProxyConfiguration;
 
+import java.net.Proxy;
+import java.util.HashMap;
+import java.util.Map;
+
+import static java.lang.String.format;
+import static java.lang.String.valueOf;
+
 public interface DropboxTrait {
 
     String DROPBOX_HOME_URL = "https://www.dropbox.com/home";
+    String OLD_CREDENTIAL_SERVICE_PROPERTY_NAME = "dropbox-credential-service";
 
     PropertyDescriptor CREDENTIAL_SERVICE = new PropertyDescriptor.Builder()
-            .name("dropbox-credential-service")
-            .displayName("Dropbox Credential Service")
+            .name("Dropbox Credential Service")
             .description("Controller Service used to obtain Dropbox credentials (App Key, App Secret, Access Token, Refresh Token)." +
                     " See controller service's Additional Details for more information.")
             .identifiesControllerService(DropboxCredentialService.class)

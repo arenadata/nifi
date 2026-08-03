@@ -29,6 +29,7 @@ import org.apache.nifi.annotation.lifecycle.OnStopped;
 import org.apache.nifi.components.AllowableValue;
 import org.apache.nifi.components.PropertyDescriptor;
 import org.apache.nifi.expression.ExpressionLanguageScope;
+import org.apache.nifi.migration.PropertyConfiguration;
 import org.apache.nifi.processor.AbstractProcessor;
 import org.apache.nifi.processor.ProcessContext;
 import org.apache.nifi.processor.util.StandardValidators;
@@ -69,9 +70,8 @@ abstract class SplunkAPICall extends AbstractProcessor {
             .expressionLanguageSupported(ExpressionLanguageScope.ENVIRONMENT)
             .build();
 
-    static final PropertyDescriptor PORT = new PropertyDescriptor
-            .Builder().name("Port")
-            .displayName("HTTP Event Collector Port")
+    static final PropertyDescriptor PORT = new PropertyDescriptor.Builder()
+            .name("HTTP Event Collector Port")
             .description("The HTTP Event Collector HTTP Port Number.")
             .required(true)
             .addValidator(StandardValidators.PORT_VALIDATOR)
@@ -96,9 +96,8 @@ abstract class SplunkAPICall extends AbstractProcessor {
             .build();
 
     static final PropertyDescriptor TOKEN = new PropertyDescriptor.Builder()
-            .name("Token")
-            .displayName("HTTP Event Collector Token")
-            .description("HTTP Event Collector token starting with the string Splunk. For example \'Splunk 1234578-abcd-1234-abcd-1234abcd\'")
+            .name("HTTP Event Collector Token")
+            .description("HTTP Event Collector token starting with the string Splunk. For example 'Splunk 1234578-abcd-1234-abcd-1234abcd'")
             .addValidator(StandardValidators.NON_EMPTY_VALIDATOR)
             .required(false)
             .expressionLanguageSupported(ExpressionLanguageScope.ENVIRONMENT)
@@ -121,8 +120,7 @@ abstract class SplunkAPICall extends AbstractProcessor {
             .build();
 
     static final PropertyDescriptor REQUEST_CHANNEL = new PropertyDescriptor.Builder()
-            .name("request-channel")
-            .displayName("Splunk Request Channel")
+            .name("Splunk Request Channel")
             .description("Identifier of the used request channel.")
             .required(true)
             .addValidator(StandardValidators.NON_EMPTY_VALIDATOR)
@@ -147,6 +145,7 @@ abstract class SplunkAPICall extends AbstractProcessor {
     private volatile ServiceArgs splunkServiceArguments;
     private volatile Service splunkService;
     private volatile String requestChannel;
+    private volatile String transitBaseUri;
 
     protected static List<PropertyDescriptor> getCommonPropertyDescriptors() {
         return PROPERTY_DESCRIPTORS;
@@ -162,6 +161,10 @@ abstract class SplunkAPICall extends AbstractProcessor {
         splunkServiceArguments = getSplunkServiceArgs(context);
         splunkService = getSplunkService(splunkServiceArguments);
         requestChannel = context.getProperty(SplunkAPICall.REQUEST_CHANNEL).evaluateAttributeExpressions().getValue();
+        final String scheme = context.getProperty(SCHEME).getValue();
+        final String hostname = context.getProperty(HOSTNAME).evaluateAttributeExpressions().getValue();
+        final int port = context.getProperty(PORT).evaluateAttributeExpressions().asInteger();
+        transitBaseUri = "%s://%s:%d".formatted(scheme, hostname, port);
     }
 
     private ServiceArgs getSplunkServiceArgs(final ProcessContext context) {
@@ -207,6 +210,18 @@ abstract class SplunkAPICall extends AbstractProcessor {
 
         requestChannel = null;
         splunkServiceArguments = null;
+        transitBaseUri = null;
+    }
+
+    @Override
+    public void migrateProperties(PropertyConfiguration config) {
+        config.renameProperty("Port", PORT.getName());
+        config.renameProperty("Token", TOKEN.getName());
+        config.renameProperty("request-channel", REQUEST_CHANNEL.getName());
+    }
+
+    protected String getTransitBaseUri() {
+        return transitBaseUri;
     }
 
     protected ResponseMessage call(final String endpoint, final RequestMessage request)  {

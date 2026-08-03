@@ -33,9 +33,9 @@ import java.io.InputStream;
  */
 public class TextLineDemarcator extends AbstractDemarcator {
 
-    private static int CR = 13; // \r
+    private static final int CR = 13; // \r
 
-    private static int LF = 10; // \n
+    private static final int LF = 10; // \n
 
     /**
      * Constructs an instance of demarcator with provided {@link InputStream}
@@ -164,7 +164,8 @@ public class TextLineDemarcator extends AbstractDemarcator {
      *  </ul>
      **/
     public static class OffsetInfo {
-        private final long startOffset, length;
+        private final long startOffset;
+        private final long length;
         private final int crlfLength;
 
         private boolean startsWithMatch = true;

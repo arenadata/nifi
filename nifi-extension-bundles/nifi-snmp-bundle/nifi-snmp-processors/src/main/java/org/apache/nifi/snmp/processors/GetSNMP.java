@@ -26,6 +26,7 @@ import org.apache.nifi.annotation.lifecycle.OnScheduled;
 import org.apache.nifi.components.AllowableValue;
 import org.apache.nifi.components.PropertyDescriptor;
 import org.apache.nifi.flowfile.FlowFile;
+import org.apache.nifi.migration.PropertyConfiguration;
 import org.apache.nifi.processor.ProcessContext;
 import org.apache.nifi.processor.ProcessSession;
 import org.apache.nifi.processor.Relationship;
@@ -81,17 +82,15 @@ public class GetSNMP extends AbstractSNMPProcessor {
                     "under the specified OID.");
 
     public static final PropertyDescriptor OID = new PropertyDescriptor.Builder()
-            .name("snmp-oid")
-            .displayName("OID")
+            .name("OID")
             .description("Each OID (object identifier) identifies a variable that can be read or set via SNMP." +
-                    " This value is not taken into account for an input flowfile and will be omitted. Can be set to empty" +
-                    "string when the OIDs are provided through flowfile.")
+                    " This value is not taken into account for an input FlowFile and will be omitted. Can be set to empty" +
+                    "string when the OIDs are provided through FlowFile.")
             .addValidator(new OIDValidator())
             .build();
 
     public static final PropertyDescriptor SNMP_STRATEGY = new PropertyDescriptor.Builder()
-            .name("snmp-strategy")
-            .displayName("SNMP Strategy")
+            .name("SNMP Strategy")
             .description("SNMP strategy to use (SNMP Get or SNMP Walk)")
             .required(true)
             .allowableValues(GET, WALK)
@@ -99,10 +98,9 @@ public class GetSNMP extends AbstractSNMPProcessor {
             .build();
 
     public static final PropertyDescriptor TEXTUAL_OID = new PropertyDescriptor.Builder()
-            .name("snmp-textual-oid")
-            .displayName("Textual OID")
+            .name("Textual OID")
             .description("The textual form of the numeric OID to request. This property is user defined, not processed and appended to " +
-                    "the outgoing flowfile.")
+                    "the outgoing FlowFile.")
             .required(false)
             .addValidator(StandardValidators.NON_BLANK_VALIDATOR)
             .build();
@@ -169,6 +167,24 @@ public class GetSNMP extends AbstractSNMPProcessor {
         }
     }
 
+    @Override
+    public void migrateProperties(PropertyConfiguration config) {
+        super.migrateProperties(config);
+        config.renameProperty("snmp-oid", OID.getName());
+        config.renameProperty("snmp-strategy", SNMP_STRATEGY.getName());
+        config.renameProperty("snmp-textual-oid", TEXTUAL_OID.getName());
+        config.renameProperty(BasicProperties.OLD_SNMP_VERSION_PROPERTY_NAME, BasicProperties.SNMP_VERSION.getName());
+        config.renameProperty(BasicProperties.OLD_SNMP_COMMUNITY_PROPERTY_NAME, BasicProperties.SNMP_COMMUNITY.getName());
+        config.renameProperty(BasicProperties.OLD_SNMP_RETRIES_PROPERTY_NAME,  BasicProperties.SNMP_RETRIES.getName());
+        BasicProperties.OLD_SNMP_TIMEOUT_PROPERTY_NAMES.forEach(oldPropertyName -> config.renameProperty(oldPropertyName, BasicProperties.SNMP_TIMEOUT.getName()));
+        config.renameProperty(V3SecurityProperties.OLD_SNMP_SECURITY_LEVEL_PROPERTY_NAME, V3SecurityProperties.SNMP_SECURITY_LEVEL.getName());
+        config.renameProperty(V3SecurityProperties.OLD_SNMP_SECURITY_NAME_PROPERTY_NAME, V3SecurityProperties.SNMP_SECURITY_NAME.getName());
+        config.renameProperty(V3SecurityProperties.OLD_SNMP_AUTH_PROTOCOL_PROPERTY_NAME, V3SecurityProperties.SNMP_AUTH_PROTOCOL.getName());
+        config.renameProperty(V3SecurityProperties.OLD_SNMP_AUTH_PASSWORD_PROPERTY_NAME, V3SecurityProperties.SNMP_AUTH_PASSWORD.getName());
+        config.renameProperty(V3SecurityProperties.OLD_SNMP_PRIVACY_PROTOCOL_PROPERTY_NAME, V3SecurityProperties.SNMP_PRIVACY_PROTOCOL.getName());
+        config.renameProperty(V3SecurityProperties.OLD_SNMP_PRIVACY_PASSWORD_PROPERTY_NAME, V3SecurityProperties.SNMP_PRIVACY_PASSWORD.getName());
+    }
+
     void performSnmpWalk(final ProcessContext context, final ProcessSession processSession, final String oid,
                          final Target target, FlowFile flowFile, final boolean isNewFlowFileCreated) {
 
@@ -190,7 +206,7 @@ public class GetSNMP extends AbstractSNMPProcessor {
                 }
                 processSession.transfer(flowFile, response.isError() ? REL_FAILURE : REL_SUCCESS);
             } else {
-                getLogger().warn("No SNMP specific attributes found in flowfile.");
+                getLogger().warn("No SNMP specific attributes found in FlowFile.");
                 processSession.transfer(flowFile, REL_FAILURE);
             }
         } catch (SNMPWalkException e) {
@@ -216,7 +232,7 @@ public class GetSNMP extends AbstractSNMPProcessor {
                 flowFile = processSession.putAllAttributes(flowFile, textualOidMap);
                 handleResponse(context, processSession, flowFile, response, REL_SUCCESS, REL_FAILURE, "/get", isNewFlowFileCreated);
             } else {
-                getLogger().warn("No SNMP specific attributes found in flowfile.");
+                getLogger().warn("No SNMP specific attributes found in FlowFile.");
                 processSession.transfer(flowFile, REL_FAILURE);
                 context.yield();
             }

@@ -16,14 +16,13 @@
  */
 package org.apache.nifi.web.api.config;
 
-import org.apache.commons.lang3.StringUtils;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
 import jakarta.ws.rs.WebApplicationException;
 import jakarta.ws.rs.core.Response;
 import jakarta.ws.rs.ext.ExceptionMapper;
 import jakarta.ws.rs.ext.Provider;
+import org.apache.commons.lang3.StringUtils;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Maps web application exceptions into client responses.
@@ -50,8 +49,12 @@ public class WebApplicationExceptionMapper implements ExceptionMapper<WebApplica
         // get the response
         final Response response = exception.getResponse();
 
-        // log the error
-        logger.warn("{}. Returning {} response.", exception, response.getStatus(), exception);
+        if (response.getStatus() != Response.Status.OK.getStatusCode()) {
+            // log the error
+            logger.warn("{}. Returning {} response.", exception, response.getStatus(), exception);
+        } else {
+            logger.debug("{}. Returning {} response.", exception, response.getStatus(), exception);
+        }
 
         // generate the response
         return Response.status(response.getStatus()).entity(message).type("text/plain").build();

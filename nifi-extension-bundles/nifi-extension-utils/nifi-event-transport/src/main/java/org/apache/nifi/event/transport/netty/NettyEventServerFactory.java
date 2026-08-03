@@ -40,14 +40,14 @@ import org.apache.nifi.event.transport.netty.channel.StandardChannelInitializer;
 import org.apache.nifi.event.transport.netty.channel.ssl.ServerSslHandlerChannelInitializer;
 import org.apache.nifi.security.util.ClientAuth;
 
-import javax.net.ssl.SSLContext;
-import javax.net.ssl.SSLParameters;
 import java.net.InetAddress;
 import java.time.Duration;
 import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
 import java.util.function.Supplier;
+import javax.net.ssl.SSLContext;
+import javax.net.ssl.SSLParameters;
 
 /**
  * Netty Event Server Factory
@@ -62,8 +62,6 @@ public class NettyEventServerFactory extends EventLoopGroupFactory implements Ev
     private Supplier<List<ChannelHandler>> handlerSupplier = Collections::emptyList;
 
     private Integer socketReceiveBuffer;
-
-    private Boolean socketKeepAlive;
 
     private SSLContext sslContext;
 
@@ -92,15 +90,6 @@ public class NettyEventServerFactory extends EventLoopGroupFactory implements Ev
      */
     public void setHandlerSupplier(final Supplier<List<ChannelHandler>> handlerSupplier) {
         this.handlerSupplier = Objects.requireNonNull(handlerSupplier);
-    }
-
-    /**
-     * Set Socket Keep Alive for TCP Sockets
-     *
-     * @param socketKeepAlive Keep Alive can be null to use default setting
-     */
-    public void setSocketKeepAlive(final Boolean socketKeepAlive) {
-        this.socketKeepAlive = socketKeepAlive;
     }
 
     /**
@@ -192,9 +181,6 @@ public class NettyEventServerFactory extends EventLoopGroupFactory implements Ev
         if (socketReceiveBuffer != null) {
             bootstrap.option(ChannelOption.SO_RCVBUF, socketReceiveBuffer);
             bootstrap.option(ChannelOption.RECVBUF_ALLOCATOR, new FixedRecvByteBufAllocator(socketReceiveBuffer));
-        }
-        if (socketKeepAlive != null) {
-            bootstrap.option(ChannelOption.SO_KEEPALIVE, socketKeepAlive);
         }
         if (BufferAllocator.UNPOOLED == bufferAllocator) {
             bootstrap.option(ChannelOption.ALLOCATOR, UnpooledByteBufAllocator.DEFAULT);

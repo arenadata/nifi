@@ -15,48 +15,16 @@
  * limitations under the License.
  */
 
-import { Injectable } from '@angular/core';
+import { Injectable, inject } from '@angular/core';
 import { Observable } from 'rxjs';
 import { HttpClient } from '@angular/common/http';
-
-export interface SearchResultGroup {
-    id: string;
-    name: string;
-}
-
-export interface ComponentSearchResult {
-    id: string;
-    groupId: string;
-    parentGroup: SearchResultGroup;
-    versionedGroup: SearchResultGroup;
-    name: string;
-    matches: string[];
-}
-
-export interface SearchResults {
-    processorResults: ComponentSearchResult[];
-    connectionResults: ComponentSearchResult[];
-    processGroupResults: ComponentSearchResult[];
-    inputPortResults: ComponentSearchResult[];
-    outputPortResults: ComponentSearchResult[];
-    remoteProcessGroupResults: ComponentSearchResult[];
-    funnelResults: ComponentSearchResult[];
-    labelResults: ComponentSearchResult[];
-    controllerServiceNodeResults: ComponentSearchResult[];
-    parameterContextResults: ComponentSearchResult[];
-    parameterProviderNodeResults: ComponentSearchResult[];
-    parameterResults: ComponentSearchResult[];
-}
-
-export interface SearchResultsEntity {
-    searchResultsDTO: SearchResults;
-}
+import { SearchResultsEntity } from '../../../state/shared';
 
 @Injectable({ providedIn: 'root' })
 export class SearchService {
-    private static readonly API: string = '../nifi-api';
+    private httpClient = inject(HttpClient);
 
-    constructor(private httpClient: HttpClient) {}
+    private static readonly API: string = '../nifi-api';
 
     search(query: string, processGroupId: string): Observable<SearchResultsEntity> {
         return this.httpClient.get<SearchResultsEntity>(`${SearchService.API}/flow/search-results`, {

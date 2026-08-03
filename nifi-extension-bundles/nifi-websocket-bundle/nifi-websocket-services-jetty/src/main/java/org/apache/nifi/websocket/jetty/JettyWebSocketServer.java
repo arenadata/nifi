@@ -25,6 +25,10 @@ import org.apache.nifi.components.AllowableValue;
 import org.apache.nifi.components.PropertyDescriptor;
 import org.apache.nifi.components.ValidationContext;
 import org.apache.nifi.components.ValidationResult;
+import org.apache.nifi.components.listen.ListenComponent;
+import org.apache.nifi.components.listen.ListenPort;
+import org.apache.nifi.components.listen.StandardListenPort;
+import org.apache.nifi.components.listen.TransportProtocol;
 import org.apache.nifi.components.resource.ResourceCardinality;
 import org.apache.nifi.components.resource.ResourceType;
 import org.apache.nifi.controller.ConfigurationContext;
@@ -37,17 +41,17 @@ import org.apache.nifi.ssl.SSLContextProvider;
 import org.apache.nifi.websocket.WebSocketConfigurationException;
 import org.apache.nifi.websocket.WebSocketMessageRouter;
 import org.apache.nifi.websocket.WebSocketServerService;
-import org.eclipse.jetty.ee10.servlet.ServletContextHandler;
-import org.eclipse.jetty.ee10.servlet.ServletHandler;
-import org.eclipse.jetty.ee10.servlet.ServletHolder;
-import org.eclipse.jetty.ee10.servlet.security.ConstraintMapping;
-import org.eclipse.jetty.ee10.servlet.security.ConstraintSecurityHandler;
-import org.eclipse.jetty.ee10.websocket.server.JettyServerUpgradeRequest;
-import org.eclipse.jetty.ee10.websocket.server.JettyServerUpgradeResponse;
-import org.eclipse.jetty.ee10.websocket.server.JettyWebSocketCreator;
-import org.eclipse.jetty.ee10.websocket.server.JettyWebSocketServlet;
-import org.eclipse.jetty.ee10.websocket.server.JettyWebSocketServletFactory;
-import org.eclipse.jetty.ee10.websocket.server.config.JettyWebSocketServletContainerInitializer;
+import org.eclipse.jetty.ee11.servlet.ServletContextHandler;
+import org.eclipse.jetty.ee11.servlet.ServletHandler;
+import org.eclipse.jetty.ee11.servlet.ServletHolder;
+import org.eclipse.jetty.ee11.servlet.security.ConstraintMapping;
+import org.eclipse.jetty.ee11.servlet.security.ConstraintSecurityHandler;
+import org.eclipse.jetty.ee11.websocket.server.JettyServerUpgradeRequest;
+import org.eclipse.jetty.ee11.websocket.server.JettyServerUpgradeResponse;
+import org.eclipse.jetty.ee11.websocket.server.JettyWebSocketCreator;
+import org.eclipse.jetty.ee11.websocket.server.JettyWebSocketServlet;
+import org.eclipse.jetty.ee11.websocket.server.JettyWebSocketServletFactory;
+import org.eclipse.jetty.ee11.websocket.server.config.JettyWebSocketServletContainerInitializer;
 import org.eclipse.jetty.security.Constraint;
 import org.eclipse.jetty.security.DefaultAuthenticatorFactory;
 import org.eclipse.jetty.security.HashLoginService;
@@ -58,8 +62,6 @@ import org.eclipse.jetty.server.ServerConnector;
 import org.eclipse.jetty.server.handler.ContextHandlerCollection;
 import org.eclipse.jetty.util.resource.PathResourceFactory;
 import org.eclipse.jetty.util.resource.Resource;
-
-import javax.net.ssl.SSLContext;
 
 import java.net.InetSocketAddress;
 import java.net.URI;
@@ -74,12 +76,13 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Stream;
+import javax.net.ssl.SSLContext;
 
 @Tags({"WebSocket", "Jetty", "server"})
 @CapabilityDescription("Implementation of WebSocketServerService." +
         " This service uses Jetty WebSocket server module to provide" +
         " WebSocket session management throughout the application.")
-public class JettyWebSocketServer extends AbstractJettyWebSocketService implements WebSocketServerService {
+public class JettyWebSocketServer extends AbstractJettyWebSocketService implements WebSocketServerService, ListenComponent {
 
     /**
      * A global map to refer a controller service instance by requested port number.
@@ -113,6 +116,7 @@ public class JettyWebSocketServer extends AbstractJettyWebSocketService implemen
             .description("The port number on which this WebSocketServer listens to.")
             .required(true)
             .expressionLanguageSupported(ExpressionLanguageScope.ENVIRONMENT)
+            .identifiesListenPort(TransportProtocol.TCP, "ws")
             .addValidator(StandardValidators.PORT_VALIDATOR)
             .build();
 
@@ -153,10 +157,8 @@ public class JettyWebSocketServer extends AbstractJettyWebSocketService implemen
             .defaultValue(LOGIN_SERVICE_HASH.getValue())
             .build();
 
-
     public static final PropertyDescriptor USERS_PROPERTIES_FILE = new PropertyDescriptor.Builder()
-            .name("users-properties-file")
-            .displayName("Users Properties File")
+            .name("Users Properties File")
             .description("Specify a property file containing users for Basic Authentication using HashLoginService. "
                     + "See http://www.eclipse.org/jetty/documentation/current/configuring-security.html for detail.")
             .required(false)
@@ -199,7 +201,6 @@ public class JettyWebSocketServer extends AbstractJettyWebSocketService implemen
         return PROPERTY_DESCRIPTORS;
     }
 
-
     @Override
     protected Collection<ValidationResult> customValidate(ValidationContext validationContext) {
 
@@ -240,7 +241,6 @@ public class JettyWebSocketServer extends AbstractJettyWebSocketService implemen
         @Override
         public Object createWebSocket(JettyServerUpgradeRequest servletUpgradeRequest, JettyServerUpgradeResponse servletUpgradeResponse) {
             final URI requestURI = servletUpgradeRequest.getRequestURI();
-
 
             final int port = getPort(servletUpgradeRequest);
             final JettyWebSocketServer service = portToControllerService.get(port);
@@ -342,6 +342,24 @@ public class JettyWebSocketServer extends AbstractJettyWebSocketService implemen
         listenPort = serverConnector.getLocalPort();
 
         portToControllerService.put(listenPort, this);
+    }
+
+    @Override
+    public List<ListenPort> getListenPorts(final ConfigurationContext context) {
+        final Integer portNumber = context.getProperty(PORT).evaluateAttributeExpressions().asInteger();
+        final List<ListenPort> ports;
+        if (portNumber == null) {
+            ports = List.of();
+        } else {
+            final ListenPort port = StandardListenPort.builder()
+                .portNumber(portNumber)
+                .portName(PORT.getDisplayName())
+                .transportProtocol(TransportProtocol.TCP)
+                .applicationProtocols(List.of("ws"))
+                .build();
+            ports = List.of(port);
+        }
+        return ports;
     }
 
     public int getListeningPort() {

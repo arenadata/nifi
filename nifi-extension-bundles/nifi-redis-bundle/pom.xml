@@ -18,15 +18,15 @@
     <parent>
         <groupId>org.apache.nifi</groupId>
         <artifactId>nifi-standard-shared-bom</artifactId>
-        <version>2.6.0</version>
+        <version>2.10.0.1</version>
         <relativePath>../nifi-standard-shared-bundle/nifi-standard-shared-bom</relativePath>
     </parent>
     <artifactId>nifi-redis-bundle</artifactId>
     <packaging>pom</packaging>
 
     <properties>
-        <spring.data.redis.version>3.5.4</spring.data.redis.version>
-        <jedis.version>6.2.0</jedis.version>
+        <spring.data.redis.version>4.1.0</spring.data.redis.version>
+        <jedis.version>7.5.2</jedis.version>
     </properties>
 
     <modules>

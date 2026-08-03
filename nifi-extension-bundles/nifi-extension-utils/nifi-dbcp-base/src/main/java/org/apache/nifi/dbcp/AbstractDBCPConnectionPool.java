@@ -16,14 +16,6 @@
  */
 package org.apache.nifi.dbcp;
 
-import java.sql.Connection;
-import java.sql.Driver;
-import java.sql.SQLException;
-import java.time.Duration;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Map;
-import java.util.stream.Collectors;
 import org.apache.commons.dbcp2.BasicDataSource;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.nifi.annotation.lifecycle.OnDisabled;
@@ -35,6 +27,8 @@ import org.apache.nifi.components.resource.ResourceReferences;
 import org.apache.nifi.controller.AbstractControllerService;
 import org.apache.nifi.controller.ConfigurationContext;
 import org.apache.nifi.controller.VerifiableControllerService;
+import org.apache.nifi.dbcp.api.DatabasePasswordProvider;
+import org.apache.nifi.dbcp.api.DatabasePasswordRequestContext;
 import org.apache.nifi.dbcp.utils.DataSourceConfiguration;
 import org.apache.nifi.dbcp.utils.DriverUtils;
 import org.apache.nifi.kerberos.KerberosUserService;
@@ -45,15 +39,27 @@ import org.apache.nifi.security.krb.KerberosAction;
 import org.apache.nifi.security.krb.KerberosLoginException;
 import org.apache.nifi.security.krb.KerberosUser;
 
+import java.sql.Connection;
+import java.sql.Driver;
+import java.sql.SQLException;
+import java.time.Duration;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
+
 import static org.apache.nifi.components.ConfigVerificationResult.Outcome.FAILED;
 import static org.apache.nifi.components.ConfigVerificationResult.Outcome.SUCCESSFUL;
 import static org.apache.nifi.dbcp.utils.DBCPProperties.DB_DRIVERNAME;
 import static org.apache.nifi.dbcp.utils.DBCPProperties.DB_DRIVER_LOCATION;
+import static org.apache.nifi.dbcp.utils.DBCPProperties.DB_PASSWORD_PROVIDER;
 import static org.apache.nifi.dbcp.utils.DBCPProperties.KERBEROS_USER_SERVICE;
+import static org.apache.nifi.dbcp.utils.DBCPProperties.PASSWORD_SOURCE;
+import static org.apache.nifi.dbcp.utils.DBCPProperties.PasswordSource.PASSWORD_PROVIDER;
 
 public abstract class AbstractDBCPConnectionPool extends AbstractControllerService implements DBCPService, VerifiableControllerService {
 
-    protected volatile BasicDataSource dataSource;
+    protected volatile ProviderAwareBasicDataSource dataSource;
     protected volatile KerberosUser kerberosUser;
 
     @Override
@@ -80,10 +86,17 @@ public abstract class AbstractDBCPConnectionPool extends AbstractControllerServi
                     .build());
         }
 
-        final BasicDataSource basicDataSource = new BasicDataSource();
+        final ProviderAwareBasicDataSource basicDataSource = new ProviderAwareBasicDataSource();
         try {
             final DataSourceConfiguration configuration = getDataSourceConfiguration(context);
-            configureDataSource(context, basicDataSource, configuration);
+            final Map<String, String> connectionProperties = getConnectionProperties(context);
+            configureDataSource(context, basicDataSource, configuration, connectionProperties);
+
+            final DatabasePasswordProvider passwordProvider = getDatabasePasswordProvider(context);
+            final DatabasePasswordRequestContext passwordRequestContext = passwordProvider == null ? null :
+                    buildDatabasePasswordRequestContext(configuration, connectionProperties);
+            basicDataSource.setDatabasePasswordProvider(passwordProvider, passwordRequestContext);
+
             results.add(new ConfigVerificationResult.Builder()
                     .verificationStepName("Configure Data Source")
                     .outcome(SUCCESSFUL)
@@ -154,11 +167,17 @@ public abstract class AbstractDBCPConnectionPool extends AbstractControllerServi
      */
     @OnEnabled
     public void onConfigured(final ConfigurationContext context) throws InitializationException {
-        dataSource = new BasicDataSource();
+        dataSource = new ProviderAwareBasicDataSource();
         kerberosUser = getKerberosUser(context);
         loginKerberos(kerberosUser);
         final DataSourceConfiguration configuration = getDataSourceConfiguration(context);
-        configureDataSource(context, dataSource, configuration);
+        final Map<String, String> connectionProperties = getConnectionProperties(context);
+        configureDataSource(context, dataSource, configuration, connectionProperties);
+
+        final DatabasePasswordProvider passwordProvider = getDatabasePasswordProvider(context);
+        final DatabasePasswordRequestContext passwordRequestContext = passwordProvider == null ? null :
+                buildDatabasePasswordRequestContext(configuration, connectionProperties);
+        dataSource.setDatabasePasswordProvider(passwordProvider, passwordRequestContext);
     }
 
     private void loginKerberos(KerberosUser kerberosUser) throws InitializationException {
@@ -175,7 +194,8 @@ public abstract class AbstractDBCPConnectionPool extends AbstractControllerServi
 
     protected abstract DataSourceConfiguration getDataSourceConfiguration(final ConfigurationContext context);
 
-    protected void configureDataSource(final ConfigurationContext context, final BasicDataSource basicDataSource, final DataSourceConfiguration configuration) {
+    protected void configureDataSource(final ConfigurationContext context, final BasicDataSource basicDataSource,
+                                       final DataSourceConfiguration configuration, final Map<String, String> connectionProperties) {
         final Driver driver = getDriver(configuration.getDriverName(), configuration.getUrl());
 
         basicDataSource.setDriver(driver);
@@ -198,7 +218,7 @@ public abstract class AbstractDBCPConnectionPool extends AbstractControllerServi
         basicDataSource.setUsername(configuration.getUserName());
         basicDataSource.setPassword(configuration.getPassword());
 
-        getConnectionProperties(context).forEach(basicDataSource::addConnectionProperty);
+        connectionProperties.forEach(basicDataSource::addConnectionProperty);
     }
 
     protected Map<String, String> getConnectionProperties(final ConfigurationContext context) {
@@ -218,6 +238,29 @@ public abstract class AbstractDBCPConnectionPool extends AbstractControllerServi
                 .collect(Collectors.toList());
     }
 
+    protected DatabasePasswordProvider getDatabasePasswordProvider(final ConfigurationContext context) {
+        final PropertyValue passwordSourceProperty = context.getProperty(PASSWORD_SOURCE);
+        final boolean databasePasswordProviderSelected = passwordSourceProperty != null && passwordSourceProperty.isSet()
+                && PASSWORD_PROVIDER.getValue().equals(passwordSourceProperty.getValue());
+
+        if (!databasePasswordProviderSelected) {
+            return null;
+        }
+
+        final PropertyValue passwordProviderProperty = context.getProperty(DB_PASSWORD_PROVIDER);
+        return passwordProviderProperty == null ? null : passwordProviderProperty.asControllerService(DatabasePasswordProvider.class);
+    }
+
+    protected DatabasePasswordRequestContext buildDatabasePasswordRequestContext(final DataSourceConfiguration configuration,
+                                                                                final Map<String, String> connectionProperties) {
+        return DatabasePasswordRequestContext.builder()
+                .jdbcUrl(configuration.getUrl())
+                .driverClassName(configuration.getDriverName())
+                .databaseUser(configuration.getUserName())
+                .connectionProperties(connectionProperties)
+                .build();
+    }
+
     protected KerberosUser getKerberosUser(final ConfigurationContext context) {
         final KerberosUser kerberosUser;
         final KerberosUserService kerberosUserService = context.getProperty(KERBEROS_USER_SERVICE).asControllerService(KerberosUserService.class);
@@ -230,7 +273,6 @@ public abstract class AbstractDBCPConnectionPool extends AbstractControllerServi
 
         return kerberosUser;
     }
-
 
     @Override
     public Connection getConnection() throws ProcessException {

@@ -17,63 +17,8 @@
 
 package org.apache.nifi.minifi.c2;
 
-import static java.lang.Boolean.parseBoolean;
-import static java.lang.Integer.parseInt;
-import static java.lang.Long.parseLong;
-import static java.util.Optional.ofNullable;
-import static java.util.concurrent.Executors.newScheduledThreadPool;
-import static java.util.concurrent.Executors.newSingleThreadExecutor;
-import static java.util.concurrent.TimeUnit.MILLISECONDS;
-import static java.util.stream.Collectors.toMap;
-import static org.apache.nifi.c2.protocol.api.RunStatus.RUNNING;
-import static org.apache.nifi.c2.protocol.api.RunStatus.STOPPED;
-import static org.apache.nifi.minifi.commons.api.MiNiFiProperties.C2_AGENT_CLASS;
-import static org.apache.nifi.minifi.commons.api.MiNiFiProperties.C2_AGENT_HEARTBEAT_PERIOD;
-import static org.apache.nifi.minifi.commons.api.MiNiFiProperties.C2_AGENT_IDENTIFIER;
-import static org.apache.nifi.minifi.commons.api.MiNiFiProperties.C2_ASSET_DIRECTORY;
-import static org.apache.nifi.minifi.commons.api.MiNiFiProperties.C2_ASSET_REPOSITORY_DIRECTORY;
-import static org.apache.nifi.minifi.commons.api.MiNiFiProperties.C2_BOOTSTRAP_ACKNOWLEDGE_TIMEOUT;
-import static org.apache.nifi.minifi.commons.api.MiNiFiProperties.C2_CONFIG_DIRECTORY;
-import static org.apache.nifi.minifi.commons.api.MiNiFiProperties.C2_FLOW_INFO_PROCESSOR_STATUS_ENABLED;
-import static org.apache.nifi.minifi.commons.api.MiNiFiProperties.C2_FULL_HEARTBEAT;
-import static org.apache.nifi.minifi.commons.api.MiNiFiProperties.C2_KEEP_ALIVE_DURATION;
-import static org.apache.nifi.minifi.commons.api.MiNiFiProperties.C2_MAX_IDLE_CONNECTIONS;
-import static org.apache.nifi.minifi.commons.api.MiNiFiProperties.C2_REQUEST_COMPRESSION;
-import static org.apache.nifi.minifi.commons.api.MiNiFiProperties.C2_REST_CALL_TIMEOUT;
-import static org.apache.nifi.minifi.commons.api.MiNiFiProperties.C2_REST_CONNECTION_TIMEOUT;
-import static org.apache.nifi.minifi.commons.api.MiNiFiProperties.C2_REST_HTTP_HEADERS;
-import static org.apache.nifi.minifi.commons.api.MiNiFiProperties.C2_REST_PATH_ACKNOWLEDGE;
-import static org.apache.nifi.minifi.commons.api.MiNiFiProperties.C2_REST_PATH_BASE;
-import static org.apache.nifi.minifi.commons.api.MiNiFiProperties.C2_REST_PATH_HEARTBEAT;
-import static org.apache.nifi.minifi.commons.api.MiNiFiProperties.C2_REST_READ_TIMEOUT;
-import static org.apache.nifi.minifi.commons.api.MiNiFiProperties.C2_REST_URL;
-import static org.apache.nifi.minifi.commons.api.MiNiFiProperties.C2_REST_URL_ACK;
-import static org.apache.nifi.minifi.commons.api.MiNiFiProperties.C2_FLOW_INFO_PROCESSOR_BULLETIN_LIMIT;
-import static org.apache.nifi.minifi.commons.api.MiNiFiProperties.C2_RUNTIME_MANIFEST_IDENTIFIER;
-import static org.apache.nifi.minifi.commons.api.MiNiFiProperties.C2_RUNTIME_TYPE;
-import static org.apache.nifi.minifi.commons.api.MiNiFiProperties.C2_SECURITY_KEYSTORE_LOCATION;
-import static org.apache.nifi.minifi.commons.api.MiNiFiProperties.C2_SECURITY_KEYSTORE_PASSWORD;
-import static org.apache.nifi.minifi.commons.api.MiNiFiProperties.C2_SECURITY_KEYSTORE_TYPE;
-import static org.apache.nifi.minifi.commons.api.MiNiFiProperties.C2_SECURITY_TRUSTSTORE_LOCATION;
-import static org.apache.nifi.minifi.commons.api.MiNiFiProperties.C2_SECURITY_TRUSTSTORE_PASSWORD;
-import static org.apache.nifi.minifi.commons.api.MiNiFiProperties.C2_SECURITY_TRUSTSTORE_TYPE;
-import static org.apache.nifi.util.FormatUtils.getPreciseTimeDuration;
-import static org.apache.nifi.util.NiFiProperties.FLOW_CONFIGURATION_FILE;
-import static org.apache.nifi.util.NiFiProperties.SENSITIVE_PROPS_ALGORITHM;
-import static org.apache.nifi.util.NiFiProperties.SENSITIVE_PROPS_KEY;
-
 import com.fasterxml.jackson.databind.ObjectMapper;
-import java.nio.file.Path;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Map;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.locks.ReentrantLock;
-import java.util.function.Supplier;
-
 import org.apache.commons.lang3.tuple.Pair;
-import org.apache.nifi.bootstrap.BootstrapCommunicator;
 import org.apache.nifi.c2.client.C2ClientConfig;
 import org.apache.nifi.c2.client.http.C2HttpClient;
 import org.apache.nifi.c2.client.service.C2HeartbeatFactory;
@@ -88,8 +33,11 @@ import org.apache.nifi.c2.client.service.operation.EmptyOperandPropertiesProvide
 import org.apache.nifi.c2.client.service.operation.FlowStateStrategy;
 import org.apache.nifi.c2.client.service.operation.OperandPropertiesProvider;
 import org.apache.nifi.c2.client.service.operation.OperationQueueDAO;
+import org.apache.nifi.c2.client.service.operation.ProcessorStateStrategy;
 import org.apache.nifi.c2.client.service.operation.StartFlowOperationHandler;
+import org.apache.nifi.c2.client.service.operation.StartProcessorOperationHandler;
 import org.apache.nifi.c2.client.service.operation.StopFlowOperationHandler;
+import org.apache.nifi.c2.client.service.operation.StopProcessorOperationHandler;
 import org.apache.nifi.c2.client.service.operation.SupportedOperationsProvider;
 import org.apache.nifi.c2.client.service.operation.SyncResourceOperationHandler;
 import org.apache.nifi.c2.client.service.operation.TransferDebugOperationHandler;
@@ -115,7 +63,9 @@ import org.apache.nifi.groups.ProcessGroup;
 import org.apache.nifi.groups.RemoteProcessGroup;
 import org.apache.nifi.manifest.RuntimeManifestService;
 import org.apache.nifi.manifest.StandardRuntimeManifestService;
+import org.apache.nifi.minifi.bootstrap.BootstrapCommunicator;
 import org.apache.nifi.minifi.c2.command.DefaultFlowStateStrategy;
+import org.apache.nifi.minifi.c2.command.DefaultProcessorStateStrategy;
 import org.apache.nifi.minifi.c2.command.DefaultUpdateConfigurationStrategy;
 import org.apache.nifi.minifi.c2.command.PropertiesPersister;
 import org.apache.nifi.minifi.c2.command.TransferDebugCommandHelper;
@@ -139,6 +89,60 @@ import org.apache.nifi.services.FlowService;
 import org.apache.nifi.util.NiFiProperties;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.locks.ReentrantLock;
+import java.util.function.Supplier;
+
+import static java.lang.Boolean.parseBoolean;
+import static java.lang.Integer.parseInt;
+import static java.lang.Long.parseLong;
+import static java.util.Optional.ofNullable;
+import static java.util.concurrent.Executors.newScheduledThreadPool;
+import static java.util.concurrent.Executors.newSingleThreadExecutor;
+import static java.util.concurrent.TimeUnit.MILLISECONDS;
+import static java.util.stream.Collectors.toMap;
+import static org.apache.nifi.c2.protocol.api.RunStatus.RUNNING;
+import static org.apache.nifi.c2.protocol.api.RunStatus.STOPPED;
+import static org.apache.nifi.minifi.commons.api.MiNiFiProperties.C2_AGENT_CLASS;
+import static org.apache.nifi.minifi.commons.api.MiNiFiProperties.C2_AGENT_HEARTBEAT_PERIOD;
+import static org.apache.nifi.minifi.commons.api.MiNiFiProperties.C2_AGENT_IDENTIFIER;
+import static org.apache.nifi.minifi.commons.api.MiNiFiProperties.C2_ASSET_DIRECTORY;
+import static org.apache.nifi.minifi.commons.api.MiNiFiProperties.C2_ASSET_REPOSITORY_DIRECTORY;
+import static org.apache.nifi.minifi.commons.api.MiNiFiProperties.C2_BOOTSTRAP_ACKNOWLEDGE_TIMEOUT;
+import static org.apache.nifi.minifi.commons.api.MiNiFiProperties.C2_CONFIG_DIRECTORY;
+import static org.apache.nifi.minifi.commons.api.MiNiFiProperties.C2_FLOW_INFO_PROCESSOR_BULLETIN_LIMIT;
+import static org.apache.nifi.minifi.commons.api.MiNiFiProperties.C2_FLOW_INFO_PROCESSOR_STATUS_ENABLED;
+import static org.apache.nifi.minifi.commons.api.MiNiFiProperties.C2_FULL_HEARTBEAT;
+import static org.apache.nifi.minifi.commons.api.MiNiFiProperties.C2_KEEP_ALIVE_DURATION;
+import static org.apache.nifi.minifi.commons.api.MiNiFiProperties.C2_MAX_IDLE_CONNECTIONS;
+import static org.apache.nifi.minifi.commons.api.MiNiFiProperties.C2_REQUEST_COMPRESSION;
+import static org.apache.nifi.minifi.commons.api.MiNiFiProperties.C2_REST_CALL_TIMEOUT;
+import static org.apache.nifi.minifi.commons.api.MiNiFiProperties.C2_REST_CONNECTION_TIMEOUT;
+import static org.apache.nifi.minifi.commons.api.MiNiFiProperties.C2_REST_HTTP_HEADERS;
+import static org.apache.nifi.minifi.commons.api.MiNiFiProperties.C2_REST_PATH_ACKNOWLEDGE;
+import static org.apache.nifi.minifi.commons.api.MiNiFiProperties.C2_REST_PATH_BASE;
+import static org.apache.nifi.minifi.commons.api.MiNiFiProperties.C2_REST_PATH_HEARTBEAT;
+import static org.apache.nifi.minifi.commons.api.MiNiFiProperties.C2_REST_READ_TIMEOUT;
+import static org.apache.nifi.minifi.commons.api.MiNiFiProperties.C2_REST_URL;
+import static org.apache.nifi.minifi.commons.api.MiNiFiProperties.C2_REST_URL_ACK;
+import static org.apache.nifi.minifi.commons.api.MiNiFiProperties.C2_RUNTIME_MANIFEST_IDENTIFIER;
+import static org.apache.nifi.minifi.commons.api.MiNiFiProperties.C2_RUNTIME_TYPE;
+import static org.apache.nifi.minifi.commons.api.MiNiFiProperties.C2_SECURITY_KEYSTORE_LOCATION;
+import static org.apache.nifi.minifi.commons.api.MiNiFiProperties.C2_SECURITY_KEYSTORE_PASSWORD;
+import static org.apache.nifi.minifi.commons.api.MiNiFiProperties.C2_SECURITY_KEYSTORE_TYPE;
+import static org.apache.nifi.minifi.commons.api.MiNiFiProperties.C2_SECURITY_TRUSTSTORE_LOCATION;
+import static org.apache.nifi.minifi.commons.api.MiNiFiProperties.C2_SECURITY_TRUSTSTORE_PASSWORD;
+import static org.apache.nifi.minifi.commons.api.MiNiFiProperties.C2_SECURITY_TRUSTSTORE_TYPE;
+import static org.apache.nifi.util.FormatUtils.getPreciseTimeDuration;
+import static org.apache.nifi.util.NiFiProperties.FLOW_CONFIGURATION_FILE;
+import static org.apache.nifi.util.NiFiProperties.SENSITIVE_PROPS_ALGORITHM;
+import static org.apache.nifi.util.NiFiProperties.SENSITIVE_PROPS_KEY;
 
 public class C2NifiClientService {
 
@@ -251,6 +255,7 @@ public class C2NifiClientService {
         UpdatePropertiesPropertyProvider updatePropertiesPropertyProvider = new UpdatePropertiesPropertyProvider(bootstrapConfigFileLocation);
         PropertiesPersister propertiesPersister = new PropertiesPersister(updatePropertiesPropertyProvider, bootstrapConfigFileLocation);
         FlowStateStrategy defaultFlowStateStrategy = new DefaultFlowStateStrategy(flowController);
+        ProcessorStateStrategy defaultProcessorStateStrategy = new DefaultProcessorStateStrategy(flowController);
         FlowPropertyAssetReferenceResolver flowPropertyAssetReferenceResolver = new StandardFlowPropertyAssetReferenceResolverService(resourceRepository::getAbsolutePath);
 
         FlowPropertyEncryptor flowPropertyEncryptor = new StandardFlowPropertyEncryptor(
@@ -278,7 +283,10 @@ public class C2NifiClientService {
                 updateAssetCommandHelper::assetUpdatePrecondition, updateAssetCommandHelper::assetPersistFunction),
             new UpdatePropertiesOperationHandler(updatePropertiesPropertyProvider, propertiesPersister::persistProperties),
             SyncResourceOperationHandler.create(client, new SyncResourcePropertyProvider(), new DefaultSyncResourceStrategy(resourceRepository), c2Serializer),
-            new StartFlowOperationHandler(defaultFlowStateStrategy), new StopFlowOperationHandler(defaultFlowStateStrategy)
+            new StartFlowOperationHandler(defaultFlowStateStrategy),
+            new StopFlowOperationHandler(defaultFlowStateStrategy),
+            new StartProcessorOperationHandler(defaultProcessorStateStrategy),
+            new StopProcessorOperationHandler(defaultProcessorStateStrategy)
         ));
     }
 
@@ -427,6 +435,11 @@ public class C2NifiClientService {
         result.setProcessingNanos(processorStatus.getProcessingNanos());
         result.setActiveThreadCount(processorStatus.getActiveThreadCount());
         result.setTerminatedThreadCount(processorStatus.getTerminatedThreadCount());
+        result.setRunStatus(
+                processorStatus.getRunStatus() == org.apache.nifi.controller.status.RunStatus.Running
+                        ? RUNNING
+                        : STOPPED
+        );
         return result;
     }
 

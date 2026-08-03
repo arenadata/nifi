@@ -15,21 +15,19 @@
  * limitations under the License.
  */
 
-import { Injectable } from '@angular/core';
+import { Injectable, inject } from '@angular/core';
 import { Actions, createEffect, ofType } from '@ngrx/effects';
 import * as JoltTransformJsonUiActions from './jolt-transform-json-transform.actions';
 import { JoltTransformJsonUiService } from '../../service/jolt-transform-json-ui.service';
 import { HttpErrorResponse } from '@angular/common/http';
 import { catchError, from, map, of, switchMap } from 'rxjs';
 import { transformJoltSpecFailure } from './jolt-transform-json-transform.actions';
-import { TransformJoltSpecRequest } from './index';
+import { TransformJoltSpecSuccess } from './index';
 
 @Injectable()
 export class JoltTransformJsonTransformEffects {
-    constructor(
-        private actions$: Actions,
-        private joltTransformJsonUiService: JoltTransformJsonUiService
-    ) {}
+    private actions$ = inject(Actions);
+    private joltTransformJsonUiService = inject(JoltTransformJsonUiService);
 
     transformJoltSpec$ = createEffect(() =>
         this.actions$.pipe(
@@ -37,7 +35,7 @@ export class JoltTransformJsonTransformEffects {
             map((action) => action.request),
             switchMap((request) =>
                 from(this.joltTransformJsonUiService.transformJoltSpec(request)).pipe(
-                    map((response: TransformJoltSpecRequest) =>
+                    map((response: TransformJoltSpecSuccess) =>
                         JoltTransformJsonUiActions.transformJoltSpecSuccess({
                             response: response
                         })

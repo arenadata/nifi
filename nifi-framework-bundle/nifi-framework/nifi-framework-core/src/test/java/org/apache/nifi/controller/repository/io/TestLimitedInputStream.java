@@ -22,8 +22,8 @@ import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 
 public class TestLimitedInputStream {
 
@@ -65,7 +65,6 @@ public class TestLimitedInputStream {
             assertEquals(i, buffer10[i + 4]);
         }
     }
-
 
     @Test
     public void testSkip() throws Exception {

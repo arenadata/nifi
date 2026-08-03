@@ -35,6 +35,7 @@ import org.apache.nifi.record.path.filter.NotEqualsFilter;
 import org.apache.nifi.record.path.filter.NotFilter;
 import org.apache.nifi.record.path.filter.RecordPathFilter;
 import org.apache.nifi.record.path.filter.StartsWith;
+import org.apache.nifi.record.path.functions.Add;
 import org.apache.nifi.record.path.functions.Anchored;
 import org.apache.nifi.record.path.functions.ArrayOf;
 import org.apache.nifi.record.path.functions.Base64Decode;
@@ -42,6 +43,7 @@ import org.apache.nifi.record.path.functions.Base64Encode;
 import org.apache.nifi.record.path.functions.Coalesce;
 import org.apache.nifi.record.path.functions.Concat;
 import org.apache.nifi.record.path.functions.Count;
+import org.apache.nifi.record.path.functions.Divide;
 import org.apache.nifi.record.path.functions.EscapeJson;
 import org.apache.nifi.record.path.functions.FieldName;
 import org.apache.nifi.record.path.functions.FilterFunction;
@@ -49,6 +51,7 @@ import org.apache.nifi.record.path.functions.Format;
 import org.apache.nifi.record.path.functions.Hash;
 import org.apache.nifi.record.path.functions.Join;
 import org.apache.nifi.record.path.functions.MapOf;
+import org.apache.nifi.record.path.functions.Multiply;
 import org.apache.nifi.record.path.functions.PadLeft;
 import org.apache.nifi.record.path.functions.PadRight;
 import org.apache.nifi.record.path.functions.RecordOf;
@@ -60,9 +63,11 @@ import org.apache.nifi.record.path.functions.SubstringAfter;
 import org.apache.nifi.record.path.functions.SubstringAfterLast;
 import org.apache.nifi.record.path.functions.SubstringBefore;
 import org.apache.nifi.record.path.functions.SubstringBeforeLast;
+import org.apache.nifi.record.path.functions.Subtract;
 import org.apache.nifi.record.path.functions.ToBytes;
 import org.apache.nifi.record.path.functions.ToDate;
 import org.apache.nifi.record.path.functions.ToLowerCase;
+import org.apache.nifi.record.path.functions.ToNumber;
 import org.apache.nifi.record.path.functions.ToString;
 import org.apache.nifi.record.path.functions.ToUpperCase;
 import org.apache.nifi.record.path.functions.TrimString;
@@ -458,6 +463,26 @@ public class RecordPathCompiler {
                         final RecordPathSegment[] args = getArgPaths(argumentListTree, 2, functionName, absolute);
                         return new Anchored(args[0], args[1], absolute);
                     }
+                    case "add" : {
+                        final RecordPathSegment[] args = getArgPaths(argumentListTree, 2, functionName, absolute);
+                        return new Add(args[0], args[1], absolute);
+                    }
+                    case "multiply": {
+                        final RecordPathSegment[] args = getArgPaths(argumentListTree, 2, functionName, absolute);
+                        return new Multiply(args[0], args[1], absolute);
+                    }
+                    case "divide": {
+                        final RecordPathSegment[] args = getArgPaths(argumentListTree, 2, functionName, absolute);
+                        return new Divide(args[0], args[1], absolute);
+                    }
+                    case "subtract" : {
+                        final RecordPathSegment[] args = getArgPaths(argumentListTree, 2, functionName, absolute);
+                        return new Subtract(args[0], args[1], absolute);
+                    }
+                    case "toNumber": {
+                        final RecordPathSegment[] args = getArgPaths(argumentListTree, 1, functionName, absolute);
+                        return new ToNumber(args[0], absolute);
+                    }
                     case "not":
                     case "contains":
                     case "containsRegex":
@@ -497,10 +522,10 @@ public class RecordPathCompiler {
             case NOT_EQUAL -> createBinaryOperationFilter(operatorTree, parent, NotEqualsFilter::new, absolute);
             case LESS_THAN -> createBinaryOperationFilter(operatorTree, parent, LessThanFilter::new, absolute);
             case LESS_THAN_EQUAL ->
-                    createBinaryOperationFilter(operatorTree, parent, LessThanOrEqualFilter::new, absolute);
+                createBinaryOperationFilter(operatorTree, parent, LessThanOrEqualFilter::new, absolute);
             case GREATER_THAN -> createBinaryOperationFilter(operatorTree, parent, GreaterThanFilter::new, absolute);
             case GREATER_THAN_EQUAL ->
-                    createBinaryOperationFilter(operatorTree, parent, GreaterThanOrEqualFilter::new, absolute);
+                createBinaryOperationFilter(operatorTree, parent, GreaterThanOrEqualFilter::new, absolute);
             case FUNCTION -> createFunctionFilter(operatorTree, absolute);
             default ->
                     throw new RecordPathException("Expected an Expression of form <value> <operator> <value> to follow '[' Token but found " + operatorTree);

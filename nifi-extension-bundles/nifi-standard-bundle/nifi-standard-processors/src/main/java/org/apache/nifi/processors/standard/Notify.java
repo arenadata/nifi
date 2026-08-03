@@ -31,6 +31,7 @@ import org.apache.nifi.expression.AttributeExpression.ResultType;
 import org.apache.nifi.expression.ExpressionLanguageScope;
 import org.apache.nifi.flowfile.FlowFile;
 import org.apache.nifi.logging.ComponentLog;
+import org.apache.nifi.migration.PropertyConfiguration;
 import org.apache.nifi.processor.AbstractProcessor;
 import org.apache.nifi.processor.ProcessContext;
 import org.apache.nifi.processor.ProcessSession;
@@ -48,12 +49,12 @@ import java.util.Set;
 @SupportsBatching
 @Tags({"map", "cache", "notify", "distributed", "signal", "release"})
 @InputRequirement(Requirement.INPUT_REQUIRED)
-@CapabilityDescription("Caches a release signal identifier in the distributed cache, optionally along with "
-        + "the FlowFile's attributes.  Any flow files held at a corresponding Wait processor will be "
+@CapabilityDescription("Caches a release signal identifier in the cache, optionally along with "
+        + "the FlowFile's attributes.  Any FlowFiles held at a corresponding Wait processor will be "
         + "released once this signal in the cache is discovered.")
 @WritesAttribute(attribute = "notified", description = "All FlowFiles will have an attribute 'notified'. The value of this " +
         "attribute is true, is the FlowFile is notified, otherwise false.")
-@SeeAlso(classNames = {"org.apache.nifi.distributed.cache.client.DistributedMapCacheClientService", "org.apache.nifi.distributed.cache.server.map.DistributedMapCacheServer",
+@SeeAlso(classNames = {"org.apache.nifi.distributed.cache.client.MapCacheClientService", "org.apache.nifi.distributed.cache.server.map.MapCacheServer",
         "org.apache.nifi.processors.standard.Wait"})
 public class Notify extends AbstractProcessor {
 
@@ -61,8 +62,7 @@ public class Notify extends AbstractProcessor {
 
     // Identifies the distributed map cache client
     public static final PropertyDescriptor DISTRIBUTED_CACHE_SERVICE = new PropertyDescriptor.Builder()
-            .name("distributed-cache-service")
-            .displayName("Distributed Cache Service")
+            .name("Distributed Cache Service")
             .description("The Controller Service that is used to cache release signals in order to release files queued at a corresponding Wait processor")
             .required(true)
             .identifiesControllerService(AtomicDistributedMapCacheClient.class)
@@ -70,8 +70,7 @@ public class Notify extends AbstractProcessor {
 
     // Selects the FlowFile attribute or expression, whose value is used as cache key
     public static final PropertyDescriptor RELEASE_SIGNAL_IDENTIFIER = new PropertyDescriptor.Builder()
-            .name("release-signal-id")
-            .displayName("Release Signal Identifier")
+            .name("Release Signal Identifier")
             .description("A value, or the results of an Attribute Expression Language statement, which will " +
                 "be evaluated against a FlowFile in order to determine the release signal cache key")
             .required(true)
@@ -80,8 +79,7 @@ public class Notify extends AbstractProcessor {
             .build();
 
     public static final PropertyDescriptor SIGNAL_COUNTER_NAME = new PropertyDescriptor.Builder()
-            .name("signal-counter-name")
-            .displayName("Signal Counter Name")
+            .name("Signal Counter Name")
             .description("A value, or the results of an Attribute Expression Language statement, which will " +
                 "be evaluated against a FlowFile in order to determine the signal counter name. " +
                 "Signal counter name is useful when a corresponding Wait processor needs to know the number of occurrences " +
@@ -93,8 +91,7 @@ public class Notify extends AbstractProcessor {
             .build();
 
     public static final PropertyDescriptor SIGNAL_COUNTER_DELTA = new PropertyDescriptor.Builder()
-            .name("signal-counter-delta")
-            .displayName("Signal Counter Delta")
+            .name("Signal Counter Delta")
             .description("A value, or the results of an Attribute Expression Language statement, which will " +
                 "be evaluated against a FlowFile in order to determine the signal counter delta. " +
                 "Specify how much the counter should increase. " +
@@ -110,11 +107,10 @@ public class Notify extends AbstractProcessor {
             .build();
 
     public static final PropertyDescriptor SIGNAL_BUFFER_COUNT = new PropertyDescriptor.Builder()
-            .name("signal-buffer-count")
-            .displayName("Signal Buffer Count")
-            .description("Specify the maximum number of incoming flow files that can be buffered until signals are notified to cache service. " +
+            .name("Signal Buffer Count")
+            .description("Specify the maximum number of incoming FlowFiles that can be buffered until signals are notified to cache service. " +
                 "The more buffer can provide the better performance, as it reduces the number of interactions with cache service " +
-                "by grouping signals by signal identifier when multiple incoming flow files share the same signal identifier.")
+                "by grouping signals by signal identifier when multiple incoming FlowFiles share the same signal identifier.")
             .required(true)
             .addValidator(StandardValidators.POSITIVE_INTEGER_VALIDATOR)
             .defaultValue("1")
@@ -122,8 +118,7 @@ public class Notify extends AbstractProcessor {
 
     // Specifies an optional regex used to identify which attributes to cache
     public static final PropertyDescriptor ATTRIBUTE_CACHE_REGEX = new PropertyDescriptor.Builder()
-            .name("attribute-cache-regex")
-            .displayName("Attribute Cache Regex")
+            .name("Attribute Cache Regular Expression")
             .description("Any attributes whose names match this regex will be stored in the distributed cache to be "
                     + "copied to any FlowFiles released from a corresponding Wait processor.  Note that the "
                     + "uuid attribute will not be cached regardless of this value.  If blank, no attributes "
@@ -207,7 +202,7 @@ public class Notify extends AbstractProcessor {
             // Signal id is computed from attribute 'RELEASE_SIGNAL_IDENTIFIER' with expression language support
             final String signalId = signalIdProperty.evaluateAttributeExpressions(flowFile).getValue();
 
-            // if the computed value is null, or empty, we transfer the flow file to failure relationship
+            // if the computed value is null, or empty, we transfer the FlowFile to failure relationship
             if (StringUtils.isBlank(signalId)) {
                 logger.error("FlowFile {} has no attribute for given Release Signal Identifier", flowFile);
                 // set 'notified' attribute
@@ -232,6 +227,11 @@ public class Notify extends AbstractProcessor {
                 }
             }
 
+            if (logger.isDebugEnabled()) {
+                logger.debug("Evaluated FlowFile {} to signalId='{}' counterName='{}' delta={} bufferCount={} attrRegex='{}'",
+                        flowFile, signalId, counterName, delta, bufferCount, attributeCacheRegex);
+            }
+
             if (!signalBuffers.containsKey(signalId)) {
                 signalBuffers.put(signalId, new SignalBuffer());
             }
@@ -241,6 +241,9 @@ public class Notify extends AbstractProcessor {
                 flowFile.getAttributes().entrySet()
                         .stream().filter(e -> (!e.getKey().equals("uuid") && e.getKey().matches(attributeCacheRegex)))
                         .forEach(e -> signalBuffer.attributesToCache.put(e.getKey(), e.getValue()));
+                if (logger.isDebugEnabled()) {
+                    logger.debug("FlowFile {} added cached attributes {} for signalId='{}'", flowFile, signalBuffer.attributesToCache.keySet(), signalId);
+                }
             }
 
             signalBuffer.incrementDelta(counterName, delta);
@@ -255,12 +258,28 @@ public class Notify extends AbstractProcessor {
             // In case of Exception, just throw the exception so that processor can
             // retry after yielding for a while.
             try {
-                protocol.notify(signalId, signalBuffer.deltas, signalBuffer.attributesToCache);
+                if (logger.isDebugEnabled()) {
+                    logger.debug("Notifying signalId='{}' with deltas {} and cached attributes {}", signalId, signalBuffer.deltas, signalBuffer.attributesToCache);
+                }
+                final WaitNotifyProtocol.Signal signal = protocol.notify(signalId, signalBuffer.deltas, signalBuffer.attributesToCache);
+                if (logger.isDebugEnabled()) {
+                    logger.debug("Post-notify state for signalId='{}': counts={} attributesKeys={}", signalId, signal.getCounts(), signal.getAttributes().keySet());
+                }
                 signalBuffer.flowFiles.forEach(flowFile ->
                         session.transfer(session.putAttribute(flowFile, NOTIFIED_ATTRIBUTE_NAME, String.valueOf(true)), REL_SUCCESS));
             } catch (IOException e) {
                 throw new RuntimeException(String.format("Unable to communicate with cache when processing %s due to %s", signalId, e), e);
             }
         });
+    }
+
+    @Override
+    public void migrateProperties(PropertyConfiguration config) {
+        config.renameProperty("distributed-cache-service", DISTRIBUTED_CACHE_SERVICE.getName());
+        config.renameProperty("release-signal-id", RELEASE_SIGNAL_IDENTIFIER.getName());
+        config.renameProperty("signal-counter-name", SIGNAL_COUNTER_NAME.getName());
+        config.renameProperty("signal-counter-delta", SIGNAL_COUNTER_DELTA.getName());
+        config.renameProperty("signal-buffer-count", SIGNAL_BUFFER_COUNT.getName());
+        config.renameProperty("attribute-cache-regex", ATTRIBUTE_CACHE_REGEX.getName());
     }
 }

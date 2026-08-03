@@ -28,6 +28,7 @@ import org.apache.nifi.components.PropertyDescriptor;
 import org.apache.nifi.context.PropertyContext;
 import org.apache.nifi.controller.ConfigurationContext;
 import org.apache.nifi.logging.ComponentLog;
+import org.apache.nifi.migration.PropertyConfiguration;
 import org.apache.nifi.processor.DataUnit;
 import org.apache.nifi.processor.util.StandardValidators;
 import org.apache.nifi.schema.access.SchemaAccessStrategy;
@@ -56,6 +57,7 @@ import static org.apache.nifi.schema.access.SchemaAccessUtils.SCHEMA_NAME_PROPER
 import static org.apache.nifi.schema.access.SchemaAccessUtils.SCHEMA_REFERENCE_READER_PROPERTY;
 import static org.apache.nifi.schema.access.SchemaAccessUtils.SCHEMA_TEXT_PROPERTY;
 import static org.apache.nifi.schema.inference.SchemaInferenceUtil.INFER_SCHEMA;
+import static org.apache.nifi.schema.inference.SchemaInferenceUtil.OBSOLETE_SCHEMA_CACHE;
 import static org.apache.nifi.schema.inference.SchemaInferenceUtil.SCHEMA_CACHE;
 
 @Tags({"json", "tree", "record", "reader", "parser"})
@@ -77,8 +79,7 @@ public class JsonTreeReader extends SchemaRegistryService implements RecordReade
     protected volatile TokenParserFactory tokenParserFactory;
 
     public static final PropertyDescriptor STARTING_FIELD_STRATEGY = new PropertyDescriptor.Builder()
-            .name("starting-field-strategy")
-            .displayName("Starting Field Strategy")
+            .name("Starting Field Strategy")
             .description("Start processing from the root node or from a specified nested node.")
             .required(true)
             .addValidator(StandardValidators.NON_BLANK_VALIDATOR)
@@ -86,20 +87,17 @@ public class JsonTreeReader extends SchemaRegistryService implements RecordReade
             .allowableValues(StartingFieldStrategy.class)
             .build();
 
-
     public static final PropertyDescriptor STARTING_FIELD_NAME = new PropertyDescriptor.Builder()
-            .name("starting-field-name")
-            .displayName("Starting Field Name")
-            .description("Skips forward to the given nested JSON field (array or object) to begin processing.")
+            .name("Starting Field Name")
+            .description("Skips forward to the given nested field (array or object) to begin processing.")
             .required(false)
             .addValidator(StandardValidators.NON_BLANK_VALIDATOR)
             .dependsOn(STARTING_FIELD_STRATEGY, StartingFieldStrategy.NESTED_FIELD.name())
             .build();
 
     public static final PropertyDescriptor SCHEMA_APPLICATION_STRATEGY = new PropertyDescriptor.Builder()
-            .name("schema-application-strategy")
-            .displayName("Schema Application Strategy")
-            .description("Specifies whether the schema is defined for the whole JSON or for the selected part starting from \"Starting Field Name\".")
+            .name("Schema Application Strategy")
+            .description("Specifies whether the schema is defined for the whole document or for the selected part starting from \"Starting Field Name\".")
             .required(true)
             .addValidator(StandardValidators.NON_BLANK_VALIDATOR)
             .defaultValue(SchemaApplicationStrategy.SELECTED_PART.getValue())
@@ -119,7 +117,7 @@ public class JsonTreeReader extends SchemaRegistryService implements RecordReade
         properties.add(STARTING_FIELD_NAME);
         properties.add(SCHEMA_APPLICATION_STRATEGY);
         properties.add(AbstractJsonRowRecordReader.MAX_STRING_LENGTH);
-        properties.add(AbstractJsonRowRecordReader.ALLOW_COMMENTS);
+        properties.add(AbstractJsonRowRecordReader.PARSING_STRATEGY);
         properties.add(DateTimeUtils.DATE_FORMAT);
         properties.add(DateTimeUtils.TIME_FORMAT);
         properties.add(DateTimeUtils.TIMESTAMP_FORMAT);
@@ -137,8 +135,31 @@ public class JsonTreeReader extends SchemaRegistryService implements RecordReade
         this.tokenParserFactory = createTokenParserFactory(context);
     }
 
+    @Override
+    public void migrateProperties(PropertyConfiguration config) {
+        super.migrateProperties(config);
+        config.renameProperty("starting-field-strategy", STARTING_FIELD_STRATEGY.getName());
+        config.renameProperty("starting-field-name", STARTING_FIELD_NAME.getName());
+        config.renameProperty("schema-application-strategy", SCHEMA_APPLICATION_STRATEGY.getName());
+        config.renameProperty(OBSOLETE_SCHEMA_CACHE, SCHEMA_CACHE.getName());
+
+        if (config.isPropertySet(AbstractJsonRowRecordReader.OBSOLETE_ALLOW_COMMENTS)) {
+            final String allowCommentsRawValue = config.getRawPropertyValue(AbstractJsonRowRecordReader.OBSOLETE_ALLOW_COMMENTS).orElse(Boolean.FALSE.toString());
+            final boolean allowComments = Boolean.parseBoolean(allowCommentsRawValue);
+            if (allowComments) {
+                config.setProperty(AbstractJsonRowRecordReader.PARSING_STRATEGY, ParsingStrategy.LENIENT.getValue());
+            } else {
+                config.setProperty(AbstractJsonRowRecordReader.PARSING_STRATEGY, ParsingStrategy.STANDARD.getValue());
+            }
+
+            config.removeProperty(AbstractJsonRowRecordReader.OBSOLETE_ALLOW_COMMENTS);
+        }
+    }
+
     protected TokenParserFactory createTokenParserFactory(final ConfigurationContext context) {
-        return new JsonParserFactory(buildStreamReadConstraints(context), isAllowCommentsEnabled(context));
+        final ParsingStrategy parsingStrategy =
+                context.getProperty(AbstractJsonRowRecordReader.PARSING_STRATEGY).asAllowableValue(ParsingStrategy.class);
+        return new JsonParserFactory(buildStreamReadConstraints(context), parsingStrategy);
     }
 
     /**
@@ -150,16 +171,6 @@ public class JsonTreeReader extends SchemaRegistryService implements RecordReade
     protected StreamReadConstraints buildStreamReadConstraints(final ConfigurationContext context) {
         final int maxStringLength = context.getProperty(AbstractJsonRowRecordReader.MAX_STRING_LENGTH).asDataSize(DataUnit.B).intValue();
         return StreamReadConstraints.builder().maxStringLength(maxStringLength).build();
-    }
-
-    /**
-     * Determine whether to allow comments when parsing based on available properties
-     *
-     * @param context Configuration Context with property values
-     * @return Allow comments status
-     */
-    protected boolean isAllowCommentsEnabled(final ConfigurationContext context) {
-        return context.getProperty(AbstractJsonRowRecordReader.ALLOW_COMMENTS).asBoolean();
     }
 
     @Override

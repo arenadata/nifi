@@ -17,9 +17,9 @@
 package org.apache.nifi.web.api.dto;
 
 import io.swagger.v3.oas.annotations.media.Schema;
+import jakarta.xml.bind.annotation.adapters.XmlJavaTypeAdapter;
 import org.apache.nifi.web.api.dto.util.TimestampAdapter;
 
-import jakarta.xml.bind.annotation.adapters.XmlJavaTypeAdapter;
 import java.util.Date;
 import java.util.List;
 
@@ -33,7 +33,6 @@ public abstract class AsynchronousRequestDTO<T extends UpdateStepDTO> {
     private int percentCompleted;
     private String state;
     private List<T> updateSteps;
-
 
     @Schema(description = "The ID of the request", accessMode = Schema.AccessMode.READ_ONLY)
     public String getRequestId() {

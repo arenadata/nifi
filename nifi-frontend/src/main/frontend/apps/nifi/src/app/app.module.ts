@@ -57,13 +57,24 @@ import { BannerTextEffects } from './state/banner-text/banner-text.effects';
 import { MAT_TOOLTIP_DEFAULT_OPTIONS, MatTooltipDefaultOptions } from '@angular/material/tooltip';
 import { CLIPBOARD_OPTIONS, provideMarkdown } from 'ngx-markdown';
 import { CopyEffects } from './state/copy/copy.effects';
+import { EmptyQueueEffects } from './state/empty-queue/empty-queue.effects';
 
 const entry = localStorage.getItem('disable-animations');
-let disableAnimations: string = entry !== null ? JSON.parse(entry).item : '';
+let disableAnimations = '';
+
+try {
+    disableAnimations = entry !== null ? JSON.parse(entry).item : '';
+} catch (_error) {
+    /* empty */
+}
 
 // honor OS settings if user has not explicitly disabled animations for the application
-if (disableAnimations !== 'true' && disableAnimations !== 'false') {
-    disableAnimations = window.matchMedia('(prefers-reduced-motion: reduce)').matches.toString();
+try {
+    if (disableAnimations !== 'true' && disableAnimations !== 'false') {
+        disableAnimations = window.matchMedia('(prefers-reduced-motion: reduce)').matches.toString();
+    }
+} catch (_error) {
+    /* empty */
 }
 
 export const customTooltipDefaults: MatTooltipDefaultOptions = {
@@ -99,12 +110,15 @@ export const customTooltipDefaults: MatTooltipDefaultOptions = {
             DocumentationEffects,
             ClusterSummaryEffects,
             PropertyVerificationEffects,
-            CopyEffects
+            CopyEffects,
+            EmptyQueueEffects
         ),
         StoreDevtoolsModule.instrument({
             maxAge: 25,
             logOnly: environment.production,
-            autoPause: true
+            autoPause: true,
+            name: 'NiFi',
+            trace: !environment.production
         }),
         MatProgressSpinnerModule,
         MatNativeDateModule,

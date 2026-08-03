@@ -16,17 +16,17 @@
  */
 package org.apache.nifi.reporting.azure.loganalytics.api;
 
-import java.util.List;
-import java.util.concurrent.TimeUnit;
-import org.apache.nifi.metrics.jvm.JvmMetrics;
-import org.apache.nifi.processor.DataUnit;
 import org.apache.nifi.controller.status.ConnectionStatus;
 import org.apache.nifi.controller.status.ProcessGroupStatus;
 import org.apache.nifi.controller.status.ProcessorStatus;
-import org.apache.nifi.reporting.azure.loganalytics.MetricNames;
+import org.apache.nifi.metrics.jvm.JvmMetrics;
+import org.apache.nifi.processor.DataUnit;
 import org.apache.nifi.reporting.azure.loganalytics.Metric;
+import org.apache.nifi.reporting.azure.loganalytics.MetricNames;
 import org.apache.nifi.reporting.azure.loganalytics.MetricsBuilder;
 
+import java.util.List;
+import java.util.concurrent.TimeUnit;
 
 public class AzureLogAnalyticsMetricsFactory {
 
@@ -49,7 +49,6 @@ public class AzureLogAnalyticsMetricsFactory {
             .metric(MetricNames.TOTAL_TASK_DURATION_SECONDS, calculateProcessingNanos(status));
         return builder.build();
     }
-
 
     public static List<Metric> getConnectionStatusMetrics(ConnectionStatus status, String instanceId, String groupName) {
 
@@ -116,10 +115,10 @@ public class AzureLogAnalyticsMetricsFactory {
 
         // Append pool stats
         virtualMachineMetrics.memoryPoolUsage()
-        .forEach((name, usage) -> {
-            name = name.toLowerCase().replaceAll("\\s", "_");
-            builder.metric("jvm.mem_pool_" + name, usage);
-        });
+            .forEach((name, usage) -> {
+                name = name.toLowerCase().replaceAll("\\s", "_");
+                builder.metric("jvm.mem_pool_" + name, usage);
+            });
 
         return builder.build();
 

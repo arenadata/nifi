@@ -16,8 +16,6 @@
  */
 package org.apache.nifi.util.validator;
 
-import java.util.concurrent.TimeUnit;
-import java.util.regex.Pattern;
 import org.apache.nifi.components.PropertyValue;
 import org.apache.nifi.components.ValidationContext;
 import org.apache.nifi.components.ValidationResult;
@@ -25,6 +23,9 @@ import org.apache.nifi.components.Validator;
 import org.apache.nifi.processor.util.StandardValidators;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
+
+import java.util.concurrent.TimeUnit;
+import java.util.regex.Pattern;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -312,7 +313,6 @@ public class TestStandardValidators {
         assertEquals(2, mockValidator.getValidateCallCount());
     }
 
-
     @Test
     public void testListValidatorEnsuringElementValidation() {
         // use the TestMockValidator to be sure the item validator get's called when we think it should
@@ -462,7 +462,6 @@ public class TestStandardValidators {
         assertTrue(vr.isValid());
         assertEquals(2, mockValidator.getValidateCallCount());
     }
-
 
     @Test
     public void testiso8061InstantValidator() {

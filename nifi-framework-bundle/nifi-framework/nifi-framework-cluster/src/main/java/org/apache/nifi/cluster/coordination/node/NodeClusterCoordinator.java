@@ -128,6 +128,7 @@ public class NodeClusterCoordinator implements ClusterCoordinator, ProtocolHandl
 
     private final ConcurrentMap<String, NodeConnectionStatus> nodeStatuses = new ConcurrentHashMap<>();
     private final ConcurrentMap<String, CircularFifoQueue<NodeEvent>> nodeEvents = new ConcurrentHashMap<>(); //NOPMD
+    private final ConcurrentMap<String, Thread> pendingDisconnections = new ConcurrentHashMap<>();
 
     private final List<ClusterTopologyEventListener> eventListeners = new CopyOnWriteArrayList<>();
 
@@ -1006,47 +1007,57 @@ public class NodeClusterCoordinator implements ClusterCoordinator, ProtocolHandl
 
     private Future<Void> disconnectAsynchronously(final DisconnectMessage request, final int attempts, final int retrySeconds) {
         final CompletableFuture<Void> future = new CompletableFuture<>();
+        final String nodeUuid = request.getNodeId().getId();
 
         final Thread disconnectThread = new Thread(() -> {
             final NodeIdentifier nodeId = request.getNodeId();
 
-            Exception lastException = null;
-            for (int i = 0; i < attempts; i++) {
-                // If the node is restarted, it will attempt to reconnect. In that case, we don't want to disconnect the node
-                // again. So we instead log the fact that the state has now transitioned to this point and consider the task completed.
-                final NodeConnectionState currentConnectionState = getConnectionState(nodeId);
-                if (currentConnectionState == NodeConnectionState.CONNECTING || currentConnectionState == NodeConnectionState.CONNECTED) {
-                    reportEvent(nodeId, Severity.INFO, String.format(
-                        "State of Node %s has now transitioned from DISCONNECTED to %s so will no longer attempt to notify node that it is disconnected.", nodeId, currentConnectionState));
-                    future.completeExceptionally(new IllegalStateException("Node was marked as disconnected but its state transitioned from DISCONNECTED back to " + currentConnectionState +
-                        " before the node could be notified. This typically indicates that the node was restarted."));
-
-                    return;
-                }
-
-                // Try to send disconnect notice to the node
-                try {
-                    senderListener.disconnect(request);
-                    reportEvent(nodeId, Severity.INFO, "Node disconnected due to " + request.getExplanation());
-                    future.complete(null);
-                    return;
-                } catch (final Exception e) {
-                    logger.error("Failed to notify {} that it has been disconnected from the cluster due to {}", request.getNodeId(), request.getExplanation());
-                    lastException = e;
-
-                    try {
-                        Thread.sleep(retrySeconds * 1000L);
-                    } catch (final InterruptedException ie) {
-                        future.completeExceptionally(ie);
-                        Thread.currentThread().interrupt();
+            try {
+                for (int i = 0; i < attempts; i++) {
+                    if (Thread.currentThread().isInterrupted()) {
+                        logger.info("Disconnect request for {} was cancelled because the node submitted a new Connection Request", nodeId);
+                        future.cancel(true);
                         return;
                     }
-                }
-            }
 
-            future.completeExceptionally(lastException);
+                    final NodeConnectionState currentConnectionState = getConnectionState(nodeId);
+                    if (currentConnectionState == NodeConnectionState.CONNECTING || currentConnectionState == NodeConnectionState.CONNECTED) {
+                        reportEvent(nodeId, Severity.INFO, String.format(
+                            "State of Node %s has now transitioned from DISCONNECTED to %s so will no longer attempt to notify node that it is disconnected.", nodeId, currentConnectionState));
+                        future.completeExceptionally(new IllegalStateException("Node was marked as disconnected but its state transitioned from DISCONNECTED back to " + currentConnectionState
+                            + " before the node could be notified. This typically indicates that the node was restarted."));
+                        return;
+                    }
+
+                    try {
+                        senderListener.disconnect(request);
+                        reportEvent(nodeId, Severity.INFO, "Node disconnected due to " + request.getExplanation());
+                        future.complete(null);
+                        return;
+                    } catch (final Exception e) {
+                        logger.error("Failed to notify {} that it has been disconnected from the cluster due to {}", request.getNodeId(), request.getExplanation());
+
+                        try {
+                            Thread.sleep(retrySeconds * 1000L);
+                        } catch (final InterruptedException ie) {
+                            logger.info("Disconnect request for {} was cancelled because the node submitted a new Connection Request", nodeId);
+                            future.cancel(true);
+                            Thread.currentThread().interrupt();
+                            return;
+                        }
+                    }
+                }
+
+                future.completeExceptionally(new ProtocolException("Failed to disconnect " + request.getNodeId() + " after " + attempts + " attempts"));
+            } finally {
+                pendingDisconnections.remove(nodeUuid, Thread.currentThread());
+            }
         }, "Disconnect " + request.getNodeId());
 
+        final Thread previousThread = pendingDisconnections.put(nodeUuid, disconnectThread);
+        if (previousThread != null) {
+            previousThread.interrupt();
+        }
         disconnectThread.start();
         return future;
     }
@@ -1131,7 +1142,7 @@ public class NodeClusterCoordinator implements ClusterCoordinator, ProtocolHandl
     public ProtocolMessage handle(final ProtocolMessage protocolMessage, final Set<String> nodeIdentities) throws ProtocolException {
         return switch (protocolMessage.getType()) {
             case CONNECTION_REQUEST ->
-                    handleConnectionRequest((ConnectionRequestMessage) protocolMessage, nodeIdentities);
+                handleConnectionRequest((ConnectionRequestMessage) protocolMessage, nodeIdentities);
             case NODE_STATUS_CHANGE -> {
                 handleNodeStatusChange((NodeStatusChangeMessage) protocolMessage);
                 yield null;
@@ -1175,7 +1186,7 @@ public class NodeClusterCoordinator implements ClusterCoordinator, ProtocolHandl
 
         final NodeConnectionStatus oldStatus = nodeStatuses.get(statusChangeMessage.getNodeId().getId());
 
-        if (oldStatus == null && updatedStatus.getState() == NodeConnectionState.DISCONNECTED ) {
+        if (oldStatus == null && updatedStatus.getState() == NodeConnectionState.DISCONNECTED) {
             // There is no need to tell that node is getting disconnected if there was no status earlier.
             return;
         }
@@ -1270,6 +1281,8 @@ public class NodeClusterCoordinator implements ClusterCoordinator, ProtocolHandl
         final DataFlow dataFlow = requestMessage.getConnectionRequest().getDataFlow();
         final ConnectionRequest requestWithNodeIdentities = new ConnectionRequest(withNodeIdentities, dataFlow);
 
+        cancelPendingDisconnection(nodeIdentifier);
+
         // Resolve Node identifier.
         registerNodeId(nodeIdentifier);
 
@@ -1297,6 +1310,19 @@ public class NodeClusterCoordinator implements ClusterCoordinator, ProtocolHandl
         return createConnectionResponse(requestWithNodeIdentities, nodeIdentifier);
     }
 
+    private void cancelPendingDisconnection(final NodeIdentifier nodeIdentifier) {
+        final Thread disconnectThread = pendingDisconnections.remove(nodeIdentifier.getId());
+        if (disconnectThread != null) {
+            disconnectThread.interrupt();
+            logger.info("Received Connection Request from {} while a disconnect request was still pending; interrupted the disconnect thread", nodeIdentifier);
+        }
+    }
+
+    // Visible for testing
+    Thread getPendingDisconnectionThread(final NodeIdentifier nodeIdentifier) {
+        return pendingDisconnections.get(nodeIdentifier.getId());
+    }
+
     private ConnectionResponseMessage createFlowElectionInProgressResponse() {
         final ConnectionResponseMessage responseMessage = new ConnectionResponseMessage();
         final String statusDescription = flowElection.getStatusDescription();
@@ -1317,7 +1343,6 @@ public class NodeClusterCoordinator implements ClusterCoordinator, ProtocolHandl
 
         return createConnectionResponse(request, resolvedNodeIdentifier, dataFlow);
     }
-
 
     private ConnectionResponseMessage createConnectionResponse(final ConnectionRequest request, final NodeIdentifier resolvedNodeIdentifier, final DataFlow clusterDataFlow) {
         if (clusterDataFlow == null) {
@@ -1344,7 +1369,6 @@ public class NodeClusterCoordinator implements ClusterCoordinator, ProtocolHandl
         responseMessage.setConnectionResponse(response);
         return responseMessage;
     }
-
 
     private NodeIdentifier addNodeIdentities(final NodeIdentifier nodeId, final Set<String> nodeIdentities) {
         return new NodeIdentifier(nodeId.getId(), nodeId.getApiAddress(), nodeId.getApiPort(),

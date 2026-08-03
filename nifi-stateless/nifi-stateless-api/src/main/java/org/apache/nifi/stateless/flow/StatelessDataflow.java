@@ -49,8 +49,6 @@ public interface StatelessDataflow {
      */
     DataflowTrigger trigger(DataflowTriggerContext triggerContext);
 
-
-
     /**
      * <p>
      * Performs initialization necessary for triggering dataflows. These activities include, but are not limited to:
@@ -111,4 +109,13 @@ public interface StatelessDataflow {
     OptionalLong getCounter(String componentId, String counterName);
 
     Map<String, Long> getCounters(Pattern counterNamePattern);
+
+    /**
+     * Returns the latest time at which any component in the dataflow had activity, or an empty OptionalLong if there has been no activity.
+     *
+     * @return the latest activity time in milliseconds since epoch, or empty if no activity has occurred
+     */
+    default OptionalLong getLatestActivityTime() {
+        return OptionalLong.empty();
+    }
 }

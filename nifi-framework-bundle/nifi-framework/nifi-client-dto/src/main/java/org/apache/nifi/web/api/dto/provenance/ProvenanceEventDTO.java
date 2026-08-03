@@ -17,10 +17,12 @@
 package org.apache.nifi.web.api.dto.provenance;
 
 import io.swagger.v3.oas.annotations.media.Schema;
-import org.apache.nifi.web.api.dto.util.TimestampAdapter;
-
 import jakarta.xml.bind.annotation.XmlType;
 import jakarta.xml.bind.annotation.adapters.XmlJavaTypeAdapter;
+import org.apache.nifi.web.api.dto.util.InstantAdapter;
+import org.apache.nifi.web.api.dto.util.TimestampAdapter;
+
+import java.time.Instant;
 import java.util.Collection;
 import java.util.Date;
 import java.util.List;
@@ -36,6 +38,7 @@ public class ProvenanceEventDTO {
     // in search results table
     private Long eventId;
     private Date eventTime;
+    private Instant eventTimestamp;
     private Long eventDuration;
     private Long lineageDuration;
     private String eventType;
@@ -46,6 +49,7 @@ public class ProvenanceEventDTO {
     private String clusterNodeAddress; // include when clustered
 
     private String groupId;
+    private String connectorId;
     private String componentId;
     private String componentType;
     private String componentName;
@@ -121,6 +125,19 @@ public class ProvenanceEventDTO {
 
     public void setEventTime(Date eventTime) {
         this.eventTime = eventTime;
+    }
+
+    @XmlJavaTypeAdapter(InstantAdapter.class)
+    @Schema(
+            description = "Event Timestamp formatted using ISO8601",
+            type = "string"
+    )
+    public Instant getEventTimestamp() {
+        return eventTimestamp;
+    }
+
+    public void setEventTimestamp(final Instant eventTimestamp) {
+        this.eventTimestamp = eventTimestamp;
     }
 
     /**
@@ -199,6 +216,19 @@ public class ProvenanceEventDTO {
 
     public void setGroupId(String groupId) {
         this.groupId = groupId;
+    }
+
+    /**
+     * @return id of the Connector that manages the component that generated this event, or {@code null} if the component is not managed by a Connector
+     */
+    @Schema(description = "The id of the connector that manages the component that generated the event. If the component is not managed by a connector, this will not be set."
+    )
+    public String getConnectorId() {
+        return connectorId;
+    }
+
+    public void setConnectorId(String connectorId) {
+        this.connectorId = connectorId;
     }
 
     /**
@@ -451,7 +481,7 @@ public class ProvenanceEventDTO {
     /**
      * @return the offset into the the output Content Claim where the FlowFile's content begins, or <code>null</code> if no Content Claim exists
      */
-    @Schema(description = "The offset into the output content claim where the flowfiles content begins."
+    @Schema(description = "The offset into the output content claim where the FlowFiles content begins."
     )
     public Long getOutputContentClaimOffset() {
         return outputContentClaimOffset;
@@ -542,7 +572,7 @@ public class ProvenanceEventDTO {
     /**
      * @return the offset into the the input Content Claim where the FlowFile's content begins, or <code>null</code> if no Content Claim exists
      */
-    @Schema(description = "The offset into the input content claim where the flowfiles content begins."
+    @Schema(description = "The offset into the input content claim where the FlowFiles content begins."
     )
     public Long getInputContentClaimOffset() {
         return inputContentClaimOffset;

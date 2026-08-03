@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-import { Component, Input } from '@angular/core';
+import { Component, Input, inject } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { MatSortModule, Sort } from '@angular/material/sort';
 import { MatTableModule } from '@angular/material/table';
@@ -48,15 +48,13 @@ export type SupportedColumns = 'name' | 'runStatus' | 'in' | 'out';
     styleUrls: ['./port-status-table.component.scss']
 })
 export class PortStatusTable extends ComponentStatusTable<PortStatusSnapshotEntity> {
+    private nifiCommon = inject(NiFiCommon);
+
     private _portType!: 'input' | 'output';
 
     filterableColumns: SummaryTableFilterColumn[] = [{ key: 'name', label: 'name' }];
 
     displayedColumns: string[] = [];
-
-    constructor(private nifiCommon: NiFiCommon) {
-        super();
-    }
 
     @Input() set portType(type: 'input' | 'output') {
         if (type === 'input') {
@@ -149,7 +147,7 @@ export class PortStatusTable extends ComponentStatusTable<PortStatusSnapshotEnti
         }
         return data.slice().sort((a, b) => {
             const isAsc: boolean = sort.direction === 'asc';
-            let retVal = 0;
+            let retVal: number;
             switch (sort.active) {
                 case 'name':
                     retVal = this.nifiCommon.compareString(a.portStatusSnapshot.name, b.portStatusSnapshot.name);

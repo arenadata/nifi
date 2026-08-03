@@ -264,7 +264,7 @@ public class StandardReportingTaskDAO extends ComponentDAO implements ReportingT
         final ReportingTaskNode taskNode = locateReportingTask(reportingTaskId);
 
         final LogRepository logRepository = new NopLogRepository();
-        final ComponentLog configVerificationLog = new SimpleProcessLogger(taskNode.getReportingTask(), logRepository, new StandardLoggingContext(null));
+        final ComponentLog configVerificationLog = new SimpleProcessLogger(taskNode.getReportingTask(), logRepository, new StandardLoggingContext());
         final ExtensionManager extensionManager = flowController.getExtensionManager();
 
         final ParameterLookup parameterLookup = ParameterLookup.EMPTY;
@@ -286,7 +286,6 @@ public class StandardReportingTaskDAO extends ComponentDAO implements ReportingT
         dto.setVerificationStepName(result.getVerificationStepName());
         return dto;
     }
-
 
     private void verifyUpdate(final ReportingTaskNode reportingTask, final ReportingTaskDTO reportingTaskDTO) {
         // ensure the state, if specified, is valid

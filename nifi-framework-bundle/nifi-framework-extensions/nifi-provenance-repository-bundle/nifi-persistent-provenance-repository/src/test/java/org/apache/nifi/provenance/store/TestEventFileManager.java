@@ -17,14 +17,14 @@
 
 package org.apache.nifi.provenance.store;
 
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Timeout;
 
 import java.io.File;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
-import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.Timeout;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 @Timeout(value = 5)
 public class TestEventFileManager {
@@ -75,7 +75,6 @@ public class TestEventFileManager {
         assertTrue(nanos > TimeUnit.MILLISECONDS.toNanos(300L));
     }
 
-
     @Test
     public void testTwoReadLocks() throws InterruptedException {
         final EventFileManager fileManager = new EventFileManager();
@@ -122,7 +121,6 @@ public class TestEventFileManager {
         assertTrue(nanos < TimeUnit.MILLISECONDS.toNanos(500L));
     }
 
-
     @Test
     public void testWriteThenRead() throws InterruptedException {
         final EventFileManager fileManager = new EventFileManager();
@@ -168,7 +166,6 @@ public class TestEventFileManager {
         final long nanos = System.nanoTime() - start;
         assertTrue(nanos > TimeUnit.MILLISECONDS.toNanos(300L));
     }
-
 
     @Test
     public void testReadThenWrite() throws InterruptedException {

@@ -35,6 +35,7 @@ import { NgTemplateOutlet } from '@angular/common';
 import {
     AllowableValueEntity,
     ComponentHistory,
+    ConvertToParameterResponse,
     InlineServiceCreationRequest,
     InlineServiceCreationResponse,
     ParameterConfig,
@@ -58,7 +59,6 @@ import {
 import { ComboEditor } from './editors/combo-editor/combo-editor.component';
 import { Observable, take } from 'rxjs';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { ConvertToParameterResponse } from '../../../pages/flow-designer/service/parameter-helper.service';
 import { MatMenu, MatMenuItem, MatMenuTrigger } from '@angular/material/menu';
 import { PropertyItem } from './property-item';
 import { PropertyValueTip } from '../tooltips/property-value-tip/property-value-tip.component';
@@ -90,10 +90,13 @@ import { PropertyValueTip } from '../tooltips/property-value-tip/property-value-
     ]
 })
 export class PropertyTable implements AfterViewInit, ControlValueAccessor {
+    private changeDetector = inject(ChangeDetectorRef);
+    private nifiCommon = inject(NiFiCommon);
+
     @Input() createNewProperty!: (existingProperties: string[], allowsSensitive: boolean) => Observable<Property>;
     @Input() createNewService!: (request: InlineServiceCreationRequest) => Observable<InlineServiceCreationResponse>;
     @Input() parameterContext: ParameterContextEntity | undefined;
-    @Input() goToParameter!: (parameter: string) => void;
+    @Input() goToParameter?: (parameter: string) => void;
     @Input() convertToParameter!: (
         name: string,
         sensitive: boolean,
@@ -102,7 +105,7 @@ export class PropertyTable implements AfterViewInit, ControlValueAccessor {
     @Input() goToService!: (serviceId: string) => void;
     @Input() supportsSensitiveDynamicProperties = false;
     @Input() propertyHistory: ComponentHistory | undefined;
-    @Input() supportsParameters: boolean = true;
+    @Input() supportsParameters = true;
 
     private static readonly PARAM_REF_REGEX: RegExp = /#{(['"]?)[a-zA-Z0-9-_. ]+\1}/;
 
@@ -148,11 +151,6 @@ export class PropertyTable implements AfterViewInit, ControlValueAccessor {
         overlayY: 'top',
         offsetY: 4
     };
-
-    constructor(
-        private changeDetector: ChangeDetectorRef,
-        private nifiCommon: NiFiCommon
-    ) {}
 
     ngAfterViewInit(): void {
         this.initFilter();
@@ -522,7 +520,7 @@ export class PropertyTable implements AfterViewInit, ControlValueAccessor {
         // TODO - currently parameter context route does not support navigating
         // directly to a specific parameter so the parameter context link
         // is not item specific.
-        if (this.parameterContext && item.value) {
+        if (this.parameterContext && this.goToParameter && item.value) {
             return this.parameterContext.permissions.canRead && PropertyTable.PARAM_REF_REGEX.test(item.value);
         }
 
@@ -530,7 +528,9 @@ export class PropertyTable implements AfterViewInit, ControlValueAccessor {
     }
 
     goToParameterClicked(item: PropertyItem): void {
-        // @ts-ignore
+        if (!this.goToParameter || item.value == null) {
+            return;
+        }
         this.goToParameter(item.value);
     }
 

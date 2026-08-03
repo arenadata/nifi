@@ -27,6 +27,7 @@ import {
     LoadRegistryClientsResponse,
     SelectRegistryClientRequest
 } from './index';
+import { ClearBulletinsRequest, ClearBulletinsResponse } from '../../../../state/shared';
 
 export const resetRegistryClientsState = createAction('[Registry Clients] Reset Registry Clients State');
 
@@ -37,8 +38,13 @@ export const loadRegistryClientsSuccess = createAction(
     props<{ response: LoadRegistryClientsResponse }>()
 );
 
+export const loadRegistryClientsError = createAction(
+    '[Registry Clients] Load Registry Clients Error',
+    props<{ errorResponse: any; loadedTimestamp: string; status: 'pending' | 'success' }>()
+);
+
 export const registryClientsBannerApiError = createAction(
-    '[Registry Clients] Load Registry Clients Banner Api Error',
+    '[Registry Clients] Registry Clients Banner Api Error',
     props<{ error: string }>()
 );
 
@@ -97,4 +103,14 @@ export const deleteRegistryClientSuccess = createAction(
 export const selectClient = createAction(
     '[Registry Clients] Select Registry Client',
     props<{ request: SelectRegistryClientRequest }>()
+);
+
+export const clearRegistryClientBulletins = createAction(
+    '[Registry Clients] Clear Registry Client Bulletins',
+    props<{ request: ClearBulletinsRequest }>()
+);
+
+export const clearRegistryClientBulletinsSuccess = createAction(
+    '[Registry Clients] Clear Registry Client Bulletins Success',
+    props<{ response: ClearBulletinsResponse }>()
 );

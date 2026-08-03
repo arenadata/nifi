@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-import { Component, Inject } from '@angular/core';
+import { Component, inject } from '@angular/core';
 import { MatButtonModule } from '@angular/material/button';
 import { MAT_DIALOG_DATA, MatDialogModule } from '@angular/material/dialog';
 import { MatTableDataSource, MatTableModule } from '@angular/material/table';
@@ -43,6 +43,9 @@ import { ComponentType, SelectOption, CloseOnEscapeDialog, NiFiCommon } from '@n
     styleUrls: ['./user-access-policies.component.scss']
 })
 export class UserAccessPolicies extends CloseOnEscapeDialog {
+    request = inject<UserAccessPoliciesDialogRequest>(MAT_DIALOG_DATA);
+    private nifiCommon = inject(NiFiCommon);
+
     displayedColumns: string[] = ['policy', 'action', 'actions'];
     dataSource: MatTableDataSource<AccessPolicySummaryEntity> = new MatTableDataSource<AccessPolicySummaryEntity>();
     selectedPolicyId: string | null = null;
@@ -52,11 +55,10 @@ export class UserAccessPolicies extends CloseOnEscapeDialog {
         direction: 'asc'
     };
 
-    constructor(
-        @Inject(MAT_DIALOG_DATA) public request: UserAccessPoliciesDialogRequest,
-        private nifiCommon: NiFiCommon
-    ) {
+    constructor() {
         super();
+        const request = this.request;
+
         this.dataSource.data = this.sortPolicies(request.accessPolicies, this.sort);
     }
 
@@ -70,7 +72,7 @@ export class UserAccessPolicies extends CloseOnEscapeDialog {
         return data.sort((a, b) => {
             const isAsc = sort.direction === 'asc';
 
-            let retVal = 0;
+            let retVal: number;
             if (a.permissions.canRead && b.permissions.canRead) {
                 switch (sort.active) {
                     case 'policy':
@@ -79,12 +81,13 @@ export class UserAccessPolicies extends CloseOnEscapeDialog {
                     case 'action':
                         retVal = this.nifiCommon.compareString(a.component.action, b.component.action);
                         break;
+                    default:
+                        retVal = 0;
                 }
             } else {
                 if (!a.permissions.canRead && !b.permissions.canRead) {
                     retVal = 0;
-                }
-                if (a.permissions.canRead) {
+                } else if (a.permissions.canRead) {
                     retVal = 1;
                 } else {
                     retVal = -1;
@@ -103,6 +106,11 @@ export class UserAccessPolicies extends CloseOnEscapeDialog {
             // not restricted/global policy... check if user has access to the component reference
             return this.componentResourceParser(policy);
         } else {
+            const globalLabel = this.parseGlobalPolicyResource(policy.component.resource, policy.component.action);
+            if (globalLabel) {
+                return globalLabel;
+            }
+
             // may be a global policy
             const policyValue: string = this.nifiCommon.substringAfterLast(policy.component.resource, '/');
             const policyOption: SelectOption | undefined = this.nifiCommon.getPolicyTypeListing(policyValue);
@@ -114,6 +122,21 @@ export class UserAccessPolicies extends CloseOnEscapeDialog {
                 return this.unknownResourceParser(policy);
             }
         }
+    }
+
+    /**
+     * Labels global connector data and provenance policies whose resource paths are not
+     * represented in the policy type listing (e.g. /data/connectors vs /connectors).
+     */
+    private parseGlobalPolicyResource(resource: string, action: string): string | null {
+        if (resource === '/data/connectors') {
+            const text = action === 'write' ? 'modify the data' : 'view the data';
+            return `Global policy to ${text} for connectors`;
+        }
+        if (resource === '/provenance-data/connectors') {
+            return 'Global policy to view provenance for connectors';
+        }
+        return null;
     }
 
     /**
@@ -153,6 +176,9 @@ export class UserAccessPolicies extends CloseOnEscapeDialog {
         } else if (resource.startsWith('/data')) {
             resource = this.nifiCommon.substringAfterFirst(resource, '/data');
             policyLabel += 'Data policy for ';
+        } else if (resource.startsWith('/provenance-data')) {
+            resource = this.nifiCommon.substringAfterFirst(resource, '/provenance-data');
+            policyLabel += 'Provenance policy for ';
         } else if (resource.startsWith('/operation')) {
             resource = this.nifiCommon.substringAfterFirst(resource, '/operation');
             policyLabel += 'Operate policy for ';
@@ -180,6 +206,8 @@ export class UserAccessPolicies extends CloseOnEscapeDialog {
             policyLabel += 'reporting task ';
         } else if (resource.startsWith('/parameter-contexts')) {
             policyLabel += 'parameter context ';
+        } else if (resource.startsWith('/connectors')) {
+            policyLabel += 'connector ';
         }
 
         const componentReference: ComponentReferenceEntity | undefined = policy.component.componentReference;
@@ -288,6 +316,8 @@ export class UserAccessPolicies extends CloseOnEscapeDialog {
             return ['/settings', 'reporting-tasks', componentReference.id];
         } else if (resource.indexOf('/parameter-contexts') >= 0) {
             return ['/parameter-contexts', componentReference.id];
+        } else if (resource.indexOf('/connectors') >= 0) {
+            return ['/connectors', componentReference.id];
         }
         return ['/'];
     }

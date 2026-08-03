@@ -23,11 +23,14 @@ import { initialState } from '../../../state/flow/flow.reducer';
 import { NavigationControl } from './navigation-control/navigation-control.component';
 import { OperationControl } from './operation-control/operation-control.component';
 import { selectBreadcrumbs } from '../../../state/flow/flow.selectors';
-import { Birdseye } from './navigation-control/birdseye/birdseye.component';
-import { BreadcrumbEntity } from '../../../state/shared';
+import { BreadcrumbEntity } from '../../../../../state/shared';
 import { MockComponent } from 'ng-mocks';
 import { canvasFeatureKey } from '../../../state';
 import { flowFeatureKey } from '../../../state/flow';
+import { initialState as initialErrorState } from '../../../../../state/error/error.reducer';
+import { errorFeatureKey } from '../../../../../state/error';
+import { initialState as initialCurrentUserState } from '../../../../../state/current-user/current-user.reducer';
+import { currentUserFeatureKey } from '../../../../../state/current-user';
 
 describe('GraphControls', () => {
     let component: GraphControls;
@@ -48,15 +51,12 @@ describe('GraphControls', () => {
         };
 
         TestBed.configureTestingModule({
-            imports: [
-                GraphControls,
-                MockComponent(NavigationControl),
-                MockComponent(OperationControl),
-                MockComponent(Birdseye)
-            ],
+            imports: [GraphControls],
             providers: [
                 provideMockStore({
                     initialState: {
+                        [errorFeatureKey]: initialErrorState,
+                        [currentUserFeatureKey]: initialCurrentUserState,
                         [canvasFeatureKey]: {
                             [flowFeatureKey]: initialState
                         }
@@ -69,6 +69,9 @@ describe('GraphControls', () => {
                     ]
                 })
             ]
+        }).overrideComponent(GraphControls, {
+            remove: { imports: [NavigationControl, OperationControl] },
+            add: { imports: [MockComponent(NavigationControl), MockComponent(OperationControl)] }
         });
 
         fixture = TestBed.createComponent(GraphControls);

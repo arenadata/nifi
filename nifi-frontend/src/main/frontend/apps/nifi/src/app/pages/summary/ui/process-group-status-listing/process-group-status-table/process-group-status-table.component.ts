@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-import { Component, Input } from '@angular/core';
+import { Component, Input, inject } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { MatSortModule, Sort } from '@angular/material/sort';
 import { MatTableModule } from '@angular/material/table';
@@ -61,6 +61,8 @@ export type SupportedColumns =
     styleUrls: ['./process-group-status-table.component.scss']
 })
 export class ProcessGroupStatusTable extends ComponentStatusTable<ProcessGroupStatusSnapshotEntity> {
+    private nifiCommon = inject(NiFiCommon);
+
     filterableColumns: SummaryTableFilterColumn[] = [{ key: 'name', label: 'name' }];
 
     displayedColumns: string[] = [
@@ -76,10 +78,6 @@ export class ProcessGroupStatusTable extends ComponentStatusTable<ProcessGroupSt
         'tasks',
         'actions'
     ];
-
-    constructor(private nifiCommon: NiFiCommon) {
-        super();
-    }
 
     @Input() rootProcessGroup!: ProcessGroupStatusSnapshot;
 
@@ -183,7 +181,9 @@ export class ProcessGroupStatusTable extends ComponentStatusTable<ProcessGroupSt
             this.rootProcessGroup.processingNanos
         );
 
-        return `${this.nifiCommon.formatDuration(pg.processGroupStatusSnapshot.processingNanos)} (${percentage}%)`;
+        // Convert nanoseconds to milliseconds for formatDuration (which expects millis)
+        const processingMillis = pg.processGroupStatusSnapshot.processingNanos / NiFiCommon.NANOS_PER_MILLI;
+        return `${this.nifiCommon.formatDuration(processingMillis)} (${percentage}%)`;
     }
 
     private calculatePercent(used: number, total: number): number {
@@ -223,7 +223,7 @@ export class ProcessGroupStatusTable extends ComponentStatusTable<ProcessGroupSt
 
         return data.slice().sort((a, b) => {
             const isAsc = sort.direction === 'asc';
-            let retVal = 0;
+            let retVal: number;
             switch (sort.active) {
                 case 'name':
                     retVal = this.nifiCommon.compareString(this.formatName(a), this.formatName(b));

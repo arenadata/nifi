@@ -18,8 +18,8 @@
 package org.apache.nifi.cluster.coordination.http.endpoints;
 
 import org.apache.nifi.cluster.coordination.http.EndpointResponseMerger;
-import org.apache.nifi.cluster.manager.NodeResponse;
 import org.apache.nifi.cluster.manager.FlowAnalysisRuleEntityMerger;
+import org.apache.nifi.cluster.manager.NodeResponse;
 import org.apache.nifi.cluster.protocol.NodeIdentifier;
 import org.apache.nifi.web.api.entity.FlowAnalysisRuleEntity;
 
@@ -33,11 +33,10 @@ import java.util.regex.Pattern;
 
 public class FlowAnalysisRuleEndpointMerger extends AbstractSingleEntityEndpoint<FlowAnalysisRuleEntity> implements EndpointResponseMerger {
     private static final Collection<Endpoint> SUPPORTED_ENDPOINTS = Arrays.asList(
-      new Endpoint("/nifi-api/controller/flow-analysis-rules", "POST"),
-      new Endpoint(Pattern.compile("/nifi-api/controller/flow-analysis-rules/[a-f0-9\\-]{36}"), "GET", "PUT", "DELETE"),
-      new Endpoint(Pattern.compile("/nifi-api/controller/flow-analysis-rules/[a-f0-9\\-]{36}/run-status"), "PUT")
+        new Endpoint("/nifi-api/controller/flow-analysis-rules", "POST"),
+        new Endpoint(Pattern.compile("/nifi-api/controller/flow-analysis-rules/[a-f0-9\\-]{36}"), "GET", "PUT", "DELETE"),
+        new Endpoint(Pattern.compile("/nifi-api/controller/flow-analysis-rules/[a-f0-9\\-]{36}/run-status"), "PUT")
     );
-
 
     private final FlowAnalysisRuleEntityMerger flowAnalysisRuleEntityMerger = new FlowAnalysisRuleEntityMerger();
 

@@ -16,6 +16,27 @@
  */
 package org.apache.nifi.util;
 
+import org.apache.nifi.components.state.Scope;
+import org.apache.nifi.components.state.StateManager;
+import org.apache.nifi.components.state.StateMap;
+import org.apache.nifi.controller.queue.QueueSize;
+import org.apache.nifi.flowfile.FlowFile;
+import org.apache.nifi.flowfile.attributes.CoreAttributes;
+import org.apache.nifi.processor.FlowFileFilter;
+import org.apache.nifi.processor.ProcessSession;
+import org.apache.nifi.processor.Processor;
+import org.apache.nifi.processor.Relationship;
+import org.apache.nifi.processor.exception.FlowFileAccessException;
+import org.apache.nifi.processor.exception.FlowFileHandlingException;
+import org.apache.nifi.processor.exception.ProcessException;
+import org.apache.nifi.processor.io.InputStreamCallback;
+import org.apache.nifi.processor.io.OutputStreamCallback;
+import org.apache.nifi.processor.io.StreamCallback;
+import org.apache.nifi.processor.metrics.CommitTiming;
+import org.apache.nifi.provenance.ProvenanceReporter;
+import org.apache.nifi.state.MockStateManager;
+import org.junit.jupiter.api.Assertions;
+
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.Closeable;
@@ -43,25 +64,6 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
-import org.apache.nifi.components.state.Scope;
-import org.apache.nifi.components.state.StateManager;
-import org.apache.nifi.components.state.StateMap;
-import org.apache.nifi.controller.queue.QueueSize;
-import org.apache.nifi.flowfile.FlowFile;
-import org.apache.nifi.flowfile.attributes.CoreAttributes;
-import org.apache.nifi.processor.FlowFileFilter;
-import org.apache.nifi.processor.ProcessSession;
-import org.apache.nifi.processor.Processor;
-import org.apache.nifi.processor.Relationship;
-import org.apache.nifi.processor.exception.FlowFileAccessException;
-import org.apache.nifi.processor.exception.FlowFileHandlingException;
-import org.apache.nifi.processor.exception.ProcessException;
-import org.apache.nifi.processor.io.InputStreamCallback;
-import org.apache.nifi.processor.io.OutputStreamCallback;
-import org.apache.nifi.processor.io.StreamCallback;
-import org.apache.nifi.provenance.ProvenanceReporter;
-import org.apache.nifi.state.MockStateManager;
-import org.junit.jupiter.api.Assertions;
 
 public class MockProcessSession implements ProcessSession {
 
@@ -76,6 +78,7 @@ public class MockProcessSession implements ProcessSession {
     private final Map<Long, MockFlowFile> originalVersions = new HashMap<>();
     private final SharedSessionState sharedState;
     private final Map<String, Long> counterMap = new HashMap<>();
+    private final Map<String, List<Double>> namedGaugeValues = new HashMap<>();
     private final Map<FlowFile, Integer> readRecursionSet = new HashMap<>();
     private final Set<FlowFile> writeRecursionSet = new HashSet<>();
     private final MockProvenanceReporter provenanceReporter;
@@ -151,6 +154,19 @@ public class MockProcessSession implements ProcessSession {
 
         counter = counter + delta;
         counterMap.put(name, counter);
+    }
+
+    @Override
+    public void recordGauge(final String name, final double value, final CommitTiming commitTiming) {
+        if (CommitTiming.NOW == commitTiming) {
+            sharedState.recordGauge(name, value);
+        } else {
+            namedGaugeValues.compute(name, (gaugeName, values) -> {
+                final List<Double> gaugeValues = Objects.requireNonNullElseGet(values, ArrayList::new);
+                gaugeValues.add(value);
+                return gaugeValues;
+            });
+        }
     }
 
     @Override
@@ -287,7 +303,6 @@ public class MockProcessSession implements ProcessSession {
         }
     }
 
-
     @Override
     public void commit() {
         if (!allowSynchronousCommits) {
@@ -324,6 +339,14 @@ public class MockProcessSession implements ProcessSession {
 
         for (final Map.Entry<String, Long> entry : counterMap.entrySet()) {
             sharedState.adjustCounter(entry.getKey(), entry.getValue());
+        }
+
+        for (final Map.Entry<String, List<Double>> namedGaugeEntry : namedGaugeValues.entrySet()) {
+            final String name = namedGaugeEntry.getKey();
+            final List<Double> gaugeValues = namedGaugeEntry.getValue();
+            for (final Double gaugeValue : gaugeValues) {
+                sharedState.recordGauge(name, gaugeValue);
+            }
         }
 
         sharedState.addProvenanceEvents(provenanceReporter.getEvents());
@@ -874,7 +897,7 @@ public class MockProcessSession implements ProcessSession {
         }
 
         // if the flowfile provided was created in this session (i.e. it's in currentVersions and not in original versions),
-        // then throw an exception indicating that you can't transfer flowfiles back to self.
+        // then throw an exception indicating that you can't transfer FlowFiles back to self.
         // this mimics the same behavior in StandardProcessSession
         if (currentVersions.get(flowFile.getId()) != null && originalVersions.get(flowFile.getId()) == null) {
             throw new IllegalArgumentException("Cannot transfer FlowFiles that are created in this Session back to self");
@@ -1063,7 +1086,7 @@ public class MockProcessSession implements ProcessSession {
     }
 
     /**
-     * @param relationship to get flowfiles for
+     * @param relationship to get FlowFiles for
      * @return a List of FlowFiles in the order in which they were transferred
      *         to the given relationship
      */
@@ -1153,7 +1176,6 @@ public class MockProcessSession implements ProcessSession {
         return currentVersion;
     }
 
-
     /**
      * Inherits the attributes from the given source flow file into another flow
      * file. The UUID of the source becomes the parent UUID of this flow file.
@@ -1173,10 +1195,10 @@ public class MockProcessSession implements ProcessSession {
     }
 
     /**
-     * Inherits the attributes from the given source flow files into the
+     * Inherits the attributes from the given source FlowFiles into the
      * destination flow file. The UUIDs of the sources becomes the parent UUIDs
      * of the destination flow file. Only attributes which is common to all
-     * source items is copied into this flow files attributes. Any previously
+     * source items is copied into this FlowFiles attributes. Any previously
      * established parent UUIDs will be replaced by the UUIDs of the sources. It
      * will capture the uuid of a certain number of source objects and may not
      * capture all of them. How many it will capture is unspecified.
@@ -1213,7 +1235,7 @@ public class MockProcessSession implements ProcessSession {
      * Returns the attributes that are common to every flow file given. The key
      * and value must match exactly.
      *
-     * @param flowFileList a list of flow files
+     * @param flowFileList a list of FlowFiles
      *
      * @return the common attributes
      */
@@ -1315,17 +1337,17 @@ public class MockProcessSession implements ProcessSession {
     }
 
     /**
-     * Asserts that all FlowFiles that were transferred were transferred to the
+     * Asserts that all FlowFiles that were transferred to the
      * given relationship
      *
-     * @param relationship to check for transferred flow files
+     * @param relationship to check for transferred FlowFiles
      */
     public void assertAllFlowFilesTransferred(final String relationship) {
         assertAllFlowFilesTransferred(new Relationship.Builder().name(relationship).build());
     }
 
     /**
-     * Asserts that all FlowFiles that were transferred were transferred to the
+     * Asserts that all FlowFiles that were transferred to the
      * given relationship
      *
      * @param relationship to validate

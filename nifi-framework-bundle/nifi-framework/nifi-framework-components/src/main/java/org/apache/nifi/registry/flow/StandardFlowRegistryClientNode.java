@@ -16,14 +16,18 @@
  */
 package org.apache.nifi.registry.flow;
 
-import org.apache.nifi.annotation.behavior.Restricted;
 import org.apache.nifi.annotation.documentation.DeprecationNotice;
 import org.apache.nifi.authorization.Resource;
 import org.apache.nifi.authorization.resource.Authorizable;
 import org.apache.nifi.authorization.resource.ResourceFactory;
 import org.apache.nifi.authorization.resource.ResourceType;
+import org.apache.nifi.bundle.Bundle;
 import org.apache.nifi.bundle.BundleCoordinate;
+import org.apache.nifi.components.ConfigVerificationResult;
+import org.apache.nifi.components.ConfigVerificationResult.Outcome;
 import org.apache.nifi.components.ConfigurableComponent;
+import org.apache.nifi.components.PropertyDescriptor;
+import org.apache.nifi.components.ValidationContext;
 import org.apache.nifi.components.ValidationResult;
 import org.apache.nifi.components.validation.ValidationStatus;
 import org.apache.nifi.components.validation.ValidationTrigger;
@@ -40,7 +44,12 @@ import org.apache.nifi.flow.VersionedFlowCoordinates;
 import org.apache.nifi.flow.VersionedParameterContext;
 import org.apache.nifi.flow.VersionedProcessGroup;
 import org.apache.nifi.groups.ProcessGroup;
+import org.apache.nifi.logging.ComponentLog;
+import org.apache.nifi.migration.ControllerServiceCreationDetails;
+import org.apache.nifi.migration.ControllerServiceFactory;
+import org.apache.nifi.migration.StandardPropertyConfiguration;
 import org.apache.nifi.nar.ExtensionManager;
+import org.apache.nifi.nar.InstanceClassLoader;
 import org.apache.nifi.nar.NarCloseable;
 import org.apache.nifi.parameter.ParameterContext;
 import org.apache.nifi.parameter.ParameterLookup;
@@ -56,6 +65,7 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -108,7 +118,7 @@ public final class StandardFlowRegistryClientNode extends AbstractComponentNode 
     }
 
     @Override
-    protected List<ValidationResult> validateConfig() {
+    protected List<ValidationResult> validateConfig(final ValidationContext validationContext) {
         return Collections.emptyList();
     }
 
@@ -150,18 +160,13 @@ public final class StandardFlowRegistryClientNode extends AbstractComponentNode 
     }
 
     @Override
-    public boolean isRestricted() {
-        return getComponentClass().isAnnotationPresent(Restricted.class);
-    }
-
-    @Override
     public boolean isDeprecated() {
         return getComponentClass().isAnnotationPresent(DeprecationNotice.class);
     }
 
     @Override
     public boolean isValidationNecessary() {
-        return getValidationStatus() != ValidationStatus.VALID;
+        return true;
     }
 
     @Override
@@ -237,6 +242,15 @@ public final class StandardFlowRegistryClientNode extends AbstractComponentNode 
     }
 
     @Override
+    public void createBranch(final FlowRegistryClientUserContext context, final FlowVersionLocation sourceLocation, final String newBranchName)
+            throws FlowRegistryException, IOException {
+        execute(() -> {
+            client.get().getComponent().createBranch(getConfigurationContext(context), sourceLocation, newBranchName);
+            return null;
+        });
+    }
+
+    @Override
     public FlowSnapshotContainer getFlowContents(final FlowRegistryClientUserContext context, final FlowVersionLocation flowVersionLocation, final boolean fetchRemoteFlows)
             throws FlowRegistryException, IOException {
         final RegisteredFlowSnapshot flowSnapshot = execute(() -> client.get().getComponent().getFlowContents(getConfigurationContext(context), flowVersionLocation));
@@ -292,6 +306,69 @@ public final class StandardFlowRegistryClientNode extends AbstractComponentNode 
     @Override
     public void setComponent(final LoggableComponent<FlowRegistryClient> component) {
         client.set(component);
+    }
+
+    @Override
+    public List<ConfigVerificationResult> verifyConfiguration(final Map<String, String> properties, final Map<String, String> variables,
+                                                               final ComponentLog logger, final ExtensionManager extensionManager) {
+        final List<ConfigVerificationResult> results = new ArrayList<>();
+
+        try {
+            final Map<PropertyDescriptor, String> propertyValues = new LinkedHashMap<>(getRawPropertyValues());
+            if (properties != null) {
+                for (final Map.Entry<String, String> entry : properties.entrySet()) {
+                    final PropertyDescriptor descriptor = getPropertyDescriptor(entry.getKey());
+                    propertyValues.put(descriptor, entry.getValue());
+                }
+            }
+
+            final FlowRegistryClientConfigurationContext configurationContext =
+                    new StandardFlowRegistryClientConfigurationContext(null, propertyValues, this, serviceProvider);
+
+            results.addAll(super.verifyConfig(propertyValues, getAnnotationData(), null));
+            if (!results.isEmpty() && results.stream().anyMatch(result -> result.getOutcome() == Outcome.FAILED)) {
+                return results;
+            }
+
+            final ConfigurableComponent configurableComponent = client.get().getComponent();
+            if (configurableComponent instanceof VerifiableFlowRegistryClient verifiableClient) {
+                final boolean classpathDifferent = isClasspathDifferent(propertyValues);
+                final Map<String, String> verificationVariables = variables == null ? Collections.emptyMap() : variables;
+
+                if (classpathDifferent) {
+                    final Bundle bundle = extensionManager.getBundle(getBundleCoordinate());
+                    final Set<URL> classpathUrls = getAdditionalClasspathResources(propertyValues.keySet(),
+                            descriptor -> configurationContext.getProperty(descriptor).getValue());
+                    final ClassLoader currentClassLoader = Thread.currentThread().getContextClassLoader();
+                    final String isolationKey = getClassLoaderIsolationKey(configurationContext);
+
+                    try (final InstanceClassLoader detectedClassLoader = extensionManager.createInstanceClassLoader(
+                            getComponentType(), getIdentifier(), bundle, classpathUrls, false, isolationKey)) {
+                        Thread.currentThread().setContextClassLoader(detectedClassLoader);
+                        results.addAll(verifiableClient.verify(configurationContext, logger, verificationVariables));
+                    } finally {
+                        Thread.currentThread().setContextClassLoader(currentClassLoader);
+                    }
+                } else {
+                    try (final NarCloseable ignored = NarCloseable.withComponentNarLoader(extensionManager,
+                            configurableComponent.getClass(), getIdentifier())) {
+                        results.addAll(verifiableClient.verify(configurationContext, logger, verificationVariables));
+                    }
+                }
+            } else {
+                getLogger().debug("{} does not support verification. Skipping additional verification beyond validation.", this);
+            }
+        } catch (final Throwable t) {
+            getLogger().error("Failed to perform verification of Flow Registry Client configuration for {}", this, t);
+
+            results.add(new ConfigVerificationResult.Builder()
+                    .verificationStepName("Perform Verification")
+                    .outcome(Outcome.FAILED)
+                    .explanation("Encountered unexpected failure when attempting to perform verification: " + t)
+                    .build());
+        }
+
+        return results;
     }
 
     private <T> T execute(final FlowRegistryClientAction<T> action) throws FlowRegistryException, IOException {
@@ -446,6 +523,32 @@ public final class StandardFlowRegistryClientNode extends AbstractComponentNode 
         registeredFlowSnapshot.setSnapshotMetadata(metadata);
         registeredFlowSnapshot.setParameterProviders(parameterProviderReferences);
         return registeredFlowSnapshot;
+    }
+
+    @Override
+    public void migrateConfiguration(final Map<String, String> originalPropertyValues, final ControllerServiceFactory serviceFactory) {
+        final Map<String, String> effectiveValues = new HashMap<>();
+        originalPropertyValues.forEach((key, value) -> effectiveValues.put(key, mapRawValueToEffectiveValue(value)));
+
+        final StandardPropertyConfiguration propertyConfig = new StandardPropertyConfiguration(effectiveValues,
+                originalPropertyValues, this::mapRawValueToEffectiveValue, toString(), serviceFactory);
+
+        final FlowRegistryClient flowRegistryClient = client.get().getComponent();
+        try (final NarCloseable ignored = NarCloseable.withComponentNarLoader(getExtensionManager(), flowRegistryClient.getClass(), getIdentifier())) {
+            flowRegistryClient.migrateProperties(propertyConfig);
+        } catch (final Exception e) {
+            logger.error("Failed to migrate Property Configuration for {}.", this, e);
+        }
+
+        if (propertyConfig.isModified()) {
+            // Create any necessary Controller Services. It is important that we create the services
+            // before updating the flow registry client's properties, as it's necessary in order to properly account
+            // for the Controller Service References.
+            final List<ControllerServiceCreationDetails> servicesCreated = propertyConfig.getCreatedServices();
+            servicesCreated.forEach(serviceFactory::create);
+
+            overwriteProperties(propertyConfig.getRawProperties());
+        }
     }
 
     private interface FlowRegistryClientAction<T> {

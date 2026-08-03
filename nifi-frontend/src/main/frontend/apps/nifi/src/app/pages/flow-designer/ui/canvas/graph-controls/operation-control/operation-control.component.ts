@@ -15,15 +15,16 @@
  * limitations under the License.
  */
 
-import { Component, Input } from '@angular/core';
+import { Component, Input, inject } from '@angular/core';
 import { setOperationCollapsed } from '../../../../state/flow/flow.actions';
 import { Store } from '@ngrx/store';
 import { CanvasState } from '../../../../state';
 import { CanvasUtils } from '../../../../service/canvas-utils.service';
 import { initialState } from '../../../../state/flow/flow.reducer';
 import { ComponentType, Storage, ComponentContext } from '@nifi/shared';
-import { BreadcrumbEntity } from '../../../../state/shared';
+import { BreadcrumbEntity } from '../../../../../../state/shared';
 import { MatButtonModule } from '@angular/material/button';
+import { MatTooltipModule } from '@angular/material/tooltip';
 import * as d3 from 'd3';
 import { CanvasView } from '../../../../service/canvas-view.service';
 import { Client } from '../../../../../../service/client.service';
@@ -32,10 +33,17 @@ import { CanvasActionsService } from '../../../../service/canvas-actions.service
 @Component({
     selector: 'operation-control',
     templateUrl: './operation-control.component.html',
-    imports: [MatButtonModule, ComponentContext],
+    imports: [MatButtonModule, MatTooltipModule, ComponentContext],
     styleUrls: ['./operation-control.component.scss']
 })
 export class OperationControl {
+    private store = inject<Store<CanvasState>>(Store);
+    canvasUtils = inject(CanvasUtils);
+    private canvasView = inject(CanvasView);
+    private client = inject(Client);
+    private storage = inject(Storage);
+    private canvasActionsService = inject(CanvasActionsService);
+
     private static readonly CONTROL_VISIBILITY_KEY: string = 'graph-control-visibility';
     private static readonly OPERATION_KEY: string = 'operation-control';
 
@@ -44,14 +52,7 @@ export class OperationControl {
 
     operationCollapsed: boolean = initialState.operationCollapsed;
 
-    constructor(
-        private store: Store<CanvasState>,
-        public canvasUtils: CanvasUtils,
-        private canvasView: CanvasView,
-        private client: Client,
-        private storage: Storage,
-        private canvasActionsService: CanvasActionsService
-    ) {
+    constructor() {
         try {
             const item: { [key: string]: boolean } | null = this.storage.getItem(
                 OperationControl.CONTROL_VISIBILITY_KEY
@@ -60,7 +61,7 @@ export class OperationControl {
                 this.operationCollapsed = !item[OperationControl.OPERATION_KEY];
                 this.store.dispatch(setOperationCollapsed({ operationCollapsed: this.operationCollapsed }));
             }
-        } catch (e) {
+        } catch (_e) {
             // likely could not parse item... ignoring
         }
     }

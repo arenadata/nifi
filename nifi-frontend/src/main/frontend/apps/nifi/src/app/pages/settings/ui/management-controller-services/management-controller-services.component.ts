@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-import { Component, OnDestroy, OnInit } from '@angular/core';
+import { Component, OnDestroy, OnInit, inject } from '@angular/core';
 import { Store } from '@ngrx/store';
 import { ManagementControllerServicesState } from '../../state/management-controller-services';
 import {
@@ -25,6 +25,7 @@ import {
     selectSingleEditedService
 } from '../../state/management-controller-services/management-controller-services.selectors';
 import {
+    clearControllerServiceBulletins,
     loadManagementControllerServices,
     navigateToAdvancedServiceUi,
     navigateToEditService,
@@ -48,7 +49,7 @@ import { selectFlowConfiguration } from '../../../../state/flow-configuration/fl
 import { CurrentUser } from '../../../../state/current-user';
 import { getComponentStateAndOpenDialog } from '../../../../state/component-state/component-state.actions';
 import { navigateToComponentDocumentation } from '../../../../state/documentation/documentation.actions';
-import { ComponentType } from '@nifi/shared';
+import { ComponentType, NiFiCommon } from '@nifi/shared';
 import { AsyncPipe } from '@angular/common';
 import { NgxSkeletonLoaderComponent } from 'ngx-skeleton-loader';
 import { MatIconButton } from '@angular/material/button';
@@ -61,12 +62,15 @@ import { ControllerServiceTable } from '../../../../ui/common/controller-service
     styleUrls: ['./management-controller-services.component.scss']
 })
 export class ManagementControllerServices implements OnInit, OnDestroy {
+    private store = inject<Store<NiFiState>>(Store);
+    private nifiCommon = inject(NiFiCommon);
+
     serviceState$ = this.store.select(selectManagementControllerServicesState);
     selectedServiceId$ = this.store.select(selectControllerServiceIdFromRoute);
     currentUser$ = this.store.select(selectCurrentUser);
     flowConfiguration$ = this.store.select(selectFlowConfiguration);
 
-    constructor(private store: Store<NiFiState>) {
+    constructor() {
         this.store
             .select(selectSingleEditedService)
             .pipe(
@@ -189,7 +193,8 @@ export class ManagementControllerServices implements OnInit, OnDestroy {
         this.store.dispatch(
             getComponentStateAndOpenDialog({
                 request: {
-                    componentUri: entity.uri,
+                    componentType: ComponentType.ControllerService,
+                    componentId: entity.id,
                     componentName: entity.component.name,
                     canClear: entity.component.state === 'DISABLED'
                 }
@@ -230,6 +235,26 @@ export class ManagementControllerServices implements OnInit, OnDestroy {
             selectControllerService({
                 request: {
                     id: entity.id
+                }
+            })
+        );
+    }
+
+    clearBulletinsControllerService(entity: ControllerServiceEntity): void {
+        // Get the most recent bulletin timestamp from the entity's bulletins
+        // This will be reconstructed from the time-only string to a full timestamp
+        const fromTimestamp = this.nifiCommon.getMostRecentBulletinTimestamp(entity.bulletins || []);
+        if (fromTimestamp === null) {
+            return; // no bulletins to clear
+        }
+
+        this.store.dispatch(
+            clearControllerServiceBulletins({
+                request: {
+                    uri: entity.uri,
+                    fromTimestamp,
+                    componentId: entity.id,
+                    componentType: ComponentType.ControllerService
                 }
             })
         );

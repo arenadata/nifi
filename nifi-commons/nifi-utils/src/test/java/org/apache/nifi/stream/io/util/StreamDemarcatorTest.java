@@ -30,7 +30,6 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.Mockito.mock;
 
-
 @SuppressWarnings("resource")
 public class StreamDemarcatorTest {
     @Test
@@ -303,7 +302,6 @@ public class StreamDemarcatorTest {
             assertArrayEquals(new byte[] {'Y', 'e', 's'}, second);
         }
     }
-
 
     @Test
     public void testOnBufferSplit() throws IOException {

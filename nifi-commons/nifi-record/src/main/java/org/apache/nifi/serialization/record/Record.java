@@ -17,14 +17,14 @@
 
 package org.apache.nifi.serialization.record;
 
+import org.apache.nifi.serialization.record.util.IllegalTypeConversionException;
+
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
-
-import org.apache.nifi.serialization.record.util.IllegalTypeConversionException;
 
 public interface Record {
 
@@ -167,7 +167,6 @@ public interface Record {
      * @throws IllegalArgumentException if unable to rename field due to a naming conflict, such as the new name already existing in the schema
      */
     boolean rename(RecordField field, String newName);
-
 
     /**
      * Creates a new schema for the Record based on the Record's field types.

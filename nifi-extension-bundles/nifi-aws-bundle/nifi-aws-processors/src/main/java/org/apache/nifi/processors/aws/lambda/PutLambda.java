@@ -26,10 +26,11 @@ import org.apache.nifi.annotation.documentation.Tags;
 import org.apache.nifi.components.PropertyDescriptor;
 import org.apache.nifi.expression.ExpressionLanguageScope;
 import org.apache.nifi.flowfile.FlowFile;
+import org.apache.nifi.migration.PropertyConfiguration;
 import org.apache.nifi.processor.ProcessContext;
 import org.apache.nifi.processor.ProcessSession;
 import org.apache.nifi.processor.util.StandardValidators;
-import org.apache.nifi.processors.aws.v2.AbstractAwsSyncProcessor;
+import org.apache.nifi.processors.aws.AbstractAwsSyncProcessor;
 import software.amazon.awssdk.awscore.exception.AwsServiceException;
 import software.amazon.awssdk.core.SdkBytes;
 import software.amazon.awssdk.services.lambda.LambdaClient;
@@ -51,6 +52,9 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
+
+import static org.apache.nifi.processors.aws.region.RegionUtil.CUSTOM_REGION;
+import static org.apache.nifi.processors.aws.region.RegionUtil.REGION;
 
 @InputRequirement(Requirement.INPUT_REQUIRED)
 @Tags({"amazon", "aws", "lambda", "put"})
@@ -90,7 +94,7 @@ public class PutLambda extends AbstractAwsSyncProcessor<LambdaClient, LambdaClie
             .build();
 
     static final PropertyDescriptor AWS_LAMBDA_FUNCTION_QUALIFIER = new PropertyDescriptor.Builder()
-            .name("Amazon Lambda Qualifier (version)")
+            .name("Amazon Lambda Qualifier")
             .description("The Lambda Function Version")
             .defaultValue("$LATEST")
             .expressionLanguageSupported(ExpressionLanguageScope.NONE)
@@ -102,6 +106,7 @@ public class PutLambda extends AbstractAwsSyncProcessor<LambdaClient, LambdaClie
             AWS_LAMBDA_FUNCTION_NAME,
             AWS_LAMBDA_FUNCTION_QUALIFIER,
             REGION,
+            CUSTOM_REGION,
             AWS_CREDENTIALS_PROVIDER_SERVICE,
             SSL_CONTEXT_SERVICE,
             TIMEOUT,
@@ -189,12 +194,18 @@ public class PutLambda extends AbstractAwsSyncProcessor<LambdaClient, LambdaClie
         }
     }
 
+    @Override
+    public void migrateProperties(PropertyConfiguration config) {
+        super.migrateProperties(config);
+        config.renameProperty("Amazon Lambda Qualifier (version)", AWS_LAMBDA_FUNCTION_QUALIFIER.getName());
+    }
+
     /**
-     * Populate exception attributes in the flow file
+     * Populate exception attributes in the FlowFile
      * @param session process session
-     * @param flowFile the flow file
+     * @param flowFile the FlowFile
      * @param exception exception thrown during invocation
-     * @return FlowFile the updated flow file
+     * @return FlowFile the updated FlowFile
      */
     private FlowFile populateExceptionAttributes(final ProcessSession session, FlowFile flowFile,
             final AwsServiceException exception) {

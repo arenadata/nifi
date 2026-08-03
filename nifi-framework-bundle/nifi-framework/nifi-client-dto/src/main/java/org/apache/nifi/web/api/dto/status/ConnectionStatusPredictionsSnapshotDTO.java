@@ -17,7 +17,6 @@
 package org.apache.nifi.web.api.dto.status;
 
 import io.swagger.v3.oas.annotations.media.Schema;
-
 import jakarta.xml.bind.annotation.XmlType;
 
 /**
@@ -78,7 +77,7 @@ public class ConnectionStatusPredictionsSnapshotDTO implements Cloneable {
         this.predictedBytesAtNextInterval = predictedBytesAtNextInterval;
     }
 
-    @Schema(description = "Predicted connection percent use regarding queued flow files count and backpressure threshold if configured.")
+    @Schema(description = "Predicted connection percent use regarding queued FlowFiles count and backpressure threshold if configured.")
     public Integer getPredictedPercentCount() {
         return predictedPercentCount;
     }
@@ -87,7 +86,7 @@ public class ConnectionStatusPredictionsSnapshotDTO implements Cloneable {
         this.predictedPercentCount = predictedPercentCount;
     }
 
-    @Schema(description = "Predicted connection percent use regarding queued flow files size and backpressure threshold if configured.")
+    @Schema(description = "Predicted connection percent use regarding queued FlowFiles size and backpressure threshold if configured.")
     public Integer getPredictedPercentBytes() {
         return predictedPercentBytes;
     }

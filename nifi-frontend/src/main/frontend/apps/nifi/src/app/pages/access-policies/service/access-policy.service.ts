@@ -15,25 +15,58 @@
  * limitations under the License.
  */
 
-import { Injectable } from '@angular/core';
+import { Injectable, inject } from '@angular/core';
 import { HttpClient, HttpParams } from '@angular/common/http';
 import { Client } from '../../../service/client.service';
 import { Observable } from 'rxjs';
 import { AccessPolicyEntity, ComponentResourceAction, ResourceAction } from '../state/shared';
-import { NiFiCommon } from '@nifi/shared';
 import { TenantEntity } from '../../../state/shared';
 import { ClusterConnectionService } from '../../../service/cluster-connection.service';
 
 @Injectable({ providedIn: 'root' })
 export class AccessPolicyService {
+    private httpClient = inject(HttpClient);
+    private client = inject(Client);
+    private clusterConnectionService = inject(ClusterConnectionService);
+
     private static readonly API: string = '../nifi-api';
 
-    constructor(
-        private httpClient: HttpClient,
-        private client: Client,
-        private nifiCommon: NiFiCommon,
-        private clusterConnectionService: ClusterConnectionService
-    ) {}
+    /**
+     * Transforms resourceAction for connector data/provenance policies.
+     * When the UI uses 'connectors' as resource with 'data' or 'provenance-data' as resourceIdentifier,
+     * this transforms it to the API-expected format where 'data' or 'provenance-data' becomes the
+     * resource prefix and 'connectors' becomes the suffix.
+     *
+     * Examples:
+     * - { resource: 'connectors', resourceIdentifier: 'data' } -> { resource: 'data/connectors', resourceIdentifier: undefined }
+     * - { resource: 'connectors', resourceIdentifier: 'provenance-data' } -> { resource: 'provenance-data/connectors', resourceIdentifier: undefined }
+     */
+    private transformConnectorPolicyResource(resourceAction: ResourceAction): ResourceAction {
+        if (
+            resourceAction.resource === 'connectors' &&
+            (resourceAction.resourceIdentifier === 'data' || resourceAction.resourceIdentifier === 'provenance-data')
+        ) {
+            return {
+                ...resourceAction,
+                resource: `${resourceAction.resourceIdentifier}/connectors`,
+                resourceIdentifier: undefined
+            };
+        }
+        return resourceAction;
+    }
+
+    /**
+     * Builds the API resource path from a ResourceAction.
+     * Handles connector data/provenance policy transformations.
+     */
+    buildResourcePath(resourceAction: ResourceAction): string {
+        const transformed = this.transformConnectorPolicyResource(resourceAction);
+        let resource = `/${transformed.resource}`;
+        if (transformed.resourceIdentifier) {
+            resource += `/${transformed.resourceIdentifier}`;
+        }
+        return resource;
+    }
 
     createAccessPolicy(
         resourceAction: ResourceAction,
@@ -45,10 +78,7 @@ export class AccessPolicyService {
             users?: TenantEntity[];
         } = {}
     ): Observable<any> {
-        let resource = `/${resourceAction.resource}`;
-        if (resourceAction.resourceIdentifier) {
-            resource += `/${resourceAction.resourceIdentifier}`;
-        }
+        const resource = this.buildResourcePath(resourceAction);
 
         const payload: unknown = {
             revision: {
@@ -68,9 +98,10 @@ export class AccessPolicyService {
     }
 
     getAccessPolicy(resourceAction: ResourceAction): Observable<any> {
-        const path: string[] = [resourceAction.action, resourceAction.resource];
-        if (resourceAction.resourceIdentifier) {
-            path.push(resourceAction.resourceIdentifier);
+        const transformed = this.transformConnectorPolicyResource(resourceAction);
+        const path: string[] = [transformed.action, transformed.resource];
+        if (transformed.resourceIdentifier) {
+            path.push(transformed.resourceIdentifier);
         }
         return this.httpClient.get(`${AccessPolicyService.API}/policies/${path.join('/')}`);
     }
@@ -92,7 +123,7 @@ export class AccessPolicyService {
             }
         };
 
-        return this.httpClient.put(this.nifiCommon.stripProtocol(accessPolicy.uri), payload);
+        return this.httpClient.put(`${AccessPolicyService.API}/policies/${accessPolicy.id}`, payload);
     }
 
     deleteAccessPolicy(accessPolicy: AccessPolicyEntity): Observable<any> {
@@ -102,7 +133,7 @@ export class AccessPolicyService {
                 disconnectedNodeAcknowledged: this.clusterConnectionService.isDisconnectionAcknowledged()
             }
         });
-        return this.httpClient.delete(this.nifiCommon.stripProtocol(accessPolicy.uri), { params });
+        return this.httpClient.delete(`${AccessPolicyService.API}/policies/${accessPolicy.id}`, { params });
     }
 
     getUsers(): Observable<any> {

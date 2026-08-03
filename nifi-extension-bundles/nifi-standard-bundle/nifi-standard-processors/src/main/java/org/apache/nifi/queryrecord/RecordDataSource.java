@@ -51,7 +51,6 @@ public class RecordDataSource implements ResettableDataSource {
     private final RecordReaderFactory readerFactory;
     private final ComponentLog logger;
 
-
     public RecordDataSource(final RecordSchema recordSchema, final ProcessSession session, final FlowFile flowFile, final RecordReaderFactory recordReaderFactory, final ComponentLog logger) {
         this.tableSchema = createTableSchema(recordSchema);
         this.session = session;
@@ -119,7 +118,8 @@ public class RecordDataSource implements ResettableDataSource {
             case TIME -> ScalarType.TIME;
             case TIMESTAMP -> ScalarType.TIMESTAMP;
             case LONG -> ScalarType.LONG;
-            case STRING, ENUM -> ScalarType.STRING;
+            case STRING -> ScalarType.STRING;
+            case ENUM -> ScalarType.OBJECT;
             case ARRAY -> new ArrayType(getColumnType(((ArrayDataType) fieldType).getElementType()));
             case RECORD -> new ScalarType(Record.class);
             case MAP -> {
@@ -177,7 +177,6 @@ public class RecordDataSource implements ResettableDataSource {
         // CHOICE is between an integer and a Record.
         return ScalarType.OBJECT;
     }
-
 
     private static boolean isNumeric(final DataType dataType) {
         return switch (dataType.getFieldType()) {

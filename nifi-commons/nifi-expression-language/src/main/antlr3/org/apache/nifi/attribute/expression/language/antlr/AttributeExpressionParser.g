@@ -77,7 +77,7 @@ tokens {
 // functions that return Strings
 zeroArgString : (TO_UPPER | TO_LOWER | TRIM | TO_STRING | URL_ENCODE | URL_DECODE | BASE64_ENCODE | BASE64_DECODE | ESCAPE_JSON | ESCAPE_XML | ESCAPE_CSV | ESCAPE_HTML3 | ESCAPE_HTML4 | UNESCAPE_JSON | UNESCAPE_XML | UNESCAPE_CSV | UNESCAPE_HTML3 | UNESCAPE_HTML4 | EVALUATE_EL_STRING) LPAREN! RPAREN!;
 oneArgString : ((SUBSTRING_BEFORE | SUBSTRING_BEFORE_LAST | SUBSTRING_AFTER | SUBSTRING_AFTER_LAST | REPLACE_NULL | REPLACE_EMPTY | REPLACE_BY_PATTERN |
-				PREPEND | APPEND | STARTS_WITH | ENDS_WITH | CONTAINS | JOIN | JSON_PATH | JSON_PATH_DELETE | FROM_RADIX | UUID3 | UUID5 | HASH) LPAREN! anyArg RPAREN!) |
+				PREPEND | APPEND | STARTS_WITH | ENDS_WITH | CONTAINS | UNIQUE | COMPACT_DELIMITED_LIST | TRIM_DELIMITED_LIST | JOIN | JSON_PATH | JSON_PATH_DELETE | FROM_RADIX | UUID3 | UUID5 | HASH) LPAREN! anyArg RPAREN!) |
 			   (TO_RADIX LPAREN! anyArg (COMMA! anyArg)? RPAREN!);
 twoArgString : ((REPLACE | REPLACE_FIRST | REPLACE_ALL | IF_ELSE | JSON_PATH_SET | JSON_PATH_ADD) LPAREN! anyArg COMMA! anyArg RPAREN!) |
 			   ((SUBSTRING | FORMAT | FORMAT_INSTANT | PAD_LEFT | PAD_RIGHT | REPEAT) LPAREN! anyArg (COMMA! anyArg)? RPAREN!);
@@ -85,27 +85,30 @@ threeArgString: ((JSON_PATH_PUT) LPAREN! anyArg COMMA! anyArg COMMA! anyArg RPAR
 fiveArgString : GET_DELIMITED_FIELD LPAREN! anyArg (COMMA! anyArg (COMMA! anyArg (COMMA! anyArg (COMMA! anyArg)?)?)?)? RPAREN!;
 
 // functions that return Booleans
-zeroArgBool : (IS_NULL | NOT_NULL | IS_EMPTY | NOT | IS_JSON) LPAREN! RPAREN!;
+zeroArgBool : (IS_NULL | NOT_NULL | IS_EMPTY | NOT | IS_JSON | IS_VALID_INSTANT) LPAREN! RPAREN!;
 oneArgBool	: ((FIND | MATCHES | EQUALS_IGNORE_CASE) LPAREN! anyArg RPAREN!) |
 			  (GREATER_THAN | LESS_THAN | GREATER_THAN_OR_EQUAL | LESS_THAN_OR_EQUAL) LPAREN! anyArg RPAREN! |
 			  (EQUALS) LPAREN! anyArg RPAREN! |
 			  (AND | OR) LPAREN! anyArg RPAREN!;
 multiArgBool : (IN) LPAREN! anyArg (COMMA! anyArg)* RPAREN!;
+oneOrTwoArgBool : IS_VALID_DATE LPAREN! anyArg (COMMA! anyArg)? RPAREN!;
 
 
 // functions that return Numbers (whole or decimal)
 zeroArgNum	: (LENGTH | TO_NUMBER | TO_DECIMAL | TO_MICROS | TO_NANOS | COUNT) LPAREN! RPAREN!;
 oneArgNum	: ((INDEX_OF | LAST_INDEX_OF) LPAREN! anyArg RPAREN!) |
-			  ((MOD | PLUS | MINUS | MULTIPLY | DIVIDE) LPAREN! anyArg RPAREN!);
-oneOrTwoArgNum : MATH LPAREN! anyArg (COMMA! anyArg)? RPAREN!;
+			  ((MOD | PLUS | MINUS | MULTIPLY | DIVIDE) LPAREN! anyArg RPAREN!) |
+			  ((PLUS_INSTANT_DURATION | MINUS_INSTANT_DURATION) LPAREN! anyArg RPAREN!);
+oneOrTwoArgNum : MATH LPAREN! anyArg (COMMA! anyArg)? RPAREN! |
+                 (PLUS_DURATION | MINUS_DURATION) LPAREN! anyArg (COMMA! anyArg)? RPAREN!;
 zeroOrOneOrTwoArgNum : TO_DATE LPAREN! anyArg? (COMMA! anyArg)? RPAREN!;
 zeroOrTwoArgNum: TO_INSTANT LPAREN! (anyArg COMMA! anyArg)? RPAREN!;
 
 stringFunctionRef : zeroArgString | oneArgString | twoArgString | threeArgString | fiveArgString;
-booleanFunctionRef : zeroArgBool | oneArgBool | multiArgBool;
+booleanFunctionRef : zeroArgBool | oneArgBool | multiArgBool | oneOrTwoArgBool;
 numberFunctionRef : zeroArgNum | oneArgNum | zeroOrTwoArgNum | oneOrTwoArgNum | zeroOrOneOrTwoArgNum;
 
-anyArg : WHOLE_NUMBER | DECIMAL | numberFunctionRef | STRING_LITERAL | zeroArgString | oneArgString | twoArgString | fiveArgString | booleanLiteral | zeroArgBool | oneArgBool | multiArgBool
+anyArg : WHOLE_NUMBER | DECIMAL | numberFunctionRef | STRING_LITERAL | zeroArgString | oneArgString | twoArgString | fiveArgString | booleanLiteral | zeroArgBool | oneArgBool | multiArgBool | oneOrTwoArgBool
                 | expression | parameterReference | NULL;
 
 stringArg : STRING_LITERAL | zeroArgString | oneArgString | twoArgString | expression;

@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-import { Injectable } from '@angular/core';
+import { Injectable, inject } from '@angular/core';
 import * as d3 from 'd3';
 import { Store } from '@ngrx/store';
 import { CanvasState } from '../../state';
@@ -25,8 +25,9 @@ import { CanvasUtils } from '../canvas-utils.service';
 import { moveComponents, showOkDialog, updatePositions } from '../../state/flow/flow.actions';
 import { Client } from '../../../../service/client.service';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { MoveComponentRequest, UpdateComponentRequest } from '../../state/flow';
+import { MoveComponentRequest } from '../../state/flow';
 import { Position } from '../../state/shared';
+import { UpdateComponentRequest } from '../../../../state/shared';
 import { ComponentType } from '@nifi/shared';
 import { ClusterConnectionService } from '../../../../service/cluster-connection.service';
 
@@ -34,6 +35,11 @@ import { ClusterConnectionService } from '../../../../service/cluster-connection
     providedIn: 'root'
 })
 export class DraggableBehavior {
+    private store = inject<Store<CanvasState>>(Store);
+    private client = inject(Client);
+    private canvasUtils = inject(CanvasUtils);
+    private clusterConnectionService = inject(ClusterConnectionService);
+
     private readonly drag: any;
     private snapEnabled = false;
     private snapAlignmentPixels = 8;
@@ -42,14 +48,7 @@ export class DraggableBehavior {
 
     private updatePositionRequestId = 0;
 
-    constructor(
-        private store: Store<CanvasState>,
-        private client: Client,
-        private canvasUtils: CanvasUtils,
-        private clusterConnectionService: ClusterConnectionService
-    ) {
-        const self: DraggableBehavior = this;
-
+    constructor() {
         // subscribe to scale updates
         this.store
             .select(selectTransform)
@@ -61,11 +60,11 @@ export class DraggableBehavior {
         // handle component drag events
         this.drag = d3
             .drag()
-            .on('start', function (event) {
+            .on('start', (event) => {
                 // stop further propagation
                 event.sourceEvent.stopPropagation();
             })
-            .on('drag', function (event) {
+            .on('drag', (event) => {
                 const dragSelection = d3.select('rect.drag-selection');
 
                 // lazily create the drag selection box
@@ -109,12 +108,8 @@ export class DraggableBehavior {
                         .attr('width', maxX - minX)
                         // @ts-ignore
                         .attr('height', maxY - minY)
-                        .attr('stroke-width', function () {
-                            return 1 / self.scale;
-                        })
-                        .attr('stroke-dasharray', function () {
-                            return 4 / self.scale;
-                        })
+                        .attr('stroke-width', () => 1 / this.scale)
+                        .attr('stroke-dasharray', () => 4 / this.scale)
                         .datum({
                             original: {
                                 x: minX,
@@ -126,23 +121,23 @@ export class DraggableBehavior {
                 } else {
                     // update the position of the drag selection
                     // snap align the position unless the user is holding shift
-                    self.snapEnabled = !event.sourceEvent.shiftKey;
+                    this.snapEnabled = !event.sourceEvent.shiftKey;
                     dragSelection
-                        .attr('x', function (d: any) {
+                        .attr('x', (d: any) => {
                             d.x += event.dx;
-                            return self.snapEnabled
-                                ? Math.round(d.x / self.snapAlignmentPixels) * self.snapAlignmentPixels
+                            return this.snapEnabled
+                                ? Math.round(d.x / this.snapAlignmentPixels) * this.snapAlignmentPixels
                                 : d.x;
                         })
-                        .attr('y', function (d: any) {
+                        .attr('y', (d: any) => {
                             d.y += event.dy;
-                            return self.snapEnabled
-                                ? Math.round(d.y / self.snapAlignmentPixels) * self.snapAlignmentPixels
+                            return this.snapEnabled
+                                ? Math.round(d.y / this.snapAlignmentPixels) * this.snapAlignmentPixels
                                 : d.y;
                         });
                 }
             })
-            .on('end', function (event) {
+            .on('end', (event) => {
                 // stop further propagation
                 event.sourceEvent.stopPropagation();
 
@@ -160,9 +155,9 @@ export class DraggableBehavior {
 
                 // either move or update the selections group as appropriate
                 if (group.empty()) {
-                    self.updateComponentsPosition(dragSelection);
+                    this.updateComponentsPosition(dragSelection);
                 } else {
-                    self.updateComponentsGroup(group);
+                    this.updateComponentsGroup(group);
                 }
 
                 // remove the drag selection

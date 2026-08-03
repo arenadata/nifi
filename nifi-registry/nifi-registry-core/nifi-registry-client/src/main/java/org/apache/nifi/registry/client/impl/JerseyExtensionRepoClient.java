@@ -16,11 +16,15 @@
  */
 package org.apache.nifi.registry.client.impl;
 
+import jakarta.ws.rs.NotFoundException;
+import jakarta.ws.rs.client.WebTarget;
+import jakarta.ws.rs.core.MediaType;
+import jakarta.ws.rs.core.Response;
 import org.apache.commons.lang3.StringUtils;
+import org.apache.nifi.extension.manifest.Extension;
 import org.apache.nifi.registry.client.ExtensionRepoClient;
 import org.apache.nifi.registry.client.NiFiRegistryException;
 import org.apache.nifi.registry.client.RequestConfig;
-import org.apache.nifi.extension.manifest.Extension;
 import org.apache.nifi.registry.extension.repo.ExtensionRepoArtifact;
 import org.apache.nifi.registry.extension.repo.ExtensionRepoBucket;
 import org.apache.nifi.registry.extension.repo.ExtensionRepoExtensionMetadata;
@@ -28,10 +32,6 @@ import org.apache.nifi.registry.extension.repo.ExtensionRepoGroup;
 import org.apache.nifi.registry.extension.repo.ExtensionRepoVersion;
 import org.apache.nifi.registry.extension.repo.ExtensionRepoVersionSummary;
 
-import jakarta.ws.rs.NotFoundException;
-import jakarta.ws.rs.client.WebTarget;
-import jakarta.ws.rs.core.MediaType;
-import jakarta.ws.rs.core.Response;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
@@ -56,8 +56,8 @@ public class JerseyExtensionRepoClient extends AbstractJerseyClient implements E
     @Override
     public List<ExtensionRepoBucket> getBuckets() throws IOException, NiFiRegistryException {
         return executeAction("Error retrieving buckets for extension repo", () -> {
-           final ExtensionRepoBucket[] repoBuckets = getRequestBuilder(extensionRepoTarget).get(ExtensionRepoBucket[].class);
-           return  repoBuckets == null ? Collections.emptyList() : Arrays.asList(repoBuckets);
+            final ExtensionRepoBucket[] repoBuckets = getRequestBuilder(extensionRepoTarget).get(ExtensionRepoBucket[].class);
+            return  repoBuckets == null ? Collections.emptyList() : Arrays.asList(repoBuckets);
         });
     }
 

@@ -29,12 +29,6 @@ import com.hierynomus.smbj.connection.Connection;
 import com.hierynomus.smbj.session.Session;
 import com.hierynomus.smbj.share.DiskShare;
 import com.hierynomus.smbj.share.File;
-import java.io.ByteArrayInputStream;
-import java.io.IOException;
-import java.io.InputStream;
-import java.nio.charset.StandardCharsets;
-import java.util.ArrayList;
-import java.util.List;
 import org.apache.nifi.flowfile.attributes.CoreAttributes;
 import org.apache.nifi.processor.ProcessContext;
 import org.apache.nifi.util.MockFlowFile;
@@ -45,6 +39,13 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+
+import java.io.ByteArrayInputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
@@ -72,17 +73,16 @@ public class GetSmbFileTest {
     @Mock
     private DiskShare diskShare;
 
-    private final static String HOSTNAME = "host";
-    private final static String SHARE = "share";
-    private final static String DIRECTORY = "nifi\\input";
-    private final static String USERNAME = "user";
-    private final static String PASSWORD = "pass";
+    private static final String HOSTNAME = "host";
+    private static final String SHARE = "share";
+    private static final String DIRECTORY = "nifi\\input";
+    private static final String USERNAME = "user";
+    private static final String PASSWORD = "pass";
 
     private void setupSmbProcessor() throws IOException {
         when(smbClient.connect(any(String.class))).thenReturn(connection);
         when(connection.authenticate(any(AuthenticationContext.class))).thenReturn(session);
         when(session.connectShare(SHARE)).thenReturn(diskShare);
-
 
         testRunner.setProperty(GetSmbFile.HOSTNAME, HOSTNAME);
         testRunner.setProperty(GetSmbFile.SHARE, SHARE);
@@ -228,7 +228,6 @@ public class GetSmbFileTest {
             )
         );
 
-
         testRunner.run();
         verifyOpenFile(DIRECTORY, "file1.txt", 1);
         verifyOpenFile(DIRECTORY, "file2.txt", 1);
@@ -248,7 +247,6 @@ public class GetSmbFileTest {
                 mockDir(subdir2, List.of(mockFile(subdir2, "file2.txt", "abc"))),
                 mockDir(subdir3, List.of(mockFile(subdir3, "file3.txt", "abc")))
         ));
-
 
         testRunner.run();
         verifyOpenFile(subdir1, "file1.txt", 1);

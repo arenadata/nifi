@@ -15,18 +15,18 @@
  * limitations under the License.
  */
 
-import { Injectable } from '@angular/core';
+import { Injectable, inject } from '@angular/core';
 import { HttpClient, HttpParams } from '@angular/common/http';
 import { Observable } from 'rxjs';
 import { ComponentType } from '@nifi/shared';
 
 @Injectable({ providedIn: 'root' })
 export class ComponentClusterStatusService {
+    private httpClient = inject(HttpClient);
+
     private static readonly API = '../nifi-api';
 
-    constructor(private httpClient: HttpClient) {}
-
-    getClusterStatus(componentId: string, componentType: ComponentType, nodewise: boolean = true): Observable<any> {
+    getClusterStatus(componentId: string, componentType: ComponentType, nodewise = true): Observable<any> {
         let componentPath: string;
         switch (componentType) {
             case ComponentType.Processor:

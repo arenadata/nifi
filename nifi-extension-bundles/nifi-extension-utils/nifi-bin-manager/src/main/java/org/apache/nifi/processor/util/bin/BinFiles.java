@@ -24,6 +24,7 @@ import org.apache.nifi.components.ValidationResult;
 import org.apache.nifi.context.PropertyContext;
 import org.apache.nifi.flowfile.FlowFile;
 import org.apache.nifi.logging.ComponentLog;
+import org.apache.nifi.migration.PropertyConfiguration;
 import org.apache.nifi.processor.AbstractSessionFactoryProcessor;
 import org.apache.nifi.processor.DataUnit;
 import org.apache.nifi.processor.ProcessContext;
@@ -80,7 +81,7 @@ public abstract class BinFiles extends AbstractSessionFactoryProcessor {
             .build();
 
     public static final PropertyDescriptor MAX_BIN_COUNT = new PropertyDescriptor.Builder()
-            .name("Maximum number of Bins")
+            .name("Maximum Number of Bins")
             .description("Specifies the maximum number of bins that can be held in memory at any one time")
             .defaultValue("5")
             .required(true)
@@ -128,7 +129,7 @@ public abstract class BinFiles extends AbstractSessionFactoryProcessor {
     protected abstract FlowFile preprocessFlowFile(final ProcessContext context, final ProcessSession session, final FlowFile flowFile);
 
     /**
-     * Returns a group ID representing a bin. This allows flow files to be binned into like groups.
+     * Returns a group ID representing a bin. This allows FlowFiles to be binned into like groups.
      *
      * @param context context
      * @param flowFile flowFile
@@ -148,13 +149,13 @@ public abstract class BinFiles extends AbstractSessionFactoryProcessor {
     /**
      * Processes a single bin. Implementing class is responsible for committing each session
      *
-     * @param unmodifiableBin A reference to a single bin of flow files
+     * @param unmodifiableBin A reference to a single bin of FlowFiles
      * @param context The context
      * @return <code>true</code> if the input bin was already committed. E.g., in case of a failure, the implementation
      *         may choose to transfer all binned files to Failure and commit their sessions. If
      *         false, the processBins() method will transfer the files to Original and commit the sessions
      *
-     * @throws ProcessException if any problem arises while processing a bin of FlowFiles. All flow files in the bin
+     * @throws ProcessException if any problem arises while processing a bin of FlowFiles. All FlowFiles in the bin
      *             will be transferred to failure and the ProcessSession provided by the 'session'
      *             argument rolled back
      */
@@ -194,6 +195,11 @@ public abstract class BinFiles extends AbstractSessionFactoryProcessor {
         if (binningResult.getFlowFilesBinned() == 0 && binsMigrated == 0 && binsProcessed == 0) {
             context.yield();
         }
+    }
+
+    @Override
+    public void migrateProperties(PropertyConfiguration config) {
+        config.renameProperty("Maximum number of Bins", MAX_BIN_COUNT.getName());
     }
 
     private int migrateBins(final ProcessContext context, final boolean relaxFullnessConstraint, final boolean newBinNeeded) {
@@ -412,6 +418,6 @@ public abstract class BinFiles extends AbstractSessionFactoryProcessor {
             return newBinNeeded;
         }
 
-        public static BinningResult EMPTY = new BinningResult(0, false);
+        public static final BinningResult EMPTY = new BinningResult(0, false);
     }
 }

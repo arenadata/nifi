@@ -17,6 +17,7 @@
 
 package org.apache.nifi.cluster.protocol.jaxb.message;
 
+import jakarta.xml.bind.JAXBException;
 import org.apache.nifi.cluster.coordination.node.DisconnectionCode;
 import org.apache.nifi.cluster.coordination.node.NodeConnectionStatus;
 import org.apache.nifi.cluster.coordination.node.NodeWorkload;
@@ -37,7 +38,6 @@ import org.apache.nifi.cluster.protocol.message.NodeConnectionStatusResponseMess
 import org.apache.nifi.web.Revision;
 import org.junit.jupiter.api.Test;
 
-import jakarta.xml.bind.JAXBException;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.util.Collections;
@@ -97,7 +97,6 @@ public class TestJaxbProtocolUtils {
         final Object unmarshalled = JaxbProtocolUtils.JAXB_CONTEXT.createUnmarshaller().unmarshal(new ByteArrayInputStream(baos.toByteArray()));
         assertInstanceOf(NodeConnectionStatusRequestMessage.class, unmarshalled);
     }
-
 
     @Test
     public void testRoundTripConnectionStatusResponse() throws JAXBException {

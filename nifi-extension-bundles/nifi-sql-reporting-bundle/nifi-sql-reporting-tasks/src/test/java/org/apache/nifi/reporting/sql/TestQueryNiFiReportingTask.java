@@ -16,7 +16,6 @@
  */
 package org.apache.nifi.reporting.sql;
 
-
 import org.apache.nifi.action.Action;
 import org.apache.nifi.action.Component;
 import org.apache.nifi.action.FlowChangeAction;
@@ -295,7 +294,6 @@ class TestQueryNiFiReportingTask {
         currentTime.set(bulletin.getTimestamp().getTime());
 
         reportingTask.onTrigger(context);
-
 
         List<Map<String, Object>> sameRows = mockRecordSinkService.getRows();
         assertEquals(1, sameRows.size());

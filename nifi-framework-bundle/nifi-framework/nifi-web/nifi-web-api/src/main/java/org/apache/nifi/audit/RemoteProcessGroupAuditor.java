@@ -16,18 +16,6 @@
  */
 package org.apache.nifi.audit;
 
-import static org.apache.nifi.web.api.dto.DtoFactory.SENSITIVE_VALUE_MASK;
-
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Collection;
-import java.util.Date;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Objects;
-import java.util.function.BiFunction;
-import java.util.function.Function;
 import org.apache.nifi.action.Action;
 import org.apache.nifi.action.Component;
 import org.apache.nifi.action.FlowChangeAction;
@@ -48,6 +36,19 @@ import org.aspectj.lang.annotation.Aspect;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
+
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collection;
+import java.util.Date;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.function.BiFunction;
+import java.util.function.Function;
+
+import static org.apache.nifi.web.api.dto.DtoFactory.SENSITIVE_VALUE_MASK;
 
 /**
  * Audits remote process group creation/removal and configuration changes.
@@ -80,7 +81,6 @@ public class RemoteProcessGroupAuditor extends NiFiAuditor {
                     IS_TRANSPORT_PROTOCOL_SET, RemoteProcessGroup::getProxyPassword)
                     .setConvertRawValue(v -> StringUtils.isEmpty(v) ? "" : SENSITIVE_VALUE_MASK)
     );
-
 
     private static final BiFunction<RemoteGroupPort, String, String> PORT_NAME_CONVERT = (updated, name) -> updated.getName() + "." + name;
     private static final List<ConfigurationRecorder<RemoteGroupPort, RemoteProcessGroupPortDTO>> PORT_CONFIG_RECORDERS = Arrays.asList(
@@ -288,16 +288,17 @@ public class RemoteProcessGroupAuditor extends NiFiAuditor {
             }
 
             // determine the new executing state
-            boolean updatedTransmissionState = updatedRemoteProcessGroup.isTransmitting();
-
-            // determine if the running state has changed
-            if (transmissionState != updatedTransmissionState) {
+            // using isConfiguredToTransmit() as opposed to isTransmitting()
+            // to capture case where port is still in process of shutting down.
+            boolean updatedConfiguredToTransmitState = updatedRemoteProcessGroup.isConfiguredToTransmit();
+            // determine if the running state has been set to change
+            if (transmissionState != updatedConfiguredToTransmitState) {
                 // create a remote process group action
                 final FlowChangeAction remoteProcessGroupAction = createFlowChangeAction(timestamp,
                         updatedRemoteProcessGroup, remoteProcessGroupDetails);
 
                 // set the operation accordingly
-                if (updatedTransmissionState) {
+                if (updatedConfiguredToTransmitState) {
                     remoteProcessGroupAction.setOperation(Operation.Start);
                 } else {
                     remoteProcessGroupAction.setOperation(Operation.Stop);
@@ -447,7 +448,6 @@ public class RemoteProcessGroupAuditor extends NiFiAuditor {
         remoteProcessGroupDetails.setUri(remoteProcessGroup.getTargetUri());
         return remoteProcessGroupDetails;
     }
-
 
     /**
      * Generates an audit record for the specified remote process group.

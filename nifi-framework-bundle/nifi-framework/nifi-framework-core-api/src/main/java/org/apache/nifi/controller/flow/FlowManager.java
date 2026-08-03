@@ -17,10 +17,12 @@
 package org.apache.nifi.controller.flow;
 
 import org.apache.nifi.bundle.BundleCoordinate;
+import org.apache.nifi.components.connector.ConnectorNode;
 import org.apache.nifi.connectable.Connectable;
 import org.apache.nifi.connectable.Connection;
 import org.apache.nifi.connectable.Funnel;
 import org.apache.nifi.connectable.Port;
+import org.apache.nifi.controller.ComponentNode;
 import org.apache.nifi.controller.FlowAnalysisRuleNode;
 import org.apache.nifi.controller.ParameterProviderNode;
 import org.apache.nifi.controller.ProcessorNode;
@@ -163,10 +165,18 @@ public interface FlowManager extends ParameterProviderLookup {
      */
     ProcessGroup getGroup(String id);
 
+    /**
+     * Returns the ProcessGroup with the given ID that is managed by the Connector with the given ID,
+     * or null if no such ProcessGroup exists.
+     * @param groupId id of the group
+     * @param connectorId id of the connector
+     * @return the ProcessGroup with the given ID or null if none can be found
+     */
+    ProcessGroup getGroup(String groupId, String connectorId);
+
     void onProcessGroupAdded(ProcessGroup group);
 
     void onProcessGroupRemoved(ProcessGroup group);
-
 
     /**
      * Finds the Connectable with the given ID, or null if no such Connectable exists
@@ -187,7 +197,6 @@ public interface FlowManager extends ParameterProviderLookup {
     void onProcessorRemoved(ProcessorNode processor);
 
     Set<ProcessorNode> findAllProcessors(Predicate<ProcessorNode> processorNode);
-
 
     /**
      * <p>
@@ -240,8 +249,6 @@ public interface FlowManager extends ParameterProviderLookup {
     ProcessorNode createProcessor(String type, String id, BundleCoordinate coordinate, Set<URL> additionalUrls, boolean firstTimeAdded, boolean registerLogObserver,
                                   String classloaderIsolationKey);
 
-
-
     Label createLabel(String id, String text);
 
     Funnel createFunnel(String id);
@@ -250,9 +257,11 @@ public interface FlowManager extends ParameterProviderLookup {
 
     Port createLocalOutputPort(String id, String name);
 
-    ProcessGroup createProcessGroup(String id);
+    default ProcessGroup createProcessGroup(String id) {
+        return createProcessGroup(id, null);
+    }
 
-
+    ProcessGroup createProcessGroup(String id, String connectorId);
 
     void onConnectionAdded(Connection connection);
 
@@ -277,15 +286,11 @@ public interface FlowManager extends ParameterProviderLookup {
      */
     Connection createConnection(final String id, final String name, final Connectable source, final Connectable destination, final Collection<String> relationshipNames);
 
-
-
     void onInputPortAdded(Port inputPort);
 
     void onInputPortRemoved(Port inputPort);
 
     Port getInputPort(String id);
-
-
 
     void onOutputPortAdded(Port outputPort);
 
@@ -293,15 +298,11 @@ public interface FlowManager extends ParameterProviderLookup {
 
     Port getOutputPort(String id);
 
-
-
     void onFunnelAdded(Funnel funnel);
 
     void onFunnelRemoved(Funnel funnel);
 
     Funnel getFunnel(String id);
-
-
 
     ReportingTaskNode createReportingTask(String type, BundleCoordinate bundleCoordinate);
 
@@ -358,19 +359,31 @@ public interface FlowManager extends ParameterProviderLookup {
      * <code>IllegalStateException</code> is thrown.  See {@link FlowManager#withParameterContextResolution(Runnable)}
      * for example usage.
      *
-     * @param id                The unique id
-     * @param name              The ParameterContext name
-     * @param description       The ParameterContext description
-     * @param parameters        The Parameters
-     * @param inheritedContextIds The identifiers of any Parameter Contexts that the newly created Parameter Context should inherit from. The order of the identifiers in the List determines the
+     * @param id the unique id
+     * @param name the ParameterContext name
+     * @param description the ParameterContext description
+     * @param parameters the Parameters
+     * @param inheritedContextIds the identifiers of any Parameter Contexts that the newly created Parameter Context should inherit from. The order of the identifiers in the List determines the
      * order in which parameters with conflicting names are resolved. I.e., the Parameter Context whose ID comes first in the List is preferred.
-     * @param parameterProviderConfiguration Optional configuration for a ParameterProvider
-     * @return The created ParameterContext
-     * @throws IllegalStateException If <code>parameterContexts</code> is not empty and this method is called without being wrapped
+     * @param parameterProviderConfiguration optional configuration for a ParameterProvider
+     * @return the created ParameterContext
+     * @throws IllegalStateException if <code>parameterContexts</code> is not empty and this method is called without being wrapped
      * by {@link FlowManager#withParameterContextResolution(Runnable)}
      */
     ParameterContext createParameterContext(String id, String name, String description, Map<String, Parameter> parameters,
                                             List<String> inheritedContextIds, ParameterProviderConfiguration parameterProviderConfiguration);
+
+    /**
+     * Creates an empty Parameter Context with the given ID for the provided root process group. This Parameter Context is not
+     * registered with the ParameterContextManager.
+     *
+     * @param id the id of the new ParameterContext
+     * @param name the name of the new ParameterContext
+     * @param description the description of the new ParameterContext
+     * @param rootGroup the root process group
+     * @return the duplicated ParameterContext
+     */
+    ParameterContext createEmptyParameterContext(String id, String name, String description, ProcessGroup rootGroup);
 
     /**
      * Performs the given ParameterContext-related action, and then resolves all inherited ParameterContext references.
@@ -391,6 +404,22 @@ public interface FlowManager extends ParameterProviderLookup {
     void withParameterContextResolution(Runnable parameterContextAction);
 
     ParameterContextManager getParameterContextManager();
+
+    /**
+     * Creates a connector using hte provided information.
+     * @param type the fully qualified class name of the connector
+     * @param id the unique ID of the connector
+     * @param coordinate the bundle coordinate for this connector
+     * @param firstTimeAdded whether or not this is the first time this connector is added to the graph. If {@code true}, will invoke methods
+     *                       annotated with the {@link org.apache.nifi.annotation.lifecycle.OnAdded} annotation.
+     * @param registerLogObserver whether or not to register a log observer for this connector
+     * @return the created connector
+     */
+    ConnectorNode createConnector(String type, String id, BundleCoordinate coordinate, boolean firstTimeAdded, boolean registerLogObserver);
+
+    List<ConnectorNode> getAllConnectors();
+
+    ConnectorNode getConnector(String id);
 
     /**
      * @return the number of each type of component (Processor, Controller Service, Process Group, Funnel, Input Port, Output Port,
@@ -439,4 +468,11 @@ public interface FlowManager extends ParameterProviderLookup {
     Optional<FlowAnalyzer> getFlowAnalyzer();
 
     Optional<RuleViolationsManager> getRuleViolationsManager();
+
+    /**
+     * Returns all components (processors, controller services, etc.) that are a {@link org.apache.nifi.components.listen.ListenComponent}
+     *
+     * @return A set of listen components.
+     */
+    Set<ComponentNode> getAllListenComponents();
 }

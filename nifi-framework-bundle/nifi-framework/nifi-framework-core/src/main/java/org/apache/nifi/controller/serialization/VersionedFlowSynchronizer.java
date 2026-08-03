@@ -26,6 +26,11 @@ import org.apache.nifi.authorization.ManagedAuthorizer;
 import org.apache.nifi.bundle.BundleCoordinate;
 import org.apache.nifi.cluster.protocol.DataFlow;
 import org.apache.nifi.cluster.protocol.StandardDataFlow;
+import org.apache.nifi.components.connector.ConnectorNode;
+import org.apache.nifi.components.connector.ConnectorRepository;
+import org.apache.nifi.components.connector.ConnectorState;
+import org.apache.nifi.components.connector.ConnectorSyncMode;
+import org.apache.nifi.components.connector.ConnectorSyncResult;
 import org.apache.nifi.components.validation.ValidationStatus;
 import org.apache.nifi.connectable.Connectable;
 import org.apache.nifi.connectable.Position;
@@ -55,6 +60,8 @@ import org.apache.nifi.flow.ExecutionEngine;
 import org.apache.nifi.flow.ScheduledState;
 import org.apache.nifi.flow.VersionedAsset;
 import org.apache.nifi.flow.VersionedComponent;
+import org.apache.nifi.flow.VersionedConnector;
+import org.apache.nifi.flow.VersionedConnectorState;
 import org.apache.nifi.flow.VersionedControllerService;
 import org.apache.nifi.flow.VersionedExternalFlow;
 import org.apache.nifi.flow.VersionedFlowAnalysisRule;
@@ -218,6 +225,12 @@ public class VersionedFlowSynchronizer implements FlowSynchronizer {
                 verifyNoConnectionsWithDataRemoved(existingDataFlow, proposedFlow, controller, flowComparison);
             }
 
+            // Ensure that no Connector is in Troubleshooting mode locally while the proposed flow has it in a
+            // non-Troubleshooting state, or vice versa. Reconciling such a mismatch would require either dropping the
+            // user's in-progress Troubleshooting flow or forcing the rest of the cluster into Troubleshooting, so the
+            // node must not join until the mismatch is resolved.
+            verifyConnectorTroubleshootingStatesMatch(proposedFlow, controller);
+
             synchronizeFlow(controller, existingDataFlow, proposedFlow, affectedComponents);
         } finally {
             if (!existingFlowEmpty) {
@@ -263,6 +276,31 @@ public class VersionedFlowSynchronizer implements FlowSynchronizer {
         } else {
             throw new UninheritableFlowException("Proposed flow is not inheritable by the flow controller and cannot completely replace the current flow due to: "
                 + inheritability.getExplanation());
+        }
+    }
+
+    private void verifyConnectorTroubleshootingStatesMatch(final DataFlow proposedFlow, final FlowController controller) {
+        final VersionedDataflow proposedDataflow = proposedFlow.getVersionedDataflow();
+        if (proposedDataflow == null || proposedDataflow.getConnectors() == null) {
+            return;
+        }
+
+        final ConnectorRepository connectorRepository = controller.getConnectorRepository();
+        for (final VersionedConnector proposedConnector : proposedDataflow.getConnectors()) {
+            final ConnectorNode localConnector = connectorRepository.getConnector(proposedConnector.getInstanceIdentifier(), ConnectorSyncMode.LOCAL_ONLY);
+            if (localConnector == null) {
+                continue;
+            }
+
+            final boolean localTroubleshooting = localConnector.getCurrentState() == ConnectorState.TROUBLESHOOTING;
+            final boolean proposedTroubleshooting = proposedConnector.getScheduledState() == VersionedConnectorState.TROUBLESHOOTING;
+            if (localTroubleshooting != proposedTroubleshooting) {
+                final String troubleshootingDescription = localTroubleshooting
+                    ? "in Troubleshooting mode on this node but is not in Troubleshooting mode in the cluster flow"
+                    : "not in Troubleshooting mode on this node but is in Troubleshooting mode in the cluster flow";
+                throw new UninheritableFlowException("Proposed flow is not inheritable by the flow controller because " + localConnector + " is " + troubleshootingDescription
+                    + ". Exit or enter Troubleshooting mode for this Connector so that its state matches the cluster before joining.");
+            }
         }
     }
 
@@ -412,9 +450,12 @@ public class VersionedFlowSynchronizer implements FlowSynchronizer {
                 versionedExternalFlow.setParameterContexts(versionedParameterContextMap);
                 versionedExternalFlow.setFlowContents(versionedFlow.getRootGroup());
 
-                // Inherit controller-level components.
+                // Inherit root-level Controller Services first so that Parameter Providers backed by
+                // them are VALID when Connectors begin resolving SecretReferences and so that any other
+                // controller-level component that references a root CS sees it in its target state.
                 inheritControllerServices(controller, versionedFlow, affectedComponentSet);
                 inheritParameterProviders(controller, versionedFlow, affectedComponentSet);
+                inheritConnectors(controller, versionedFlow);
                 inheritParameterContexts(controller, versionedFlow);
                 inheritReportingTasks(controller, versionedFlow, affectedComponentSet);
                 inheritFlowAnalysisRules(controller, versionedFlow, affectedComponentSet);
@@ -504,7 +545,7 @@ public class VersionedFlowSynchronizer implements FlowSynchronizer {
             toSet(existingVersionedFlow.getRegistries())
         );
 
-        final FlowComparator flowComparator = new StandardFlowComparator(localDataFlow, clusterDataFlow, Collections.emptySet(),
+        final FlowComparator flowComparator = new StandardFlowComparator(localDataFlow, clusterDataFlow,
             differenceDescriptor, encryptor::decrypt, VersionedComponent::getInstanceIdentifier, FlowComparatorVersionedStrategy.DEEP);
         return flowComparator.compare();
     }
@@ -559,7 +600,8 @@ public class VersionedFlowSynchronizer implements FlowSynchronizer {
             if (existing == null) {
                 addFlowRegistryClient(controller, versionedFlowRegistryClient);
             } else if (affectedComponentSet.isFlowRegistryClientAffected(existing.getIdentifier())) {
-                updateRegistry(existing, versionedFlowRegistryClient, controller);
+                final Map<String, String> decryptedProperties = decryptProperties(versionedFlowRegistryClient.getProperties(), controller.getEncryptor());
+                updateRegistry(existing, versionedFlowRegistryClient, decryptedProperties);
             }
         }
     }
@@ -583,16 +625,21 @@ public class VersionedFlowSynchronizer implements FlowSynchronizer {
 
         final FlowRegistryClientNode flowRegistryClient = flowController.getFlowManager().createFlowRegistryClient(
                 versionedFlowRegistryClient.getType(), versionedFlowRegistryClient.getIdentifier(), coordinate, Collections.emptySet(), false, true, null);
-        updateRegistry(flowRegistryClient, versionedFlowRegistryClient, flowController);
+
+        final Map<String, String> decryptedProperties = decryptProperties(versionedFlowRegistryClient.getProperties(), flowController.getEncryptor());
+        updateRegistry(flowRegistryClient, versionedFlowRegistryClient, decryptedProperties);
+
+        final ControllerServiceFactory serviceFactory = new StandardControllerServiceFactory(flowController.getExtensionManager(), flowController.getFlowManager(),
+            flowController.getControllerServiceProvider(), flowRegistryClient);
+        flowRegistryClient.migrateConfiguration(decryptedProperties, serviceFactory);
     }
 
-    private void updateRegistry(final FlowRegistryClientNode flowRegistryClient, final VersionedFlowRegistryClient versionedFlowRegistryClient, final FlowController flowController) {
+    private void updateRegistry(final FlowRegistryClientNode flowRegistryClient, final VersionedFlowRegistryClient versionedFlowRegistryClient, final Map<String, String> decryptedProperties) {
         flowRegistryClient.setName(versionedFlowRegistryClient.getName());
         flowRegistryClient.setDescription(versionedFlowRegistryClient.getDescription());
         flowRegistryClient.setAnnotationData(versionedFlowRegistryClient.getAnnotationData());
 
         final Set<String> sensitiveDynamicPropertyNames = getSensitiveDynamicPropertyNames(flowRegistryClient, versionedFlowRegistryClient);
-        final Map<String, String> decryptedProperties = decryptProperties(versionedFlowRegistryClient.getProperties(), flowController.getEncryptor());
         flowRegistryClient.setProperties(decryptedProperties, false, sensitiveDynamicPropertyNames);
     }
 
@@ -619,18 +666,19 @@ public class VersionedFlowSynchronizer implements FlowSynchronizer {
         final BundleCoordinate coordinate = createBundleCoordinate(extensionManager, reportingTask.getBundle(), reportingTask.getType());
 
         final ReportingTaskNode taskNode = controller.createReportingTask(reportingTask.getType(), reportingTask.getInstanceIdentifier(), coordinate, false);
-        updateReportingTask(taskNode, reportingTask, controller);
+
+        final Map<String, String> decryptedProperties = decryptProperties(reportingTask.getProperties(), controller.getEncryptor());
+        configureReportingTask(taskNode, reportingTask, decryptedProperties);
 
         final ControllerServiceFactory serviceFactory = new StandardControllerServiceFactory(controller.getExtensionManager(), controller.getFlowManager(),
             controller.getControllerServiceProvider(), taskNode);
-        Map<String, String> rawPropertyValues = taskNode.getRawPropertyValues().entrySet().stream()
-                .collect(HashMap::new,
-                        (m, e) -> m.put(e.getKey().getName(), e.getValue()),
-                        HashMap::putAll);
-        taskNode.migrateConfiguration(rawPropertyValues, serviceFactory);
+        taskNode.migrateConfiguration(decryptedProperties, serviceFactory);
+
+        // Start reporting task after migration is complete to avoid modifying running task
+        startReportingTask(taskNode, reportingTask, controller);
     }
 
-    private void updateReportingTask(final ReportingTaskNode taskNode, final VersionedReportingTask reportingTask, final FlowController controller) {
+    private void configureReportingTask(final ReportingTaskNode taskNode, final VersionedReportingTask reportingTask, final Map<String, String> decryptedProperties) {
         taskNode.setName(reportingTask.getName());
         taskNode.setComments(reportingTask.getComments());
         taskNode.setSchedulingPeriod(reportingTask.getSchedulingPeriod());
@@ -639,10 +687,10 @@ public class VersionedFlowSynchronizer implements FlowSynchronizer {
         taskNode.setAnnotationData(reportingTask.getAnnotationData());
 
         final Set<String> sensitiveDynamicPropertyNames = getSensitiveDynamicPropertyNames(taskNode, reportingTask);
-        final Map<String, String> decryptedProperties = decryptProperties(reportingTask.getProperties(), controller.getEncryptor());
         taskNode.setProperties(decryptedProperties, false, sensitiveDynamicPropertyNames);
+    }
 
-        // enable/disable/start according to the ScheduledState
+    private void startReportingTask(final ReportingTaskNode taskNode, final VersionedReportingTask reportingTask, final FlowController controller) {
         switch (reportingTask.getScheduledState()) {
             case DISABLED:
                 if (taskNode.isRunning()) {
@@ -666,6 +714,12 @@ public class VersionedFlowSynchronizer implements FlowSynchronizer {
                 }
                 break;
         }
+    }
+
+    private void updateReportingTask(final ReportingTaskNode taskNode, final VersionedReportingTask reportingTask, final FlowController controller) {
+        final Map<String, String> decryptedProperties = decryptProperties(reportingTask.getProperties(), controller.getEncryptor());
+        configureReportingTask(taskNode, reportingTask, decryptedProperties);
+        startReportingTask(taskNode, reportingTask, controller);
     }
 
     private void inheritFlowAnalysisRules(final FlowController controller, final VersionedDataflow dataflow, final AffectedComponentSet affectedComponentSet)
@@ -739,7 +793,8 @@ public class VersionedFlowSynchronizer implements FlowSynchronizer {
             if (existing == null) {
                 addParameterProvider(controller, versionedParameterProvider, controller.getEncryptor());
             } else if (affectedComponentSet.isParameterProviderAffected(existing.getIdentifier())) {
-                updateParameterProvider(existing, versionedParameterProvider, controller.getEncryptor());
+                final Map<String, String> decryptedProperties = decryptProperties(versionedParameterProvider.getProperties(), controller.getEncryptor());
+                updateParameterProvider(existing, versionedParameterProvider, decryptedProperties);
             }
         }
 
@@ -755,16 +810,21 @@ public class VersionedFlowSynchronizer implements FlowSynchronizer {
 
         final ParameterProviderNode parameterProviderNode = controller.getFlowManager()
                 .createParameterProvider(parameterProvider.getType(), parameterProvider.getInstanceIdentifier(), coordinate, false);
-        updateParameterProvider(parameterProviderNode, parameterProvider, encryptor);
+
+        final Map<String, String> decryptedProperties = decryptProperties(parameterProvider.getProperties(), encryptor);
+        updateParameterProvider(parameterProviderNode, parameterProvider, decryptedProperties);
+
+        final ControllerServiceFactory serviceFactory = new StandardControllerServiceFactory(controller.getExtensionManager(), controller.getFlowManager(),
+            controller.getControllerServiceProvider(), parameterProviderNode);
+        parameterProviderNode.migrateConfiguration(decryptedProperties, serviceFactory);
     }
 
     private void updateParameterProvider(final ParameterProviderNode parameterProviderNode, final VersionedParameterProvider parameterProvider,
-                                         final  PropertyEncryptor encryptor) {
+                                         final Map<String, String> decryptedProperties) {
         parameterProviderNode.setName(parameterProvider.getName());
         parameterProviderNode.setComments(parameterProvider.getComments());
 
         parameterProviderNode.setAnnotationData(parameterProvider.getAnnotationData());
-        final Map<String, String> decryptedProperties = decryptProperties(parameterProvider.getProperties(), encryptor);
         parameterProviderNode.setProperties(decryptedProperties);
     }
 
@@ -953,9 +1013,11 @@ public class VersionedFlowSynchronizer implements FlowSynchronizer {
 
         final Map<String, String> currentValues = new HashMap<>();
         final Map<String, Set<String>> currentAssetReferences = new HashMap<>();
+        final Map<String, String> currentDescriptions = new HashMap<>();
         parameterContext.getParameters().values().forEach(param -> {
             currentValues.put(param.getDescriptor().getName(), param.getValue());
             currentAssetReferences.put(param.getDescriptor().getName(), getAssetIds(param));
+            currentDescriptions.put(param.getDescriptor().getName(), param.getDescriptor().getDescription());
         });
 
         final Map<String, Parameter> updatedParameters = new HashMap<>();
@@ -964,11 +1026,13 @@ public class VersionedFlowSynchronizer implements FlowSynchronizer {
             final String parameterName = parameter.getName();
             final String currentValue = currentValues.get(parameterName);
             final Set<String> currentAssetIds = currentAssetReferences.getOrDefault(parameterName, Collections.emptySet());
+            final String currentDescription = currentDescriptions.get(parameterName);
 
             final Parameter updatedParameterObject = parameters.get(parameterName);
             final String updatedValue = updatedParameterObject.getValue();
             final Set<String> updatedAssetIds = getAssetIds(updatedParameterObject);
-            if (!Objects.equals(currentValue, updatedValue) || !currentAssetIds.equals(updatedAssetIds)) {
+            final String updatedDescription = updatedParameterObject.getDescriptor().getDescription();
+            if (!Objects.equals(currentValue, updatedValue) || !currentAssetIds.equals(updatedAssetIds) || !Objects.equals(currentDescription, updatedDescription)) {
                 updatedParameters.put(parameterName, updatedParameterObject);
             }
             proposedParameterNames.add(parameterName);
@@ -1004,6 +1068,51 @@ public class VersionedFlowSynchronizer implements FlowSynchronizer {
                 .collect(Collectors.toSet());
     }
 
+    private void inheritConnectors(final FlowController flowController, final VersionedDataflow dataflow) {
+        final ConnectorRepository connectorRepository = flowController.getConnectorRepository();
+
+        final Set<String> proposedConnectorIds = new HashSet<>();
+        if (dataflow.getConnectors() != null) {
+            for (final VersionedConnector versionedConnector : dataflow.getConnectors()) {
+                proposedConnectorIds.add(versionedConnector.getInstanceIdentifier());
+
+                final ConnectorSyncResult result = connectorRepository.syncConnector(versionedConnector);
+                logger.info("Connector [{}] sync result: {}", versionedConnector.getInstanceIdentifier(), result);
+
+                if (result.getEffectiveScheduledState() != null && result.getConnectorNode() != null) {
+                    switch (result.getEffectiveScheduledState()) {
+                        case RUNNING -> flowController.startConnector(result.getConnectorNode());
+                        case ENABLED -> connectorRepository.stopConnector(result.getConnectorNode());
+                        case TROUBLESHOOTING -> logger.debug("Connector [{}] is in TROUBLESHOOTING state; leaving connector lifecycle alone", result.getConnectorNode().getIdentifier());
+                        default -> { }
+                    }
+                }
+            }
+        }
+
+        for (final ConnectorNode existingConnector : connectorRepository.getConnectors(ConnectorSyncMode.LOCAL_ONLY)) {
+            if (!proposedConnectorIds.contains(existingConnector.getIdentifier())) {
+                logger.info("Connector [{}] (state={}) is no longer part of the proposed flow. Stopping and removing.",
+                        existingConnector.getIdentifier(), existingConnector.getCurrentState());
+                try {
+                    logger.debug("Stopping orphan connector [{}] before removal", existingConnector.getIdentifier());
+                    connectorRepository.stopConnector(existingConnector).get();
+                    logger.debug("Orphan connector [{}] stopped (state={}); purging data before removal",
+                            existingConnector.getIdentifier(), existingConnector.getCurrentState());
+                    existingConnector.purgeFlowFiles("Flow Synchronization").get();
+                    logger.debug("Orphan connector [{}] purged; proceeding with removal", existingConnector.getIdentifier());
+                    connectorRepository.removeConnector(existingConnector.getIdentifier());
+                    logger.info("Successfully removed orphan connector [{}]", existingConnector.getIdentifier());
+                } catch (final Exception e) {
+                    logger.error("Failed to remove Connector [{}] during flow inheritance. Connector will be marked invalid.",
+                            existingConnector.getIdentifier(), e);
+                    existingConnector.markInvalid("Flow Synchronization Failure",
+                            "Connector could not be removed during flow sync: " + e.getMessage());
+                }
+            }
+        }
+    }
+
     private void inheritControllerServices(final FlowController controller, final VersionedDataflow dataflow, final AffectedComponentSet affectedComponentSet) {
         final FlowManager flowManager = controller.getFlowManager();
 
@@ -1029,7 +1138,10 @@ public class VersionedFlowSynchronizer implements FlowSynchronizer {
         for (final VersionedControllerService versionedControllerService : controllerServices) {
             final ControllerServiceNode serviceNode = flowManager.getRootControllerService(versionedControllerService.getInstanceIdentifier());
             if (controllerServicesAddedAndProperties.containsKey(serviceNode) || affectedComponentSet.isControllerServiceAffected(serviceNode.getIdentifier())) {
-                updateRootControllerService(serviceNode, versionedControllerService, controller.getEncryptor());
+                // Set Decrypted Properties for subsequent migrate configuration using actual values
+                final Map<String, String> decryptedProperties = decryptProperties(versionedControllerService.getProperties(), controller.getEncryptor());
+                controllerServicesAddedAndProperties.put(serviceNode, decryptedProperties);
+                updateRootControllerService(serviceNode, versionedControllerService, decryptedProperties);
             }
         }
 
@@ -1171,7 +1283,7 @@ public class VersionedFlowSynchronizer implements FlowSynchronizer {
     }
 
     private void updateRootControllerService(final ControllerServiceNode serviceNode, final VersionedControllerService versionedControllerService,
-                                             final PropertyEncryptor encryptor) {
+                                             final Map<String, String> decryptedProperties) {
         serviceNode.pauseValidationTrigger();
         try {
             serviceNode.setName(versionedControllerService.getName());
@@ -1187,7 +1299,6 @@ public class VersionedFlowSynchronizer implements FlowSynchronizer {
             }
 
             final Set<String> sensitiveDynamicPropertyNames = getSensitiveDynamicPropertyNames(serviceNode, versionedControllerService);
-            final Map<String, String> decryptedProperties = decryptProperties(versionedControllerService.getProperties(), encryptor);
             serviceNode.setProperties(decryptedProperties, false, sensitiveDynamicPropertyNames);
         } finally {
             serviceNode.resumeValidationTrigger();
@@ -1325,6 +1436,9 @@ public class VersionedFlowSynchronizer implements FlowSynchronizer {
         if (!CollectionUtils.isEmpty(dataflow.getParameterContexts())) {
             return false;
         }
+        if (!CollectionUtils.isEmpty(dataflow.getConnectors())) {
+            return false;
+        }
 
         final VersionedProcessGroup rootGroup = dataflow.getRootGroup();
         return isFlowEmpty(rootGroup);
@@ -1346,7 +1460,6 @@ public class VersionedFlowSynchronizer implements FlowSynchronizer {
             && CollectionUtils.isEmpty(group.getControllerServices())
             && group.getParameterContextName() == null;
     }
-
 
     private DataFlow getExistingDataFlow(final FlowController controller) {
         final FlowManager flowManager = controller.getFlowManager();
@@ -1389,7 +1502,6 @@ public class VersionedFlowSynchronizer implements FlowSynchronizer {
         return result.toByteArray();
     }
 
-
     private byte[] readFlowFromDisk() throws IOException {
         if (flowStorageFile.length() == 0) {
             return new byte[0];
@@ -1404,7 +1516,6 @@ public class VersionedFlowSynchronizer implements FlowSynchronizer {
             return baos.toByteArray();
         }
     }
-
 
     private void inheritSnippets(final FlowController controller, final DataFlow proposedFlow) {
         // clear the snippets that are currently in memory

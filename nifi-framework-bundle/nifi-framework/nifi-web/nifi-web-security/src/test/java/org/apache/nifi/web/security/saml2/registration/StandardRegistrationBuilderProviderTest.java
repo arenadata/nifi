@@ -19,7 +19,6 @@ package org.apache.nifi.web.security.saml2.registration;
 import mockwebserver3.MockResponse;
 import mockwebserver3.MockWebServer;
 import okhttp3.HttpUrl;
-import org.apache.commons.io.IOUtils;
 import org.apache.nifi.security.cert.builder.StandardCertificateBuilder;
 import org.apache.nifi.security.ssl.EphemeralKeyStoreBuilder;
 import org.apache.nifi.security.ssl.StandardKeyManagerBuilder;
@@ -32,12 +31,6 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.security.saml2.provider.service.registration.RelyingPartyRegistration;
 import org.springframework.security.saml2.provider.service.registration.Saml2MessageBinding;
-
-import javax.net.ssl.SSLContext;
-import javax.net.ssl.SSLSocketFactory;
-import javax.net.ssl.X509KeyManager;
-import javax.net.ssl.X509TrustManager;
-import javax.security.auth.x500.X500Principal;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -52,6 +45,11 @@ import java.security.cert.X509Certificate;
 import java.time.Duration;
 import java.util.Objects;
 import java.util.Properties;
+import javax.net.ssl.SSLContext;
+import javax.net.ssl.SSLSocketFactory;
+import javax.net.ssl.X509KeyManager;
+import javax.net.ssl.X509TrustManager;
+import javax.security.auth.x500.X500Principal;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -73,7 +71,7 @@ class StandardRegistrationBuilderProviderTest {
     }
 
     @AfterEach
-    void shutdownServer() throws IOException {
+    void shutdownServer() {
         mockWebServer.close();
     }
 
@@ -169,7 +167,7 @@ class StandardRegistrationBuilderProviderTest {
     private NiFiProperties getProperties(final String metadataUrl) {
         final Properties properties = new Properties();
         properties.setProperty(NiFiProperties.SECURITY_USER_SAML_IDP_METADATA_URL, metadataUrl);
-        return NiFiProperties.createBasicNiFiProperties(null, properties);
+        return NiFiProperties.createBasicNiFiProperties((String) null, properties);
     }
 
     private NiFiProperties getPropertiesTrustStoreStrategy(final String metadataUrl) {
@@ -177,12 +175,13 @@ class StandardRegistrationBuilderProviderTest {
         properties.setProperty(NiFiProperties.SECURITY_USER_SAML_IDP_METADATA_URL, metadataUrl);
         properties.setProperty(NiFiProperties.SECURITY_USER_SAML_HTTP_CLIENT_TRUSTSTORE_STRATEGY, StandardRegistrationBuilderProvider.NIFI_TRUST_STORE_STRATEGY);
 
-        return NiFiProperties.createBasicNiFiProperties(null, properties);
+        return NiFiProperties.createBasicNiFiProperties((String) null, properties);
     }
 
     final String getMetadata() throws IOException {
         try (final InputStream inputStream = Objects.requireNonNull(getClass().getResourceAsStream(METADATA_PATH))) {
-            return IOUtils.toString(inputStream, StandardCharsets.UTF_8);
+            final byte[] bytes = inputStream.readAllBytes();
+            return new String(bytes, StandardCharsets.UTF_8);
         }
     }
 

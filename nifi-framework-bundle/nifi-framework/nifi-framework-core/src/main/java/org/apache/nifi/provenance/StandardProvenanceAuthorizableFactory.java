@@ -33,7 +33,6 @@ public class StandardProvenanceAuthorizableFactory implements ProvenanceAuthoriz
         this.flowController = flowController;
     }
 
-
     @Override
     public Authorizable createLocalDataAuthorizable(final String componentId) {
         final FlowManager flowManager = flowController.getFlowManager();
@@ -51,7 +50,7 @@ public class StandardProvenanceAuthorizableFactory implements ProvenanceAuthoriz
             final Connectable connectable = flowManager.findConnectable(componentId);
             if (connectable == null) {
                 // if the component id is not a connectable then consider a connection
-                final Connection connection = flowManager.getRootGroup().findConnection(componentId);
+                final Connection connection = flowController.findConnectionIncludingConnectorManaged(componentId);
 
                 if (connection == null) {
                     throw new ResourceNotFoundException("The component that generated this event is no longer part of the data flow.");
@@ -67,13 +66,11 @@ public class StandardProvenanceAuthorizableFactory implements ProvenanceAuthoriz
         return authorizable;
     }
 
-
-
     @Override
     public Authorizable createRemoteDataAuthorizable(String remoteGroupPortId) {
         final DataAuthorizable authorizable;
 
-        final RemoteGroupPort remoteGroupPort = flowController.getFlowManager().getRootGroup().findRemoteGroupPort(remoteGroupPortId);
+        final RemoteGroupPort remoteGroupPort = flowController.findRemoteGroupPortIncludingConnectorManaged(remoteGroupPortId);
         if (remoteGroupPort == null) {
             throw new ResourceNotFoundException("The component that generated this event is no longer part of the data flow.");
         } else {
@@ -101,7 +98,7 @@ public class StandardProvenanceAuthorizableFactory implements ProvenanceAuthoriz
             final Connectable connectable = flowManager.findConnectable(componentId);
             if (connectable == null) {
                 // if the component id is not a connectable then consider a connection
-                final Connection connection = flowManager.getRootGroup().findConnection(componentId);
+                final Connection connection = flowController.findConnectionIncludingConnectorManaged(componentId);
 
                 if (connection == null) {
                     throw new ResourceNotFoundException("The component that generated this event is no longer part of the data flow.");

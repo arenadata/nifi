@@ -17,7 +17,6 @@
 package org.apache.nifi.web.api.dto.status;
 
 import io.swagger.v3.oas.annotations.media.Schema;
-
 import jakarta.xml.bind.annotation.XmlType;
 
 /**
@@ -117,9 +116,9 @@ public class PortStatusSnapshotDTO implements Cloneable {
     }
 
     /**
-     * @return The total count and size of flow files that have been accepted in the last five minutes
+     * @return The total count and size of FlowFiles that have been accepted in the last five minutes
      */
-    @Schema(description = "The count/size of flowfiles that have been accepted in the last 5 minutes.")
+    @Schema(description = "The count/size of FlowFiles that have been accepted in the last 5 minutes.")
     public String getInput() {
         return input;
     }
@@ -129,9 +128,9 @@ public class PortStatusSnapshotDTO implements Cloneable {
     }
 
     /**
-     * @return The total count and size of flow files that have been processed in the last five minutes
+     * @return The total count and size of FlowFiles that have been processed in the last five minutes
      */
-    @Schema(description = "The count/size of flowfiles that have been processed in the last 5 minutes.")
+    @Schema(description = "The count/size of FlowFiles that have been processed in the last 5 minutes.")
     public String getOutput() {
         return output;
     }

@@ -92,6 +92,8 @@ public final class NarUnpacker {
         try {
             File unpackedJetty = null;
             File unpackedFramework = null;
+            BundleCoordinate frameworkCoordinate = null;
+            BundleCoordinate jettyCoordinate = null;
             final Set<File> unpackedExtensions = new HashSet<>();
             final List<File> narFiles = new ArrayList<>();
 
@@ -116,9 +118,10 @@ public final class NarUnpacker {
                 }
             }
 
+            final long startTime = System.nanoTime();
+            logger.info("Expanding {} NAR files started", narFiles.size());
+
             if (!narFiles.isEmpty()) {
-                final long startTime = System.nanoTime();
-                logger.info("Expanding {} NAR files started", narFiles.size());
                 for (File narFile : narFiles) {
                     if (!narFile.canRead()) {
                         throw new IllegalStateException("Unable to read NAR file: " + narFile.getAbsolutePath());
@@ -138,17 +141,19 @@ public final class NarUnpacker {
                         // determine if this is the framework
                         if (frameworkNarId != null && frameworkNarId.equals(bundleCoordinate.getId())) {
                             if (unpackedFramework != null) {
-                                throw new IllegalStateException("Multiple framework NARs discovered. Only one framework is permitted.");
+                                throw new IllegalStateException("Multiple framework NARs discovered. Only one framework is permitted. Found [%s] and [%s]".formatted(
+                                        frameworkCoordinate, bundleCoordinate));
                             }
 
-                            // unpack the framework nar
+                            frameworkCoordinate = bundleCoordinate;
                             unpackedFramework = unpackNar(narFile, frameworkWorkingDir, verifyHash, unpackMode);
                         } else if (NarClassLoaders.JETTY_NAR_ID.equals(bundleCoordinate.getId())) {
                             if (unpackedJetty != null) {
-                                throw new IllegalStateException("Multiple Jetty NARs discovered. Only one Jetty NAR is permitted.");
+                                throw new IllegalStateException("Multiple Jetty NARs discovered. Only one Jetty NAR is permitted. Found [%s] and [%s]".formatted(
+                                        jettyCoordinate, bundleCoordinate));
                             }
 
-                            // unpack and record the Jetty nar
+                            jettyCoordinate = bundleCoordinate;
                             unpackedJetty = unpackNar(narFile, extensionsWorkingDir, verifyHash, unpackMode);
                             unpackedExtensions.add(unpackedJetty);
                         } else {
@@ -199,10 +204,6 @@ public final class NarUnpacker {
                         }
                     }
                 }
-
-                final long duration = System.nanoTime() - startTime;
-                final double durationSeconds = TimeUnit.NANOSECONDS.toMillis(duration) / 1000.0;
-                logger.info("Expanded {} NAR files in {} seconds ({} ns)", narFiles.size(), durationSeconds, duration);
             }
 
             final Map<File, BundleCoordinate> unpackedNars = new HashMap<>(createUnpackedNarBundleCoordinateMap(extensionsWorkingDir));
@@ -210,6 +211,10 @@ public final class NarUnpacker {
             final ExtensionMapping extensionMapping = new ExtensionMapping();
             mapExtensions(unpackedNars, extensionMapping);
             populateExtensionMapping(extensionMapping, systemBundle.getBundleDetails().getCoordinate(), systemBundle.getBundleDetails().getWorkingDirectory());
+
+            final long duration = System.nanoTime() - startTime;
+            final double durationSeconds = TimeUnit.NANOSECONDS.toMillis(duration) / 1000.0;
+            logger.info("Expanded {} NAR files in {} seconds ({} ns)", narFiles.size(), durationSeconds, duration);
 
             return extensionMapping;
         } catch (IOException e) {
@@ -466,7 +471,7 @@ public final class NarUnpacker {
                 // But the MANIFEST.MF file is special. If it's not properly formed, it will prefer the ClassLoader from loading the JAR file, and we can't simply
                 // concatenate the files together. However, it's not required and generally contains information that we don't care about in this context. So we can
                 // simply ignore it.
-                if ((entryName.contains("META-INF/") && !entryName.contains("META-INF/MANIFEST.MF") ) && !jarEntry.isDirectory()) {
+                if ((entryName.contains("META-INF/") && !entryName.contains("META-INF/MANIFEST.MF")) && !jarEntry.isDirectory()) {
                     logger.debug("Found META-INF/services file {}", entryName);
 
                     // Because we're combining multiple jar files into one, we can run into situations where there may be conflicting filenames
@@ -544,8 +549,9 @@ public final class NarUnpacker {
             final JarEntry controllerServiceEntry = jarFile.getJarEntry("META-INF/services/org.apache.nifi.controller.ControllerService");
             final JarEntry parameterProviderEntry = jarFile.getJarEntry("META-INF/services/org.apache.nifi.parameter.ParameterProvider");
             final JarEntry flowRegistryClientEntry = jarFile.getJarEntry("META-INF/services/org.apache.nifi.registry.flow.FlowRegistryClient");
+            final JarEntry connectorEntry = jarFile.getJarEntry("META-INF/services/org.apache.nifi.components.connector.Connector");
 
-            if (processorEntry == null && reportingTaskEntry == null && flowAnalysisRuleEntry == null && controllerServiceEntry == null && parameterProviderEntry == null) {
+            if (processorEntry == null && reportingTaskEntry == null && flowAnalysisRuleEntry == null && controllerServiceEntry == null && parameterProviderEntry == null && connectorEntry == null) {
                 return mapping;
             }
 
@@ -555,6 +561,7 @@ public final class NarUnpacker {
             mapping.addAllControllerServices(coordinate, detectNiFiComponents(jarFile, controllerServiceEntry));
             mapping.addAllParameterProviders(coordinate, detectNiFiComponents(jarFile, parameterProviderEntry));
             mapping.addAllFlowRegistryClients(coordinate, detectNiFiComponents(jarFile, flowRegistryClientEntry));
+            mapping.addAllConnectors(coordinate, detectNiFiComponents(jarFile, connectorEntry));
             return mapping;
         }
     }

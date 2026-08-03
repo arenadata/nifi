@@ -36,13 +36,6 @@ import org.apache.nifi.xml.processing.ProcessingException;
 import org.apache.nifi.xml.processing.stream.StandardXMLEventReaderProvider;
 import org.apache.nifi.xml.processing.stream.XMLEventReaderProvider;
 
-import javax.xml.stream.XMLEventReader;
-import javax.xml.stream.XMLStreamException;
-import javax.xml.stream.events.Attribute;
-import javax.xml.stream.events.Characters;
-import javax.xml.stream.events.StartElement;
-import javax.xml.stream.events.XMLEvent;
-import javax.xml.transform.stream.StreamSource;
 import java.io.FilterInputStream;
 import java.io.IOException;
 import java.io.InputStream;
@@ -53,6 +46,13 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import javax.xml.stream.XMLEventReader;
+import javax.xml.stream.XMLStreamException;
+import javax.xml.stream.events.Attribute;
+import javax.xml.stream.events.Characters;
+import javax.xml.stream.events.StartElement;
+import javax.xml.stream.events.XMLEvent;
+import javax.xml.transform.stream.StreamSource;
 
 public class WindowsEventLogRecordReader implements RecordReader {
 
@@ -129,7 +129,6 @@ public class WindowsEventLogRecordReader implements RecordReader {
         SYSTEM_SCHEMA = new SimpleRecordSchema(systemFields);
         SYSTEM_SCHEMA.setSchemaName("System");
     }
-
 
     public WindowsEventLogRecordReader(InputStream in, final String dateFormat, final String timeFormat, final String timestampFormat, ComponentLog logger)
             throws IOException, MalformedRecordException {
@@ -375,9 +374,9 @@ public class WindowsEventLogRecordReader implements RecordReader {
 
                     // dropUnknown == true && coerceTypes == true
                     if (coerceTypes) {
-                        final Object value;
                         final DataType dataType = field.get().getDataType();
-                        if ((value = parseStringForType(attribute.getValue(), targetFieldName, dataType)) != null) {
+                        final Object value = parseStringForType(attribute.getValue(), targetFieldName, dataType);
+                        if (value != null) {
                             recordValues.put(targetFieldName, value);
                         }
 
@@ -390,10 +389,10 @@ public class WindowsEventLogRecordReader implements RecordReader {
 
                 // dropUnknown == false && coerceTypes == true
                 if (coerceTypes) {
-                    final Object value;
                     final Optional<RecordField> field = schema.getField(targetFieldName);
                     if (field.isPresent()) {
-                        if ((value = parseStringForType(attribute.getValue(), targetFieldName, field.get().getDataType())) != null) {
+                        final Object value = parseStringForType(attribute.getValue(), targetFieldName, field.get().getDataType());
+                        if (value != null) {
                             recordValues.put(targetFieldName, value);
                         }
                     } else {
@@ -490,7 +489,7 @@ public class WindowsEventLogRecordReader implements RecordReader {
     private Object parseStringForType(String data, String fieldName, DataType dataType) {
         return switch (dataType.getFieldType()) {
             case BOOLEAN, BYTE, CHAR, DECIMAL, DOUBLE, FLOAT, INT, LONG, SHORT, STRING, DATE, TIME, TIMESTAMP ->
-                    DataTypeUtils.convertType(data, dataType, Optional.ofNullable(dateFormat), Optional.ofNullable(timeFormat), Optional.ofNullable(timestampFormat), fieldName);
+                DataTypeUtils.convertType(data, dataType, Optional.ofNullable(dateFormat), Optional.ofNullable(timeFormat), Optional.ofNullable(timestampFormat), fieldName);
             default -> null;
         };
     }

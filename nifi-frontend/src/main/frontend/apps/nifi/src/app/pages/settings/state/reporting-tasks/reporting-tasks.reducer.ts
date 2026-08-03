@@ -18,6 +18,7 @@
 import { createReducer, on } from '@ngrx/store';
 import { ReportingTasksState } from './index';
 import {
+    clearReportingTaskBulletinsSuccess,
     configureReportingTask,
     configureReportingTaskSuccess,
     createReportingTask,
@@ -25,6 +26,7 @@ import {
     deleteReportingTask,
     deleteReportingTaskSuccess,
     loadReportingTasks,
+    loadReportingTasksError,
     loadReportingTasksSuccess,
     reportingTasksBannerApiError,
     reportingTasksSnackbarApiError,
@@ -55,6 +57,10 @@ export const reportingTasksReducer = createReducer(
         reportingTasks: response.reportingTasks,
         loadedTimestamp: response.loadedTimestamp,
         status: 'success' as const
+    })),
+    on(loadReportingTasksError, (state, { status }) => ({
+        ...state,
+        status
     })),
     on(reportingTasksBannerApiError, reportingTasksSnackbarApiError, (state) => ({
         ...state,
@@ -108,6 +114,18 @@ export const reportingTasksReducer = createReducer(
                 draftState.reportingTasks.splice(componentIndex, 1);
             }
             draftState.saving = false;
+        });
+    }),
+    on(clearReportingTaskBulletinsSuccess, (state, { response }) => {
+        return produce(state, (draftState) => {
+            const componentIndex: number = draftState.reportingTasks.findIndex(
+                (task: any) => task.id === response.componentId
+            );
+            if (componentIndex > -1) {
+                const task = draftState.reportingTasks[componentIndex];
+                // Replace bulletins with the current bulletins from the server
+                task.bulletins = response.bulletins || [];
+            }
         });
     })
 );

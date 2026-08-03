@@ -16,6 +16,8 @@
  */
 package org.apache.nifi.registry.bootstrap;
 
+import org.apache.nifi.registry.bootstrap.exception.InvalidCommandException;
+
 import java.io.BufferedReader;
 import java.io.BufferedWriter;
 import java.io.IOException;
@@ -24,8 +26,6 @@ import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.io.OutputStreamWriter;
 import java.util.Arrays;
-
-import org.apache.nifi.registry.bootstrap.exception.InvalidCommandException;
 
 public class BootstrapCodec {
 
@@ -85,8 +85,8 @@ public class BootstrapCodec {
                 writer.write("OK");
                 writer.newLine();
                 writer.flush();
+                break;
             }
-            break;
             case "STARTED": {
                 if (args.length != 1) {
                     throw new InvalidCommandException("STARTED command must contain a status argument");
@@ -101,8 +101,8 @@ public class BootstrapCodec {
                 writer.write("OK");
                 writer.newLine();
                 writer.flush();
+                break;
             }
-            break;
         }
     }
 }

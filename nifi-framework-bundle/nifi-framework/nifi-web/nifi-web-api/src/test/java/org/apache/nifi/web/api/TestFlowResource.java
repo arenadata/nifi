@@ -26,8 +26,21 @@ import com.fasterxml.jackson.databind.module.SimpleModule;
 import io.prometheus.client.Collector.MetricFamilySamples.Sample;
 import io.prometheus.client.CollectorRegistry;
 import io.prometheus.client.exporter.common.TextFormat;
+import jakarta.ws.rs.core.MediaType;
+import jakarta.ws.rs.core.Response;
+import jakarta.ws.rs.core.StreamingOutput;
+import org.apache.nifi.authorization.AccessDeniedException;
+import org.apache.nifi.authorization.AuthorizeAccess;
+import org.apache.nifi.components.ValidationResult;
+import org.apache.nifi.components.validation.DisabledServiceValidationResult;
+import org.apache.nifi.connectable.Port;
+import org.apache.nifi.controller.ProcessorNode;
+import org.apache.nifi.controller.service.ControllerServiceNode;
 import org.apache.nifi.controller.status.ProcessGroupStatus;
 import org.apache.nifi.controller.status.ProcessingPerformanceStatus;
+import org.apache.nifi.flow.ExecutionEngine;
+import org.apache.nifi.groups.ProcessGroup;
+import org.apache.nifi.groups.RemoteProcessGroup;
 import org.apache.nifi.metrics.jvm.JmxJvmMetrics;
 import org.apache.nifi.prometheusutil.BulletinMetricsRegistry;
 import org.apache.nifi.prometheusutil.ClusterMetricsRegistry;
@@ -36,25 +49,32 @@ import org.apache.nifi.prometheusutil.JvmMetricsRegistry;
 import org.apache.nifi.prometheusutil.NiFiMetricsRegistry;
 import org.apache.nifi.prometheusutil.PrometheusMetricsUtil;
 import org.apache.nifi.registry.flow.FlowVersionLocation;
+import org.apache.nifi.util.NiFiProperties;
 import org.apache.nifi.web.NiFiServiceFacade;
 import org.apache.nifi.web.ResourceNotFoundException;
 import org.apache.nifi.web.api.dto.ComponentDifferenceDTO;
 import org.apache.nifi.web.api.dto.DifferenceDTO;
+import org.apache.nifi.web.api.entity.ActivateControllerServicesEntity;
+import org.apache.nifi.web.api.entity.ClearBulletinsForGroupRequestEntity;
+import org.apache.nifi.web.api.entity.ConnectorEntity;
 import org.apache.nifi.web.api.entity.FlowComparisonEntity;
 import org.apache.nifi.web.api.request.FlowMetricsProducer;
+import org.apache.nifi.web.api.request.FlowMetricsReportingStrategy;
 import org.jetbrains.annotations.NotNull;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.mock.web.MockHttpServletRequest;
 
-import jakarta.ws.rs.core.MediaType;
-import jakarta.ws.rs.core.Response;
-import jakarta.ws.rs.core.StreamingOutput;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.net.HttpURLConnection;
 import java.nio.charset.StandardCharsets;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
@@ -63,6 +83,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.Function;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
@@ -73,9 +94,15 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.anySet;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.any;
 import static org.mockito.Mockito.anyString;
 import static org.mockito.Mockito.doReturn;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -105,23 +132,40 @@ public class TestFlowResource {
     private static final String SAMPLE_BUCKET_ID_B = "42998285-d06c-41dd-a757-7a14ab9673f4";
     private static final String SAMPLE_FLOW_ID_B = "e6483662-9226-41c1-adec-10357af97ce2";
 
+    private static final String PROCESS_GROUP_ID = "00000000-0000-0000-0000-000000000000";
+    private static final String FIRST_SERVICE_ID = "00000000-0000-0000-0000-000000000001";
+    private static final String SECOND_SERVICE_ID = "00000000-0000-0000-0000-000000000002";
+
     @InjectMocks
     private FlowResource resource = new FlowResource();
 
     @Mock
     private NiFiServiceFacade serviceFacade;
 
+    @Mock
+    private NiFiProperties properties;
+
+    @Mock
+    private ConnectorResource connectorResource;
+
+    @BeforeEach
+    public void setUp() {
+        lenient().when(properties.isNode()).thenReturn(Boolean.FALSE);
+        resource.properties = properties;
+        resource.setConnectorResource(connectorResource);
+    }
+
     @Test
     public void testGetFlowMetricsProducerInvalid() {
-        assertThrows(ResourceNotFoundException.class, () -> resource.getFlowMetrics(String.class.toString(), Collections.emptySet(), null, null, null));
+        assertThrows(ResourceNotFoundException.class, () -> resource.getFlowMetrics(String.class.toString(), Collections.emptySet(), null, null, null, null));
     }
 
     @Test
     public void testGetFlowMetricsPrometheus() throws IOException {
         final List<CollectorRegistry> registries = getCollectorRegistries(false);
-        when(serviceFacade.generateFlowMetrics(anySet())).thenReturn(registries);
+        when(serviceFacade.generateFlowMetrics(anySet(), any(FlowMetricsReportingStrategy.class))).thenReturn(registries);
 
-        final Response response = resource.getFlowMetrics(FlowMetricsProducer.PROMETHEUS.getProducer(), Collections.emptySet(), null, null, null);
+        final Response response = resource.getFlowMetrics(FlowMetricsProducer.PROMETHEUS.getProducer(), Collections.emptySet(), null, null, null, null);
 
         assertNotNull(response);
         assertEquals(MediaType.valueOf(TextFormat.CONTENT_TYPE_004), response.getMediaType());
@@ -136,9 +180,9 @@ public class TestFlowResource {
     @Test
     public void testGetFlowMetricsPrometheusWithPerformanceStatus() throws IOException {
         final List<CollectorRegistry> registries = getCollectorRegistries(true);
-        when(serviceFacade.generateFlowMetrics(anySet())).thenReturn(registries);
+        when(serviceFacade.generateFlowMetrics(anySet(), any(FlowMetricsReportingStrategy.class))).thenReturn(registries);
 
-        final Response response = resource.getFlowMetrics(FlowMetricsProducer.PROMETHEUS.getProducer(), Collections.emptySet(), null, null, null);
+        final Response response = resource.getFlowMetrics(FlowMetricsProducer.PROMETHEUS.getProducer(), Collections.emptySet(), null, null, null, null);
 
         assertNotNull(response);
         assertEquals(MediaType.valueOf(TextFormat.CONTENT_TYPE_004), response.getMediaType());
@@ -153,9 +197,9 @@ public class TestFlowResource {
     @Test
     public void testGetFlowMetricsPrometheusSampleName() throws IOException {
         final List<CollectorRegistry> registries = getCollectorRegistries(false);
-        when(serviceFacade.generateFlowMetrics(anySet())).thenReturn(registries);
+        when(serviceFacade.generateFlowMetrics(anySet(), any(FlowMetricsReportingStrategy.class))).thenReturn(registries);
 
-        final Response response = resource.getFlowMetrics(FlowMetricsProducer.PROMETHEUS.getProducer(), Collections.emptySet(), THREAD_COUNT_NAME, null, null);
+        final Response response = resource.getFlowMetrics(FlowMetricsProducer.PROMETHEUS.getProducer(), Collections.emptySet(), THREAD_COUNT_NAME, null, null, null);
 
         assertNotNull(response);
         assertEquals(MediaType.valueOf(TextFormat.CONTENT_TYPE_004), response.getMediaType());
@@ -169,9 +213,9 @@ public class TestFlowResource {
     @Test
     public void testGetFlowMetricsPrometheusSampleNameStartsWithPattern() throws IOException {
         final List<CollectorRegistry> registries = getCollectorRegistries(false);
-        when(serviceFacade.generateFlowMetrics(anySet())).thenReturn(registries);
+        when(serviceFacade.generateFlowMetrics(anySet(), any(FlowMetricsReportingStrategy.class))).thenReturn(registries);
 
-        final Response response = resource.getFlowMetrics(FlowMetricsProducer.PROMETHEUS.getProducer(), Collections.emptySet(), HEAP_STARTS_WITH_PATTERN, null, null);
+        final Response response = resource.getFlowMetrics(FlowMetricsProducer.PROMETHEUS.getProducer(), Collections.emptySet(), HEAP_STARTS_WITH_PATTERN, null, null, null);
 
         assertNotNull(response);
         assertEquals(MediaType.valueOf(TextFormat.CONTENT_TYPE_004), response.getMediaType());
@@ -186,9 +230,9 @@ public class TestFlowResource {
     @Test
     public void testGetFlowMetricsPrometheusSampleLabelValue() throws IOException {
         final List<CollectorRegistry> registries = getCollectorRegistries(false);
-        when(serviceFacade.generateFlowMetrics(anySet())).thenReturn(registries);
+        when(serviceFacade.generateFlowMetrics(anySet(), any(FlowMetricsReportingStrategy.class))).thenReturn(registries);
 
-        final Response response = resource.getFlowMetrics(FlowMetricsProducer.PROMETHEUS.getProducer(), Collections.emptySet(), null, LABEL_VALUE, null);
+        final Response response = resource.getFlowMetrics(FlowMetricsProducer.PROMETHEUS.getProducer(), Collections.emptySet(), null, LABEL_VALUE, null, null);
 
         assertNotNull(response);
         assertEquals(MediaType.valueOf(TextFormat.CONTENT_TYPE_004), response.getMediaType());
@@ -202,9 +246,9 @@ public class TestFlowResource {
     @Test
     public void testGetFlowMetricsPrometheusSampleNameAndSampleLabelValue() throws IOException {
         final List<CollectorRegistry> registries = getCollectorRegistries(false);
-        when(serviceFacade.generateFlowMetrics(anySet())).thenReturn(registries);
+        when(serviceFacade.generateFlowMetrics(anySet(), any(FlowMetricsReportingStrategy.class))).thenReturn(registries);
 
-        final Response response = resource.getFlowMetrics(FlowMetricsProducer.PROMETHEUS.getProducer(), Collections.emptySet(), THREAD_COUNT_NAME, LABEL_VALUE, null);
+        final Response response = resource.getFlowMetrics(FlowMetricsProducer.PROMETHEUS.getProducer(), Collections.emptySet(), THREAD_COUNT_NAME, LABEL_VALUE, null, null);
 
         assertNotNull(response);
         assertEquals(MediaType.valueOf(TextFormat.CONTENT_TYPE_004), response.getMediaType());
@@ -220,9 +264,9 @@ public class TestFlowResource {
     @Test
     public void testGetFlowMetricsPrometheusAsJson() throws IOException {
         final List<CollectorRegistry> registries = getCollectorRegistriesForJson();
-        when(serviceFacade.generateFlowMetrics(anySet())).thenReturn(registries);
+        when(serviceFacade.generateFlowMetrics(anySet(), any(FlowMetricsReportingStrategy.class))).thenReturn(registries);
 
-        final Response response = resource.getFlowMetrics(FlowMetricsProducer.JSON.getProducer(), Collections.emptySet(), null, null, ROOT_FIELD_NAME);
+        final Response response = resource.getFlowMetrics(FlowMetricsProducer.JSON.getProducer(), Collections.emptySet(), null, null, ROOT_FIELD_NAME, null);
 
         assertNotNull(response);
         assertEquals(MediaType.APPLICATION_JSON_TYPE, response.getMediaType());
@@ -244,9 +288,9 @@ public class TestFlowResource {
     @Test
     public void testGetFlowMetricsPrometheusAsJsonSampleName() throws IOException {
         final List<CollectorRegistry> registries = getCollectorRegistriesForJson();
-        when(serviceFacade.generateFlowMetrics(anySet())).thenReturn(registries);
+        when(serviceFacade.generateFlowMetrics(anySet(), any(FlowMetricsReportingStrategy.class))).thenReturn(registries);
 
-        final Response response = resource.getFlowMetrics(FlowMetricsProducer.JSON.getProducer(), Collections.emptySet(), SAMPLE_NAME_JVM, null, ROOT_FIELD_NAME);
+        final Response response = resource.getFlowMetrics(FlowMetricsProducer.JSON.getProducer(), Collections.emptySet(), SAMPLE_NAME_JVM, null, ROOT_FIELD_NAME, null);
         assertNotNull(response);
         assertEquals(MediaType.valueOf(MediaType.APPLICATION_JSON), response.getMediaType());
 
@@ -264,9 +308,9 @@ public class TestFlowResource {
     @Test
     public void testGetFlowMetricsPrometheusAsJsonSampleNameStartsWithPattern() throws IOException {
         final List<CollectorRegistry> registries = getCollectorRegistriesForJson();
-        when(serviceFacade.generateFlowMetrics(anySet())).thenReturn(registries);
+        when(serviceFacade.generateFlowMetrics(anySet(), any(FlowMetricsReportingStrategy.class))).thenReturn(registries);
 
-        final Response response = resource.getFlowMetrics(FlowMetricsProducer.JSON.getProducer(), Collections.emptySet(), HEAP_STARTS_WITH_PATTERN, null, ROOT_FIELD_NAME);
+        final Response response = resource.getFlowMetrics(FlowMetricsProducer.JSON.getProducer(), Collections.emptySet(), HEAP_STARTS_WITH_PATTERN, null, ROOT_FIELD_NAME, null);
         assertNotNull(response);
         assertEquals(MediaType.valueOf(MediaType.APPLICATION_JSON), response.getMediaType());
 
@@ -284,9 +328,9 @@ public class TestFlowResource {
     @Test
     public void testGetFlowMetricsPrometheusAsJsonSampleLabelValue() throws IOException {
         final List<CollectorRegistry> registries = getCollectorRegistriesForJson();
-        when(serviceFacade.generateFlowMetrics(anySet())).thenReturn(registries);
+        when(serviceFacade.generateFlowMetrics(anySet(), any(FlowMetricsReportingStrategy.class))).thenReturn(registries);
 
-        final Response response = resource.getFlowMetrics(FlowMetricsProducer.JSON.getProducer(), Collections.emptySet(), null, SAMPLE_LABEL_VALUES_ROOT_PROCESS_GROUP, ROOT_FIELD_NAME);
+        final Response response = resource.getFlowMetrics(FlowMetricsProducer.JSON.getProducer(), Collections.emptySet(), null, SAMPLE_LABEL_VALUES_ROOT_PROCESS_GROUP, ROOT_FIELD_NAME, null);
         assertNotNull(response);
         assertEquals(MediaType.valueOf(MediaType.APPLICATION_JSON), response.getMediaType());
 
@@ -304,9 +348,10 @@ public class TestFlowResource {
     @Test
     public void testGetFlowMetricsPrometheusAsJsonSampleNameAndSampleLabelValue() throws IOException {
         final List<CollectorRegistry> registries = getCollectorRegistriesForJson();
-        when(serviceFacade.generateFlowMetrics(anySet())).thenReturn(registries);
+        when(serviceFacade.generateFlowMetrics(anySet(), any(FlowMetricsReportingStrategy.class))).thenReturn(registries);
 
-        final Response response = resource.getFlowMetrics(FlowMetricsProducer.JSON.getProducer(), Collections.emptySet(), SAMPLE_NAME_JVM, SAMPLE_LABEL_VALUES_ROOT_PROCESS_GROUP, ROOT_FIELD_NAME);
+        final String producer = FlowMetricsProducer.JSON.getProducer();
+        final Response response = resource.getFlowMetrics(producer, Collections.emptySet(), SAMPLE_NAME_JVM, SAMPLE_LABEL_VALUES_ROOT_PROCESS_GROUP, ROOT_FIELD_NAME, null);
         assertNotNull(response);
         assertEquals(MediaType.valueOf(MediaType.APPLICATION_JSON), response.getMediaType());
 
@@ -411,12 +456,189 @@ public class TestFlowResource {
         final FlowComparisonEntity entity = (FlowComparisonEntity) response.getEntity();
         final List<DifferenceDTO> differences = entity.getComponentDifferences().stream().map(ComponentDifferenceDTO::getDifferences).flatMap(Collection::stream).collect(Collectors.toList());
         assertEquals(1, differences.size());
-        assertEquals(createDifference("Position Changed", "Position was changed"), differences.get(0));
+        assertEquals(createDifference("Position Changed", "Position was changed"), differences.getFirst());
     }
 
     @Test
-    public void testWithProcessorPerformanceStatus() {
+    public void testActivateControllerServicesStateEnabled() {
+        final ActivateControllerServicesEntity entity = new ActivateControllerServicesEntity();
+        entity.setId(PROCESS_GROUP_ID);
+        entity.setState("ENABLED");
 
+        when(properties.isNode()).thenReturn(false);
+        resource.httpServletRequest = new MockHttpServletRequest();
+
+        final ArgumentCaptor<Function<ProcessGroup, Set<String>>> revisionsCaptor = ArgumentCaptor.captor();
+        when(serviceFacade.getRevisionsFromGroup(eq(PROCESS_GROUP_ID), revisionsCaptor.capture())).thenReturn(Set.of());
+
+        final Response response = resource.activateControllerServices(PROCESS_GROUP_ID, entity);
+
+        assertNotNull(response);
+
+        final Function<ProcessGroup, Set<String>> revisionsFunction = revisionsCaptor.getValue();
+        final ProcessGroup processGroup = mock(ProcessGroup.class);
+
+        // Set Process Group properties required for standard inclusion
+        when(processGroup.resolveExecutionEngine()).thenReturn(ExecutionEngine.STANDARD);
+
+        // Mock inactive Controller Service for inclusion
+        final ControllerServiceNode inactiveControllerServiceNode = mock(ControllerServiceNode.class);
+        when(inactiveControllerServiceNode.isActive()).thenReturn(false);
+        when(inactiveControllerServiceNode.getIdentifier()).thenReturn(FIRST_SERVICE_ID);
+        when(inactiveControllerServiceNode.getProcessGroup()).thenReturn(processGroup);
+        when(inactiveControllerServiceNode.isAuthorized(any(), any(), any())).thenReturn(true);
+
+        // Mock disabled and otherwise valid Controller Service for inclusion
+        final ControllerServiceNode disabledControllerServiceNode = mock(ControllerServiceNode.class);
+        when(disabledControllerServiceNode.isActive()).thenReturn(false);
+        when(disabledControllerServiceNode.getIdentifier()).thenReturn(SECOND_SERVICE_ID);
+        when(disabledControllerServiceNode.getProcessGroup()).thenReturn(processGroup);
+        when(disabledControllerServiceNode.isAuthorized(any(), any(), any())).thenReturn(true);
+        final Collection<ValidationResult> disabledValidationErrors = List.of(
+                new DisabledServiceValidationResult("Controller Service", SECOND_SERVICE_ID)
+        );
+        when(disabledControllerServiceNode.getValidationErrors()).thenReturn(disabledValidationErrors);
+
+        // Mock invalid Controller Service for exclusion
+        final ControllerServiceNode invalidControllerServiceNode = mock(ControllerServiceNode.class);
+        when(invalidControllerServiceNode.isActive()).thenReturn(false);
+        final Collection<ValidationResult> excludedValidationErrors = List.of(
+                new ValidationResult.Builder().valid(false).build()
+        );
+        when(invalidControllerServiceNode.getValidationErrors()).thenReturn(excludedValidationErrors);
+
+        // Prepare Controller Service Nodes for evaluation
+        final Set<ControllerServiceNode> controllerServiceNodes = Set.of(
+                inactiveControllerServiceNode,
+                disabledControllerServiceNode,
+                invalidControllerServiceNode
+        );
+        when(processGroup.findAllControllerServices()).thenReturn(controllerServiceNodes);
+
+        final Set<String> serviceIds = revisionsFunction.apply(processGroup);
+        assertNotNull(serviceIds);
+
+        final Set<String> expectedServicesIds = Set.of(
+                FIRST_SERVICE_ID,
+                SECOND_SERVICE_ID
+        );
+        assertEquals(expectedServicesIds, serviceIds);
+    }
+
+    @Test
+    public void testGetCurrentUser() {
+        final Response response = resource.getCurrentUser();
+
+        assertNotNull(response);
+        assertEquals(HttpURLConnection.HTTP_OK, response.getStatus());
+
+        verify(serviceFacade, never()).authorizeAccess(any());
+    }
+
+    @Test
+    public void testClearBulletinsIncludesControllerServices() {
+        // This test verifies that when clearing bulletins for a process group,
+        // controller services are included in the components to clear
+
+        final ClearBulletinsForGroupRequestEntity entity = new ClearBulletinsForGroupRequestEntity();
+        entity.setId(PROCESS_GROUP_ID);
+        entity.setFromTimestamp(Instant.now());
+        // components is null, so clearBulletins will gather all authorized components
+
+        when(properties.isNode()).thenReturn(false);
+        resource.httpServletRequest = new MockHttpServletRequest();
+
+        // Capture the function passed to filterComponents (called 3 times)
+        final ArgumentCaptor<Function<ProcessGroup, Set<String>>> filterCaptor = ArgumentCaptor.captor();
+        when(serviceFacade.filterComponents(eq(PROCESS_GROUP_ID), filterCaptor.capture())).thenReturn(Set.of());
+
+        final Response response = resource.clearBulletins(PROCESS_GROUP_ID, entity);
+
+        assertNotNull(response);
+
+        // Get the third captured function (the one that gathers writable component IDs)
+        // First call: RPG IDs, Second call: Controller Service IDs, Third call: writable component IDs
+        final List<Function<ProcessGroup, Set<String>>> capturedFunctions = filterCaptor.getAllValues();
+        assertEquals(3, capturedFunctions.size(), "filterComponents should be called 3 times");
+
+        final Function<ProcessGroup, Set<String>> writableComponentsFunction = capturedFunctions.get(2);
+
+        // Create a mock process group with processors, ports, and controller services
+        final ProcessGroup processGroup = mock(ProcessGroup.class);
+
+        // Mock a processor with write permissions
+        final ProcessorNode processor = mock(ProcessorNode.class);
+        when(processor.getIdentifier()).thenReturn("processor-1");
+        when(processor.isAuthorized(any(), any(), any())).thenReturn(true);
+
+        // Mock an input port with write permissions
+        final Port inputPort = mock(Port.class);
+        when(inputPort.getIdentifier()).thenReturn("input-port-1");
+        when(inputPort.isAuthorized(any(), any(), any())).thenReturn(true);
+
+        // Mock an output port with write permissions
+        final Port outputPort = mock(Port.class);
+        when(outputPort.getIdentifier()).thenReturn("output-port-1");
+        when(outputPort.isAuthorized(any(), any(), any())).thenReturn(true);
+
+        // Mock a remote process group
+        final RemoteProcessGroup remoteProcessGroup = mock(RemoteProcessGroup.class);
+        when(remoteProcessGroup.getIdentifier()).thenReturn("rpg-1");
+        when(remoteProcessGroup.isAuthorized(any(), any(), any())).thenReturn(true);
+
+        // Mock a controller service with write permissions
+        final ControllerServiceNode controllerService = mock(ControllerServiceNode.class);
+        when(controllerService.getIdentifier()).thenReturn("controller-service-1");
+        when(controllerService.isAuthorized(any(), any(), any())).thenReturn(true);
+
+        // Mock another controller service without write permissions (should be excluded)
+        final ControllerServiceNode unauthorizedControllerService = mock(ControllerServiceNode.class);
+        lenient().when(unauthorizedControllerService.getIdentifier()).thenReturn("controller-service-2");
+        when(unauthorizedControllerService.isAuthorized(any(), any(), any())).thenReturn(false);
+
+        // Set up the process group to return all components
+        when(processGroup.findAllProcessors()).thenReturn(List.of(processor));
+        when(processGroup.findAllInputPorts()).thenReturn(List.of(inputPort));
+        when(processGroup.findAllOutputPorts()).thenReturn(List.of(outputPort));
+        when(processGroup.findAllRemoteProcessGroups()).thenReturn(List.of(remoteProcessGroup));
+        when(processGroup.findAllControllerServices()).thenReturn(Set.of(controllerService, unauthorizedControllerService));
+
+        // Apply the captured function to our mock process group
+        final Set<String> componentIds = writableComponentsFunction.apply(processGroup);
+
+        // Verify that all authorized components are included
+        assertTrue(componentIds.contains("processor-1"), "Processor should be included");
+        assertTrue(componentIds.contains("input-port-1"), "Input port should be included");
+        assertTrue(componentIds.contains("output-port-1"), "Output port should be included");
+        assertTrue(componentIds.contains("rpg-1"), "Remote process group should be included");
+        assertTrue(componentIds.contains("controller-service-1"), "Authorized controller service should be included");
+        assertFalse(componentIds.contains("controller-service-2"), "Unauthorized controller service should be excluded");
+        assertEquals(5, componentIds.size(), "Should have exactly 5 authorized components");
+    }
+
+    @Test
+    public void testGetConnectors() {
+        final ConnectorEntity connectorEntity = new ConnectorEntity();
+
+        when(serviceFacade.getConnectors()).thenReturn(Set.of(connectorEntity));
+
+        try (Response response = resource.getConnectors()) {
+            assertEquals(200, response.getStatus());
+            assertNotNull(response.getEntity());
+        }
+
+        verify(serviceFacade).authorizeAccess(any(AuthorizeAccess.class));
+        verify(serviceFacade).getConnectors();
+    }
+
+    @Test
+    public void testGetConnectorsNotAuthorized() {
+        doThrow(AccessDeniedException.class).when(serviceFacade).authorizeAccess(any(AuthorizeAccess.class));
+
+        assertThrows(AccessDeniedException.class, () -> resource.getConnectors());
+
+        verify(serviceFacade).authorizeAccess(any(AuthorizeAccess.class));
+        verify(serviceFacade, never()).getConnectors();
     }
 
     private void setUpGetVersionDifference() {
@@ -468,8 +690,7 @@ public class TestFlowResource {
         final StreamingOutput streamingOutput = (StreamingOutput) response.getEntity();
         final ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
         streamingOutput.write(outputStream);
-        final byte[] outputBytes = outputStream.toByteArray();
-        return new String(outputBytes, StandardCharsets.UTF_8);
+        return outputStream.toString(StandardCharsets.UTF_8);
     }
 
     private List<CollectorRegistry> getCollectorRegistries(boolean includeProcessorPerfStatus) {
@@ -483,7 +704,7 @@ public class TestFlowResource {
         } else {
             processGroupStatus = makeTestProcessGroupStatus();
         }
-        final CollectorRegistry nifiCollectionRegistry = PrometheusMetricsUtil.createNifiMetrics(niFiMetricsRegistry, processGroupStatus, "", "", "", "");
+        final CollectorRegistry nifiCollectionRegistry = PrometheusMetricsUtil.createNifiMetrics(niFiMetricsRegistry, processGroupStatus, "", "", "", FlowMetricsReportingStrategy.ALL_COMPONENTS);
         return Arrays.asList(jvmCollectorRegistry, otherJvmCollectorRegistry, nifiCollectionRegistry);
     }
 
@@ -618,7 +839,6 @@ public class TestFlowResource {
 
         return clusterMetricsRegistry.getRegistry();
     }
-
 
     private static class SampleDeserializer extends StdDeserializer<Sample> {
         protected SampleDeserializer() {

@@ -19,6 +19,10 @@ package org.apache.nifi.registry.flow.git.serialize;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
+import org.apache.nifi.flow.ConnectableComponent;
+import org.apache.nifi.flow.ConnectableComponentType;
+import org.apache.nifi.flow.VersionedConnection;
+import org.apache.nifi.flow.VersionedListenPortDefinition;
 import org.apache.nifi.flow.VersionedParameter;
 import org.apache.nifi.flow.VersionedParameterContext;
 import org.apache.nifi.flow.VersionedProcessGroup;
@@ -29,7 +33,9 @@ import org.apache.nifi.flow.VersionedResourceType;
 import org.apache.nifi.registry.flow.RegisteredFlowSnapshot;
 import org.junit.jupiter.api.Test;
 
+import java.io.ByteArrayInputStream;
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -64,6 +70,10 @@ public class JacksonFlowSnapshotSerializerTest {
         final VersionedResourceDefinition resourceDefinition = new VersionedResourceDefinition();
         resourceDefinition.setResourceTypes(Set.of(VersionedResourceType.TEXT, VersionedResourceType.URL, VersionedResourceType.FILE));
         descriptor.setResourceDefinition(resourceDefinition);
+        final VersionedListenPortDefinition listenPortDefinition = new VersionedListenPortDefinition();
+        listenPortDefinition.setTransportProtocol(VersionedListenPortDefinition.TransportProtocol.TCP);
+        listenPortDefinition.setApplicationProtocols(List.of("http/1.1", "h2"));
+        descriptor.setListenPortDefinition(listenPortDefinition);
 
         final VersionedProcessor processor1 = new VersionedProcessor();
         processor1.setIdentifier("proc1");
@@ -96,6 +106,8 @@ public class JacksonFlowSnapshotSerializerTest {
         assertEquals("proc1", processors.get(0).get("identifier").asText());
         assertEquals("[ \"failure\", \"success\" ]", processors.get(0).get("autoTerminatedRelationships").toPrettyString());
         assertEquals("[ \"FILE\", \"TEXT\", \"URL\" ]", processors.get(0).get("propertyDescriptors").get("prop1").get("resourceDefinition").get("resourceTypes").toPrettyString());
+        assertEquals("TCP", processors.get(0).get("propertyDescriptors").get("prop1").get("listenPortDefinition").get("transportProtocol").asText());
+        assertEquals("[ \"h2\", \"http/1.1\" ]", processors.get(0).get("propertyDescriptors").get("prop1").get("listenPortDefinition").get("applicationProtocols").toPrettyString());
 
         assertEquals("proc2", processors.get(1).get("identifier").asText());
         assertEquals("proc3", processors.get(2).get("identifier").asText());
@@ -107,6 +119,56 @@ public class JacksonFlowSnapshotSerializerTest {
         assertEquals("name1", parameters.get(0).get("name").asText());
         assertEquals("name2", parameters.get(1).get("name").asText());
         assertEquals("name3", parameters.get(2).get("name").asText());
+    }
+
+    @Test
+    public void testPrioritizerOrderPreserved() throws IOException {
+        final JacksonFlowSnapshotSerializer serializer = new JacksonFlowSnapshotSerializer();
+
+        final List<String> prioritizers = List.of(
+                "org.apache.nifi.prioritizer.PriorityAttributePrioritizer",
+                "org.apache.nifi.prioritizer.FirstInFirstOutPrioritizer",
+                "org.apache.nifi.prioritizer.NewestFlowFileFirstPrioritizer"
+        );
+
+        final ConnectableComponent source = new ConnectableComponent();
+        source.setId("source-id");
+        source.setType(ConnectableComponentType.PROCESSOR);
+        source.setGroupId("pg1");
+
+        final ConnectableComponent destination = new ConnectableComponent();
+        destination.setId("destination-id");
+        destination.setType(ConnectableComponentType.PROCESSOR);
+        destination.setGroupId("pg1");
+
+        final VersionedConnection connection = new VersionedConnection();
+        connection.setIdentifier("conn1");
+        connection.setSource(source);
+        connection.setDestination(destination);
+        connection.setPrioritizers(prioritizers);
+        connection.setSelectedRelationships(Set.of("success"));
+
+        final VersionedProcessGroup processGroup = new VersionedProcessGroup();
+        processGroup.setIdentifier("pg1");
+        processGroup.setConnections(Set.of(connection));
+
+        final RegisteredFlowSnapshot flowSnapshot = new RegisteredFlowSnapshot();
+        flowSnapshot.setFlowContents(processGroup);
+
+        final String jsonString = serializer.serialize(flowSnapshot);
+
+        final JsonNode flow = OBJECT_MAPPER.readTree(jsonString);
+        final ArrayNode connections = (ArrayNode) flow.get("flowContents").get("connections");
+        assertEquals(1, connections.size());
+
+        final ArrayNode serializedPrioritizers = (ArrayNode) connections.get(0).get("prioritizers");
+        assertEquals(3, serializedPrioritizers.size());
+        assertEquals("org.apache.nifi.prioritizer.PriorityAttributePrioritizer", serializedPrioritizers.get(0).asText());
+        assertEquals("org.apache.nifi.prioritizer.FirstInFirstOutPrioritizer", serializedPrioritizers.get(1).asText());
+        assertEquals("org.apache.nifi.prioritizer.NewestFlowFileFirstPrioritizer", serializedPrioritizers.get(2).asText());
+
+        final RegisteredFlowSnapshot deserialized = serializer.deserialize(new ByteArrayInputStream(jsonString.getBytes(StandardCharsets.UTF_8)));
+        assertEquals(prioritizers, deserialized.getFlowContents().getConnections().iterator().next().getPrioritizers());
     }
 
 }

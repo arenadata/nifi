@@ -280,7 +280,6 @@ public class ParameterContextResource extends AbstractParameterResource {
                 });
     }
 
-
     @PUT
     @Consumes(MediaType.APPLICATION_JSON)
     @Produces(MediaType.APPLICATION_JSON)
@@ -324,6 +323,9 @@ public class ParameterContextResource extends AbstractParameterResource {
         if (revisionDto == null) {
             throw new IllegalArgumentException("The Revision of the Parameter Context must be specified.");
         }
+
+        validateParameterNames(updateDto);
+        validateAssetReferences(updateDto);
 
         // Perform the request
         if (isReplicateRequest()) {
@@ -441,6 +443,7 @@ public class ParameterContextResource extends AbstractParameterResource {
                     .filename(sanitizedAssetName)
                     .identifier(UUID.randomUUID().toString())
                     .contents(maxLengthInputStream)
+                    .forwardRequestHeaders(getHeaders())
                     .header(FILENAME_HEADER, sanitizedAssetName)
                     .header(CONTENT_TYPE_HEADER, UPLOAD_CONTENT_TYPE)
                     .exampleRequestUri(getAbsolutePath())
@@ -467,7 +470,7 @@ public class ParameterContextResource extends AbstractParameterResource {
     @Produces(MediaType.APPLICATION_JSON)
     @Path("{contextId}/assets")
     @Operation(
-            summary = "Lists the assets that belong to the Parameter Context with the given ID",
+            summary = "Lists the assets that belong to the Parameter Context with the given ID.",
             responses = {
                     @ApiResponse(responseCode = "200", content = @Content(schema = @Schema(implementation = AssetsEntity.class))),
                     @ApiResponse(responseCode = "400", description = "NiFi was unable to complete the request because it was invalid. The request should not be retried without modification."),
@@ -476,7 +479,6 @@ public class ParameterContextResource extends AbstractParameterResource {
                     @ApiResponse(responseCode = "404", description = "The specified resource could not be found."),
                     @ApiResponse(responseCode = "409", description = "The request was valid but NiFi was not in the appropriate state to process it.")
             },
-            description = "Lists the assets that belong to the Parameter Context with the given ID.",
             security = {
                     @SecurityRequirement(name = "Read - /parameter-contexts/{id}")
             }
@@ -535,7 +537,7 @@ public class ParameterContextResource extends AbstractParameterResource {
         final Asset asset = assetManager.getAsset(assetId)
                 .orElseThrow(() -> new ResourceNotFoundException("Asset does not exist with the id %s".formatted(assetId)));
 
-        if (!asset.getParameterContextIdentifier().equals(parameterContextId)) {
+        if (!asset.getOwnerIdentifier().equals(parameterContextId)) {
             throw new ResourceNotFoundException("Asset does not exist with id %s".formatted(assetId));
         }
 
@@ -579,6 +581,7 @@ public class ParameterContextResource extends AbstractParameterResource {
             }
     )
     public Response deleteAsset(
+            @Parameter(description = "Acknowledges that this node is disconnected to allow for mutable requests to proceed.")
             @QueryParam(DISCONNECTED_NODE_ACKNOWLEDGED) @DefaultValue("false")
             final Boolean disconnectedNodeAcknowledged,
             @Parameter(description = "The ID of the Parameter Context")
@@ -795,10 +798,13 @@ public class ParameterContextResource extends AbstractParameterResource {
         }
     }
 
-
     private void validateAssetReferences(final ParameterContextDTO parameterContextDto) {
         if (parameterContextDto.getParameters() != null) {
             for (final ParameterEntity entity : parameterContextDto.getParameters()) {
+                if (Boolean.TRUE.equals(entity.getParameter().getInherited())) {
+                    continue;
+                }
+
                 final List<AssetReferenceDTO> referencedAssets = entity.getParameter().getReferencedAssets();
                 if (referencedAssets == null) {
                     continue;
@@ -810,7 +816,7 @@ public class ParameterContextResource extends AbstractParameterResource {
                     }
                     final Asset asset = assetManager.getAsset(referencedAsset.getId())
                             .orElseThrow(() -> new IllegalArgumentException("Request contains a reference to an Asset (%s) that does not exist".formatted(referencedAsset)));
-                    if (!asset.getParameterContextIdentifier().equals(parameterContextDto.getId())) {
+                    if (!asset.getOwnerIdentifier().equals(parameterContextDto.getId())) {
                         throw new IllegalArgumentException("Request contains a reference to an Asset (%s) that does not exist in Parameter Context (%s)"
                                 .formatted(referencedAsset, parameterContextDto.getId()));
                     }
@@ -877,7 +883,6 @@ public class ParameterContextResource extends AbstractParameterResource {
 
         return retrieveUpdateRequest("update-requests", contextId, updateRequestId);
     }
-
 
     @DELETE
     @Consumes(MediaType.WILDCARD)
@@ -990,7 +995,6 @@ public class ParameterContextResource extends AbstractParameterResource {
 
     }
 
-
     @POST
     @Consumes(MediaType.APPLICATION_JSON)
     @Produces(MediaType.APPLICATION_JSON)
@@ -1016,6 +1020,7 @@ public class ParameterContextResource extends AbstractParameterResource {
             }
     )
     public Response submitValidationRequest(
+            @Parameter(description = "The ID of the ParameterContext")
             @PathParam("contextId") final String contextId,
             @Parameter(description = "The validation request", required = true) final ParameterContextValidationRequestEntity requestEntity) {
 
@@ -1147,7 +1152,6 @@ public class ParameterContextResource extends AbstractParameterResource {
 
         return deleteValidationRequest("validation-requests", contextId, validationRequestId, disconnectedNodeAcknowledged.booleanValue());
     }
-
 
     private Response performAsyncValidation(final ParameterContextValidationRequestEntity requestEntity, final NiFiUser user) {
         // Create an asynchronous request that will occur in the background, because this request may

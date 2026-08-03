@@ -31,7 +31,6 @@ import org.apache.nifi.registry.client.impl.JerseyNiFiRegistryClient;
 import org.apache.nifi.registry.client.impl.request.ProxiedEntityRequestConfig;
 import org.apache.nifi.ssl.SSLContextProvider;
 
-import javax.net.ssl.SSLContext;
 import java.io.IOException;
 import java.net.URI;
 import java.util.Arrays;
@@ -40,10 +39,11 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
+import javax.net.ssl.SSLContext;
 
 public class NifiRegistryFlowRegistryClient extends AbstractFlowRegistryClient {
 
-    public final static PropertyDescriptor PROPERTY_URL = new PropertyDescriptor.Builder()
+    public static final PropertyDescriptor PROPERTY_URL = new PropertyDescriptor.Builder()
             .name("url")
             .displayName("URL")
             .description("URL of the NiFi Registry")

@@ -27,8 +27,8 @@ import java.util.List;
 
 import static org.apache.nifi.processor.util.pattern.TestExceptionHandler.createArrayInputErrorHandler;
 import static org.apache.nifi.processor.util.pattern.TestExceptionHandler.exceptionMapping;
-import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 public class TestRollbackOnFailure {
@@ -75,7 +75,7 @@ public class TestRollbackOnFailure {
         final List<Integer> results = new ArrayList<>();
         assertDoesNotThrow(() -> processInputs(context, inputs, results),
                 "ProcessException should NOT be thrown");
-        assertEquals( 2, context.getProcessedCount(), "Successful inputs");
+        assertEquals(2, context.getProcessedCount(), "Successful inputs");
     }
 
     @Test
@@ -88,7 +88,7 @@ public class TestRollbackOnFailure {
 
         final List<Integer> results = new ArrayList<>();
         assertThrows(ProcessException.class, () -> processInputs(context, inputs, results));
-        assertEquals( 0, context.getProcessedCount(), "Successful inputs");
+        assertEquals(0, context.getProcessedCount(), "Successful inputs");
     }
 
     @Test
@@ -103,7 +103,7 @@ public class TestRollbackOnFailure {
         final List<Integer> results = new ArrayList<>();
         assertDoesNotThrow(() -> processInputs(context, inputs, results),
                 "ProcessException should NOT be thrown");
-        assertEquals( 2, context.getProcessedCount(), "Successful inputs");
+        assertEquals(2, context.getProcessedCount(), "Successful inputs");
     }
 
     @Test

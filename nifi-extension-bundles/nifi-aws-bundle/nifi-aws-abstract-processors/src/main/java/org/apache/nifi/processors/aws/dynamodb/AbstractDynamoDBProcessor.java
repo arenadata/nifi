@@ -21,11 +21,12 @@ import org.apache.nifi.components.AllowableValue;
 import org.apache.nifi.components.PropertyDescriptor;
 import org.apache.nifi.expression.ExpressionLanguageScope;
 import org.apache.nifi.flowfile.FlowFile;
+import org.apache.nifi.migration.PropertyConfiguration;
 import org.apache.nifi.processor.ProcessContext;
 import org.apache.nifi.processor.ProcessSession;
 import org.apache.nifi.processor.Relationship;
 import org.apache.nifi.processor.util.StandardValidators;
-import org.apache.nifi.processors.aws.v2.AbstractAwsSyncProcessor;
+import org.apache.nifi.processors.aws.AbstractAwsSyncProcessor;
 import software.amazon.awssdk.awscore.exception.AwsServiceException;
 import software.amazon.awssdk.core.exception.SdkException;
 import software.amazon.awssdk.services.dynamodb.DynamoDbClient;
@@ -128,7 +129,7 @@ public abstract class AbstractDynamoDBProcessor extends AbstractAwsSyncProcessor
             .build();
 
     public static final PropertyDescriptor JSON_DOCUMENT = new PropertyDescriptor.Builder()
-            .name("Json Document attribute")
+            .name("Json Document")
             .required(true)
             .expressionLanguageSupported(ExpressionLanguageScope.ENVIRONMENT)
             .addValidator(StandardValidators.NON_EMPTY_VALIDATOR)
@@ -136,16 +137,16 @@ public abstract class AbstractDynamoDBProcessor extends AbstractAwsSyncProcessor
             .build();
 
     public static final PropertyDescriptor BATCH_SIZE = new PropertyDescriptor.Builder()
-            .name("Batch items for each request (between 1 and 50)")
+            .name("Batch Items Per Request")
             .required(false)
             .expressionLanguageSupported(ExpressionLanguageScope.ENVIRONMENT)
             .addValidator(StandardValidators.createLongValidator(1, 50, true))
             .defaultValue("1")
-            .description("The items to be retrieved in one batch")
+            .description("The number of items (between 1 and 50) to be retrieved in one batch")
             .build();
 
     public static final PropertyDescriptor DOCUMENT_CHARSET = new PropertyDescriptor.Builder()
-            .name("Character set of document")
+            .name("Document Character Set")
             .description("Character set of data in the document")
             .addValidator(StandardValidators.CHARACTER_SET_VALIDATOR)
             .required(true)
@@ -162,6 +163,14 @@ public abstract class AbstractDynamoDBProcessor extends AbstractAwsSyncProcessor
     @Override
     public Set<Relationship> getRelationships() {
         return COMMON_RELATIONSHIPS;
+    }
+
+    @Override
+    public void migrateProperties(PropertyConfiguration config) {
+        super.migrateProperties(config);
+        config.renameProperty("Batch items for each request (between 1 and 50)", BATCH_SIZE.getName());
+        config.renameProperty("Json Document attribute", JSON_DOCUMENT.getName());
+        config.renameProperty("Character set of document", DOCUMENT_CHARSET.getName());
     }
 
     @Override
@@ -187,7 +196,7 @@ public abstract class AbstractDynamoDBProcessor extends AbstractAwsSyncProcessor
     protected List<FlowFile> processException(final ProcessSession session, List<FlowFile> flowFiles, Exception exception) {
         List<FlowFile> failedFlowFiles = new ArrayList<>();
         for (FlowFile flowFile : flowFiles) {
-            flowFile = session.putAttribute(flowFile, DYNAMODB_ERROR_EXCEPTION_MESSAGE, exception.getMessage() );
+            flowFile = session.putAttribute(flowFile, DYNAMODB_ERROR_EXCEPTION_MESSAGE, exception.getMessage());
             failedFlowFiles.add(flowFile);
         }
         return failedFlowFiles;
@@ -211,13 +220,13 @@ public abstract class AbstractDynamoDBProcessor extends AbstractAwsSyncProcessor
         final List<FlowFile> failedFlowFiles = new ArrayList<>();
         for (FlowFile flowFile : flowFiles) {
             Map<String, String> attributes = new HashMap<>();
-            attributes.put(DYNAMODB_ERROR_EXCEPTION_MESSAGE, exception.getMessage() );
-            attributes.put(DYNAMODB_ERROR_CODE, exception.awsErrorDetails().errorCode() );
-            attributes.put(DYNAMODB_ERROR_MESSAGE, exception.awsErrorDetails().errorMessage() );
-            attributes.put(DYNAMODB_ERROR_SERVICE, exception.awsErrorDetails().serviceName() );
+            attributes.put(DYNAMODB_ERROR_EXCEPTION_MESSAGE, exception.getMessage());
+            attributes.put(DYNAMODB_ERROR_CODE, exception.awsErrorDetails().errorCode());
+            attributes.put(DYNAMODB_ERROR_MESSAGE, exception.awsErrorDetails().errorMessage());
+            attributes.put(DYNAMODB_ERROR_SERVICE, exception.awsErrorDetails().serviceName());
             attributes.put(DYNAMODB_ERROR_RETRYABLE, Boolean.toString(exception.retryable()));
-            attributes.put(DYNAMODB_ERROR_REQUEST_ID, exception.requestId() );
-            attributes.put(DYNAMODB_ERROR_STATUS_CODE, Integer.toString(exception.statusCode()) );
+            attributes.put(DYNAMODB_ERROR_REQUEST_ID, exception.requestId());
+            attributes.put(DYNAMODB_ERROR_STATUS_CODE, Integer.toString(exception.statusCode()));
             flowFile = session.putAllAttributes(flowFile, attributes);
             failedFlowFiles.add(flowFile);
         }
@@ -225,7 +234,7 @@ public abstract class AbstractDynamoDBProcessor extends AbstractAwsSyncProcessor
     }
 
     /**
-     * Send unhandled items to failure and remove the flow files from key to flow file map
+     * Send unhandled items to failure and remove the FlowFiles from key to flow file map
      * @param session used for sending the flow file
      * @param keysToFlowFileMap - ItemKeys to flow file map
      * @param hashKeyValue the items hash key value

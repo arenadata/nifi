@@ -17,6 +17,34 @@
 
 package org.apache.nifi.minifi.c2.command.syncresource;
 
+import org.apache.nifi.c2.protocol.api.C2OperationState.OperationState;
+import org.apache.nifi.c2.protocol.api.ResourceItem;
+import org.apache.nifi.c2.protocol.api.ResourceType;
+import org.apache.nifi.c2.protocol.api.ResourcesGlobalHash;
+import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
+import org.mockito.Mock;
+import org.mockito.MockedStatic;
+import org.mockito.junit.jupiter.MockitoExtension;
+
+import java.io.ByteArrayInputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.nio.file.DirectoryStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.util.List;
+import java.util.Optional;
+import java.util.function.BiFunction;
+import java.util.function.Function;
+import java.util.stream.Stream;
+
 import static java.lang.Boolean.TRUE;
 import static java.nio.file.Files.createTempFile;
 import static java.nio.file.Files.newDirectoryStream;
@@ -36,34 +64,6 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import java.io.ByteArrayInputStream;
-import java.io.IOException;
-import java.io.InputStream;
-import java.nio.file.DirectoryStream;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
-import java.util.List;
-import java.util.Optional;
-import java.util.function.BiFunction;
-import java.util.function.Function;
-import java.util.stream.Stream;
-
-import org.apache.nifi.c2.protocol.api.C2OperationState.OperationState;
-import org.apache.nifi.c2.protocol.api.ResourceItem;
-import org.apache.nifi.c2.protocol.api.ResourceType;
-import org.apache.nifi.c2.protocol.api.ResourcesGlobalHash;
-import org.junit.jupiter.api.AfterAll;
-import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.extension.ExtendWith;
-import org.junit.jupiter.params.ParameterizedTest;
-import org.junit.jupiter.params.provider.Arguments;
-import org.junit.jupiter.params.provider.MethodSource;
-import org.mockito.Mock;
-import org.mockito.MockedStatic;
-import org.mockito.junit.jupiter.MockitoExtension;
-
 @ExtendWith(MockitoExtension.class)
 public class DefaultSyncResourceStrategyTest {
 
@@ -74,7 +74,7 @@ public class DefaultSyncResourceStrategyTest {
     private static final BiFunction<String, Function<InputStream, Optional<Path>>, Optional<Path>> URL_TO_CONTENT_DOWNLOAD_FUNCTION =
         (url, persistFunction) -> url.endsWith(FAIL_DOWNLOAD_URL) ? empty() : persistFunction.apply(new ByteArrayInputStream(url.getBytes()));
 
-    private static String ENRICH_PREFIX = "pre_";
+    private static final String ENRICH_PREFIX = "pre_";
     private static final Function<String, String> PREFIXING_ENRICH_FUNCTION = url -> ofNullable(url).map(arg -> ENRICH_PREFIX + arg).orElse("");
 
     @Mock
@@ -88,7 +88,7 @@ public class DefaultSyncResourceStrategyTest {
         final Path tempDir = Paths.get(System.getProperty("java.io.tmpdir"));
         try (DirectoryStream<Path> directoryStream = newDirectoryStream(tempDir, "[0-9a-f]*-[0-9a-f]*-[0-9a-f]*-[0-9a-f]*[0-9]*.tmp")) {
             for (Path tmpFile : directoryStream) {
-               Files.deleteIfExists(tmpFile);
+                Files.deleteIfExists(tmpFile);
             }
         } catch (Exception ignored) {
         }
@@ -169,7 +169,6 @@ public class DefaultSyncResourceStrategyTest {
         } catch (Exception ignored) {
         }
     }
-
 
     @ParameterizedTest
     @MethodSource("invalidResourcePaths")

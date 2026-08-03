@@ -14,11 +14,18 @@
     <parent>
         <groupId>org.apache.nifi</groupId>
         <artifactId>nifi-standard-shared-bom</artifactId>
-        <version>2.6.0</version>
+        <version>2.10.0.1</version>
         <relativePath>../nifi-standard-shared-bundle/nifi-standard-shared-bom</relativePath>
     </parent>
     <artifactId>nifi-snowflake-bundle</artifactId>
     <packaging>pom</packaging>
+
+    <properties>
+        <guava.version>33.6.0-jre</guava.version>
+        <protobuf.version>4.35.1</protobuf.version>
+        <grpc.version>1.82.0</grpc.version>
+        <snowflake-jdbc-thin.version>4.3.0</snowflake-jdbc-thin.version>
+    </properties>
 
     <modules>
         <module>nifi-snowflake-services</module>
@@ -32,15 +39,67 @@
     <dependencyManagement>
         <dependencies>
             <dependency>
-                <groupId>net.snowflake</groupId>
-                <artifactId>snowflake-ingest-sdk</artifactId>
-                <version>4.3.0</version>
+                <groupId>io.grpc</groupId>
+                <artifactId>grpc-bom</artifactId>
+                <version>${grpc.version}</version>
+                <scope>import</scope>
+                <type>pom</type>
+            </dependency>
+            <dependency>
+                <groupId>com.google.guava</groupId>
+                <artifactId>guava</artifactId>
+                <version>${guava.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.google.protobuf</groupId>
+                <artifactId>protobuf-java</artifactId>
+                <version>${protobuf.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.google.protobuf</groupId>
+                <artifactId>protobuf-java-util</artifactId>
+                <version>${protobuf.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.nimbusds</groupId>
+                <artifactId>nimbus-jose-jwt</artifactId>
+                <version>${nimbus-jose-jwt.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.nimbusds</groupId>
+                <artifactId>oauth2-oidc-sdk</artifactId>
+                <version>${nimbus-oauth2-oidc.version}</version>
             </dependency>
             <dependency>
                 <groupId>net.snowflake</groupId>
-                <artifactId>snowflake-jdbc</artifactId>
-                <!-- please check snowflake-ingest-sdk compatibility before upgrade -->
-                <version>3.25.1</version>
+                <artifactId>snowflake-jdbc-thin</artifactId>
+                <version>${snowflake-jdbc-thin.version}</version>
+                <exclusions>
+                    <exclusion>
+                        <groupId>commons-logging</groupId>
+                        <artifactId>commons-logging</artifactId>
+                    </exclusion>
+                    <!-- Servlet API not used -->
+                    <exclusion>
+                        <groupId>javax.servlet</groupId>
+                        <artifactId>javax.servlet-api</artifactId>
+                    </exclusion>
+                    <!-- FindBugs annotations not required when running -->
+                    <exclusion>
+                        <groupId>com.google.code.findbugs</groupId>
+                        <artifactId>jsr305</artifactId>
+                    </exclusion>
+                    <!-- Conscrypt Security Provider not required for Google Cloud Storage -->
+                    <exclusion>
+                        <groupId>org.conscrypt</groupId>
+                        <artifactId>conscrypt-openjdk-uber</artifactId>
+                    </exclusion>
+                    <!-- grpc-netty-shaded excluded in favor of grpc-netty -->
+                    <exclusion>
+                        <groupId>io.grpc</groupId>
+                        <artifactId>grpc-netty-shaded</artifactId>
+                    </exclusion>
+                </exclusions>
             </dependency>
         </dependencies>
     </dependencyManagement>

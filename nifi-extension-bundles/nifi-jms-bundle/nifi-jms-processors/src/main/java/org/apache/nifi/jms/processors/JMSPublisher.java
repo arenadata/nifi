@@ -16,18 +16,18 @@
  */
 package org.apache.nifi.jms.processors;
 
-import org.apache.commons.lang3.math.NumberUtils;
-import org.apache.nifi.logging.ComponentLog;
-import org.springframework.jms.connection.CachingConnectionFactory;
-import org.springframework.jms.core.JmsTemplate;
-import org.springframework.jms.support.JmsHeaders;
-
 import jakarta.jms.BytesMessage;
 import jakarta.jms.Destination;
 import jakarta.jms.JMSException;
 import jakarta.jms.Message;
 import jakarta.jms.Session;
 import jakarta.jms.TextMessage;
+import org.apache.commons.lang3.math.NumberUtils;
+import org.apache.nifi.logging.ComponentLog;
+import org.springframework.jms.connection.CachingConnectionFactory;
+import org.springframework.jms.core.JmsTemplate;
+import org.springframework.jms.support.JmsHeaders;
+
 import java.time.Instant;
 import java.util.Arrays;
 import java.util.HashMap;
@@ -135,7 +135,6 @@ class JMSPublisher extends JMSWorker {
         this.processLog.warn("Failed to determine destination type from destination name '{}'. The '{}' header will not be set.", destinationName, headerName);
     }
 
-
     private static Destination buildDestination(final Session session, final String destinationName) throws JMSException {
         if (destinationName.toLowerCase().contains("topic")) {
             return session.createTopic(destinationName);
@@ -153,30 +152,30 @@ class JMSPublisher extends JMSWorker {
     }
 
     public enum JmsPropertySetterEnum implements JmsPropertySetter {
-        BOOLEAN( (message, name, value) -> {
+        BOOLEAN((message, name, value) -> {
             message.setBooleanProperty(name, Boolean.parseBoolean(value));
-        } ),
-        BYTE( (message, name, value) -> {
+        }),
+        BYTE((message, name, value) -> {
             message.setByteProperty(name, Byte.parseByte(value));
-        } ),
-        SHORT( (message, name, value) -> {
+        }),
+        SHORT((message, name, value) -> {
             message.setShortProperty(name, Short.parseShort(value));
-        } ),
-        INTEGER( (message, name, value) -> {
+        }),
+        INTEGER((message, name, value) -> {
             message.setIntProperty(name, Integer.parseInt(value));
-        } ),
-        LONG( (message, name, value) -> {
+        }),
+        LONG((message, name, value) -> {
             message.setLongProperty(name, Long.parseLong(value));
-        } ),
-        FLOAT( (message, name, value) -> {
+        }),
+        FLOAT((message, name, value) -> {
             message.setFloatProperty(name, Float.parseFloat(value));
-        } ),
-        DOUBLE( (message, name, value) -> {
+        }),
+        DOUBLE((message, name, value) -> {
             message.setDoubleProperty(name, Double.parseDouble(value));
-        } ),
-        STRING( (message, name, value) -> {
+        }),
+        STRING((message, name, value) -> {
             message.setStringProperty(name, value);
-        } );
+        });
 
         private final JmsPropertySetter setter;
         JmsPropertySetterEnum(JmsPropertySetter setter) {

@@ -16,31 +16,34 @@
  */
 package org.apache.nifi.processors.box;
 
-import static java.lang.String.format;
-import static java.nio.charset.StandardCharsets.UTF_8;
-import static java.util.Arrays.asList;
-import static java.util.Collections.emptyList;
-import static java.util.Collections.singletonList;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.when;
-
 import com.box.sdk.BoxFile;
 import com.box.sdk.BoxFolder;
-import java.io.InputStream;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
 import org.apache.nifi.flowfile.attributes.CoreAttributes;
 import org.apache.nifi.provenance.ProvenanceEventType;
 import org.apache.nifi.util.MockFlowFile;
+import org.apache.nifi.util.PropertyMigrationResult;
 import org.apache.nifi.util.TestRunners;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+
+import java.io.InputStream;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+
+import static java.lang.String.format;
+import static java.nio.charset.StandardCharsets.UTF_8;
+import static java.util.Arrays.asList;
+import static java.util.Collections.emptyList;
+import static java.util.Collections.singletonList;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
 public class PutBoxFileTest extends AbstractBoxFileTest {
@@ -61,7 +64,6 @@ public class PutBoxFileTest extends AbstractBoxFileTest {
 
     private final Map<String, BoxFolder> mockBoxFolders = new HashMap<>();
 
-
     @Override
     @BeforeEach
     void setUp() throws Exception {
@@ -69,7 +71,7 @@ public class PutBoxFileTest extends AbstractBoxFileTest {
         final PutBoxFile testSubject = new PutBoxFile() {
             @Override
             BoxFolder getFolder(String folderId) {
-               return mockBoxFolders.get(folderId);
+                return mockBoxFolders.get(folderId);
             }
         };
 
@@ -209,5 +211,21 @@ public class PutBoxFileTest extends AbstractBoxFileTest {
         final MockFlowFile ff0 = flowFiles.getFirst();
         ff0.assertAttributeEquals(BoxFileAttributes.ERROR_MESSAGE, "Upload error");
         assertNoProvenanceEvent();
+    }
+
+    @Test
+    void testMigration() {
+        final Map<String, String> expected = Map.ofEntries(
+                Map.entry(AbstractBoxProcessor.OLD_BOX_CLIENT_SERVICE_PROPERTY_NAME, AbstractBoxProcessor.BOX_CLIENT_SERVICE.getName()),
+                Map.entry("box-folder-id", PutBoxFile.FOLDER_ID.getName()),
+                Map.entry("file-name", PutBoxFile.FILE_NAME.getName()),
+                Map.entry("subfolder-name", PutBoxFile.SUBFOLDER_NAME.getName()),
+                Map.entry("create-folder", PutBoxFile.CREATE_SUBFOLDER.getName()),
+                Map.entry("conflict-resolution-strategy", PutBoxFile.CONFLICT_RESOLUTION.getName()),
+                Map.entry("chunked-upload-threshold", PutBoxFile.CHUNKED_UPLOAD_THRESHOLD.getName())
+        );
+
+        final PropertyMigrationResult propertyMigrationResult = testRunner.migrateProperties();
+        assertEquals(expected, propertyMigrationResult.getPropertiesRenamed());
     }
 }

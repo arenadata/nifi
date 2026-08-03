@@ -19,7 +19,7 @@ import { Component, DestroyRef, ElementRef, inject, Input, OnInit, ViewChild } f
 import { FormBuilder, FormGroup, ReactiveFormsModule } from '@angular/forms';
 import { initialState } from '../../../../state/flow/flow.reducer';
 import { debounceTime, filter, take, tap } from 'rxjs';
-import { ComponentSearchResult, SearchService } from '../../../../service/search.service';
+import { SearchService } from '../../../../service/search.service';
 import {
     CdkConnectedOverlay,
     CdkOverlayOrigin,
@@ -27,7 +27,7 @@ import {
     OriginConnectionPosition,
     OverlayConnectionPosition
 } from '@angular/cdk/overlay';
-import { SearchMatchTipInput } from '../../../../../../state/shared';
+import { ComponentSearchResult, SearchMatchTipInput } from '../../../../../../state/shared';
 import { NgTemplateOutlet } from '@angular/common';
 import { RouterLink } from '@angular/router';
 import { MatFormFieldModule } from '@angular/material/form-field';
@@ -58,6 +58,11 @@ import { ErrorHelper } from '../../../../../../service/error-helper.service';
     ]
 })
 export class Search implements OnInit {
+    private formBuilder = inject(FormBuilder);
+    private searchService = inject(SearchService);
+    private store = inject<Store<CanvasState>>(Store);
+    private errorHelper = inject(ErrorHelper);
+
     protected readonly ComponentType = ComponentType;
     protected readonly SearchMatchTip = SearchMatchTip;
 
@@ -98,12 +103,7 @@ export class Search implements OnInit {
     selectedComponentType: ComponentType | null = null;
     selectedComponentId: string | null = null;
 
-    constructor(
-        private formBuilder: FormBuilder,
-        private searchService: SearchService,
-        private store: Store<CanvasState>,
-        private errorHelper: ErrorHelper
-    ) {
+    constructor() {
         this.searchForm = this.formBuilder.group({ searchBar: '' });
 
         this.store

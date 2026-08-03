@@ -40,7 +40,6 @@ public interface VersionedComponentStateLookup {
 
     ScheduledState getState(ProcessGroup processGroup);
 
-
     /**
      * Returns a Scheduled State of ENABLED or DISABLED for every component. No component will be mapped to RUNNING.
      */
@@ -100,6 +99,7 @@ public interface VersionedComponentStateLookup {
             return switch (ruleNode.getState()) {
                 case DISABLED -> ScheduledState.DISABLED;
                 case ENABLED -> ScheduledState.ENABLED;
+                default -> throw new IllegalArgumentException("Unexpected FlowAnalysisRuleState: " + ruleNode.getState());
             };
         }
 

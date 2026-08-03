@@ -17,7 +17,6 @@
 
 package org.apache.nifi.snowflake.service;
 
-import net.snowflake.ingest.SimpleIngestManager;
 import org.apache.nifi.annotation.documentation.CapabilityDescription;
 import org.apache.nifi.annotation.documentation.Tags;
 import org.apache.nifi.annotation.lifecycle.OnDisabled;
@@ -27,27 +26,29 @@ import org.apache.nifi.controller.AbstractControllerService;
 import org.apache.nifi.controller.ConfigurationContext;
 import org.apache.nifi.expression.ExpressionLanguageScope;
 import org.apache.nifi.key.service.api.PrivateKeyService;
+import org.apache.nifi.migration.PropertyConfiguration;
 import org.apache.nifi.processor.util.StandardValidators;
 import org.apache.nifi.processors.snowflake.SnowflakeIngestManagerProviderService;
+import org.apache.nifi.processors.snowflake.snowpipe.InsertFiles;
+import org.apache.nifi.processors.snowflake.snowpipe.InsertReport;
 import org.apache.nifi.processors.snowflake.util.SnowflakeProperties;
 import org.apache.nifi.reporting.InitializationException;
 import org.apache.nifi.snowflake.service.util.AccountIdentifierFormat;
 import org.apache.nifi.snowflake.service.util.AccountIdentifierFormatParameters;
 import org.apache.nifi.snowflake.service.util.ConnectionUrlFormat;
 
-import java.security.NoSuchAlgorithmException;
+import java.net.URI;
 import java.security.PrivateKey;
-import java.security.spec.InvalidKeySpecException;
+import java.security.interfaces.RSAPrivateCrtKey;
 import java.util.List;
 
-@Tags({"snowflake", "jdbc", "database", "connection"})
+@Tags({"snowflake", "snowpipe", "database", "connection"})
 @CapabilityDescription("Provides a Snowflake Ingest Manager for Snowflake pipe processors")
 public class StandardSnowflakeIngestManagerProviderService extends AbstractControllerService
         implements SnowflakeIngestManagerProviderService {
 
     public static final PropertyDescriptor ACCOUNT_IDENTIFIER_FORMAT = new PropertyDescriptor.Builder()
-            .name("account-identifier-format")
-            .displayName("Account Identifier Format")
+            .name("Account Identifier Format")
             .description("The format of the account identifier.")
             .addValidator(StandardValidators.NON_BLANK_VALIDATOR)
             .required(true)
@@ -56,8 +57,7 @@ public class StandardSnowflakeIngestManagerProviderService extends AbstractContr
             .build();
 
     public static final PropertyDescriptor HOST_URL = new PropertyDescriptor.Builder()
-            .name("host-url")
-            .displayName("Snowflake URL")
+            .name("Snowflake URL")
             .description("Example host url: [account-locator].[cloud-region].[cloud]" + ConnectionUrlFormat.SNOWFLAKE_HOST_SUFFIX)
             .addValidator(StandardValidators.NON_BLANK_VALIDATOR)
             .expressionLanguageSupported(ExpressionLanguageScope.ENVIRONMENT)
@@ -91,8 +91,7 @@ public class StandardSnowflakeIngestManagerProviderService extends AbstractContr
             .build();
 
     public static final PropertyDescriptor USER_NAME = new PropertyDescriptor.Builder()
-            .name("user-name")
-            .displayName("User Name")
+            .name("User Name")
             .description("The Snowflake user name.")
             .addValidator(StandardValidators.NON_BLANK_VALIDATOR)
             .expressionLanguageSupported(ExpressionLanguageScope.ENVIRONMENT)
@@ -100,9 +99,9 @@ public class StandardSnowflakeIngestManagerProviderService extends AbstractContr
             .build();
 
     public static final PropertyDescriptor PRIVATE_KEY_SERVICE = new PropertyDescriptor.Builder()
-            .name("private-key-service")
-            .displayName("Private Key Service")
-            .description("Specifies the Controller Service that will provide the private key. The public key needs to be added to the user account in the Snowflake account beforehand.")
+            .name("Private Key Service")
+            .description("Specifies the Controller Service that will provide the private key."
+                    + " The public key needs to be added to the user account in the Snowflake account beforehand.")
             .identifiesControllerService(PrivateKeyService.class)
             .required(true)
             .build();
@@ -118,8 +117,7 @@ public class StandardSnowflakeIngestManagerProviderService extends AbstractContr
             .build();
 
     public static final PropertyDescriptor PIPE = new PropertyDescriptor.Builder()
-            .name("pipe")
-            .displayName("Pipe")
+            .name("Pipe")
             .description("The Snowflake pipe to ingest from.")
             .addValidator(StandardValidators.NON_BLANK_VALIDATOR)
             .expressionLanguageSupported(ExpressionLanguageScope.ENVIRONMENT)
@@ -141,13 +139,20 @@ public class StandardSnowflakeIngestManagerProviderService extends AbstractContr
             PIPE
     );
 
+    private static final String HTTPS_URI_FORMAT = "https://%s";
+
+    private static final String QUALIFIED_PIPE_FORMAT = "%s.%s.%s";
+
+    private static final char UNDERSCORE = '_';
+
+    private static final char HYPHEN = '-';
+
     @Override
     protected List<PropertyDescriptor> getSupportedPropertyDescriptors() {
         return PROPERTY_DESCRIPTORS;
     }
 
-    private volatile String fullyQualifiedPipeName;
-    private volatile SimpleIngestManager ingestManager;
+    private volatile SnowpipeIngestClient ingestClient;
 
     @OnEnabled
     public void onEnabled(final ConfigurationContext context) throws InitializationException {
@@ -155,39 +160,57 @@ public class StandardSnowflakeIngestManagerProviderService extends AbstractContr
         final String database = context.getProperty(DATABASE).evaluateAttributeExpressions().getValue();
         final String schema = context.getProperty(SCHEMA).evaluateAttributeExpressions().getValue();
         final String pipe = context.getProperty(PIPE).evaluateAttributeExpressions().getValue();
-        fullyQualifiedPipeName = database + "." + schema + "." + pipe;
-        final PrivateKeyService privateKeyService = context.getProperty(PRIVATE_KEY_SERVICE)
-                .asControllerService(PrivateKeyService.class);
+        final String qualifiedPipeName = QUALIFIED_PIPE_FORMAT.formatted(database, schema, pipe);
+        final PrivateKeyService privateKeyService = context.getProperty(PRIVATE_KEY_SERVICE).asControllerService(PrivateKeyService.class);
         final PrivateKey privateKey = privateKeyService.getPrivateKey();
 
-        final AccountIdentifierFormat accountIdentifierFormat = context.getProperty(ACCOUNT_IDENTIFIER_FORMAT)
-                .asAllowableValue(AccountIdentifierFormat.class);
-        final AccountIdentifierFormatParameters parameters = getAccountIdentifierFormatParameters(context);
-        final String account = accountIdentifierFormat.getAccount(parameters);
-        final String host = accountIdentifierFormat.getHostname(parameters);
-        try {
-            ingestManager = new SimpleIngestManager(account, user, fullyQualifiedPipeName, privateKey, "https", host, 443);
-        } catch (NoSuchAlgorithmException | InvalidKeySpecException e) {
-            throw new InitializationException("Failed create Snowflake ingest manager", e);
+        if (privateKey instanceof RSAPrivateCrtKey rsaPrivateKey) {
+            final AccountIdentifierFormat accountIdentifierFormat = context.getProperty(ACCOUNT_IDENTIFIER_FORMAT).asAllowableValue(AccountIdentifierFormat.class);
+            final AccountIdentifierFormatParameters parameters = getAccountIdentifierFormatParameters(context);
+            final String account = accountIdentifierFormat.getAccount(parameters);
+            final String host = accountIdentifierFormat.getHostname(parameters);
+            final String hostNormalized = host.replace(UNDERSCORE, HYPHEN);
+
+            final URI baseUri = URI.create(HTTPS_URI_FORMAT.formatted(hostNormalized));
+            final RSAKeyAuthorizationProvider authorizationProvider = new RSAKeyAuthorizationProvider(account, user, rsaPrivateKey);
+            ingestClient = new SnowpipeIngestClient(baseUri, qualifiedPipeName, authorizationProvider);
+        } else {
+            throw new InitializationException("RSA Private Key not provided");
         }
     }
 
     @OnDisabled
     public void onDisabled() {
-        if (ingestManager != null) {
-            ingestManager.close();
-            ingestManager = null;
+        if (ingestClient != null) {
+            ingestClient.close();
+            ingestClient = null;
         }
     }
 
     @Override
-    public String getPipeName() {
-        return fullyQualifiedPipeName;
+    public void insertFiles(final InsertFiles insertFiles) {
+        ingestClient.insertFiles(insertFiles);
     }
 
     @Override
-    public SimpleIngestManager getIngestManager() {
-        return ingestManager;
+    public InsertReport getInsertReport() {
+        return ingestClient.getInsertReport();
+    }
+
+    @Override
+    public void migrateProperties(PropertyConfiguration config) {
+        config.renameProperty("account-identifier-format", ACCOUNT_IDENTIFIER_FORMAT.getName());
+        config.renameProperty("host-url", HOST_URL.getName());
+        config.renameProperty("user-name", USER_NAME.getName());
+        config.renameProperty("private-key-service", PRIVATE_KEY_SERVICE.getName());
+        config.renameProperty("pipe", PIPE.getName());
+        config.renameProperty(SnowflakeProperties.OLD_ACCOUNT_LOCATOR_PROPERTY_NAME, SnowflakeProperties.ACCOUNT_LOCATOR.getName());
+        config.renameProperty(SnowflakeProperties.OLD_CLOUD_REGION_PROPERTY_NAME, SnowflakeProperties.CLOUD_REGION.getName());
+        config.renameProperty(SnowflakeProperties.OLD_CLOUD_TYPE_PROPERTY_NAME, SnowflakeProperties.CLOUD_TYPE.getName());
+        config.renameProperty(SnowflakeProperties.OLD_ORGANIZATION_NAME_PROPERTY_NAME, SnowflakeProperties.ORGANIZATION_NAME.getName());
+        config.renameProperty(SnowflakeProperties.OLD_ACCOUNT_NAME_PROPERTY_NAME, SnowflakeProperties.ACCOUNT_NAME.getName());
+        config.renameProperty(SnowflakeProperties.OLD_DATABASE_PROPERTY_NAME, SnowflakeProperties.DATABASE.getName());
+        config.renameProperty(SnowflakeProperties.OLD_SCHEMA_PROPERTY_NAME, SnowflakeProperties.SCHEMA.getName());
     }
 
     private AccountIdentifierFormatParameters getAccountIdentifierFormatParameters(ConfigurationContext context) {

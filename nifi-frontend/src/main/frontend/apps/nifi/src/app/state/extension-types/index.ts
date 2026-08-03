@@ -47,8 +47,14 @@ export interface LoadExtensionTypesForDocumentationResponse {
     processorTypes: DocumentedType[];
     controllerServiceTypes: DocumentedType[];
     reportingTaskTypes: DocumentedType[];
+    registryClientTypes: DocumentedType[];
     flowAnalysisRuleTypes: DocumentedType[];
     parameterProviderTypes: DocumentedType[];
+    connectorTypes: DocumentedType[];
+}
+
+export interface LoadExtensionTypesForConnectorsResponse {
+    connectorTypes: DocumentedType[];
 }
 
 export interface ExtensionTypesState {
@@ -59,5 +65,6 @@ export interface ExtensionTypesState {
     registryClientTypes: DocumentedType[];
     flowAnalysisRuleTypes: DocumentedType[];
     parameterProviderTypes: DocumentedType[];
+    connectorTypes: DocumentedType[];
     status: ExtensionTypesLoadingStatus;
 }

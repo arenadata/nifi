@@ -21,6 +21,11 @@ import { EnableControllerService } from './enable-controller-service.component';
 import { NoopAnimationsModule } from '@angular/platform-browser/animations';
 import { provideMockStore } from '@ngrx/store/testing';
 import { initialState } from '../../../../state/contoller-service-state/controller-service-state.reducer';
+import { controllerServiceStateFeatureKey } from '../../../../state/contoller-service-state';
+import { initialState as initialErrorState } from '../../../../state/error/error.reducer';
+import { errorFeatureKey } from '../../../../state/error';
+import { initialState as initialCurrentUserState } from '../../../../state/current-user/current-user.reducer';
+import { currentUserFeatureKey } from '../../../../state/current-user';
 import { MAT_DIALOG_DATA, MatDialogModule, MatDialogRef } from '@angular/material/dialog';
 import { ComponentType } from '@nifi/shared';
 import { SetEnableControllerServiceDialogRequest } from '../../../../state/shared';
@@ -48,6 +53,7 @@ describe('EnableControllerService', () => {
                     groupId: 'asdf',
                     sourceId: 'asdf',
                     timestamp: '14:08:44 EST',
+                    timestampIso: new Date().toISOString(),
                     canRead: true,
                     bulletin: {
                         id: 0,
@@ -58,7 +64,8 @@ describe('EnableControllerService', () => {
                         sourceType: ComponentType.Processor,
                         level: 'ERROR',
                         message: 'asdf',
-                        timestamp: '14:08:44 EST'
+                        timestamp: '14:08:44 EST',
+                        timestampIso: new Date().toISOString()
                     }
                 }
             ],
@@ -344,7 +351,13 @@ describe('EnableControllerService', () => {
         TestBed.configureTestingModule({
             imports: [EnableControllerService, NoopAnimationsModule, MatDialogModule],
             providers: [
-                provideMockStore({ initialState }),
+                provideMockStore({
+                    initialState: {
+                        [errorFeatureKey]: initialErrorState,
+                        [currentUserFeatureKey]: initialCurrentUserState,
+                        [controllerServiceStateFeatureKey]: initialState
+                    }
+                }),
                 {
                     provide: MAT_DIALOG_DATA,
                     useValue: data

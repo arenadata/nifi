@@ -20,8 +20,6 @@ import org.apache.commons.lang3.StringUtils;
 import org.apache.nifi.annotation.behavior.DynamicProperty;
 import org.apache.nifi.annotation.behavior.InputRequirement;
 import org.apache.nifi.annotation.behavior.InputRequirement.Requirement;
-import org.apache.nifi.annotation.behavior.Restricted;
-import org.apache.nifi.annotation.behavior.Restriction;
 import org.apache.nifi.annotation.behavior.WritesAttribute;
 import org.apache.nifi.annotation.behavior.WritesAttributes;
 import org.apache.nifi.annotation.documentation.CapabilityDescription;
@@ -29,12 +27,12 @@ import org.apache.nifi.annotation.documentation.Tags;
 import org.apache.nifi.annotation.lifecycle.OnScheduled;
 import org.apache.nifi.annotation.lifecycle.OnUnscheduled;
 import org.apache.nifi.components.PropertyDescriptor;
-import org.apache.nifi.components.RequiredPermission;
 import org.apache.nifi.components.Validator;
 import org.apache.nifi.expression.ExpressionLanguageScope;
 import org.apache.nifi.flowfile.FlowFile;
 import org.apache.nifi.flowfile.attributes.CoreAttributes;
 import org.apache.nifi.logging.ComponentLog;
+import org.apache.nifi.migration.PropertyConfiguration;
 import org.apache.nifi.processor.AbstractProcessor;
 import org.apache.nifi.processor.ProcessContext;
 import org.apache.nifi.processor.ProcessSession;
@@ -72,13 +70,7 @@ import java.util.concurrent.locks.ReentrantLock;
         + "to be long-running, the Processor can output the partial data on a specified interval. When this option is used, the output is expected to be in textual "
         + "format, as it typically does not make sense to split binary data on arbitrary time-based intervals.")
 @DynamicProperty(name = "An environment variable name", value = "An environment variable value", description = "These environment variables are passed to the process spawned by this Processor")
-@Restricted(
-        restrictions = {
-                @Restriction(
-                        requiredPermission = RequiredPermission.EXECUTE_CODE,
-                        explanation = "Provides operator the ability to execute arbitrary code assuming all permissions that NiFi has.")
-        }
-)
+
 @WritesAttributes({
     @WritesAttribute(attribute = "command", description = "Executed command"),
     @WritesAttribute(attribute = "command.arguments", description = "Arguments of the command"),
@@ -86,47 +78,47 @@ import java.util.concurrent.locks.ReentrantLock;
 })
 public class ExecuteProcess extends AbstractProcessor {
 
-    final static String ATTRIBUTE_COMMAND = "command";
-    final static String ATTRIBUTE_COMMAND_ARGS = "command.arguments";
+    static final String ATTRIBUTE_COMMAND = "command";
+    static final String ATTRIBUTE_COMMAND_ARGS = "command.arguments";
 
     public static final PropertyDescriptor COMMAND = new PropertyDescriptor.Builder()
-    .name("Command")
-    .description("Specifies the command to be executed; if just the name of an executable is provided, it must be in the user's environment PATH.")
-    .required(true)
-    .expressionLanguageSupported(ExpressionLanguageScope.ENVIRONMENT)
-    .addValidator(StandardValidators.NON_EMPTY_VALIDATOR)
-    .build();
+            .name("Command")
+            .description("Specifies the command to be executed; if just the name of an executable is provided, it must be in the user's environment PATH.")
+            .required(true)
+            .expressionLanguageSupported(ExpressionLanguageScope.ENVIRONMENT)
+            .addValidator(StandardValidators.NON_EMPTY_VALIDATOR)
+            .build();
 
     public static final PropertyDescriptor COMMAND_ARGUMENTS = new PropertyDescriptor.Builder()
-    .name("Command Arguments")
-    .description("The arguments to supply to the executable delimited by white space. White space can be escaped by enclosing it in double-quotes.")
-    .required(false)
-    .expressionLanguageSupported(ExpressionLanguageScope.ENVIRONMENT)
-    .addValidator(StandardValidators.NON_EMPTY_VALIDATOR)
-    .build();
+            .name("Command Arguments")
+            .description("The arguments to supply to the executable delimited by white space. White space can be escaped by enclosing it in double-quotes.")
+            .required(false)
+            .expressionLanguageSupported(ExpressionLanguageScope.ENVIRONMENT)
+            .addValidator(StandardValidators.NON_EMPTY_VALIDATOR)
+            .build();
 
     public static final PropertyDescriptor WORKING_DIR = new PropertyDescriptor.Builder()
-    .name("Working Directory")
-    .description("The directory to use as the current working directory when executing the command")
-    .expressionLanguageSupported(ExpressionLanguageScope.ENVIRONMENT)
-    .addValidator(StandardValidators.createDirectoryExistsValidator(false, true))
-    .required(false)
-    .build();
+            .name("Working Directory")
+            .description("The directory to use as the current working directory when executing the command")
+            .expressionLanguageSupported(ExpressionLanguageScope.ENVIRONMENT)
+            .addValidator(StandardValidators.createDirectoryExistsValidator(false, true))
+            .required(false)
+            .build();
 
     public static final PropertyDescriptor BATCH_DURATION = new PropertyDescriptor.Builder()
-    .name("Batch Duration")
-    .description("If the process is expected to be long-running and produce textual output, a batch duration can be specified so "
-            + "that the output will be captured for this amount of time and a FlowFile will then be sent out with the results "
-            + "and a new FlowFile will be started, rather than waiting for the process to finish before sending out the results")
+            .name("Batch Duration")
+            .description("If the process is expected to be long-running and produce textual output, a batch duration can be specified so "
+                    + "that the output will be captured for this amount of time and a FlowFile will then be sent out with the results "
+                    + "and a new FlowFile will be started, rather than waiting for the process to finish before sending out the results")
             .required(false)
             .expressionLanguageSupported(ExpressionLanguageScope.NONE)
             .addValidator(StandardValidators.TIME_PERIOD_VALIDATOR)
             .build();
 
     public static final PropertyDescriptor REDIRECT_ERROR_STREAM = new PropertyDescriptor.Builder()
-    .name("Redirect Error Stream")
-    .description("If true will redirect any error stream output of the process to the output stream. "
-            + "This is particularly helpful for processes which write extensively to the error stream or for troubleshooting.")
+            .name("Redirect Error Stream")
+            .description("If true will redirect any error stream output of the process to the output stream. "
+                    + "This is particularly helpful for processes which write extensively to the error stream or for troubleshooting.")
             .required(false)
             .allowableValues("true", "false")
             .defaultValue("false")
@@ -137,16 +129,16 @@ public class ExecuteProcess extends AbstractProcessor {
     private static final Validator characterValidator = new StandardValidators.StringLengthValidator(1, 1);
 
     static final PropertyDescriptor ARG_DELIMITER = new PropertyDescriptor.Builder()
-      .name("Argument Delimiter")
-      .description("Delimiter to use to separate arguments for a command [default: space]. Must be a single character.")
-      .addValidator(Validator.VALID)
-      .addValidator(characterValidator)
-      .required(true)
-      .defaultValue(" ")
-      .build();
+            .name("Argument Delimiter")
+            .description("Delimiter to use to separate arguments for a command [default: space]. Must be a single character.")
+            .addValidator(Validator.VALID)
+            .addValidator(characterValidator)
+            .required(true)
+            .defaultValue(" ")
+            .build();
 
     static final PropertyDescriptor MIME_TYPE = new PropertyDescriptor.Builder()
-            .name("Output MIME type")
+            .name("MIME Type")
             .description("Specifies the value to set for the \"mime.type\" attribute. This property is ignored if 'Batch Duration' is set.")
             .required(false)
             .addValidator(StandardValidators.NON_EMPTY_VALIDATOR)
@@ -163,9 +155,9 @@ public class ExecuteProcess extends AbstractProcessor {
     );
 
     public static final Relationship REL_SUCCESS = new Relationship.Builder()
-    .name("success")
-    .description("All created FlowFiles are routed to this relationship")
-    .build();
+            .name("success")
+            .description("All created FlowFiles are routed to this relationship")
+            .build();
 
     private static final Set<Relationship> RELATIONSHIPS = Set.of(REL_SUCCESS);
 
@@ -195,8 +187,6 @@ public class ExecuteProcess extends AbstractProcessor {
         .addValidator(StandardValidators.NON_EMPTY_VALIDATOR)
         .build();
     }
-
-
 
     @OnScheduled
     public void setupExecutor(final ProcessContext context) {
@@ -234,8 +224,8 @@ public class ExecuteProcess extends AbstractProcessor {
 
         final String command = context.getProperty(COMMAND).evaluateAttributeExpressions().getValue();
         final String arguments = context.getProperty(COMMAND_ARGUMENTS).isSet()
-          ? context.getProperty(COMMAND_ARGUMENTS).evaluateAttributeExpressions().getValue()
-          : null;
+            ? context.getProperty(COMMAND_ARGUMENTS).evaluateAttributeExpressions().getValue()
+            : null;
 
         final List<String> commandStrings = createCommandStrings(context, command, arguments);
         final String commandString = StringUtils.join(commandStrings, " ");
@@ -313,6 +303,11 @@ public class ExecuteProcess extends AbstractProcessor {
             getLogger().info("Created {} and routed to success", flowFile);
             session.transfer(flowFile, REL_SUCCESS);
         }
+    }
+
+    @Override
+    public void migrateProperties(PropertyConfiguration config) {
+        config.renameProperty("Output MIME type", MIME_TYPE.getName());
     }
 
     protected List<String> createCommandStrings(final ProcessContext context, final String command, final String arguments) {
@@ -424,7 +419,6 @@ public class ExecuteProcess extends AbstractProcessor {
 
         return future;
     }
-
 
     /**
      * Output stream that is used to wrap another output stream in a way that the underlying output stream can be swapped out for a different one when needed

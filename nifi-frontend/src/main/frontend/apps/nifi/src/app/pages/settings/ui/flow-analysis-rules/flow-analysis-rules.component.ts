@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-import { Component, OnDestroy, OnInit } from '@angular/core';
+import { Component, OnDestroy, OnInit, inject } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { Store } from '@ngrx/store';
 import { filter, switchMap, take } from 'rxjs';
@@ -26,6 +26,7 @@ import {
     selectSingleEditedFlowAnalysisRule
 } from '../../state/flow-analysis-rules/flow-analysis-rules.selectors';
 import {
+    clearFlowAnalysisRuleBulletins,
     disableFlowAnalysisRule,
     enableFlowAnalysisRule,
     loadFlowAnalysisRules,
@@ -43,7 +44,7 @@ import { NiFiState } from '../../../../state';
 import { FlowAnalysisRuleEntity, FlowAnalysisRulesState } from '../../state/flow-analysis-rules';
 import { getComponentStateAndOpenDialog } from '../../../../state/component-state/component-state.actions';
 import { navigateToComponentDocumentation } from '../../../../state/documentation/documentation.actions';
-import { ComponentType } from '@nifi/shared';
+import { ComponentType, NiFiCommon } from '@nifi/shared';
 import { AsyncPipe } from '@angular/common';
 import { NgxSkeletonLoaderComponent } from 'ngx-skeleton-loader';
 import { MatIconButton } from '@angular/material/button';
@@ -56,11 +57,14 @@ import { FlowAnalysisRuleTable } from './flow-analysis-rule-table/flow-analysis-
     styleUrls: ['./flow-analysis-rules.component.scss']
 })
 export class FlowAnalysisRules implements OnInit, OnDestroy {
+    private store = inject<Store<NiFiState>>(Store);
+    private nifiCommon = inject(NiFiCommon);
+
     flowAnalysisRuleState$ = this.store.select(selectFlowAnalysisRulesState);
     selectedFlowAnalysisRuleId$ = this.store.select(selectFlowAnalysisRuleIdFromRoute);
     currentUser$ = this.store.select(selectCurrentUser);
 
-    constructor(private store: Store<NiFiState>) {
+    constructor() {
         this.store
             .select(selectSingleEditedFlowAnalysisRule)
             .pipe(
@@ -162,7 +166,8 @@ export class FlowAnalysisRules implements OnInit, OnDestroy {
         this.store.dispatch(
             getComponentStateAndOpenDialog({
                 request: {
-                    componentUri: entity.uri,
+                    componentType: ComponentType.FlowAnalysisRule,
+                    componentId: entity.id,
                     componentName: entity.component.name,
                     canClear
                 }
@@ -198,6 +203,26 @@ export class FlowAnalysisRules implements OnInit, OnDestroy {
         this.store.dispatch(
             navigateToEditFlowAnalysisRule({
                 id: entity.id
+            })
+        );
+    }
+
+    clearBulletinsFlowAnalysisRule(entity: FlowAnalysisRuleEntity): void {
+        // Get the most recent bulletin timestamp from the entity's bulletins
+        // This will be reconstructed from the time-only string to a full timestamp
+        const fromTimestamp = this.nifiCommon.getMostRecentBulletinTimestamp(entity.bulletins || []);
+        if (fromTimestamp === null) {
+            return; // no bulletins to clear
+        }
+
+        this.store.dispatch(
+            clearFlowAnalysisRuleBulletins({
+                request: {
+                    uri: entity.uri,
+                    fromTimestamp,
+                    componentId: entity.id,
+                    componentType: ComponentType.FlowAnalysisRule
+                }
             })
         );
     }

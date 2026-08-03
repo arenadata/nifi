@@ -23,7 +23,6 @@ import java.io.ByteArrayInputStream;
 import java.io.InputStream;
 import java.util.Map;
 
-
 /**
  * Supports service account credentials provided as a JSON string.
  *
@@ -33,9 +32,7 @@ import java.util.Map;
 public class JsonStringServiceAccountCredentialsStrategy extends AbstractServiceAccountCredentialsStrategy {
 
     public JsonStringServiceAccountCredentialsStrategy() {
-        super("Service Account Credentials (Json String)", new PropertyDescriptor[] {
-                CredentialPropertyDescriptors.SERVICE_ACCOUNT_JSON
-        });
+        super("Service Account Credentials (Json String)");
     }
 
     @Override

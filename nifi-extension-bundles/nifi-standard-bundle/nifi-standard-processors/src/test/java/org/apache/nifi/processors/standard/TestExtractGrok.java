@@ -18,6 +18,7 @@
 package org.apache.nifi.processors.standard;
 
 import org.apache.nifi.util.MockFlowFile;
+import org.apache.nifi.util.PropertyMigrationResult;
 import org.apache.nifi.util.TestRunner;
 import org.apache.nifi.util.TestRunners;
 import org.junit.jupiter.api.BeforeEach;
@@ -26,13 +27,15 @@ import org.junit.jupiter.api.Test;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.Map;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 
 public class TestExtractGrok {
 
     private TestRunner testRunner;
-    private final static Path GROK_LOG_INPUT = Paths.get("src/test/resources/TestExtractGrok/apache.log");
-    private final static Path GROK_TEXT_INPUT = Paths.get("src/test/resources/TestExtractGrok/simple_text.log");
+    private static final Path GROK_LOG_INPUT = Paths.get("src/test/resources/TestExtractGrok/apache.log");
+    private static final Path GROK_TEXT_INPUT = Paths.get("src/test/resources/TestExtractGrok/simple_text.log");
 
     @BeforeEach
     public void init() {
@@ -53,7 +56,7 @@ public class TestExtractGrok {
         testRunner.enqueue("admin - 127.0.0.1");
         testRunner.run();
         testRunner.assertAllFlowFilesTransferred(ExtractGrok.REL_MATCH);
-        final MockFlowFile matched = testRunner.getFlowFilesForRelationship(ExtractGrok.REL_MATCH).get(0);
+        final MockFlowFile matched = testRunner.getFlowFilesForRelationship(ExtractGrok.REL_MATCH).getFirst();
 
         matched.assertAttributeEquals("grok.username", "admin");
     }
@@ -65,7 +68,7 @@ public class TestExtractGrok {
         testRunner.enqueue(GROK_LOG_INPUT);
         testRunner.run();
         testRunner.assertAllFlowFilesTransferred(ExtractGrok.REL_MATCH);
-        final MockFlowFile matched = testRunner.getFlowFilesForRelationship(ExtractGrok.REL_MATCH).get(0);
+        final MockFlowFile matched = testRunner.getFlowFilesForRelationship(ExtractGrok.REL_MATCH).getFirst();
 
         matched.assertAttributeEquals("grok.verb", "GET");
         matched.assertAttributeEquals("grok.response", "401");
@@ -84,7 +87,7 @@ public class TestExtractGrok {
         testRunner.enqueue("-42");
         testRunner.run();
         testRunner.assertAllFlowFilesTransferred(ExtractGrok.REL_MATCH);
-        final MockFlowFile matched = testRunner.getFlowFilesForRelationship(ExtractGrok.REL_MATCH).get(0);
+        final MockFlowFile matched = testRunner.getFlowFilesForRelationship(ExtractGrok.REL_MATCH).getFirst();
         matched.assertAttributeEquals("grok.NUMBER", "[-42, null]");
     }
 
@@ -96,10 +99,9 @@ public class TestExtractGrok {
         testRunner.enqueue("-42");
         testRunner.run();
         testRunner.assertAllFlowFilesTransferred(ExtractGrok.REL_MATCH);
-        final MockFlowFile matched = testRunner.getFlowFilesForRelationship(ExtractGrok.REL_MATCH).get(0);
+        final MockFlowFile matched = testRunner.getFlowFilesForRelationship(ExtractGrok.REL_MATCH).getFirst();
         matched.assertAttributeEquals("grok.NUMBER", "-42");
     }
-
 
     @Test
     public void testExtractGrokWithUnMatchedContent() throws IOException {
@@ -108,7 +110,7 @@ public class TestExtractGrok {
         testRunner.enqueue(GROK_TEXT_INPUT);
         testRunner.run();
         testRunner.assertAllFlowFilesTransferred(ExtractGrok.REL_NO_MATCH);
-        final MockFlowFile notMatched = testRunner.getFlowFilesForRelationship(ExtractGrok.REL_NO_MATCH).get(0);
+        final MockFlowFile notMatched = testRunner.getFlowFilesForRelationship(ExtractGrok.REL_NO_MATCH).getFirst();
         notMatched.assertContentEquals(GROK_TEXT_INPUT);
     }
 
@@ -136,7 +138,7 @@ public class TestExtractGrok {
         testRunner.enqueue(GROK_LOG_INPUT);
         testRunner.run();
         testRunner.assertAllFlowFilesTransferred(ExtractGrok.REL_MATCH);
-        final MockFlowFile matched = testRunner.getFlowFilesForRelationship(ExtractGrok.REL_MATCH).get(0);
+        final MockFlowFile matched = testRunner.getFlowFilesForRelationship(ExtractGrok.REL_MATCH).getFirst();
 
         matched.assertAttributeEquals("grok.verb", "GET");
         matched.assertAttributeEquals("grok.response", "401");
@@ -150,5 +152,16 @@ public class TestExtractGrok {
         matched.assertAttributeNotExists("grok.INT");
         matched.assertAttributeNotExists("grok.BASE10NUM");
         matched.assertAttributeNotExists("grok.COMMONAPACHELOG");
+    }
+
+    @Test
+    void testMigrateProperties() {
+        final Map<String, String> expectedRenamed = Map.of(
+                "Grok Pattern file", ExtractGrok.GROK_PATTERNS.getName(),
+                "Named captures only", ExtractGrok.NAMED_CAPTURES_ONLY.getName()
+        );
+
+        final PropertyMigrationResult propertyMigrationResult = testRunner.migrateProperties();
+        assertEquals(expectedRenamed, propertyMigrationResult.getPropertiesRenamed());
     }
 }

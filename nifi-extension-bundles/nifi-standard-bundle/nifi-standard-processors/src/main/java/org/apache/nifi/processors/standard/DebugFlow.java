@@ -16,6 +16,7 @@
  */
 package org.apache.nifi.processors.standard;
 
+import org.apache.nifi.annotation.behavior.Stateful;
 import org.apache.nifi.annotation.documentation.CapabilityDescription;
 import org.apache.nifi.annotation.documentation.Tags;
 import org.apache.nifi.annotation.lifecycle.OnScheduled;
@@ -25,10 +26,12 @@ import org.apache.nifi.components.PropertyDescriptor;
 import org.apache.nifi.components.ValidationContext;
 import org.apache.nifi.components.ValidationResult;
 import org.apache.nifi.components.Validator;
+import org.apache.nifi.components.state.Scope;
 import org.apache.nifi.expression.ExpressionLanguageScope;
 import org.apache.nifi.flowfile.FlowFile;
 import org.apache.nifi.flowfile.attributes.CoreAttributes;
 import org.apache.nifi.logging.ComponentLog;
+import org.apache.nifi.migration.PropertyConfiguration;
 import org.apache.nifi.processor.AbstractProcessor;
 import org.apache.nifi.processor.DataUnit;
 import org.apache.nifi.processor.ProcessContext;
@@ -37,19 +40,27 @@ import org.apache.nifi.processor.Relationship;
 import org.apache.nifi.processor.exception.ProcessException;
 import org.apache.nifi.processor.util.StandardValidators;
 
+import java.io.IOException;
 import java.lang.reflect.InvocationTargetException;
 import java.util.Collection;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Random;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 
-@Tags({"test", "debug", "processor", "utility", "flow", "FlowFile"})
+@Tags({"test", "debug", "processor", "utility", "flow", "FlowFile", "state"})
 @CapabilityDescription("The DebugFlow processor aids testing and debugging the FlowFile framework by allowing various "
         + "responses to be explicitly triggered in response to the receipt of a FlowFile or a timer event without a "
         + "FlowFile if using timer or cron based scheduling.  It can force responses needed to exercise or test "
-        + "various failure modes that can occur when a processor runs.")
+        + "various failure modes that can occur when a processor runs. It can also generate large numbers of component "
+        + "state entries for testing state management limits.")
+@Stateful(scopes = {Scope.LOCAL, Scope.CLUSTER}, description = "When 'Generate State Entries' is set to a positive integer, "
+        + "the processor will generate that many state entries with random values. This is useful for testing component state "
+        + "storage and display limits. State entries are stored with keys like 'debug_state_key_00000' with randomly generated values.",
+        dropStateKeySupported = true)
 public class DebugFlow extends AbstractProcessor {
 
     private final AtomicReference<Set<Relationship>> relationships = new AtomicReference<>();
@@ -166,7 +177,7 @@ public class DebugFlow extends AbstractProcessor {
         .addValidator(StandardValidators.TIME_PERIOD_VALIDATOR)
         .build();
     static final PropertyDescriptor ON_SCHEDULED_FAIL = new PropertyDescriptor.Builder()
-        .name("Fail When @OnScheduled called")
+        .name("Fail When @OnScheduled Called")
         .description("Specifies whether or not the Processor should throw an Exception when the methods annotated with @OnScheduled are called")
         .required(true)
         .allowableValues("true", "false")
@@ -180,7 +191,7 @@ public class DebugFlow extends AbstractProcessor {
         .addValidator(StandardValidators.TIME_PERIOD_VALIDATOR)
         .build();
     static final PropertyDescriptor ON_UNSCHEDULED_FAIL = new PropertyDescriptor.Builder()
-        .name("Fail When @OnUnscheduled called")
+        .name("Fail When @OnUnscheduled Called")
         .description("Specifies whether or not the Processor should throw an Exception when the methods annotated with @OnUnscheduled are called")
         .required(true)
         .allowableValues("true", "false")
@@ -195,7 +206,7 @@ public class DebugFlow extends AbstractProcessor {
         .expressionLanguageSupported(ExpressionLanguageScope.ENVIRONMENT)
         .build();
     static final PropertyDescriptor ON_STOPPED_FAIL = new PropertyDescriptor.Builder()
-        .name("Fail When @OnStopped called")
+        .name("Fail When @OnStopped Called")
         .description("Specifies whether or not the Processor should throw an Exception when the methods annotated with @OnStopped are called")
         .required(true)
         .allowableValues("true", "false")
@@ -224,6 +235,21 @@ public class DebugFlow extends AbstractProcessor {
         .defaultValue("false")
         .required(true)
         .build();
+    static final PropertyDescriptor GENERATE_STATE_ENTRIES = new PropertyDescriptor.Builder()
+        .name("Generate State Entries")
+        .description("If set to a positive integer, the processor will ensure that exactly this many state entries exist on each trigger, "
+            + "updating their values with random data. This is useful for testing component state limits. Set to 0 to disable state generation.")
+        .required(true)
+        .defaultValue("0")
+        .addValidator(StandardValidators.NON_NEGATIVE_INTEGER_VALIDATOR)
+        .build();
+    static final PropertyDescriptor STATE_SCOPE = new PropertyDescriptor.Builder()
+        .name("State Scope")
+        .description("The scope to use when storing component state entries")
+        .required(true)
+        .allowableValues("LOCAL", "CLUSTER")
+        .defaultValue("LOCAL")
+        .build();
 
     private volatile Integer flowFileMaxSuccess = 0;
     private volatile Integer flowFileMaxFailure = 0;
@@ -250,8 +276,8 @@ public class DebugFlow extends AbstractProcessor {
     private volatile Class<? extends RuntimeException> flowFileExceptionClass = null;
     private volatile Class<? extends RuntimeException> noFlowFileExceptionClass = null;
 
-    private final FlowFileResponse curr_ff_resp = new FlowFileResponse();
-    private final NoFlowFileResponse curr_noff_resp = new NoFlowFileResponse();
+    private final FlowFileResponse currFlowFileResponse = new FlowFileResponse();
+    private final NoFlowFileResponse currNoFlowFileResponse = new NoFlowFileResponse();
 
     @Override
     public Set<Relationship> getRelationships() {
@@ -289,7 +315,9 @@ public class DebugFlow extends AbstractProcessor {
                         ON_STOPPED_FAIL,
                         ON_TRIGGER_SLEEP_TIME,
                         CUSTOM_VALIDATE_SLEEP_TIME,
-                        IGNORE_INTERRUPTS
+                        IGNORE_INTERRUPTS,
+                        GENERATE_STATE_ENTRIES,
+                        STATE_SCOPE
                 );
 
                 this.properties.compareAndSet(null, properties);
@@ -310,8 +338,8 @@ public class DebugFlow extends AbstractProcessor {
         noFlowFileMaxException = context.getProperty(NO_FF_EXCEPTION_ITERATIONS).asInteger();
         noFlowFileMaxYield = context.getProperty(NO_FF_YIELD_ITERATIONS).asInteger();
         noFlowFileMaxSkip = context.getProperty(NO_FF_SKIP_ITERATIONS).asInteger();
-        curr_ff_resp.reset();
-        curr_noff_resp.reset();
+        currFlowFileResponse.reset();
+        currNoFlowFileResponse.reset();
         flowFileExceptionClass = (Class<? extends RuntimeException>) Class.forName(context.getProperty(FF_EXCEPTION_CLASS).toString());
         noFlowFileExceptionClass = (Class<? extends RuntimeException>) Class.forName(context.getProperty(NO_FF_EXCEPTION_CLASS).toString());
 
@@ -377,10 +405,39 @@ public class DebugFlow extends AbstractProcessor {
         }
     }
 
+    private void handleStateGeneration(final ProcessContext context, final ComponentLog logger) {
+        final int numStateEntries = context.getProperty(GENERATE_STATE_ENTRIES).asInteger();
+
+        if (numStateEntries > 0) {
+            final String scopeValue = context.getProperty(STATE_SCOPE).getValue();
+            final Scope scope = "CLUSTER".equals(scopeValue) ? Scope.CLUSTER : Scope.LOCAL;
+
+            try {
+                final Map<String, String> stateMap = new HashMap<>();
+
+                // Ensure exactly numStateEntries entries exist, updating their values with random data
+                final Random random = new Random();
+                for (int i = 0; i < numStateEntries; i++) {
+                    final String key = String.format("debug_state_key_%05d", i);
+                    final String value = "value_" + random.nextInt(1000000) + "_" + System.currentTimeMillis();
+                    stateMap.put(key, value);
+                }
+
+                // Save state
+                context.getStateManager().setState(stateMap, scope);
+            } catch (IOException e) {
+                logger.error("Failed to generate state entries", e);
+                throw new ProcessException("Failed to generate state entries", e);
+            }
+        }
+    }
 
     @Override
     public void onTrigger(ProcessContext context, ProcessSession session) throws ProcessException {
         final ComponentLog logger = getLogger();
+
+        // Handle state generation if configured
+        handleStateGeneration(context, logger);
 
         FlowFile ff = session.get();
 
@@ -390,21 +447,21 @@ public class DebugFlow extends AbstractProcessor {
             //  prevents endless loops in the event of unexpected errors or future changes.)
             for (int pass = 2; pass > 0; pass--) {
                 if (ff == null) {
-                    if (curr_noff_resp.state() == NoFlowFileResponseState.NO_FF_SKIP_RESPONSE) {
+                    if (currNoFlowFileResponse.state() == NoFlowFileResponseState.NO_FF_SKIP_RESPONSE) {
                         if (noFlowFileCurrSkip < noFlowFileMaxSkip) {
                             noFlowFileCurrSkip += 1;
-                            logger.info("DebugFlow skipping with no flow file");
+                            logger.info("DebugFlow skipping with no FlowFile");
                             return;
                         } else {
                             noFlowFileCurrSkip = 0;
-                            curr_noff_resp.getNextCycle();
+                            currNoFlowFileResponse.getNextCycle();
                         }
                     }
 
-                    if (curr_noff_resp.state() == NoFlowFileResponseState.NO_FF_EXCEPTION_RESPONSE) {
+                    if (currNoFlowFileResponse.state() == NoFlowFileResponseState.NO_FF_EXCEPTION_RESPONSE) {
                         if (noFlowFileCurrException < noFlowFileMaxException) {
                             noFlowFileCurrException += 1;
-                            logger.info("DebugFlow throwing NPE with no flow file");
+                            logger.info("DebugFlow throwing NPE with no FlowFile");
                             String message = "forced by " + this.getClass().getName();
                             RuntimeException rte;
                             try {
@@ -418,19 +475,19 @@ public class DebugFlow extends AbstractProcessor {
                             }
                         } else {
                             noFlowFileCurrException = 0;
-                            curr_noff_resp.getNextCycle();
+                            currNoFlowFileResponse.getNextCycle();
                         }
                     }
 
-                    if (curr_noff_resp.state() == NoFlowFileResponseState.NO_FF_YIELD_RESPONSE) {
+                    if (currNoFlowFileResponse.state() == NoFlowFileResponseState.NO_FF_YIELD_RESPONSE) {
                         if (noFlowFileCurrYield < noFlowFileMaxYield) {
                             noFlowFileCurrYield += 1;
-                            logger.info("DebugFlow yielding with no flow file");
+                            logger.info("DebugFlow yielding with no FlowFile");
                             context.yield();
                             break;
                         } else {
                             noFlowFileCurrYield = 0;
-                            curr_noff_resp.getNextCycle();
+                            currNoFlowFileResponse.getNextCycle();
                         }
                     }
 
@@ -448,7 +505,7 @@ public class DebugFlow extends AbstractProcessor {
                         }
                     }
 
-                    if (curr_ff_resp.state() == FlowFileResponseState.FF_SUCCESS_RESPONSE) {
+                    if (currFlowFileResponse.state() == FlowFileResponseState.FF_SUCCESS_RESPONSE) {
                         if (flowFileCurrSuccess < flowFileMaxSuccess) {
                             flowFileCurrSuccess += 1;
                             logger.info("DebugFlow transferring to success file={} UUID={}",
@@ -458,11 +515,11 @@ public class DebugFlow extends AbstractProcessor {
                             break;
                         } else {
                             flowFileCurrSuccess = 0;
-                            curr_ff_resp.getNextCycle();
+                            currFlowFileResponse.getNextCycle();
                         }
                     }
 
-                    if (curr_ff_resp.state() == FlowFileResponseState.FF_FAILURE_RESPONSE) {
+                    if (currFlowFileResponse.state() == FlowFileResponseState.FF_FAILURE_RESPONSE) {
                         if (flowFileCurrFailure < flowFileMaxFailure) {
                             flowFileCurrFailure += 1;
                             logger.info("DebugFlow transferring to failure file={} UUID={}",
@@ -472,11 +529,11 @@ public class DebugFlow extends AbstractProcessor {
                             break;
                         } else {
                             flowFileCurrFailure = 0;
-                            curr_ff_resp.getNextCycle();
+                            currFlowFileResponse.getNextCycle();
                         }
                     }
 
-                    if (curr_ff_resp.state() == FlowFileResponseState.FF_ROLLBACK_RESPONSE) {
+                    if (currFlowFileResponse.state() == FlowFileResponseState.FF_ROLLBACK_RESPONSE) {
                         if (flowFileCurrRollback < flowFileMaxRollback) {
                             flowFileCurrRollback += 1;
                             logger.info("DebugFlow rolling back (no penalty) file={} UUID={}",
@@ -486,11 +543,11 @@ public class DebugFlow extends AbstractProcessor {
                             break;
                         } else {
                             flowFileCurrRollback = 0;
-                            curr_ff_resp.getNextCycle();
+                            currFlowFileResponse.getNextCycle();
                         }
                     }
 
-                    if (curr_ff_resp.state() == FlowFileResponseState.FF_YIELD_RESPONSE) {
+                    if (currFlowFileResponse.state() == FlowFileResponseState.FF_YIELD_RESPONSE) {
                         if (flowFileCurrYield < flowFileMaxYield) {
                             flowFileCurrYield += 1;
                             logger.info("DebugFlow yielding file={} UUID={}",
@@ -501,11 +558,11 @@ public class DebugFlow extends AbstractProcessor {
                             return;
                         } else {
                             flowFileCurrYield = 0;
-                            curr_ff_resp.getNextCycle();
+                            currFlowFileResponse.getNextCycle();
                         }
                     }
 
-                    if (curr_ff_resp.state() == FlowFileResponseState.FF_PENALTY_RESPONSE) {
+                    if (currFlowFileResponse.state() == FlowFileResponseState.FF_PENALTY_RESPONSE) {
                         if (flowFileCurrPenalty < flowFileMaxPenalty) {
                             flowFileCurrPenalty += 1;
                             logger.info("DebugFlow rolling back (with penalty) file={} UUID={}",
@@ -515,11 +572,11 @@ public class DebugFlow extends AbstractProcessor {
                             break;
                         } else {
                             flowFileCurrPenalty = 0;
-                            curr_ff_resp.getNextCycle();
+                            currFlowFileResponse.getNextCycle();
                         }
                     }
 
-                    if (curr_ff_resp.state() == FlowFileResponseState.FF_EXCEPTION_RESPONSE) {
+                    if (currFlowFileResponse.state() == FlowFileResponseState.FF_EXCEPTION_RESPONSE) {
                         if (flowFileCurrException < flowFileMaxException) {
                             flowFileCurrException += 1;
                             String message = "forced by " + this.getClass().getName();
@@ -538,7 +595,7 @@ public class DebugFlow extends AbstractProcessor {
                             }
                         } else {
                             flowFileCurrException = 0;
-                            curr_ff_resp.getNextCycle();
+                            currFlowFileResponse.getNextCycle();
                         }
                     }
                 }
@@ -555,6 +612,13 @@ public class DebugFlow extends AbstractProcessor {
                 Thread.currentThread().interrupt();
             }
         }
+    }
+
+    @Override
+    public void migrateProperties(PropertyConfiguration config) {
+        config.renameProperty("Fail When @OnScheduled called", ON_SCHEDULED_FAIL.getName());
+        config.renameProperty("Fail When @OnUnscheduled called", ON_UNSCHEDULED_FAIL.getName());
+        config.renameProperty("Fail When @OnStopped called", ON_STOPPED_FAIL.getName());
     }
 
     private static class RuntimeExceptionValidator implements Validator {

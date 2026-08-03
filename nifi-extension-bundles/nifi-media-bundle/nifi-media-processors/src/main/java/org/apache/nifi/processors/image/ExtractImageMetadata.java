@@ -16,11 +16,11 @@
  */
 package org.apache.nifi.processors.image;
 
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
-
+import com.drew.imaging.ImageMetadataReader;
+import com.drew.imaging.ImageProcessingException;
+import com.drew.metadata.Directory;
+import com.drew.metadata.Metadata;
+import com.drew.metadata.Tag;
 import org.apache.nifi.annotation.behavior.InputRequirement;
 import org.apache.nifi.annotation.behavior.InputRequirement.Requirement;
 import org.apache.nifi.annotation.behavior.SupportsBatching;
@@ -38,16 +38,15 @@ import org.apache.nifi.processor.Relationship;
 import org.apache.nifi.processor.exception.ProcessException;
 import org.apache.nifi.processor.util.StandardValidators;
 
-import com.drew.imaging.ImageMetadataReader;
-import com.drew.imaging.ImageProcessingException;
-import com.drew.metadata.Directory;
-import com.drew.metadata.Metadata;
-import com.drew.metadata.Tag;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicReference;
 
 @InputRequirement(Requirement.INPUT_REQUIRED)
 @Tags({"Exif", "Exchangeable", "image", "file", "format", "JPG", "GIF", "PNG", "BMP", "metadata", "IPTC", "XMP"})
-@CapabilityDescription("Extract the image metadata from flowfiles containing images. This processor relies on this "
+@CapabilityDescription("Extract the image metadata from FlowFiles containing images. This processor relies on this "
         + "metadata extractor library https://github.com/drewnoakes/metadata-extractor. It extracts a long list of "
         + "metadata types including but not limited to EXIF, IPTC, XMP and Photoshop fields. For the full list visit "
         + "the library's website."
@@ -59,7 +58,7 @@ public class ExtractImageMetadata extends AbstractProcessor {
 
     public static final PropertyDescriptor MAX_NUMBER_OF_ATTRIBUTES = new PropertyDescriptor.Builder()
         .name("Max Number of Attributes")
-        .description("Specify the max number of attributes to add to the flowfile. There is no guarantee in what order"
+        .description("Specify the max number of attributes to add to the FlowFile. There is no guarantee in what order"
                 + " the tags will be processed. By default it will process all of them.")
         .required(false)
         .addValidator(StandardValidators.NON_NEGATIVE_INTEGER_VALIDATOR)

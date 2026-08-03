@@ -21,6 +21,8 @@ import {
     extensionTypesApiError,
     loadExtensionTypesForCanvas,
     loadExtensionTypesForCanvasSuccess,
+    loadExtensionTypesForConnectors,
+    loadExtensionTypesForConnectorsSuccess,
     loadExtensionTypesForDocumentation,
     loadExtensionTypesForDocumentationSuccess,
     loadExtensionTypesForPolicies,
@@ -37,6 +39,7 @@ export const initialExtensionsTypesState: ExtensionTypesState = {
     registryClientTypes: [],
     flowAnalysisRuleTypes: [],
     parameterProviderTypes: [],
+    connectorTypes: [],
     status: 'pending'
 };
 
@@ -56,6 +59,7 @@ export const extensionTypesReducer = createReducer(
             registryClientTypes: [],
             parameterProviderTypes: [],
             flowAnalysisRuleTypes: [],
+            connectorTypes: [],
             status: 'loading' as const
         })
     ),
@@ -89,8 +93,20 @@ export const extensionTypesReducer = createReducer(
         processorTypes: response.processorTypes,
         controllerServiceTypes: response.controllerServiceTypes,
         reportingTaskTypes: response.reportingTaskTypes,
+        registryClientTypes: response.registryClientTypes,
         parameterProviderTypes: response.parameterProviderTypes,
         flowAnalysisRuleTypes: response.flowAnalysisRuleTypes,
+        connectorTypes: response.connectorTypes,
+        status: 'success' as const
+    })),
+    on(loadExtensionTypesForConnectors, (state) => ({
+        ...state,
+        connectorTypes: [],
+        status: 'loading' as const
+    })),
+    on(loadExtensionTypesForConnectorsSuccess, (state, { response }) => ({
+        ...state,
+        connectorTypes: response.connectorTypes,
         status: 'success' as const
     })),
     on(extensionTypesApiError, (state) => ({

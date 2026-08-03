@@ -18,17 +18,16 @@ package org.apache.nifi.processors;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.apache.nifi.processor.ProcessContext;
+import org.apache.nifi.processor.ProcessSession;
+import org.apache.nifi.processor.exception.ProcessException;
 import org.apache.nifi.processors.model.DatabaseSchema;
+import org.apache.nifi.processors.model.ValidationResult;
 import org.apache.tsfile.enums.TSDataType;
 import org.apache.tsfile.file.metadata.enums.TSEncoding;
 import org.apache.tsfile.write.record.Tablet;
 import org.apache.tsfile.write.schema.IMeasurementSchema;
 import org.apache.tsfile.write.schema.MeasurementSchema;
-import org.apache.nifi.processor.ProcessContext;
-import org.apache.nifi.processor.ProcessSession;
-import org.apache.nifi.processor.exception.ProcessException;
-import org.apache.nifi.processors.model.ValidationResult;
-
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -222,8 +221,8 @@ public class AbstractIoTDBTest {
 
         Map<String, Tablet> exceptedTablets = new HashMap<>();
         List<IMeasurementSchema> schemas = Arrays.asList(
-        new MeasurementSchema("s1", TSDataType.INT32, TSEncoding.RLE),
-        new MeasurementSchema("s2", TSDataType.DOUBLE, TSEncoding.PLAIN));
+            new MeasurementSchema("s1", TSDataType.INT32, TSEncoding.RLE),
+            new MeasurementSchema("s2", TSDataType.DOUBLE, TSEncoding.PLAIN));
         exceptedTablets.put("root.test_sg.test_d1", new Tablet("root.test_sg.test_d1", schemas, 1));
 
         assertEquals("root.test_sg.test_d1", tablets.keySet().toArray()[0]);

@@ -16,25 +16,33 @@
  */
 package org.apache.nifi.processors.box;
 
-import static java.lang.String.valueOf;
-import static java.util.Collections.singletonList;
-import static org.apache.nifi.processors.box.BoxFileAttributes.ID;
-import static org.apache.nifi.processors.box.BoxFileAttributes.SIZE;
-import static org.apache.nifi.processors.box.BoxFileAttributes.TIMESTAMP;
-
 import com.box.sdk.BoxFolder;
-import java.util.Arrays;
-import java.util.List;
 import org.apache.nifi.flowfile.attributes.CoreAttributes;
 import org.apache.nifi.json.JsonRecordSetWriter;
+import org.apache.nifi.processor.util.list.AbstractListProcessor;
+import org.apache.nifi.processor.util.list.ListedEntityTracker;
 import org.apache.nifi.reporting.InitializationException;
 import org.apache.nifi.serialization.RecordSetWriterFactory;
 import org.apache.nifi.util.MockFlowFile;
+import org.apache.nifi.util.PropertyMigrationResult;
+import org.apache.nifi.util.TestRunner;
 import org.apache.nifi.util.TestRunners;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.junit.jupiter.MockitoExtension;
+
+import java.util.Arrays;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+
+import static java.lang.String.valueOf;
+import static java.util.Collections.singletonList;
+import static org.apache.nifi.processors.box.BoxFileAttributes.ID;
+import static org.apache.nifi.processors.box.BoxFileAttributes.SIZE;
+import static org.apache.nifi.processors.box.BoxFileAttributes.TIMESTAMP;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 
 @ExtendWith(MockitoExtension.class)
 public class ListBoxFileTest extends AbstractBoxFileTest implements FileListingTestTrait {
@@ -91,10 +99,32 @@ public class ListBoxFileTest extends AbstractBoxFileTest implements FileListingT
                         "}" +
                         "]");
 
-
         testRunner.run();
 
         testRunner.assertContents(ListBoxFile.REL_SUCCESS, expectedContents);
+    }
+
+    @Test
+    void testMigration() {
+        TestRunner runner = TestRunners.newTestRunner(ListBoxFile.class);
+        final PropertyMigrationResult propertyMigrationResult = runner.migrateProperties();
+        final Map<String, String> expectedRenamed = Map.ofEntries(
+                Map.entry(AbstractBoxProcessor.OLD_BOX_CLIENT_SERVICE_PROPERTY_NAME, AbstractBoxProcessor.BOX_CLIENT_SERVICE.getName()),
+                Map.entry("box-folder-id", ListBoxFile.FOLDER_ID.getName()),
+                Map.entry("recursive-search", ListBoxFile.RECURSIVE_SEARCH.getName()),
+                Map.entry("min-age", ListBoxFile.MIN_AGE.getName()),
+                Map.entry(ListedEntityTracker.OLD_TRACKING_STATE_CACHE_PROPERTY_NAME, ListBoxFile.TRACKING_STATE_CACHE.getName()),
+                Map.entry(ListedEntityTracker.OLD_TRACKING_TIME_WINDOW_PROPERTY_NAME, ListBoxFile.TRACKING_TIME_WINDOW.getName()),
+                Map.entry(ListedEntityTracker.OLD_INITIAL_LISTING_TARGET_PROPERTY_NAME, ListBoxFile.INITIAL_LISTING_TARGET.getName()),
+                Map.entry("target-system-timestamp-precision", AbstractListProcessor.TARGET_SYSTEM_TIMESTAMP_PRECISION.getName()),
+                Map.entry("listing-strategy", AbstractListProcessor.LISTING_STRATEGY.getName()),
+                Map.entry("record-writer", AbstractListProcessor.RECORD_WRITER.getName())
+        );
+
+        assertEquals(expectedRenamed, propertyMigrationResult.getPropertiesRenamed());
+
+        final Set<String> expectedRemoved = Set.of("Distributed Cache Service");
+        assertEquals(expectedRemoved, propertyMigrationResult.getPropertiesRemoved());
     }
 
     private void addJsonRecordWriterFactory() throws InitializationException {

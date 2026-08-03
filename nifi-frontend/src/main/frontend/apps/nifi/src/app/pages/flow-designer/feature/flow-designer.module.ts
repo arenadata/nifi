@@ -27,9 +27,9 @@ import { canvasFeatureKey, reducers } from '../state';
 import { MatDialogModule } from '@angular/material/dialog';
 import { ControllerServicesEffects } from '../state/controller-services/controller-services.effects';
 import { ParameterEffects } from '../state/parameter/parameter.effects';
-import { QueueEffects } from '../state/queue/queue.effects';
 import { BannerText } from '../../../ui/common/banner-text/banner-text.component';
 import { FlowAnalysisEffects } from '../state/flow-analysis/flow-analysis.effects';
+import { ComponentTypeNamePipe } from '@nifi/shared';
 
 @NgModule({
     declarations: [FlowDesigner],
@@ -43,12 +43,12 @@ import { FlowAnalysisEffects } from '../state/flow-analysis/flow-analysis.effect
             TransformEffects,
             ControllerServicesEffects,
             ParameterEffects,
-            QueueEffects,
             FlowAnalysisEffects
         ),
         NgOptimizedImage,
         MatDialogModule,
         BannerText
-    ]
+    ],
+    providers: [ComponentTypeNamePipe]
 })
 export class FlowDesignerModule {}

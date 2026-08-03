@@ -107,12 +107,12 @@ class TestYamlTreeRowRecordReader {
     @Test
     void testReadChoiceOfStringOrArrayOfRecords() throws IOException, MalformedRecordException {
         final File schemaFile = new File("src/test/resources/json/choice-of-string-or-array-record.avsc");
-        final File jsonFile = new File("src/test/resources/yaml/choice-of-string-or-array-record.yaml");
+        final File yamlFile = new File("src/test/resources/yaml/choice-of-string-or-array-record.yaml");
 
         final Schema avroSchema = new Schema.Parser().parse(schemaFile);
         final RecordSchema recordSchema = AvroTypeUtil.createSchema(avroSchema);
 
-        try (final InputStream fis = Files.newInputStream(jsonFile.toPath());
+        try (final InputStream fis = Files.newInputStream(yamlFile.toPath());
              final YamlTreeRowRecordReader reader = new YamlTreeRowRecordReader(fis, new MockComponentLog("id", "id"), recordSchema, dateFormat, timeFormat, timestampFormat)) {
 
             final Record record = reader.nextRecord();
@@ -241,7 +241,6 @@ class TestYamlTreeRowRecordReader {
             assertNull(reader.nextRecord());
         }
     }
-
 
     @Test
     void testReadRawRecordIncludesFieldsNotInSchema() throws IOException, MalformedRecordException {
@@ -411,7 +410,7 @@ class TestYamlTreeRowRecordReader {
             for (int i = 0; i < schema.getFields().size(); i++) {
                 assertInstanceOf(ChoiceDataType.class, fields.get(i).getDataType());
                 final ChoiceDataType choiceDataType = (ChoiceDataType) fields.get(i).getDataType();
-                assertEquals(expectedTypes.get(i), choiceDataType.getPossibleSubTypes().get(0).getFieldType());
+                assertEquals(expectedTypes.get(i), choiceDataType.getPossibleSubTypes().getFirst().getFieldType());
             }
 
             final Object[] firstRecordValues = reader.nextRecord().getValues();
@@ -542,7 +541,6 @@ class TestYamlTreeRowRecordReader {
         }
     }
 
-
     @Test
     void testReadUnicodeCharacters() throws IOException, MalformedRecordException {
 
@@ -623,11 +621,7 @@ class TestYamlTreeRowRecordReader {
                     "integer", 2,
                     "string", "stringValue2",
                     "booleanOrString", "booleanOrStringValue2"
-            )/*new HashMap<>() {{
-                put("integer", 2);
-                put("string", "stringValue2");
-                put("booleanOrString", "booleanOrStringValue2");
-            }}*/)
+            ))
         );
 
         testReadRecords(yamlPath, expected);
@@ -637,29 +631,23 @@ class TestYamlTreeRowRecordReader {
     void testChoiceOfEmbeddedSimilarRecords() throws Exception {
         String yamlPath = "src/test/resources/yaml/choice-of-embedded-similar-records.yaml";
 
-        final SimpleRecordSchema expectedRecordSchema1 = new SimpleRecordSchema(Arrays.asList(
+        final SimpleRecordSchema mergedRecordSchema = new SimpleRecordSchema(Arrays.asList(
             new RecordField("integer", RecordFieldType.INT.getDataType()),
-            new RecordField("boolean", RecordFieldType.BOOLEAN.getDataType())
-        ));
-        final SimpleRecordSchema expectedRecordSchema2 = new SimpleRecordSchema(Arrays.asList(
-            new RecordField("integer", RecordFieldType.INT.getDataType()),
+            new RecordField("boolean", RecordFieldType.BOOLEAN.getDataType()),
             new RecordField("string", RecordFieldType.STRING.getDataType())
         ));
-        RecordSchema expectedRecordChoiceSchema = new SimpleRecordSchema(Collections.singletonList(
-                new RecordField("record", RecordFieldType.CHOICE.getChoiceDataType(
-                        RecordFieldType.RECORD.getRecordDataType(expectedRecordSchema1),
-                        RecordFieldType.RECORD.getRecordDataType(expectedRecordSchema2)
-                ))
+        final RecordSchema expectedOuterSchema = new SimpleRecordSchema(Collections.singletonList(
+                new RecordField("record", RecordFieldType.RECORD.getRecordDataType(mergedRecordSchema))
         ));
 
         List<Object> expected = Arrays.asList(
-            new MapRecord(expectedRecordChoiceSchema, Map.of(
-                    "record", new MapRecord(expectedRecordSchema1, Map.of(
+            new MapRecord(expectedOuterSchema, Map.of(
+                    "record", new MapRecord(mergedRecordSchema, Map.of(
                             "integer", 1,
                             "boolean", true))
             )),
-            new MapRecord(expectedRecordChoiceSchema, Map.of(
-                    "record", new MapRecord(expectedRecordSchema2, Map.of(
+            new MapRecord(expectedOuterSchema, Map.of(
+                    "record", new MapRecord(mergedRecordSchema, Map.of(
                             "integer", 2,
                             "string", "stringValue2"))
             ))
@@ -667,7 +655,6 @@ class TestYamlTreeRowRecordReader {
 
         testReadRecords(yamlPath, expected);
     }
-
 
     @Test
     void testChoseSuboptimalSchemaWhenDataHasExtraFields() throws Exception {
@@ -715,31 +702,29 @@ class TestYamlTreeRowRecordReader {
         //  so we take the first one (INT, BOOLEAN) - as best effort - for both cases
         List<Object> expected = Arrays.asList(
             new MapRecord(expectedRecordChoiceSchema, Map.of("record", new Object[]{
-                        new MapRecord(expectedChildSchema1, Map.of(
-                                "integer", 11,
-                                "boolean", true,
-                                "extraString", "extraStringValue11"
-                        )),
-                        new MapRecord(expectedChildSchema1, Map.of(
-                                "integer", 12,
-                                "boolean", false,
-                                "extraString", "extraStringValue12"
-                        ))
-                })
-            ),
+                new MapRecord(expectedChildSchema1, Map.of(
+                        "integer", 11,
+                        "boolean", true,
+                        "extraString", "extraStringValue11"
+                )),
+                new MapRecord(expectedChildSchema1, Map.of(
+                        "integer", 12,
+                        "boolean", false,
+                        "extraString", "extraStringValue12"
+                ))
+            })),
             new MapRecord(expectedRecordChoiceSchema, Map.of("record", new Object[]{
-                        new MapRecord(expectedChildSchema1, Map.of(
-                                "integer", 21,
-                                "extraString", "extraStringValue21",
-                                "string", "stringValue21"
-                        )),
-                        new MapRecord(expectedChildSchema1, Map.of(
-                                "integer", 22,
-                                "extraString", "extraStringValue22",
-                                "string", "stringValue22"
-                        ))
-                })
-            )
+                new MapRecord(expectedChildSchema1, Map.of(
+                        "integer", 21,
+                        "extraString", "extraStringValue21",
+                        "string", "stringValue21"
+                )),
+                new MapRecord(expectedChildSchema1, Map.of(
+                        "integer", 22,
+                        "extraString", "extraStringValue22",
+                        "string", "stringValue22"
+                ))
+            }))
         );
 
         testReadRecords(yamlPath, schema, expected);
@@ -947,7 +932,6 @@ class TestYamlTreeRowRecordReader {
         BiPredicate<String, String> capturePredicate = (fieldName, fieldValue) -> fieldsToCapture.contains(fieldName);
         String startingFieldName = "accounts";
 
-
         SimpleRecordSchema accountRecordSchema = new SimpleRecordSchema(Arrays.asList(
                 new RecordField("id", RecordFieldType.INT.getDataType()),
                 new RecordField("balance", RecordFieldType.DOUBLE.getDataType())
@@ -990,9 +974,9 @@ class TestYamlTreeRowRecordReader {
     }
 
     private void testReadRecords(String yamlPath, List<Object> expected) throws IOException, MalformedRecordException {
-        final File jsonFile = new File(yamlPath);
+        final File yamlFile = new File(yamlPath);
         try (
-            InputStream jsonStream = new ByteArrayInputStream(FileUtils.readFileToByteArray(jsonFile))
+            InputStream jsonStream = new ByteArrayInputStream(FileUtils.readFileToByteArray(yamlFile))
         ) {
             RecordSchema schema = inferSchema(jsonStream, StartingFieldStrategy.ROOT_NODE, null);
             testReadRecords(jsonStream, schema, expected);
@@ -1001,16 +985,16 @@ class TestYamlTreeRowRecordReader {
 
     private void testNestedReadRecords(String yamlPath, List<Object> expected, String startingFieldName) throws IOException, MalformedRecordException {
 
-        final File jsonFile = new File(yamlPath);
-        try (InputStream jsonStream = new ByteArrayInputStream(FileUtils.readFileToByteArray(jsonFile))) {
+        final File yamlFile = new File(yamlPath);
+        try (InputStream jsonStream = new ByteArrayInputStream(FileUtils.readFileToByteArray(yamlFile))) {
             RecordSchema schema = inferSchema(jsonStream, StartingFieldStrategy.NESTED_FIELD, startingFieldName);
             testNestedReadRecords(jsonStream, schema, expected, startingFieldName, SchemaApplicationStrategy.SELECTED_PART);
         }
     }
 
     private void testReadRecords(String yamlPath, RecordSchema schema, List<Object> expected) throws IOException, MalformedRecordException {
-        final File jsonFile = new File(yamlPath);
-        try (InputStream jsonStream = new ByteArrayInputStream(FileUtils.readFileToByteArray(jsonFile))) {
+        final File yamlFile = new File(yamlPath);
+        try (InputStream jsonStream = new ByteArrayInputStream(FileUtils.readFileToByteArray(yamlFile))) {
             testReadRecords(jsonStream, schema, expected);
         }
     }

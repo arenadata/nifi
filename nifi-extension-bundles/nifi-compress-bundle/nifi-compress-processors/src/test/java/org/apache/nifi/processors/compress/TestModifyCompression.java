@@ -17,6 +17,7 @@
 package org.apache.nifi.processors.compress;
 
 import org.apache.nifi.flowfile.attributes.CoreAttributes;
+import org.apache.nifi.processor.Relationship;
 import org.apache.nifi.processors.compress.property.CompressionStrategy;
 import org.apache.nifi.processors.compress.property.FilenameStrategy;
 import org.apache.nifi.util.LogMessage;
@@ -25,14 +26,22 @@ import org.apache.nifi.util.TestRunner;
 import org.apache.nifi.util.TestRunners;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
+import org.tukaani.xz.LZMA2Options;
+import org.tukaani.xz.XZOutputStream;
 
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
+import java.util.stream.Stream;
 
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -380,6 +389,71 @@ class TestModifyCompression {
         MockFlowFile flowFile = runner.getFlowFilesForRelationship(ModifyCompression.REL_SUCCESS).getFirst();
         flowFile.assertContentEquals(getSamplePath("SampleFile.txt"));
         flowFile.assertAttributeEquals(CoreAttributes.FILENAME.key(), "SampleFile.txt");
+    }
+
+    @ParameterizedTest
+    @MethodSource("toRelationshipWhenDecompressionNotNeeded")
+    void testWhereDecompressionNotNeeded(Relationship toRelationship) throws Exception {
+        final Relationship expectedRelationship;
+        runner.setProperty(ModifyCompression.INPUT_COMPRESSION_STRATEGY, CompressionStrategy.MIME_TYPE_ATTRIBUTE);
+        runner.setProperty(ModifyCompression.OUTPUT_FILENAME_STRATEGY, FilenameStrategy.ORIGINAL);
+
+        if (toRelationship == null) {
+            expectedRelationship = ModifyCompression.REL_FAILURE;
+        } else {
+            runner.setProperty(ModifyCompression.UNKNOWN_MIME_TYPE_ROUTING, toRelationship.getName());
+            expectedRelationship = toRelationship;
+        }
+
+        runner.enqueue(getSamplePath("SampleFile.txt"), Map.of(CoreAttributes.MIME_TYPE.key(), "text/plain"));
+        runner.run();
+
+        runner.assertAllFlowFilesTransferred(expectedRelationship, 1);
+    }
+
+    @Test
+    public void testXzlzma2DecompressWithMimeType() throws Exception {
+        final String content = "Content for compression";
+        final byte[] contentBytes = content.getBytes(StandardCharsets.UTF_8);
+        final LZMA2Options options = new LZMA2Options();
+        final ByteArrayOutputStream compressedOutput = new ByteArrayOutputStream();
+        try (XZOutputStream xzOut = new XZOutputStream(compressedOutput, options)) {
+            xzOut.write(contentBytes, 0, contentBytes.length);
+            xzOut.finish();
+        }
+
+        runner.setProperty(ModifyCompression.INPUT_COMPRESSION_STRATEGY, CompressionStrategy.MIME_TYPE_ATTRIBUTE);
+        runner.setProperty(ModifyCompression.OUTPUT_FILENAME_STRATEGY, FilenameStrategy.UPDATED);
+        final Map<String, String> attributes = Map.of(CoreAttributes.MIME_TYPE.key(), "application/x-xz");
+        runner.enqueue(compressedOutput.toByteArray(), attributes);
+
+        runner.run();
+
+        runner.assertAllFlowFilesTransferred(ModifyCompression.REL_SUCCESS, 1);
+        final MockFlowFile flowFile = runner.getFlowFilesForRelationship(ModifyCompression.REL_SUCCESS).getFirst();
+        flowFile.assertContentEquals(content);
+    }
+
+    @Test
+    public void testXzlzma2Compress() {
+        runner.setProperty(ModifyCompression.OUTPUT_COMPRESSION_STRATEGY, CompressionStrategy.XZ_LZMA2);
+        final String content = "Content for compression";
+        runner.enqueue(content);
+        runner.run();
+
+        runner.assertAllFlowFilesTransferred(ModifyCompression.REL_SUCCESS, 1);
+        final MockFlowFile flowFile = runner.getFlowFilesForRelationship(ModifyCompression.REL_SUCCESS).getFirst();
+        flowFile.assertAttributeEquals(CoreAttributes.MIME_TYPE.key(), "application/x-xz");
+    }
+
+    private static Stream<Arguments> toRelationshipWhenDecompressionNotNeeded() {
+        final Relationship noRelationSpecified = null;
+
+        return Stream.of(
+                Arguments.argumentSet("Default setting", noRelationSpecified),
+                Arguments.argumentSet("Success", ModifyCompression.REL_SUCCESS),
+                Arguments.argumentSet("Failure", ModifyCompression.REL_FAILURE)
+        );
     }
 
     private Path getSamplePath(final String relativePath) {

@@ -26,6 +26,8 @@ import org.apache.nifi.annotation.documentation.SeeAlso;
 import org.apache.nifi.annotation.documentation.Tags;
 import org.apache.nifi.components.PropertyDescriptor;
 import org.apache.nifi.flowfile.FlowFile;
+import org.apache.nifi.migration.PropertyConfiguration;
+import org.apache.nifi.pgp.service.api.KeyIdentifierConverter;
 import org.apache.nifi.pgp.service.api.PGPPublicKeyService;
 import org.apache.nifi.processor.AbstractProcessor;
 import org.apache.nifi.processor.ProcessContext;
@@ -33,7 +35,6 @@ import org.apache.nifi.processor.ProcessSession;
 import org.apache.nifi.processor.Relationship;
 import org.apache.nifi.processor.io.StreamCallback;
 import org.apache.nifi.processors.pgp.exception.PGPProcessException;
-import org.apache.nifi.pgp.service.api.KeyIdentifierConverter;
 import org.apache.nifi.stream.io.StreamUtils;
 import org.bouncycastle.openpgp.PGPCompressedData;
 import org.bouncycastle.openpgp.PGPException;
@@ -91,8 +92,7 @@ public class VerifyContentPGP extends AbstractProcessor {
             .build();
 
     public static final PropertyDescriptor PUBLIC_KEY_SERVICE = new PropertyDescriptor.Builder()
-            .name("public-key-service")
-            .displayName("Public Key Service")
+            .name("Public Key Service")
             .description("PGP Public Key Service for verifying signatures with Public Key Encryption")
             .identifiesControllerService(PGPPublicKeyService.class)
             .required(true)
@@ -132,7 +132,7 @@ public class VerifyContentPGP extends AbstractProcessor {
     }
 
     /**
-     * On Trigger verifies signatures found in Flow File contents using configured properties
+     * On Trigger verifies signatures found in FlowFile contents using configured properties
      *
      * @param context Process Context
      * @param session Process Session
@@ -157,6 +157,11 @@ public class VerifyContentPGP extends AbstractProcessor {
             getLogger().error("Processing Failed {}", flowFile, e);
             session.transfer(flowFile, FAILURE);
         }
+    }
+
+    @Override
+    public void migrateProperties(PropertyConfiguration config) {
+        config.renameProperty("public-key-service", PUBLIC_KEY_SERVICE.getName());
     }
 
     private class VerifyStreamCallback implements StreamCallback {
@@ -211,11 +216,11 @@ public class VerifyContentPGP extends AbstractProcessor {
                         }
                     }
                     case PGPOnePassSignatureList onePassSignatureList ->
-                            onePassSignature = processOnePassSignatures(onePassSignatureList);
+                        onePassSignature = processOnePassSignatures(onePassSignatureList);
                     case PGPLiteralData literalData ->
-                            processLiteralData(literalData, outputStream, onePassSignature);
+                        processLiteralData(literalData, outputStream, onePassSignature);
                     case PGPSignatureList signatureList ->
-                            processSignatures(signatureList, onePassSignature);
+                        processSignatures(signatureList, onePassSignature);
                     default -> {
                     }
                 }

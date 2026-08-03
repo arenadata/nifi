@@ -16,18 +16,6 @@
  */
 package org.apache.nifi.processors.groovyx.flow;
 
-import java.io.IOException;
-import java.io.InputStream;
-import java.io.OutputStream;
-import java.nio.file.Path;
-import java.util.ArrayList;
-import java.util.Collection;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
-import java.util.function.Consumer;
-import java.util.regex.Pattern;
 import org.apache.nifi.components.state.Scope;
 import org.apache.nifi.components.state.StateMap;
 import org.apache.nifi.controller.queue.QueueSize;
@@ -42,8 +30,22 @@ import org.apache.nifi.processor.exception.ProcessException;
 import org.apache.nifi.processor.io.InputStreamCallback;
 import org.apache.nifi.processor.io.OutputStreamCallback;
 import org.apache.nifi.processor.io.StreamCallback;
+import org.apache.nifi.processor.metrics.CommitTiming;
 import org.apache.nifi.processors.groovyx.util.Throwables;
 import org.apache.nifi.provenance.ProvenanceReporter;
+
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.function.Consumer;
+import java.util.regex.Pattern;
 
 /**
  * wrapped session that collects all created/modified files if created with special flag
@@ -82,17 +84,19 @@ public abstract class ProcessSessionWrap implements ProcessSession {
     }
 
     /**
-     * function returns wrapped flowfile with session for the simplified script access.
-     * The sample implementation: <code>
-     * public SessionFile wrap(FlowFile f) {
-     * if (f == null) {
-     * return null;
-     * }
-     * if (f instanceof SessionFile) {
-     * return ((SessionFile) f);
-     * }
-     * return new SessionFile(this, f);
-     * }</code>
+     * function returns wrapped FlowFile with session for the simplified script access.
+     * The sample implementation:
+     * {@snippet :
+     *     public SessionFile wrap(FlowFile f) {
+     *         if (f == null) {
+     *             return null;
+     *         }
+     *         if (f instanceof SessionFile sessionFile) {
+     *             return sessionFile;
+     *         }
+     *             return new SessionFile(this, f);
+     *         }
+     *  }
      */
     public abstract SessionFile wrap(FlowFile f);
 
@@ -199,7 +203,7 @@ public abstract class ProcessSessionWrap implements ProcessSession {
     /**
      * transfers all input files to relationship and drops other files.
      *
-     * @param r where to transfer flow files, when null then transfers to input with penalize.
+     * @param r where to transfer FlowFiles, when null then transfers to input with penalize.
      * @param t the cause why we do this transfer, when relationship specified then additional properties populated: ERROR_MESSAGE and ERROR_STACKTRACE.
      */
     public void revertReceivedTo(Relationship r, Throwable t) {
@@ -220,7 +224,7 @@ public abstract class ProcessSessionWrap implements ProcessSession {
                 session.transfer(f);
             }
         }
-        session.commit();
+        session.commitAsync();
         onClear();
     }
     /*============================================= NATIVE METHODS ================================================*/
@@ -308,6 +312,11 @@ public abstract class ProcessSessionWrap implements ProcessSession {
         session.adjustCounter(name, delta, immediate);
     }
 
+    @Override
+    public void recordGauge(final String name, final double value, final CommitTiming commitTiming) {
+        session.recordGauge(name, value, commitTiming);
+    }
+
     /**
      * @return FlowFile that is next highest priority FlowFile to process. Otherwise returns null.
      */
@@ -342,7 +351,7 @@ public abstract class ProcessSessionWrap implements ProcessSession {
      * returned.
      * </p>
      *
-     * @param filter to limit which flow files are returned
+     * @param filter to limit which FlowFiles are returned
      * @return all FlowFiles from all of the incoming queues for which the given {@link FlowFileFilter} indicates should be accepted.
      */
     @Override
@@ -385,8 +394,8 @@ public abstract class ProcessSessionWrap implements ProcessSession {
      * event, depending on whether or not other FlowFiles are generated from the
      * same parent before the ProcessSession is committed.
      *
-     * @param parent to base the new flowfile on
-     * @return newly created flowfile
+     * @param parent to base the new FlowFile on
+     * @return newly created FlowFile
      */
     @Override
     public SessionFile create(FlowFile parent) {
@@ -401,8 +410,8 @@ public abstract class ProcessSessionWrap implements ProcessSession {
      * only a single parent exists). This method will automatically generate a
      * Provenance JOIN event.
      *
-     * @param parents which the new flowfile should inherit shared attributes from
-     * @return new flowfile
+     * @param parents which the new FlowFile should inherit shared attributes from
+     * @return new FlowFile
      */
     @Override
     public SessionFile create(Collection<FlowFile> parents) {
@@ -437,9 +446,9 @@ public abstract class ProcessSessionWrap implements ProcessSession {
      * Event, if the offset is 0 and the size is exactly equal to the size of
      * the example FlowFile).
      *
-     * @param parent to base the new flowfile attributes on
-     * @param offset of the parent flowfile to base the child flowfile content on
-     * @param size   of the new flowfile from the offset
+     * @param parent to base the new FlowFile attributes on
+     * @param offset of the parent FlowFile to base the child FlowFile content on
+     * @param size   of the new FlowFile from the offset
      * @return a FlowFile with the specified size whose parent is first argument to this function
      * @throws IllegalStateException     if detected that this method is being called from within a callback of another method in this session and for the given FlowFile
      * @throws FlowFileHandlingException if the given FlowFile is already transferred or removed or doesn't belong to this session, or if the specified offset + size exceeds that of the size of the
@@ -720,13 +729,12 @@ public abstract class ProcessSessionWrap implements ProcessSession {
         return session.read(flowFile);
     }
 
-
     /**
      * Combines the content of all given source FlowFiles into a single given
      * destination FlowFile.
      *
-     * @param sources     the flowfiles to merge
-     * @param destination the flowfile to use as the merged result
+     * @param sources     the FlowFiles to merge
+     * @param destination the FlowFile to use as the merged result
      * @return updated destination FlowFile (new size, etc...)
      * @throws IllegalStateException     if detected that this method is being called from within a callback of another method in this session and for the given FlowFile(s)
      * @throws IllegalArgumentException  if the given destination is contained within the sources
@@ -825,9 +833,9 @@ public abstract class ProcessSessionWrap implements ProcessSession {
      * <i>Note</i>: The OutputStream provided to the given OutputStreamCallback
      * will not be accessible once this method has completed its execution.
      *
-     * @param flowFile the flowfile for which content should be appended
-     * @param writer used to write new bytes to the flowfile content
-     * @return the updated flowfile reference for the new content
+     * @param flowFile the FlowFile for which content should be appended
+     * @param writer used to write new bytes to the FlowFile content
+     * @return the updated FlowFile reference for the new content
      * @throws FlowFileAccessException if an attempt is made to access the OutputStream provided to the given OutputStreamCallback after this method completed its execution
      */
     @Override

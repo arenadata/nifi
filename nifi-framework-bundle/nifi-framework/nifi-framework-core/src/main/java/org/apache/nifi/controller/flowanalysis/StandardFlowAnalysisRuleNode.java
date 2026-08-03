@@ -16,24 +16,24 @@
  */
 package org.apache.nifi.controller.flowanalysis;
 
-import org.apache.nifi.annotation.behavior.Restricted;
 import org.apache.nifi.annotation.documentation.DeprecationNotice;
 import org.apache.nifi.authorization.Resource;
 import org.apache.nifi.authorization.resource.Authorizable;
 import org.apache.nifi.authorization.resource.ResourceFactory;
 import org.apache.nifi.authorization.resource.ResourceType;
+import org.apache.nifi.components.ValidationContext;
 import org.apache.nifi.components.ValidationResult;
 import org.apache.nifi.components.validation.ValidationTrigger;
+import org.apache.nifi.controller.FlowAnalysisRuleNode;
 import org.apache.nifi.controller.FlowController;
 import org.apache.nifi.controller.LoggableComponent;
 import org.apache.nifi.controller.ReloadComponent;
-import org.apache.nifi.controller.FlowAnalysisRuleNode;
 import org.apache.nifi.controller.ValidationContextFactory;
+import org.apache.nifi.flowanalysis.FlowAnalysisRule;
+import org.apache.nifi.flowanalysis.FlowAnalysisRuleContext;
 import org.apache.nifi.nar.ExtensionManager;
 import org.apache.nifi.parameter.ParameterContext;
 import org.apache.nifi.parameter.ParameterLookup;
-import org.apache.nifi.flowanalysis.FlowAnalysisRuleContext;
-import org.apache.nifi.flowanalysis.FlowAnalysisRule;
 import org.apache.nifi.validation.RuleViolationsManager;
 
 import java.util.Collections;
@@ -60,7 +60,6 @@ public class StandardFlowAnalysisRuleNode extends AbstractFlowAnalysisRuleNode i
         this.flowController = controller;
     }
 
-
     @Override
     public Authorizable getParentAuthorizable() {
         return flowController;
@@ -69,11 +68,6 @@ public class StandardFlowAnalysisRuleNode extends AbstractFlowAnalysisRuleNode i
     @Override
     public Resource getResource() {
         return ResourceFactory.getComponentResource(ResourceType.FlowAnalysisRule, getIdentifier(), getName());
-    }
-
-    @Override
-    public boolean isRestricted() {
-        return getFlowAnalysisRule().getClass().isAnnotationPresent(Restricted.class);
     }
 
     @Override
@@ -98,7 +92,7 @@ public class StandardFlowAnalysisRuleNode extends AbstractFlowAnalysisRuleNode i
     }
 
     @Override
-    protected List<ValidationResult> validateConfig() {
+    protected List<ValidationResult> validateConfig(final ValidationContext validationContext) {
         return Collections.emptyList();
     }
 

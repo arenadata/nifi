@@ -17,6 +17,10 @@
 
 package org.apache.nifi.controller.state.providers;
 
+import org.apache.nifi.components.state.StateMap;
+import org.apache.nifi.components.state.StateProvider;
+import org.junit.jupiter.api.Test;
+
 import java.io.IOException;
 import java.util.Collection;
 import java.util.Collections;
@@ -24,15 +28,11 @@ import java.util.HashMap;
 import java.util.Iterator;
 import java.util.Map;
 import java.util.Optional;
-import org.apache.nifi.components.state.StateMap;
-import org.apache.nifi.components.state.StateProvider;
-import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
-
 
 /**
  * <p>
@@ -46,7 +46,6 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  */
 public abstract class AbstractTestStateProvider {
     protected final String componentId = "111111111-1111-1111-1111-111111111111";
-
 
     @Test
     public void testSetAndGet() throws IOException {
@@ -110,7 +109,6 @@ public abstract class AbstractTestStateProvider {
         assertEquals("intermediate value", stateMap.get(key));
         assertTrue(stateMap.getStateVersion().isPresent());
     }
-
 
     @Test
     public void testToMap() throws IOException {

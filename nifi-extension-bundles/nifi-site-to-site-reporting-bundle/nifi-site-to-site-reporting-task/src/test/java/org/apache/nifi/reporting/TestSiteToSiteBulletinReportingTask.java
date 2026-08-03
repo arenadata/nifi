@@ -17,6 +17,10 @@
 
 package org.apache.nifi.reporting;
 
+import jakarta.json.Json;
+import jakarta.json.JsonObject;
+import jakarta.json.JsonReader;
+import jakarta.json.JsonValue;
 import org.apache.nifi.attribute.expression.language.StandardPropertyValue;
 import org.apache.nifi.components.PropertyDescriptor;
 import org.apache.nifi.components.PropertyValue;
@@ -33,10 +37,6 @@ import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 import org.mockito.stubbing.Answer;
 
-import javax.json.Json;
-import javax.json.JsonObject;
-import javax.json.JsonReader;
-import javax.json.JsonValue;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -169,7 +169,6 @@ public class TestSiteToSiteBulletinReportingTask {
     private static final class MockSiteToSiteBulletinReportingTask extends SiteToSiteBulletinReportingTask {
 
         public MockSiteToSiteBulletinReportingTask() throws IOException {
-            super();
         }
 
         final List<byte[]> dataSent = new ArrayList<>();
@@ -181,14 +180,14 @@ public class TestSiteToSiteBulletinReportingTask {
                 final Transaction transaction = Mockito.mock(Transaction.class);
 
                 assertDoesNotThrow(() -> {
-                            Mockito.doAnswer((Answer<Object>) invocation -> {
-                                final byte[] data = invocation.getArgument(0, byte[].class);
-                                dataSent.add(data);
-                                return null;
-                            }).when(transaction).send(Mockito.any(byte[].class), Mockito.any(Map.class));
+                    Mockito.doAnswer((Answer<Object>) invocation -> {
+                        final byte[] data = invocation.getArgument(0, byte[].class);
+                        dataSent.add(data);
+                        return null;
+                    }).when(transaction).send(Mockito.any(byte[].class), Mockito.any(Map.class));
 
-                            when(client.createTransaction(Mockito.any(TransferDirection.class))).thenReturn(transaction);
-                        });
+                    when(client.createTransaction(Mockito.any(TransferDirection.class))).thenReturn(transaction);
+                });
                 siteToSiteClient = client;
             }
         }

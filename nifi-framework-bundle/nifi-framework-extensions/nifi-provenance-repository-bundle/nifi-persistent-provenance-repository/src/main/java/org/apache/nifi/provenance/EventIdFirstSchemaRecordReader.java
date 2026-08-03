@@ -17,12 +17,6 @@
 
 package org.apache.nifi.provenance;
 
-import java.io.ByteArrayInputStream;
-import java.io.DataInputStream;
-import java.io.IOException;
-import java.io.InputStream;
-import java.util.List;
-import java.util.Optional;
 import org.apache.nifi.provenance.schema.EventIdFirstHeaderSchema;
 import org.apache.nifi.provenance.schema.LookupTableEventRecord;
 import org.apache.nifi.provenance.serialization.CompressableRecordReader;
@@ -34,12 +28,19 @@ import org.apache.nifi.repository.schema.SchemaRecordReader;
 import org.apache.nifi.stream.io.LimitingInputStream;
 import org.apache.nifi.stream.io.StreamUtils;
 
+import java.io.ByteArrayInputStream;
+import java.io.DataInputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.util.List;
+import java.util.Optional;
+
 public class EventIdFirstSchemaRecordReader extends CompressableRecordReader {
-    RecordSchema getSchema() {
+    protected RecordSchema getSchema() {
         return schema;
     }
 
-    SchemaRecordReader getRecordReader() {
+    protected SchemaRecordReader getRecordReader() {
         return recordReader;
     }
 
@@ -52,27 +53,27 @@ public class EventIdFirstSchemaRecordReader extends CompressableRecordReader {
     private List<String> eventTypes;
     private long firstEventId;
 
-    List<String> getComponentIds() {
+    protected List<String> getComponentIds() {
         return componentIds;
     }
 
-    List<String> getComponentTypes() {
+    protected List<String> getComponentTypes() {
         return componentTypes;
     }
 
-    List<String> getQueueIds() {
+    protected List<String> getQueueIds() {
         return queueIds;
     }
 
-    List<String> getEventTypes() {
+    protected List<String> getEventTypes() {
         return eventTypes;
     }
 
-    long getFirstEventId() {
+    protected long getFirstEventId() {
         return firstEventId;
     }
 
-    long getSystemTimeOffset() {
+    protected long getSystemTimeOffset() {
         return systemTimeOffset;
     }
 

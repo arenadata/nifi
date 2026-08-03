@@ -99,6 +99,19 @@
                                     }
                                 "></ng-container>
                         </mat-expansion-panel>
+                        <mat-expansion-panel [expanded]="registryClientsExpanded">
+                            <mat-expansion-panel-header>
+                                <mat-panel-title>Flow Registry Clients</mat-panel-title>
+                            </mat-expansion-panel-header>
+                            <ng-container
+                                *ngTemplateOutlet="
+                                    extensionLinks;
+                                    context: {
+                                        $implicit: filterExtensions((registryClientTypes$ | async)!),
+                                        componentType: ComponentType.FlowRegistryClient
+                                    }
+                                "></ng-container>
+                        </mat-expansion-panel>
                         <mat-expansion-panel>
                             <mat-expansion-panel-header>
                                 <mat-panel-title>Flow Analysis Rules</mat-panel-title>
@@ -109,6 +122,19 @@
                                     context: {
                                         $implicit: filterExtensions((flowAnalysisRuleTypes$ | async)!),
                                         componentType: ComponentType.FlowAnalysisRule
+                                    }
+                                "></ng-container>
+                        </mat-expansion-panel>
+                        <mat-expansion-panel [expanded]="connectorsExpanded">
+                            <mat-expansion-panel-header>
+                                <mat-panel-title>Connectors</mat-panel-title>
+                            </mat-expansion-panel-header>
+                            <ng-container
+                                *ngTemplateOutlet="
+                                    extensionLinks;
+                                    context: {
+                                        $implicit: filterExtensions((connectorTypes$ | async)!),
+                                        componentType: ComponentType.Connector
                                     }
                                 "></ng-container>
                         </mat-expansion-panel>

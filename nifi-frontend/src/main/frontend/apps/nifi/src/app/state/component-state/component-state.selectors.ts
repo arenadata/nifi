@@ -30,14 +30,24 @@ export const selectComponentName = createSelector(
     (state: ComponentStateState) => state.componentName
 );
 
-export const selectComponentUri = createSelector(
+export const selectComponentType = createSelector(
     selectComponentStateState,
-    (state: ComponentStateState) => state.componentUri
+    (state: ComponentStateState) => state.componentType
+);
+
+export const selectComponentId = createSelector(
+    selectComponentStateState,
+    (state: ComponentStateState) => state.componentId
 );
 
 export const selectCanClear = createSelector(selectComponentStateState, (state: ComponentStateState) => state.canClear);
 
 export const selectClearing = createSelector(selectComponentStateState, (state: ComponentStateState) => state.clearing);
+
+export const selectConnectorId = createSelector(
+    selectComponentStateState,
+    (state: ComponentStateState) => state.connectorId
+);
 
 export const selectDropStateKeySupported = createSelector(
     selectComponentState,

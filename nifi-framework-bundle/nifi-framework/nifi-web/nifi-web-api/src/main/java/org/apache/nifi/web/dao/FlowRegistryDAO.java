@@ -21,10 +21,14 @@ import org.apache.nifi.registry.flow.FlowRegistryBranch;
 import org.apache.nifi.registry.flow.FlowRegistryBucket;
 import org.apache.nifi.registry.flow.FlowRegistryClientNode;
 import org.apache.nifi.registry.flow.FlowRegistryClientUserContext;
+import org.apache.nifi.registry.flow.FlowVersionLocation;
 import org.apache.nifi.registry.flow.RegisteredFlow;
 import org.apache.nifi.registry.flow.RegisteredFlowSnapshotMetadata;
+import org.apache.nifi.web.api.dto.ConfigVerificationResultDTO;
 import org.apache.nifi.web.api.dto.FlowRegistryClientDTO;
 
+import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 public interface FlowRegistryDAO {
@@ -51,6 +55,12 @@ public interface FlowRegistryDAO {
 
     Set<RegisteredFlowSnapshotMetadata> getFlowVersionsForUser(FlowRegistryClientUserContext context, String branch, String registryId, String bucketId, String flowId);
 
+    void createBranchForUser(FlowRegistryClientUserContext context, String registryId, FlowVersionLocation sourceLocation, String newBranchName);
+
     FlowRegistryClientNode removeFlowRegistry(String registryId);
+
+    void verifyConfigVerification(String registryId);
+
+    List<ConfigVerificationResultDTO> verifyConfiguration(String registryId, Map<String, String> properties, Map<String, String> variables);
 
 }

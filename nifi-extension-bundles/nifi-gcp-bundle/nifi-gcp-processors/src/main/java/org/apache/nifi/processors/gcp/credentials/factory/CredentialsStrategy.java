@@ -19,11 +19,9 @@ package org.apache.nifi.processors.gcp.credentials.factory;
 import com.google.auth.http.HttpTransportFactory;
 import com.google.auth.oauth2.GoogleCredentials;
 import org.apache.nifi.components.PropertyDescriptor;
-import org.apache.nifi.components.ValidationContext;
-import org.apache.nifi.components.ValidationResult;
+import org.apache.nifi.controller.ConfigurationContext;
 
 import java.io.IOException;
-import java.util.Collection;
 import java.util.Map;
 
 /**
@@ -40,26 +38,23 @@ public interface CredentialsStrategy {
     String getName();
 
     /**
-     * Determines if this strategy can create primary credentials using the given properties.
-     * @return true if primary credentials can be created
-     */
-    boolean canCreatePrimaryCredential(Map<PropertyDescriptor, String> properties);
-
-
-    /**
-     * Validates the properties belonging to this strategy, given the selected primary strategy.  Errors may result
-     * from individually malformed properties, invalid combinations of properties, or inappropriate use of properties
-     * not consistent with the primary strategy.
-     * @param primaryStrategy the prevailing primary strategy
-     * @return validation errors
-     */
-    Collection<ValidationResult> validate(ValidationContext validationContext, CredentialsStrategy primaryStrategy);
-
-    /**
      * Creates an AuthCredentials instance for this strategy, given the properties defined by the user.
      * @param transportFactory Sub-classes should utilize this transport factory
      *                        to support common network related configs such as proxy
      * @throws IOException if the provided credentials cannot be accessed or are invalid
      */
     GoogleCredentials getGoogleCredentials(Map<PropertyDescriptor, String> properties, HttpTransportFactory transportFactory) throws IOException;
+
+    /**
+     * Creates Google Credentials using the supplied ConfigurationContext for controller services that need
+     * access to additional controller service references beyond raw property values.
+     *
+     * @param context Controller Service configuration context
+     * @param transportFactory Transport factory to be used when accessing Google services
+     * @return GoogleCredentials for the configured strategy
+     * @throws IOException on credential creation failures
+     */
+    default GoogleCredentials getGoogleCredentials(ConfigurationContext context, HttpTransportFactory transportFactory) throws IOException {
+        return getGoogleCredentials(context.getProperties(), transportFactory);
+    }
 }

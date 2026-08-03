@@ -17,9 +17,8 @@
 
 package org.apache.nifi.web.api.dto.diagnostics;
 
-import jakarta.xml.bind.annotation.XmlType;
-
 import io.swagger.v3.oas.annotations.media.Schema;
+import jakarta.xml.bind.annotation.XmlType;
 
 @XmlType(name = "jvmDiagnosticsSnapshot")
 public class JVMDiagnosticsSnapshotDTO implements Cloneable {
@@ -54,7 +53,6 @@ public class JVMDiagnosticsSnapshotDTO implements Cloneable {
         this.controllerDiagnosticsDto = controllerDiagnostics;
     }
 
-
     @Override
     public JVMDiagnosticsSnapshotDTO clone() {
         final JVMDiagnosticsSnapshotDTO clone = new JVMDiagnosticsSnapshotDTO();
@@ -63,9 +61,6 @@ public class JVMDiagnosticsSnapshotDTO implements Cloneable {
         clone.controllerDiagnosticsDto = controllerDiagnosticsDto == null ? null : controllerDiagnosticsDto.clone();
         return clone;
     }
-
-
-
 
     @XmlType(name = "versionInfo")
     public static class VersionInfoDTO implements Cloneable {
@@ -140,7 +135,6 @@ public class JVMDiagnosticsSnapshotDTO implements Cloneable {
         public void setOsArchitecture(String osArchitecture) {
             this.osArchitecture = osArchitecture;
         }
-
 
         @Override
         public VersionInfoDTO clone() {

@@ -17,8 +17,8 @@
 package org.apache.nifi.web.api.dto;
 
 import io.swagger.v3.oas.annotations.media.Schema;
-
 import jakarta.xml.bind.annotation.XmlType;
+
 import java.util.List;
 import java.util.Objects;
 import java.util.Set;
@@ -103,7 +103,6 @@ public class DocumentedTypeDTO {
     public void setDeprecationReason(String deprecationReason) {
         this.deprecationReason = deprecationReason;
     }
-
 
     /**
      * @return The type is the fully-qualified name of a Java class

@@ -16,128 +16,72 @@
  */
 package org.apache.nifi.processors.standard;
 
-
 import org.apache.nifi.components.state.Scope;
 import org.apache.nifi.components.state.StateManager;
-import org.apache.nifi.controller.AbstractControllerService;
-import org.apache.nifi.dbcp.DBCPService;
-import org.apache.nifi.processor.exception.ProcessException;
 import org.apache.nifi.util.MockFlowFile;
 import org.apache.nifi.util.MockProcessSession;
 import org.apache.nifi.util.MockSessionFactory;
+import org.apache.nifi.util.PropertyMigrationResult;
 import org.apache.nifi.util.TestRunner;
-import org.apache.nifi.util.TestRunners;
-import org.apache.nifi.util.file.FileUtils;
-import org.junit.jupiter.api.AfterAll;
-import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
-import java.io.File;
 import java.io.IOException;
 import java.sql.Connection;
-import java.sql.DriverManager;
 import java.sql.ResultSet;
-import java.sql.ResultSetMetaData;
 import java.sql.SQLException;
-import java.sql.SQLNonTransientConnectionException;
 import java.sql.Statement;
-import java.sql.Types;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-import static org.apache.nifi.processors.standard.AbstractDatabaseFetchProcessor.DB_TYPE;
 import static org.apache.nifi.processors.standard.AbstractDatabaseFetchProcessor.FRAGMENT_COUNT;
 import static org.apache.nifi.processors.standard.AbstractDatabaseFetchProcessor.FRAGMENT_ID;
 import static org.apache.nifi.processors.standard.AbstractDatabaseFetchProcessor.FRAGMENT_INDEX;
 import static org.apache.nifi.processors.standard.AbstractDatabaseFetchProcessor.REL_SUCCESS;
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
-import static org.junit.jupiter.api.Assertions.assertTrue;
-import static org.mockito.ArgumentMatchers.anyString;
-import static org.mockito.Mockito.doNothing;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.spy;
-import static org.mockito.Mockito.when;
 
+class TestGenerateTableFetch extends AbstractDatabaseConnectionServiceTest {
 
-/**
- * Unit tests for the GenerateTableFetch processor.
- */
-public class TestGenerateTableFetch {
-
-    TestRunner runner;
-    GenerateTableFetch processor;
-    DBCPServiceSimpleImpl dbcp;
-
-    private final static String DB_LOCATION = "target/db_gtf";
-
-    @BeforeAll
-    public static void setupBeforeClass() {
-        System.setProperty("derby.stream.error.file", "target/derby.log");
-
-        // remove previous test database, if any
-        final File dbLocation = new File(DB_LOCATION);
-        try {
-            FileUtils.deleteFile(dbLocation, true);
-        } catch (IOException ignored) {
-            // Do nothing, may not have existed
-        }
-    }
-
-    @AfterAll
-    public static void cleanUpAfterClass() throws Exception {
-        try {
-            DriverManager.getConnection("jdbc:derby:" + DB_LOCATION + ";shutdown=true");
-        } catch (SQLNonTransientConnectionException ignored) {
-            // Do nothing, this is what happens at Derby shutdown
-        }
-        // remove previous test database, if any
-        final File dbLocation = new File(DB_LOCATION);
-        try {
-            FileUtils.deleteFile(dbLocation, true);
-        } catch (IOException ignored) {
-            // Do nothing, may not have existed
-        }
-
-        System.clearProperty("derby.stream.error.file");
-    }
+    private TestRunner runner;
 
     @BeforeEach
     public void setUp() throws Exception {
-        processor = new GenerateTableFetch();
-        //Mock the DBCP Controller Service so we can control the Results
-        dbcp = spy(new DBCPServiceSimpleImpl());
+        runner = newTestRunner(GenerateTableFetch.class);
+    }
 
-        final Map<String, String> dbcpProperties = new HashMap<>();
+    @AfterEach
+    void dropTables() {
+        final List<String> tables = List.of(
+                "TEST_QUERY_DB_TABLE",
+                "TEST_QUERY_DB_TABLE1",
+                "TEST_QUERY_DB_TABLE2",
+                "TEST_QUERY_DB_TABLE_2",
+                "TEST_NULL_INT"
+        );
 
-        runner = TestRunners.newTestRunner(processor);
-        runner.addControllerService("dbcp", dbcp, dbcpProperties);
-        runner.enableControllerService(dbcp);
-        runner.setProperty(GenerateTableFetch.DBCP_SERVICE, "dbcp");
-        runner.setProperty(DB_TYPE, "Derby");
+        for (final String table : tables) {
+            try (
+                    Connection connection = getConnection();
+                    Statement statement = connection.createStatement()
+            ) {
+                statement.execute("DROP TABLE %s".formatted(table));
+
+            } catch (final SQLException ignored) {
+
+            }
+        }
     }
 
     @Test
     public void testAddedRows() throws SQLException, IOException {
-
-        // load test data to database
-        final Connection con = ((DBCPService) runner.getControllerService("dbcp")).getConnection();
-        Statement stmt = con.createStatement();
-
-        try {
-            stmt.execute("drop table TEST_QUERY_DB_TABLE");
-        } catch (final SQLException ignored) {
-            // Ignore this error, probably a "table does not exist" since Derby doesn't yet support DROP IF EXISTS [DERBY-4842]
-        }
-
-        stmt.execute("create table TEST_QUERY_DB_TABLE (id integer not null, name varchar(100), scale float, created_on timestamp, bignum bigint default 0)");
-        stmt.execute("insert into TEST_QUERY_DB_TABLE (id, name, scale, created_on) VALUES (0, 'Joe Smith', 1.0, '1962-09-23 03:23:34.234')");
-        stmt.execute("insert into TEST_QUERY_DB_TABLE (id, name, scale, created_on) VALUES (1, 'Carrie Jones', 5.0, '2000-01-01 03:23:34.234')");
-        stmt.execute("insert into TEST_QUERY_DB_TABLE (id, name, scale, created_on) VALUES (2, NULL, 2.0, '2010-01-01 00:00:00')");
+        executeSql("create table TEST_QUERY_DB_TABLE (id integer not null, name varchar(100), scale float, created_on timestamp, bignum bigint default 0)");
+        executeSql("insert into TEST_QUERY_DB_TABLE (id, name, scale, created_on) VALUES (0, 'Joe Smith', 1.0, '1962-09-23 03:23:34.234')");
+        executeSql("insert into TEST_QUERY_DB_TABLE (id, name, scale, created_on) VALUES (1, 'Carrie Jones', 5.0, '2000-01-01 03:23:34.234')");
+        executeSql("insert into TEST_QUERY_DB_TABLE (id, name, scale, created_on) VALUES (2, NULL, 2.0, '2010-01-01 00:00:00')");
 
         runner.setProperty(GenerateTableFetch.TABLE_NAME, "TEST_QUERY_DB_TABLE");
         runner.setIncomingConnection(false);
@@ -156,26 +100,21 @@ public class TestGenerateTableFetch {
         runner.assertAllFlowFilesTransferred(REL_SUCCESS, 1);
         MockFlowFile flowFile = runner.getFlowFilesForRelationship(REL_SUCCESS).getFirst();
         String query = new String(flowFile.toByteArray());
-        assertEquals("SELECT * FROM TEST_QUERY_DB_TABLE WHERE ID <= 2 ORDER BY ID FETCH NEXT 10000 ROWS ONLY", query);
+        assertEquals("SELECT * FROM TEST_QUERY_DB_TABLE WHERE ID <= 2 ORDER BY ID LIMIT 10000", query);
         flowFile.assertAttributeEquals(FRAGMENT_INDEX, "0");
         flowFile.assertAttributeEquals(FRAGMENT_COUNT, "1");
-        ResultSet resultSet = stmt.executeQuery(query);
-        // Should be three records
-        assertTrue(resultSet.next());
-        assertTrue(resultSet.next());
-        assertTrue(resultSet.next());
-        assertFalse(resultSet.next());
+        assertResultsFound(query, 3);
         runner.clearTransferState();
 
-        // Run again, this time no flowfiles/rows should be transferred
+        // Run again, this time no FlowFiles/rows should be transferred
         runner.run();
         runner.assertAllFlowFilesTransferred(REL_SUCCESS, 0);
         runner.clearTransferState();
 
-        // Add 3 new rows with a higher ID and run with a partition size of 2. Two flow files should be transferred
-        stmt.execute("insert into TEST_QUERY_DB_TABLE (id, name, scale, created_on) VALUES (3, 'Mary West', 15.0, '2000-01-01 03:23:34.234')");
-        stmt.execute("insert into TEST_QUERY_DB_TABLE (id, name, scale, created_on) VALUES (4, 'Marty Johnson', 15.0, '2011-01-01 03:23:34.234')");
-        stmt.execute("insert into TEST_QUERY_DB_TABLE (id, name, scale, created_on) VALUES (5, 'Marty Johnson', 15.0, '2011-01-01 03:23:34.234')");
+        // Add 3 new rows with a higher ID and run with a partition size of 2. Two FlowFiles should be transferred
+        executeSql("insert into TEST_QUERY_DB_TABLE (id, name, scale, created_on) VALUES (3, 'Mary West', 15.0, '2000-01-01 03:23:34.234')");
+        executeSql("insert into TEST_QUERY_DB_TABLE (id, name, scale, created_on) VALUES (4, 'Marty Johnson', 15.0, '2011-01-01 03:23:34.234')");
+        executeSql("insert into TEST_QUERY_DB_TABLE (id, name, scale, created_on) VALUES (5, 'Marty Johnson', 15.0, '2011-01-01 03:23:34.234')");
         runner.setProperty(GenerateTableFetch.PARTITION_SIZE, "2");
         runner.run();
         runner.assertAllFlowFilesTransferred(REL_SUCCESS, 2);
@@ -184,42 +123,32 @@ public class TestGenerateTableFetch {
         MockFlowFile ff1 = resultFFs.get(0);
         MockFlowFile ff2 = resultFFs.get(1);
         assertEquals(ff1.getAttribute(FRAGMENT_ID), ff2.getAttribute(FRAGMENT_ID));
-        assertEquals(ff1.getAttribute(FRAGMENT_INDEX), "0");
-        assertEquals(ff1.getAttribute(FRAGMENT_COUNT), "2");
-        assertEquals(ff2.getAttribute(FRAGMENT_INDEX), "1");
-        assertEquals(ff2.getAttribute(FRAGMENT_COUNT), "2");
+        assertEquals("0", ff1.getAttribute(FRAGMENT_INDEX));
+        assertEquals("2", ff1.getAttribute(FRAGMENT_COUNT));
+        assertEquals("1", ff2.getAttribute(FRAGMENT_INDEX));
+        assertEquals("2", ff2.getAttribute(FRAGMENT_COUNT));
 
         // Verify first flow file's contents
         flowFile = runner.getFlowFilesForRelationship(REL_SUCCESS).getFirst();
         query = new String(flowFile.toByteArray());
-        assertEquals("SELECT * FROM TEST_QUERY_DB_TABLE WHERE ID > 2 AND ID <= 5 ORDER BY ID FETCH NEXT 2 ROWS ONLY", query);
-        resultSet = stmt.executeQuery(query);
-        // Should be two records
-        assertTrue(resultSet.next());
-        assertTrue(resultSet.next());
-        assertFalse(resultSet.next());
+        assertEquals("SELECT * FROM TEST_QUERY_DB_TABLE WHERE ID > 2 AND ID <= 5 ORDER BY ID LIMIT 2", query);
+        assertResultsFound(query, 2);
 
         // Verify second flow file's contents
         flowFile = runner.getFlowFilesForRelationship(REL_SUCCESS).get(1);
         query = new String(flowFile.toByteArray());
-        assertEquals("SELECT * FROM TEST_QUERY_DB_TABLE WHERE ID > 2 AND ID <= 5 ORDER BY ID OFFSET 2 ROWS FETCH NEXT 2 ROWS ONLY", query);
-        resultSet = stmt.executeQuery(query);
-        // Should be one record
-        assertTrue(resultSet.next());
-        assertFalse(resultSet.next());
+        assertEquals("SELECT * FROM TEST_QUERY_DB_TABLE WHERE ID > 2 AND ID <= 5 ORDER BY ID LIMIT 2 OFFSET 2", query);
+        assertResultsFound(query, 1);
         runner.clearTransferState();
 
         // Add a new row with a higher ID and run, one flow file will be transferred
-        stmt.execute("insert into TEST_QUERY_DB_TABLE (id, name, scale, created_on) VALUES (6, 'Mr. NiFi', 1.0, '2012-01-01 03:23:34.234')");
+        executeSql("insert into TEST_QUERY_DB_TABLE (id, name, scale, created_on) VALUES (6, 'Mr. NiFi', 1.0, '2012-01-01 03:23:34.234')");
         runner.run();
         runner.assertAllFlowFilesTransferred(REL_SUCCESS, 1);
         flowFile = runner.getFlowFilesForRelationship(REL_SUCCESS).getFirst();
         query = new String(flowFile.toByteArray());
-        assertEquals("SELECT * FROM TEST_QUERY_DB_TABLE WHERE ID > 5 AND ID <= 6 ORDER BY ID FETCH NEXT 2 ROWS ONLY", query);
-        resultSet = stmt.executeQuery(query);
-        // Should be one record
-        assertTrue(resultSet.next());
-        assertFalse(resultSet.next());
+        assertEquals("SELECT * FROM TEST_QUERY_DB_TABLE WHERE ID > 5 AND ID <= 6 ORDER BY ID LIMIT 2", query);
+        assertResultsFound(query, 1);
         runner.clearTransferState();
 
         // Set name as the max value column name (and clear the state), all rows should be returned since the max value for name has not been set
@@ -229,13 +158,13 @@ public class TestGenerateTableFetch {
         runner.run();
         runner.assertAllFlowFilesTransferred(REL_SUCCESS, 4); // 7 records with partition size 2 means 4 generated FlowFiles
         flowFile = runner.getFlowFilesForRelationship(REL_SUCCESS).get(0);
-        assertEquals("SELECT id, name, scale, created_on FROM TEST_QUERY_DB_TABLE WHERE name <= 'Mr. NiFi' ORDER BY name FETCH NEXT 2 ROWS ONLY", new String(flowFile.toByteArray()));
+        assertEquals("SELECT id, name, scale, created_on FROM TEST_QUERY_DB_TABLE WHERE name <= 'Mr. NiFi' ORDER BY name LIMIT 2", new String(flowFile.toByteArray()));
         flowFile = runner.getFlowFilesForRelationship(REL_SUCCESS).get(1);
-        assertEquals("SELECT id, name, scale, created_on FROM TEST_QUERY_DB_TABLE WHERE name <= 'Mr. NiFi' ORDER BY name OFFSET 2 ROWS FETCH NEXT 2 ROWS ONLY", new String(flowFile.toByteArray()));
+        assertEquals("SELECT id, name, scale, created_on FROM TEST_QUERY_DB_TABLE WHERE name <= 'Mr. NiFi' ORDER BY name LIMIT 2 OFFSET 2", new String(flowFile.toByteArray()));
         flowFile = runner.getFlowFilesForRelationship(REL_SUCCESS).get(2);
-        assertEquals("SELECT id, name, scale, created_on FROM TEST_QUERY_DB_TABLE WHERE name <= 'Mr. NiFi' ORDER BY name OFFSET 4 ROWS FETCH NEXT 2 ROWS ONLY", new String(flowFile.toByteArray()));
+        assertEquals("SELECT id, name, scale, created_on FROM TEST_QUERY_DB_TABLE WHERE name <= 'Mr. NiFi' ORDER BY name LIMIT 2 OFFSET 4", new String(flowFile.toByteArray()));
         flowFile = runner.getFlowFilesForRelationship(REL_SUCCESS).get(3);
-        assertEquals("SELECT id, name, scale, created_on FROM TEST_QUERY_DB_TABLE WHERE name <= 'Mr. NiFi' ORDER BY name OFFSET 6 ROWS FETCH NEXT 2 ROWS ONLY", new String(flowFile.toByteArray()));
+        assertEquals("SELECT id, name, scale, created_on FROM TEST_QUERY_DB_TABLE WHERE name <= 'Mr. NiFi' ORDER BY name LIMIT 2 OFFSET 6", new String(flowFile.toByteArray()));
         assertEquals("TEST_QUERY_DB_TABLE", flowFile.getAttribute("generatetablefetch.tableName"));
         assertEquals("id, name, scale, created_on", flowFile.getAttribute("generatetablefetch.columnNames"));
         assertEquals("name <= 'Mr. NiFi'", flowFile.getAttribute("generatetablefetch.whereClause"));
@@ -248,27 +177,10 @@ public class TestGenerateTableFetch {
 
     @Test
     public void testAddedRowsTwoTables() throws SQLException {
-
-        // load test data to database
-        final Connection con = ((DBCPService) runner.getControllerService("dbcp")).getConnection();
-        Statement stmt = con.createStatement();
-
-        try {
-            stmt.execute("drop table TEST_QUERY_DB_TABLE");
-        } catch (final SQLException ignored) {
-            // Ignore this error, probably a "table does not exist" since Derby doesn't yet support DROP IF EXISTS [DERBY-4842]
-        }
-
-        try {
-            stmt.execute("drop table TEST_QUERY_DB_TABLE2");
-        } catch (final SQLException ignored) {
-            // Ignore this error, probably a "table does not exist" since Derby doesn't yet support DROP IF EXISTS [DERBY-4842]
-        }
-
-        stmt.execute("create table TEST_QUERY_DB_TABLE (id integer not null, name varchar(100), scale float, created_on timestamp, bignum bigint default 0)");
-        stmt.execute("insert into TEST_QUERY_DB_TABLE (id, name, scale, created_on) VALUES (0, 'Joe Smith', 1.0, '1962-09-23 03:23:34.234')");
-        stmt.execute("insert into TEST_QUERY_DB_TABLE (id, name, scale, created_on) VALUES (1, 'Carrie Jones', 5.0, '2000-01-01 03:23:34.234')");
-        stmt.execute("insert into TEST_QUERY_DB_TABLE (id, name, scale, created_on) VALUES (2, NULL, 2.0, '2010-01-01 00:00:00')");
+        executeSql("create table TEST_QUERY_DB_TABLE (id integer not null, name varchar(100), scale float, created_on timestamp, bignum bigint default 0)");
+        executeSql("insert into TEST_QUERY_DB_TABLE (id, name, scale, created_on) VALUES (0, 'Joe Smith', 1.0, '1962-09-23 03:23:34.234')");
+        executeSql("insert into TEST_QUERY_DB_TABLE (id, name, scale, created_on) VALUES (1, 'Carrie Jones', 5.0, '2000-01-01 03:23:34.234')");
+        executeSql("insert into TEST_QUERY_DB_TABLE (id, name, scale, created_on) VALUES (2, NULL, 2.0, '2010-01-01 00:00:00')");
 
         runner.setProperty(GenerateTableFetch.TABLE_NAME, "TEST_QUERY_DB_TABLE");
         runner.setIncomingConnection(false);
@@ -278,25 +190,20 @@ public class TestGenerateTableFetch {
         runner.assertAllFlowFilesTransferred(REL_SUCCESS, 1);
         MockFlowFile flowFile = runner.getFlowFilesForRelationship(REL_SUCCESS).getFirst();
         String query = new String(flowFile.toByteArray());
-        assertEquals("SELECT * FROM TEST_QUERY_DB_TABLE WHERE ID <= 2 ORDER BY ID FETCH NEXT 10000 ROWS ONLY", query);
-        ResultSet resultSet = stmt.executeQuery(query);
-        // Should be three records
-        assertTrue(resultSet.next());
-        assertTrue(resultSet.next());
-        assertTrue(resultSet.next());
-        assertFalse(resultSet.next());
+        assertEquals("SELECT * FROM TEST_QUERY_DB_TABLE WHERE ID <= 2 ORDER BY ID LIMIT 10000", query);
+        assertResultsFound(query, 3);
         runner.clearTransferState();
 
-        // Run again, this time no flowfiles/rows should be transferred
+        // Run again, this time no FlowFiles/rows should be transferred
         runner.run();
         runner.assertAllFlowFilesTransferred(REL_SUCCESS, 0);
         runner.clearTransferState();
 
         // Create and populate a new table and re-run
-        stmt.execute("create table TEST_QUERY_DB_TABLE2 (id integer not null, name varchar(100), scale float, created_on timestamp, bignum bigint default 0)");
-        stmt.execute("insert into TEST_QUERY_DB_TABLE2 (id, name, scale, created_on) VALUES (0, 'Joe Smith', 1.0, '1962-09-23 03:23:34.234')");
-        stmt.execute("insert into TEST_QUERY_DB_TABLE2 (id, name, scale, created_on) VALUES (1, 'Carrie Jones', 5.0, '2000-01-01 03:23:34.234')");
-        stmt.execute("insert into TEST_QUERY_DB_TABLE2 (id, name, scale, created_on) VALUES (2, NULL, 2.0, '2010-01-01 00:00:00')");
+        executeSql("create table TEST_QUERY_DB_TABLE2 (id integer not null, name varchar(100), scale float, created_on timestamp, bignum bigint default 0)");
+        executeSql("insert into TEST_QUERY_DB_TABLE2 (id, name, scale, created_on) VALUES (0, 'Joe Smith', 1.0, '1962-09-23 03:23:34.234')");
+        executeSql("insert into TEST_QUERY_DB_TABLE2 (id, name, scale, created_on) VALUES (1, 'Carrie Jones', 5.0, '2000-01-01 03:23:34.234')");
+        executeSql("insert into TEST_QUERY_DB_TABLE2 (id, name, scale, created_on) VALUES (2, NULL, 2.0, '2010-01-01 00:00:00')");
 
         runner.setProperty(GenerateTableFetch.TABLE_NAME, "TEST_QUERY_DB_TABLE2");
 
@@ -304,19 +211,14 @@ public class TestGenerateTableFetch {
         runner.assertAllFlowFilesTransferred(REL_SUCCESS, 1);
         flowFile = runner.getFlowFilesForRelationship(REL_SUCCESS).getFirst();
         query = new String(flowFile.toByteArray());
-        assertEquals("SELECT * FROM TEST_QUERY_DB_TABLE2 WHERE ID <= 2 ORDER BY ID FETCH NEXT 10000 ROWS ONLY", query);
-        resultSet = stmt.executeQuery(query);
-        // Should be three records
-        assertTrue(resultSet.next());
-        assertTrue(resultSet.next());
-        assertTrue(resultSet.next());
-        assertFalse(resultSet.next());
+        assertEquals("SELECT * FROM TEST_QUERY_DB_TABLE2 WHERE ID <= 2 ORDER BY ID LIMIT 10000", query);
+        assertResultsFound(query, 3);
         runner.clearTransferState();
 
-        // Add 3 new rows with a higher ID and run with a partition size of 2. Two flow files should be transferred
-        stmt.execute("insert into TEST_QUERY_DB_TABLE2 (id, name, scale, created_on) VALUES (3, 'Mary West', 15.0, '2000-01-01 03:23:34.234')");
-        stmt.execute("insert into TEST_QUERY_DB_TABLE2 (id, name, scale, created_on) VALUES (4, 'Marty Johnson', 15.0, '2011-01-01 03:23:34.234')");
-        stmt.execute("insert into TEST_QUERY_DB_TABLE2 (id, name, scale, created_on) VALUES (5, 'Marty Johnson', 15.0, '2011-01-01 03:23:34.234')");
+        // Add 3 new rows with a higher ID and run with a partition size of 2. Two FlowFiles should be transferred
+        executeSql("insert into TEST_QUERY_DB_TABLE2 (id, name, scale, created_on) VALUES (3, 'Mary West', 15.0, '2000-01-01 03:23:34.234')");
+        executeSql("insert into TEST_QUERY_DB_TABLE2 (id, name, scale, created_on) VALUES (4, 'Marty Johnson', 15.0, '2011-01-01 03:23:34.234')");
+        executeSql("insert into TEST_QUERY_DB_TABLE2 (id, name, scale, created_on) VALUES (5, 'Marty Johnson', 15.0, '2011-01-01 03:23:34.234')");
         runner.setProperty(GenerateTableFetch.PARTITION_SIZE, "2");
         runner.run();
         runner.assertAllFlowFilesTransferred(REL_SUCCESS, 2);
@@ -324,41 +226,21 @@ public class TestGenerateTableFetch {
         // Verify first flow file's contents
         flowFile = runner.getFlowFilesForRelationship(REL_SUCCESS).getFirst();
         query = new String(flowFile.toByteArray());
-        assertEquals("SELECT * FROM TEST_QUERY_DB_TABLE2 WHERE ID > 2 AND ID <= 5 ORDER BY ID FETCH NEXT 2 ROWS ONLY", query);
-        resultSet = stmt.executeQuery(query);
-        // Should be two records
-        assertTrue(resultSet.next());
-        assertTrue(resultSet.next());
-        assertFalse(resultSet.next());
+        assertEquals("SELECT * FROM TEST_QUERY_DB_TABLE2 WHERE ID > 2 AND ID <= 5 ORDER BY ID LIMIT 2", query);
+        assertResultsFound(query, 2);
 
         // Verify second flow file's contents
         flowFile = runner.getFlowFilesForRelationship(REL_SUCCESS).get(1);
         query = new String(flowFile.toByteArray());
-        assertEquals("SELECT * FROM TEST_QUERY_DB_TABLE2 WHERE ID > 2 AND ID <= 5 ORDER BY ID OFFSET 2 ROWS FETCH NEXT 2 ROWS ONLY", query);
-        resultSet = stmt.executeQuery(query);
-        // Should be one record
-        assertTrue(resultSet.next());
-        assertFalse(resultSet.next());
-        runner.clearTransferState();
+        assertEquals("SELECT * FROM TEST_QUERY_DB_TABLE2 WHERE ID > 2 AND ID <= 5 ORDER BY ID LIMIT 2 OFFSET 2", query);
     }
 
     @Test
     public void testAddedRowsRightBounded() throws SQLException, IOException {
-
-        // load test data to database
-        final Connection con = ((DBCPService) runner.getControllerService("dbcp")).getConnection();
-        Statement stmt = con.createStatement();
-
-        try {
-            stmt.execute("drop table TEST_QUERY_DB_TABLE");
-        } catch (final SQLException ignored) {
-            // Ignore this error, probably a "table does not exist" since Derby doesn't yet support DROP IF EXISTS [DERBY-4842]
-        }
-
-        stmt.execute("create table TEST_QUERY_DB_TABLE (id integer not null, name varchar(100), scale float, created_on timestamp, bignum bigint default 0)");
-        stmt.execute("insert into TEST_QUERY_DB_TABLE (id, name, scale, created_on) VALUES (0, 'Joe Smith', 1.0, '1962-09-23 03:23:34.234')");
-        stmt.execute("insert into TEST_QUERY_DB_TABLE (id, name, scale, created_on) VALUES (1, 'Carrie Jones', 5.0, '2000-01-01 03:23:34.234')");
-        stmt.execute("insert into TEST_QUERY_DB_TABLE (id, name, scale, created_on) VALUES (2, NULL, 2.0, '2010-01-01 00:00:00')");
+        executeSql("create table TEST_QUERY_DB_TABLE (id integer not null, name varchar(100), scale float, created_on timestamp, bignum bigint default 0)");
+        executeSql("insert into TEST_QUERY_DB_TABLE (id, name, scale, created_on) VALUES (0, 'Joe Smith', 1.0, '1962-09-23 03:23:34.234')");
+        executeSql("insert into TEST_QUERY_DB_TABLE (id, name, scale, created_on) VALUES (1, 'Carrie Jones', 5.0, '2000-01-01 03:23:34.234')");
+        executeSql("insert into TEST_QUERY_DB_TABLE (id, name, scale, created_on) VALUES (2, NULL, 2.0, '2010-01-01 00:00:00')");
 
         runner.setProperty(GenerateTableFetch.TABLE_NAME, "TEST_QUERY_DB_TABLE");
         runner.setIncomingConnection(false);
@@ -368,24 +250,19 @@ public class TestGenerateTableFetch {
         runner.assertAllFlowFilesTransferred(REL_SUCCESS, 1);
         MockFlowFile flowFile = runner.getFlowFilesForRelationship(REL_SUCCESS).getFirst();
         String query = new String(flowFile.toByteArray());
-        assertEquals("SELECT * FROM TEST_QUERY_DB_TABLE WHERE ID <= 2 ORDER BY ID FETCH NEXT 10000 ROWS ONLY", query);
-        ResultSet resultSet = stmt.executeQuery(query);
-        // Should be three records
-        assertTrue(resultSet.next());
-        assertTrue(resultSet.next());
-        assertTrue(resultSet.next());
-        assertFalse(resultSet.next());
+        assertEquals("SELECT * FROM TEST_QUERY_DB_TABLE WHERE ID <= 2 ORDER BY ID LIMIT 10000", query);
+        assertResultsFound(query, 3);
         runner.clearTransferState();
 
-        // Run again, this time no flowfiles/rows should be transferred
+        // Run again, this time no FlowFiles/rows should be transferred
         runner.run();
         runner.assertAllFlowFilesTransferred(REL_SUCCESS, 0);
         runner.clearTransferState();
 
-        // Add 3 new rows with a higher ID and run with a partition size of 2. Two flow files should be transferred
-        stmt.execute("insert into TEST_QUERY_DB_TABLE (id, name, scale, created_on) VALUES (3, 'Mary West', 15.0, '2000-01-01 03:23:34.234')");
-        stmt.execute("insert into TEST_QUERY_DB_TABLE (id, name, scale, created_on) VALUES (4, 'Marty Johnson', 15.0, '2011-01-01 03:23:34.234')");
-        stmt.execute("insert into TEST_QUERY_DB_TABLE (id, name, scale, created_on) VALUES (5, 'Marty Johnson', 15.0, '2011-01-01 03:23:34.234')");
+        // Add 3 new rows with a higher ID and run with a partition size of 2. Two FlowFiles should be transferred
+        executeSql("insert into TEST_QUERY_DB_TABLE (id, name, scale, created_on) VALUES (3, 'Mary West', 15.0, '2000-01-01 03:23:34.234')");
+        executeSql("insert into TEST_QUERY_DB_TABLE (id, name, scale, created_on) VALUES (4, 'Marty Johnson', 15.0, '2011-01-01 03:23:34.234')");
+        executeSql("insert into TEST_QUERY_DB_TABLE (id, name, scale, created_on) VALUES (5, 'Marty Johnson', 15.0, '2011-01-01 03:23:34.234')");
         runner.setProperty(GenerateTableFetch.PARTITION_SIZE, "2");
         runner.run();
         runner.assertAllFlowFilesTransferred(REL_SUCCESS, 2);
@@ -393,34 +270,24 @@ public class TestGenerateTableFetch {
         // Verify first flow file's contents
         flowFile = runner.getFlowFilesForRelationship(REL_SUCCESS).getFirst();
         query = new String(flowFile.toByteArray());
-        assertEquals("SELECT * FROM TEST_QUERY_DB_TABLE WHERE ID > 2 AND ID <= 5 ORDER BY ID FETCH NEXT 2 ROWS ONLY", query);
-        resultSet = stmt.executeQuery(query);
-        // Should be two records
-        assertTrue(resultSet.next());
-        assertTrue(resultSet.next());
-        assertFalse(resultSet.next());
+        assertEquals("SELECT * FROM TEST_QUERY_DB_TABLE WHERE ID > 2 AND ID <= 5 ORDER BY ID LIMIT 2", query);
+        assertResultsFound(query, 2);
 
         // Verify second flow file's contents
         flowFile = runner.getFlowFilesForRelationship(REL_SUCCESS).get(1);
         query = new String(flowFile.toByteArray());
-        assertEquals("SELECT * FROM TEST_QUERY_DB_TABLE WHERE ID > 2 AND ID <= 5 ORDER BY ID OFFSET 2 ROWS FETCH NEXT 2 ROWS ONLY", query);
-        resultSet = stmt.executeQuery(query);
-        // Should be one record
-        assertTrue(resultSet.next());
-        assertFalse(resultSet.next());
+        assertEquals("SELECT * FROM TEST_QUERY_DB_TABLE WHERE ID > 2 AND ID <= 5 ORDER BY ID LIMIT 2 OFFSET 2", query);
+        assertResultsFound(query, 1);
         runner.clearTransferState();
 
         // Add a new row with a higher ID and run, one flow file will be transferred
-        stmt.execute("insert into TEST_QUERY_DB_TABLE (id, name, scale, created_on) VALUES (6, 'Mr. NiFi', 1.0, '2012-01-01 03:23:34.234')");
+        executeSql("insert into TEST_QUERY_DB_TABLE (id, name, scale, created_on) VALUES (6, 'Mr. NiFi', 1.0, '2012-01-01 03:23:34.234')");
         runner.run();
         runner.assertAllFlowFilesTransferred(REL_SUCCESS, 1);
         flowFile = runner.getFlowFilesForRelationship(REL_SUCCESS).getFirst();
         query = new String(flowFile.toByteArray());
-        assertEquals("SELECT * FROM TEST_QUERY_DB_TABLE WHERE ID > 5 AND ID <= 6 ORDER BY ID FETCH NEXT 2 ROWS ONLY", query);
-        resultSet = stmt.executeQuery(query);
-        // Should be one record
-        assertTrue(resultSet.next());
-        assertFalse(resultSet.next());
+        assertEquals("SELECT * FROM TEST_QUERY_DB_TABLE WHERE ID > 5 AND ID <= 6 ORDER BY ID LIMIT 2", query);
+        assertResultsFound(query, 1);
         runner.clearTransferState();
 
         // Set name as the max value column name (and clear the state), all rows should be returned since the max value for name has not been set
@@ -429,34 +296,23 @@ public class TestGenerateTableFetch {
         runner.run();
         runner.assertAllFlowFilesTransferred(REL_SUCCESS, 4); // 7 records with partition size 2 means 4 generated FlowFiles
         flowFile = runner.getFlowFilesForRelationship(REL_SUCCESS).get(0);
-        assertEquals("SELECT * FROM TEST_QUERY_DB_TABLE WHERE name <= 'Mr. NiFi' ORDER BY name FETCH NEXT 2 ROWS ONLY", new String(flowFile.toByteArray()));
+        assertEquals("SELECT * FROM TEST_QUERY_DB_TABLE WHERE name <= 'Mr. NiFi' ORDER BY name LIMIT 2", new String(flowFile.toByteArray()));
         flowFile = runner.getFlowFilesForRelationship(REL_SUCCESS).get(1);
-        assertEquals("SELECT * FROM TEST_QUERY_DB_TABLE WHERE name <= 'Mr. NiFi' ORDER BY name OFFSET 2 ROWS FETCH NEXT 2 ROWS ONLY", new String(flowFile.toByteArray()));
+        assertEquals("SELECT * FROM TEST_QUERY_DB_TABLE WHERE name <= 'Mr. NiFi' ORDER BY name LIMIT 2 OFFSET 2", new String(flowFile.toByteArray()));
         flowFile = runner.getFlowFilesForRelationship(REL_SUCCESS).get(2);
-        assertEquals("SELECT * FROM TEST_QUERY_DB_TABLE WHERE name <= 'Mr. NiFi' ORDER BY name OFFSET 4 ROWS FETCH NEXT 2 ROWS ONLY", new String(flowFile.toByteArray()));
+        assertEquals("SELECT * FROM TEST_QUERY_DB_TABLE WHERE name <= 'Mr. NiFi' ORDER BY name LIMIT 2 OFFSET 4", new String(flowFile.toByteArray()));
         flowFile = runner.getFlowFilesForRelationship(REL_SUCCESS).get(3);
-        assertEquals("SELECT * FROM TEST_QUERY_DB_TABLE WHERE name <= 'Mr. NiFi' ORDER BY name OFFSET 6 ROWS FETCH NEXT 2 ROWS ONLY", new String(flowFile.toByteArray()));
+        assertEquals("SELECT * FROM TEST_QUERY_DB_TABLE WHERE name <= 'Mr. NiFi' ORDER BY name LIMIT 2 OFFSET 6", new String(flowFile.toByteArray()));
 
         runner.clearTransferState();
     }
 
     @Test
     public void testAddedRowsTimestampRightBounded() throws SQLException {
-
-        // load test data to database
-        final Connection con = ((DBCPService) runner.getControllerService("dbcp")).getConnection();
-        Statement stmt = con.createStatement();
-
-        try {
-            stmt.execute("drop table TEST_QUERY_DB_TABLE");
-        } catch (final SQLException ignored) {
-            // Ignore this error, probably a "table does not exist" since Derby doesn't yet support DROP IF EXISTS [DERBY-4842]
-        }
-
-        stmt.execute("create table TEST_QUERY_DB_TABLE (id integer not null, name varchar(100), scale float, created_on timestamp, bignum bigint default 0)");
-        stmt.execute("insert into TEST_QUERY_DB_TABLE (id, name, scale, created_on) VALUES (0, 'Joe Smith', 1.0, '1962-09-23 03:23:34.234')");
-        stmt.execute("insert into TEST_QUERY_DB_TABLE (id, name, scale, created_on) VALUES (1, 'Carrie Jones', 5.0, '2000-01-01 03:23:34.234')");
-        stmt.execute("insert into TEST_QUERY_DB_TABLE (id, name, scale, created_on) VALUES (2, NULL, 2.0, '2010-01-01 00:00:00')");
+        executeSql("create table TEST_QUERY_DB_TABLE (id integer not null, name varchar(100), scale float, created_on timestamp, bignum bigint default 0)");
+        executeSql("insert into TEST_QUERY_DB_TABLE (id, name, scale, created_on) VALUES (0, 'Joe Smith', 1.0, '1962-09-23 03:23:34.234')");
+        executeSql("insert into TEST_QUERY_DB_TABLE (id, name, scale, created_on) VALUES (1, 'Carrie Jones', 5.0, '2000-01-01 03:23:34.234')");
+        executeSql("insert into TEST_QUERY_DB_TABLE (id, name, scale, created_on) VALUES (2, NULL, 2.0, '2010-01-01 00:00:00')");
 
         runner.setProperty(GenerateTableFetch.TABLE_NAME, "TEST_QUERY_DB_TABLE");
         runner.setIncomingConnection(false);
@@ -466,26 +322,21 @@ public class TestGenerateTableFetch {
         runner.assertAllFlowFilesTransferred(REL_SUCCESS, 1);
         MockFlowFile flowFile = runner.getFlowFilesForRelationship(REL_SUCCESS).getFirst();
         String query = new String(flowFile.toByteArray());
-        assertEquals("SELECT * FROM TEST_QUERY_DB_TABLE WHERE created_on <= '2010-01-01 00:00:00.0' ORDER BY created_on FETCH NEXT 10000 ROWS ONLY", query);
-        ResultSet resultSet = stmt.executeQuery(query);
-        // Should be three records
-        assertTrue(resultSet.next());
-        assertTrue(resultSet.next());
-        assertTrue(resultSet.next());
-        assertFalse(resultSet.next());
+        assertEquals("SELECT * FROM TEST_QUERY_DB_TABLE WHERE created_on <= '2010-01-01 00:00:00.0' ORDER BY created_on LIMIT 10000", query);
+        assertResultsFound(query, 3);
         runner.clearTransferState();
 
-        // Run again, this time no flowfiles/rows should be transferred
+        // Run again, this time no FlowFiles/rows should be transferred
         runner.run();
         runner.assertAllFlowFilesTransferred(REL_SUCCESS, 0);
         runner.clearTransferState();
 
         // Add 5 new rows, 3 with higher timestamps, 2 with a lower timestamp.
-        stmt.execute("insert into TEST_QUERY_DB_TABLE (id, name, scale, created_on) VALUES (3, 'Mary West', 15.0, '2000-01-01 03:23:34.234')");
-        stmt.execute("insert into TEST_QUERY_DB_TABLE (id, name, scale, created_on) VALUES (4, 'Mary West', 15.0, '2000-01-01 03:23:34.234')");
-        stmt.execute("insert into TEST_QUERY_DB_TABLE (id, name, scale, created_on) VALUES (5, 'Marty Johnson', 15.0, '2011-01-01 02:23:34.234')");
-        stmt.execute("insert into TEST_QUERY_DB_TABLE (id, name, scale, created_on) VALUES (6, 'Marty Johnson', 15.0, '2011-01-01 03:23:34.234')");
-        stmt.execute("insert into TEST_QUERY_DB_TABLE (id, name, scale, created_on) VALUES (7, 'James Johnson', 16.0, '2011-01-01 04:23:34.236')");
+        executeSql("insert into TEST_QUERY_DB_TABLE (id, name, scale, created_on) VALUES (3, 'Mary West', 15.0, '2000-01-01 03:23:34.234')");
+        executeSql("insert into TEST_QUERY_DB_TABLE (id, name, scale, created_on) VALUES (4, 'Mary West', 15.0, '2000-01-01 03:23:34.234')");
+        executeSql("insert into TEST_QUERY_DB_TABLE (id, name, scale, created_on) VALUES (5, 'Marty Johnson', 15.0, '2011-01-01 02:23:34.234')");
+        executeSql("insert into TEST_QUERY_DB_TABLE (id, name, scale, created_on) VALUES (6, 'Marty Johnson', 15.0, '2011-01-01 03:23:34.234')");
+        executeSql("insert into TEST_QUERY_DB_TABLE (id, name, scale, created_on) VALUES (7, 'James Johnson', 16.0, '2011-01-01 04:23:34.236')");
         runner.setProperty(GenerateTableFetch.PARTITION_SIZE, "2");
         runner.run();
         runner.assertAllFlowFilesTransferred(REL_SUCCESS, 2);
@@ -494,60 +345,39 @@ public class TestGenerateTableFetch {
         flowFile = runner.getFlowFilesForRelationship(REL_SUCCESS).getFirst();
         query = new String(flowFile.toByteArray());
         assertEquals("SELECT * FROM TEST_QUERY_DB_TABLE WHERE created_on > '2010-01-01 00:00:00.0' AND "
-                + "created_on <= '2011-01-01 04:23:34.236' ORDER BY created_on FETCH NEXT 2 ROWS ONLY", query);
-        resultSet = stmt.executeQuery(query);
-        // Should be two records
-        assertTrue(resultSet.next());
-        assertTrue(resultSet.next());
-        assertFalse(resultSet.next());
+                + "created_on <= '2011-01-01 04:23:34.236' ORDER BY created_on LIMIT 2", query);
+        assertResultsFound(query, 2);
 
         // Verify second flow file's contents
         flowFile = runner.getFlowFilesForRelationship(REL_SUCCESS).get(1);
         query = new String(flowFile.toByteArray());
         assertEquals("SELECT * FROM TEST_QUERY_DB_TABLE WHERE created_on > '2010-01-01 00:00:00.0' AND "
-                + "created_on <= '2011-01-01 04:23:34.236' ORDER BY created_on OFFSET 2 ROWS FETCH NEXT 2 ROWS ONLY", query);
-        resultSet = stmt.executeQuery(query);
-        // Should be one record
-        assertTrue(resultSet.next());
-        assertFalse(resultSet.next());
+                + "created_on <= '2011-01-01 04:23:34.236' ORDER BY created_on LIMIT 2 OFFSET 2", query);
+        assertResultsFound(query, 1);
         runner.clearTransferState();
 
         // Add a new row with a higher created_on and run, one flow file will be transferred
-        stmt.execute("insert into TEST_QUERY_DB_TABLE (id, name, scale, created_on) VALUES (8, 'Mr. NiFi', 1.0, '2012-01-01 03:23:34.234')");
+        executeSql("insert into TEST_QUERY_DB_TABLE (id, name, scale, created_on) VALUES (8, 'Mr. NiFi', 1.0, '2012-01-01 03:23:34.234')");
         runner.run();
         runner.assertAllFlowFilesTransferred(REL_SUCCESS, 1);
         flowFile = runner.getFlowFilesForRelationship(REL_SUCCESS).getFirst();
         query = new String(flowFile.toByteArray());
-        assertEquals("SELECT * FROM TEST_QUERY_DB_TABLE WHERE created_on > '2011-01-01 04:23:34.236' AND created_on <= '2012-01-01 03:23:34.234' ORDER BY created_on FETCH NEXT 2 ROWS ONLY", query);
-        resultSet = stmt.executeQuery(query);
-        // Should be one record
-        assertTrue(resultSet.next());
-        assertFalse(resultSet.next());
+        assertEquals("SELECT * FROM TEST_QUERY_DB_TABLE WHERE created_on > '2011-01-01 04:23:34.236' AND created_on <= '2012-01-01 03:23:34.234' ORDER BY created_on LIMIT 2", query);
+        assertResultsFound(query, 1);
         runner.clearTransferState();
     }
 
     @Test
     public void testOnePartition() throws SQLException {
-
-        // load test data to database
-        final Connection con = ((DBCPService) runner.getControllerService("dbcp")).getConnection();
-        Statement stmt = con.createStatement();
-
-        try {
-            stmt.execute("drop table TEST_QUERY_DB_TABLE");
-        } catch (final SQLException ignored) {
-            // Ignore this error, probably a "table does not exist" since Derby doesn't yet support DROP IF EXISTS [DERBY-4842]
-        }
-
-        stmt.execute("create table TEST_QUERY_DB_TABLE (id integer not null, bucket integer not null)");
-        stmt.execute("insert into TEST_QUERY_DB_TABLE (id, bucket) VALUES (0, 0)");
-        stmt.execute("insert into TEST_QUERY_DB_TABLE (id, bucket) VALUES (1, 0)");
-        stmt.execute("insert into TEST_QUERY_DB_TABLE (id, bucket) VALUES (2, 0)");
+        executeSql("create table TEST_QUERY_DB_TABLE (id integer not null, bucket integer not null)");
+        executeSql("insert into TEST_QUERY_DB_TABLE (id, bucket) VALUES (0, 0)");
+        executeSql("insert into TEST_QUERY_DB_TABLE (id, bucket) VALUES (1, 0)");
+        executeSql("insert into TEST_QUERY_DB_TABLE (id, bucket) VALUES (2, 0)");
 
         runner.setProperty(GenerateTableFetch.TABLE_NAME, "TEST_QUERY_DB_TABLE");
         runner.setIncomingConnection(false);
         runner.setProperty(GenerateTableFetch.MAX_VALUE_COLUMN_NAMES, "ID");
-        // Set partition size to 0 so we can see that the flow file gets all rows
+        // Set partition size to 0, so we can see that the flow file gets all rows
         runner.setProperty(GenerateTableFetch.PARTITION_SIZE, "0");
 
         runner.run();
@@ -561,24 +391,13 @@ public class TestGenerateTableFetch {
 
     @Test
     public void testFlowFileGeneratedOnZeroResults() throws SQLException {
-
-        // load test data to database
-        final Connection con = ((DBCPService) runner.getControllerService("dbcp")).getConnection();
-        Statement stmt = con.createStatement();
-
-        try {
-            stmt.execute("drop table TEST_QUERY_DB_TABLE");
-        } catch (final SQLException ignored) {
-            // Ignore this error, probably a "table does not exist" since Derby doesn't yet support DROP IF EXISTS [DERBY-4842]
-        }
-
-        stmt.execute("create table TEST_QUERY_DB_TABLE (id integer not null, bucket integer not null)");
+        executeSql("create table TEST_QUERY_DB_TABLE (id integer not null, bucket integer not null)");
 
         runner.setProperty(GenerateTableFetch.TABLE_NAME, "TEST_QUERY_DB_TABLE");
         runner.setIncomingConnection(false);
         runner.setProperty(GenerateTableFetch.COLUMN_NAMES, "ID,BUCKET");
         runner.setProperty(GenerateTableFetch.MAX_VALUE_COLUMN_NAMES, "ID");
-        // Set partition size to 0 so we can see that the flow file gets all rows
+        // Set partition size to 0, so we can see that the flow file gets all rows
         runner.setProperty(GenerateTableFetch.PARTITION_SIZE, "1");
         runner.setProperty(GenerateTableFetch.OUTPUT_EMPTY_FLOWFILE_ON_ZERO_RESULTS, "false");
 
@@ -602,25 +421,14 @@ public class TestGenerateTableFetch {
 
     @Test
     public void testMultiplePartitions() throws SQLException {
-
-        // load test data to database
-        final Connection con = ((DBCPService) runner.getControllerService("dbcp")).getConnection();
-        Statement stmt = con.createStatement();
-
-        try {
-            stmt.execute("drop table TEST_QUERY_DB_TABLE");
-        } catch (final SQLException ignored) {
-            // Ignore this error, probably a "table does not exist" since Derby doesn't yet support DROP IF EXISTS [DERBY-4842]
-        }
-
-        stmt.execute("create table TEST_QUERY_DB_TABLE (id integer not null, bucket integer not null)");
-        stmt.execute("insert into TEST_QUERY_DB_TABLE (id, bucket) VALUES (0, 0)");
-        stmt.execute("insert into TEST_QUERY_DB_TABLE (id, bucket) VALUES (1, 0)");
+        executeSql("create table TEST_QUERY_DB_TABLE (id integer not null, bucket integer not null)");
+        executeSql("insert into TEST_QUERY_DB_TABLE (id, bucket) VALUES (0, 0)");
+        executeSql("insert into TEST_QUERY_DB_TABLE (id, bucket) VALUES (1, 0)");
 
         runner.setProperty(GenerateTableFetch.TABLE_NAME, "TEST_QUERY_DB_TABLE");
         runner.setIncomingConnection(false);
         runner.setProperty(GenerateTableFetch.MAX_VALUE_COLUMN_NAMES, "ID, BUCKET");
-        // Set partition size to 1 so we can compare flow files to records
+        // Set partition size to 1, so we can compare FlowFiles to records
         runner.setProperty(GenerateTableFetch.PARTITION_SIZE, "1");
 
         runner.run();
@@ -628,24 +436,24 @@ public class TestGenerateTableFetch {
         runner.clearTransferState();
 
         // Add a new row in the same bucket
-        stmt.execute("insert into TEST_QUERY_DB_TABLE (id, bucket) VALUES (2, 0)");
+        executeSql("insert into TEST_QUERY_DB_TABLE (id, bucket) VALUES (2, 0)");
         runner.run();
         runner.assertAllFlowFilesTransferred(GenerateTableFetch.REL_SUCCESS, 1);
         runner.clearTransferState();
 
         // Add a new row in a new bucket
-        stmt.execute("insert into TEST_QUERY_DB_TABLE (id, bucket) VALUES (3, 1)");
+        executeSql("insert into TEST_QUERY_DB_TABLE (id, bucket) VALUES (3, 1)");
         runner.run();
         runner.assertAllFlowFilesTransferred(GenerateTableFetch.REL_SUCCESS, 1);
         runner.clearTransferState();
 
         // Add a new row in an old bucket, it should not be transferred
-        stmt.execute("insert into TEST_QUERY_DB_TABLE (id, bucket) VALUES (4, 0)");
+        executeSql("insert into TEST_QUERY_DB_TABLE (id, bucket) VALUES (4, 0)");
         runner.run();
         runner.assertTransferCount(GenerateTableFetch.REL_SUCCESS, 0);
 
         // Add a new row in the second bucket, only the new row should be transferred
-        stmt.execute("insert into TEST_QUERY_DB_TABLE (id, bucket) VALUES (5, 1)");
+        executeSql("insert into TEST_QUERY_DB_TABLE (id, bucket) VALUES (5, 1)");
         runner.run();
         runner.assertAllFlowFilesTransferred(GenerateTableFetch.REL_SUCCESS, 1);
         runner.clearTransferState();
@@ -653,30 +461,12 @@ public class TestGenerateTableFetch {
 
     @Test
     public void testMultiplePartitionsIncomingFlowFiles() throws SQLException {
+        executeSql("create table TEST_QUERY_DB_TABLE1 (id integer not null, bucket integer not null)");
+        executeSql("insert into TEST_QUERY_DB_TABLE1 (id, bucket) VALUES (0, 0)");
+        executeSql("insert into TEST_QUERY_DB_TABLE1 (id, bucket) VALUES (1, 0)");
 
-        // load test data to database
-        final Connection con = ((DBCPService) runner.getControllerService("dbcp")).getConnection();
-        Statement stmt = con.createStatement();
-
-        try {
-            stmt.execute("drop table TEST_QUERY_DB_TABLE1");
-        } catch (final SQLException ignored) {
-            // Ignore this error, probably a "table does not exist" since Derby doesn't yet support DROP IF EXISTS [DERBY-4842]
-        }
-
-        stmt.execute("create table TEST_QUERY_DB_TABLE1 (id integer not null, bucket integer not null)");
-        stmt.execute("insert into TEST_QUERY_DB_TABLE1 (id, bucket) VALUES (0, 0)");
-        stmt.execute("insert into TEST_QUERY_DB_TABLE1 (id, bucket) VALUES (1, 0)");
-
-        try {
-            stmt.execute("drop table TEST_QUERY_DB_TABLE2");
-        } catch (final SQLException ignored) {
-            // Ignore this error, probably a "table does not exist" since Derby doesn't yet support DROP IF EXISTS [DERBY-4842]
-        }
-
-        stmt.execute("create table TEST_QUERY_DB_TABLE2 (id integer not null, bucket integer not null)");
-        stmt.execute("insert into TEST_QUERY_DB_TABLE2 (id, bucket) VALUES (0, 0)");
-
+        executeSql("create table TEST_QUERY_DB_TABLE2 (id integer not null, bucket integer not null)");
+        executeSql("insert into TEST_QUERY_DB_TABLE2 (id, bucket) VALUES (0, 0)");
 
         runner.setProperty(GenerateTableFetch.TABLE_NAME, "${tableName}");
         runner.setIncomingConnection(true);
@@ -693,45 +483,24 @@ public class TestGenerateTableFetch {
         runner.assertTransferCount(AbstractDatabaseFetchProcessor.REL_SUCCESS, 3);
 
         // Two records from table 1
-        assertEquals(runner.getFlowFilesForRelationship(AbstractDatabaseFetchProcessor.REL_SUCCESS).stream().filter(
-                (ff) -> "TEST_QUERY_DB_TABLE1".equals(ff.getAttribute("tableName"))).count(),
-                2);
+        assertEquals(2,
+                runner.getFlowFilesForRelationship(AbstractDatabaseFetchProcessor.REL_SUCCESS).stream().filter(
+                        (ff) -> "TEST_QUERY_DB_TABLE1".equals(ff.getAttribute("tableName"))).count());
 
         // One record from table 2
-        assertEquals(runner.getFlowFilesForRelationship(AbstractDatabaseFetchProcessor.REL_SUCCESS).stream().filter(
-                (ff) -> "TEST_QUERY_DB_TABLE2".equals(ff.getAttribute("tableName"))).count(),
-                1);
+        assertEquals(1,
+                runner.getFlowFilesForRelationship(AbstractDatabaseFetchProcessor.REL_SUCCESS).stream().filter(
+                        (ff) -> "TEST_QUERY_DB_TABLE2".equals(ff.getAttribute("tableName"))).count());
 
         // Table 3 doesn't exist, should be routed to failure
         runner.assertTransferCount(GenerateTableFetch.REL_FAILURE, 1);
-
-        try {
-            stmt.execute("drop table TEST_QUERY_DB_TABLE1");
-        } catch (final SQLException ignored) {
-            // Ignore this error, probably a "table does not exist" since Derby doesn't yet support DROP IF EXISTS [DERBY-4842]
-        }
-        try {
-            stmt.execute("drop table TEST_QUERY_DB_TABLE2");
-        } catch (final SQLException ignored) {
-            // Ignore this error, probably a "table does not exist" since Derby doesn't yet support DROP IF EXISTS [DERBY-4842]
-        }
     }
 
     @Test
     public void testBackwardsCompatibilityStateKeyStaticTableDynamicMaxValues() throws Exception {
-        // load test data to database
-        final Connection con = ((DBCPService) runner.getControllerService("dbcp")).getConnection();
-        Statement stmt = con.createStatement();
-
-        try {
-            stmt.execute("drop table TEST_QUERY_DB_TABLE");
-        } catch (final SQLException ignored) {
-            // Ignore this error, probably a "table does not exist" since Derby doesn't yet support DROP IF EXISTS [DERBY-4842]
-        }
-
-        stmt.execute("create table TEST_QUERY_DB_TABLE (id integer not null, bucket integer not null)");
-        stmt.execute("insert into TEST_QUERY_DB_TABLE (id, bucket) VALUES (0, 0)");
-        stmt.execute("insert into TEST_QUERY_DB_TABLE (id, bucket) VALUES (1, 0)");
+        executeSql("create table TEST_QUERY_DB_TABLE (id integer not null, bucket integer not null)");
+        executeSql("insert into TEST_QUERY_DB_TABLE (id, bucket) VALUES (0, 0)");
+        executeSql("insert into TEST_QUERY_DB_TABLE (id, bucket) VALUES (1, 0)");
 
         runner.setProperty(GenerateTableFetch.TABLE_NAME, "TEST_QUERY_DB_TABLE");
         runner.setIncomingConnection(true);
@@ -742,31 +511,18 @@ public class TestGenerateTableFetch {
         StateManager stateManager = runner.getStateManager();
         stateManager.setState(Map.of("id", "0"), Scope.CLUSTER);
 
-        // Pre-populate the column type map with an entry for id (not fully-qualified)
-        processor.columnTypeMap.put("id", 4);
-
         runner.run();
 
         runner.assertAllFlowFilesTransferred(REL_SUCCESS, 1);
         MockFlowFile flowFile = runner.getFlowFilesForRelationship(REL_SUCCESS).getFirst();
-        assertEquals("SELECT * FROM TEST_QUERY_DB_TABLE WHERE id > 0 AND id <= 1 ORDER BY id FETCH NEXT 10000 ROWS ONLY", new String(flowFile.toByteArray()));
+        assertEquals("SELECT * FROM TEST_QUERY_DB_TABLE WHERE id > 0 AND id <= 1 ORDER BY id LIMIT 10000", new String(flowFile.toByteArray()));
     }
 
     @Test
     public void testBackwardsCompatibilityStateKeyDynamicTableDynamicMaxValues() throws Exception {
-        // load test data to database
-        final Connection con = ((DBCPService) runner.getControllerService("dbcp")).getConnection();
-        Statement stmt = con.createStatement();
-
-        try {
-            stmt.execute("drop table TEST_QUERY_DB_TABLE");
-        } catch (final SQLException ignored) {
-            // Ignore this error, probably a "table does not exist" since Derby doesn't yet support DROP IF EXISTS [DERBY-4842]
-        }
-
-        stmt.execute("create table TEST_QUERY_DB_TABLE (id integer not null, bucket integer not null)");
-        stmt.execute("insert into TEST_QUERY_DB_TABLE (id, bucket) VALUES (0, 0)");
-        stmt.execute("insert into TEST_QUERY_DB_TABLE (id, bucket) VALUES (1, 0)");
+        executeSql("create table TEST_QUERY_DB_TABLE (id integer not null, bucket integer not null)");
+        executeSql("insert into TEST_QUERY_DB_TABLE (id, bucket) VALUES (0, 0)");
+        executeSql("insert into TEST_QUERY_DB_TABLE (id, bucket) VALUES (1, 0)");
 
         runner.setProperty(GenerateTableFetch.TABLE_NAME, "${tableName}");
         runner.setIncomingConnection(true);
@@ -777,15 +533,12 @@ public class TestGenerateTableFetch {
         StateManager stateManager = runner.getStateManager();
         stateManager.setState(Map.of("id", "0"), Scope.CLUSTER);
 
-        // Pre-populate the column type map with an entry for id (not fully-qualified)
-        processor.columnTypeMap.put("id", 4);
-
         runner.run();
 
         runner.assertAllFlowFilesTransferred(REL_SUCCESS, 1);
         MockFlowFile flowFile = runner.getFlowFilesForRelationship(REL_SUCCESS).getFirst();
         // Note there is no WHERE clause here. Because we are using dynamic tables, the old state key/value is not retrieved
-        assertEquals("SELECT * FROM TEST_QUERY_DB_TABLE WHERE id <= 1 ORDER BY id FETCH NEXT 10000 ROWS ONLY", new String(flowFile.toByteArray()));
+        assertEquals("SELECT * FROM TEST_QUERY_DB_TABLE WHERE id <= 1 ORDER BY id LIMIT 10000", new String(flowFile.toByteArray()));
         assertEquals("TEST_QUERY_DB_TABLE", flowFile.getAttribute("generatetablefetch.tableName"));
         assertNull(flowFile.getAttribute("generatetablefetch.columnNames"));
         assertEquals("id <= 1", flowFile.getAttribute("generatetablefetch.whereClause"));
@@ -794,14 +547,14 @@ public class TestGenerateTableFetch {
         assertEquals("0", flowFile.getAttribute("generatetablefetch.offset"));
 
         runner.clearTransferState();
-        stmt.execute("insert into TEST_QUERY_DB_TABLE (id, bucket) VALUES (2, 0)");
+        executeSql("insert into TEST_QUERY_DB_TABLE (id, bucket) VALUES (2, 0)");
 
         runner.enqueue("".getBytes(), Map.of("tableName", "TEST_QUERY_DB_TABLE", "maxValueCol", "id"));
         runner.run();
 
         runner.assertAllFlowFilesTransferred(REL_SUCCESS, 1);
         flowFile = runner.getFlowFilesForRelationship(REL_SUCCESS).getFirst();
-        assertEquals("SELECT * FROM TEST_QUERY_DB_TABLE WHERE id > 1 AND id <= 2 ORDER BY id FETCH NEXT 10000 ROWS ONLY", new String(flowFile.toByteArray()));
+        assertEquals("SELECT * FROM TEST_QUERY_DB_TABLE WHERE id > 1 AND id <= 2 ORDER BY id LIMIT 10000", new String(flowFile.toByteArray()));
         assertEquals("TEST_QUERY_DB_TABLE", flowFile.getAttribute("generatetablefetch.tableName"));
         assertNull(flowFile.getAttribute("generatetablefetch.columnNames"));
         assertEquals("id > 1 AND id <= 2", flowFile.getAttribute("generatetablefetch.whereClause"));
@@ -812,19 +565,9 @@ public class TestGenerateTableFetch {
 
     @Test
     public void testBackwardsCompatibilityStateKeyDynamicTableStaticMaxValues() throws Exception {
-        // load test data to database
-        final Connection con = ((DBCPService) runner.getControllerService("dbcp")).getConnection();
-        Statement stmt = con.createStatement();
-
-        try {
-            stmt.execute("drop table TEST_QUERY_DB_TABLE");
-        } catch (final SQLException ignored) {
-            // Ignore this error, probably a "table does not exist" since Derby doesn't yet support DROP IF EXISTS [DERBY-4842]
-        }
-
-        stmt.execute("create table TEST_QUERY_DB_TABLE (id integer not null, bucket integer not null)");
-        stmt.execute("insert into TEST_QUERY_DB_TABLE (id, bucket) VALUES (0, 0)");
-        stmt.execute("insert into TEST_QUERY_DB_TABLE (id, bucket) VALUES (1, 0)");
+        executeSql("create table TEST_QUERY_DB_TABLE (id integer not null, bucket integer not null)");
+        executeSql("insert into TEST_QUERY_DB_TABLE (id, bucket) VALUES (0, 0)");
+        executeSql("insert into TEST_QUERY_DB_TABLE (id, bucket) VALUES (1, 0)");
 
         runner.setProperty(GenerateTableFetch.TABLE_NAME, "${tableName}");
         runner.setIncomingConnection(true);
@@ -835,42 +578,29 @@ public class TestGenerateTableFetch {
         StateManager stateManager = runner.getStateManager();
         stateManager.setState(Map.of("id", "0"), Scope.CLUSTER);
 
-        // Pre-populate the column type map with an entry for id (not fully-qualified)
-        processor.columnTypeMap.put("id", 4);
-
         runner.run();
 
         runner.assertAllFlowFilesTransferred(REL_SUCCESS, 1);
         MockFlowFile flowFile = runner.getFlowFilesForRelationship(REL_SUCCESS).getFirst();
         // Note there is no WHERE clause here. Because we are using dynamic tables, the old state key/value is not retrieved
-        assertEquals("SELECT * FROM TEST_QUERY_DB_TABLE WHERE id <= 1 ORDER BY id FETCH NEXT 10000 ROWS ONLY", new String(flowFile.toByteArray()));
+        assertEquals("SELECT * FROM TEST_QUERY_DB_TABLE WHERE id <= 1 ORDER BY id LIMIT 10000", new String(flowFile.toByteArray()));
 
         runner.clearTransferState();
-        stmt.execute("insert into TEST_QUERY_DB_TABLE (id, bucket) VALUES (2, 0)");
+        executeSql("insert into TEST_QUERY_DB_TABLE (id, bucket) VALUES (2, 0)");
 
         runner.enqueue("".getBytes(), Map.of("tableName", "TEST_QUERY_DB_TABLE", "maxValueCol", "id"));
         runner.run();
 
         runner.assertAllFlowFilesTransferred(REL_SUCCESS, 1);
         flowFile = runner.getFlowFilesForRelationship(REL_SUCCESS).getFirst();
-        assertEquals("SELECT * FROM TEST_QUERY_DB_TABLE WHERE id > 1 AND id <= 2 ORDER BY id FETCH NEXT 10000 ROWS ONLY", new String(flowFile.toByteArray()));
+        assertEquals("SELECT * FROM TEST_QUERY_DB_TABLE WHERE id > 1 AND id <= 2 ORDER BY id LIMIT 10000", new String(flowFile.toByteArray()));
     }
 
     @Test
     public void testBackwardsCompatibilityStateKeyVariableRegistry() throws Exception {
-        // load test data to database
-        final Connection con = ((DBCPService) runner.getControllerService("dbcp")).getConnection();
-        Statement stmt = con.createStatement();
-
-        try {
-            stmt.execute("drop table TEST_QUERY_DB_TABLE");
-        } catch (final SQLException ignored) {
-            // Ignore this error, probably a "table does not exist" since Derby doesn't yet support DROP IF EXISTS [DERBY-4842]
-        }
-
-        stmt.execute("create table TEST_QUERY_DB_TABLE (id integer not null, bucket integer not null)");
-        stmt.execute("insert into TEST_QUERY_DB_TABLE (id, bucket) VALUES (0, 0)");
-        stmt.execute("insert into TEST_QUERY_DB_TABLE (id, bucket) VALUES (1, 0)");
+        executeSql("create table TEST_QUERY_DB_TABLE (id integer not null, bucket integer not null)");
+        executeSql("insert into TEST_QUERY_DB_TABLE (id, bucket) VALUES (0, 0)");
+        executeSql("insert into TEST_QUERY_DB_TABLE (id, bucket) VALUES (1, 0)");
 
         runner.setProperty(GenerateTableFetch.TABLE_NAME, "${tableName}");
         runner.setIncomingConnection(false);
@@ -882,8 +612,6 @@ public class TestGenerateTableFetch {
         // Pre-populate the state with a key for column name (not fully-qualified)
         StateManager stateManager = runner.getStateManager();
         stateManager.setState(Map.of("id", "0"), Scope.CLUSTER);
-        // Pre-populate the column type map with an entry for id (not fully-qualified)
-        processor.columnTypeMap.put("id", 4);
 
         runner.run();
 
@@ -891,67 +619,15 @@ public class TestGenerateTableFetch {
         MockFlowFile flowFile = runner.getFlowFilesForRelationship(REL_SUCCESS).getFirst();
         // Note there is no WHERE clause here. Because we are using dynamic tables (i.e. Expression Language,
         // even when not referring to flow file attributes), the old state key/value is not retrieved
-        assertEquals("SELECT * FROM TEST_QUERY_DB_TABLE WHERE id <= 1 ORDER BY id FETCH NEXT 10000 ROWS ONLY", new String(flowFile.toByteArray()));
-    }
-
-    @Test
-    public void testRidiculousRowCount() throws SQLException {
-        long rowCount = Long.parseLong(Integer.toString(Integer.MAX_VALUE)) + 100;
-        int partitionSize = 1000000;
-        int expectedFileCount = (int) (rowCount / partitionSize) + 1;
-
-        Connection conn = mock(Connection.class);
-        when(dbcp.getConnection()).thenReturn(conn);
-        Statement st = mock(Statement.class);
-        when(conn.createStatement()).thenReturn(st);
-        doNothing().when(st).close();
-        ResultSet rs = mock(ResultSet.class);
-        when(st.executeQuery(anyString())).thenReturn(rs);
-        when(rs.next()).thenReturn(true);
-        when(rs.getInt(1)).thenReturn((int) rowCount);
-        when(rs.getLong(1)).thenReturn(rowCount);
-
-        final ResultSetMetaData resultSetMetaData = mock(ResultSetMetaData.class);
-        when(rs.getMetaData()).thenReturn(resultSetMetaData);
-        when(resultSetMetaData.getColumnCount()).thenReturn(2);
-        when(resultSetMetaData.getTableName(1)).thenReturn("");
-        when(resultSetMetaData.getColumnType(1)).thenReturn(Types.INTEGER);
-        when(resultSetMetaData.getColumnName(1)).thenReturn("COUNT");
-        when(resultSetMetaData.getColumnType(2)).thenReturn(Types.INTEGER);
-        when(resultSetMetaData.getColumnName(2)).thenReturn("ID");
-        when(rs.getInt(2)).thenReturn(1000);
-
-
-        runner.setProperty(GenerateTableFetch.TABLE_NAME, "TEST_QUERY_DB_TABLE");
-        runner.setIncomingConnection(false);
-        runner.setProperty(GenerateTableFetch.MAX_VALUE_COLUMN_NAMES, "ID");
-        runner.setProperty(GenerateTableFetch.PARTITION_SIZE, Integer.toString(partitionSize));
-
-        runner.run();
-        runner.assertAllFlowFilesTransferred(REL_SUCCESS, expectedFileCount);
-        MockFlowFile flowFile = runner.getFlowFilesForRelationship(REL_SUCCESS).getFirst();
-        String query = new String(flowFile.toByteArray());
-        assertEquals("SELECT * FROM TEST_QUERY_DB_TABLE WHERE 1=1 ORDER BY ID FETCH NEXT 1000000 ROWS ONLY", query);
-        runner.clearTransferState();
+        assertEquals("SELECT * FROM TEST_QUERY_DB_TABLE WHERE id <= 1 ORDER BY id LIMIT 10000", new String(flowFile.toByteArray()));
     }
 
     @Test
     public void testInitialMaxValue() throws SQLException {
-
-        // load test data to database
-        final Connection con = ((DBCPService) runner.getControllerService("dbcp")).getConnection();
-        Statement stmt = con.createStatement();
-
-        try {
-            stmt.execute("drop table TEST_QUERY_DB_TABLE");
-        } catch (final SQLException ignored) {
-            // Ignore this error, probably a "table does not exist" since Derby doesn't yet support DROP IF EXISTS [DERBY-4842]
-        }
-
-        stmt.execute("create table TEST_QUERY_DB_TABLE (id integer not null, name varchar(100), scale float, created_on timestamp, bignum bigint default 0)");
-        stmt.execute("insert into TEST_QUERY_DB_TABLE (id, name, scale, created_on) VALUES (0, 'Joe Smith', 1.0, '1962-09-23 03:23:34.234')");
-        stmt.execute("insert into TEST_QUERY_DB_TABLE (id, name, scale, created_on) VALUES (1, 'Carrie Jones', 5.0, '2000-01-01 03:23:34.234')");
-        stmt.execute("insert into TEST_QUERY_DB_TABLE (id, name, scale, created_on) VALUES (2, NULL, 2.0, '2010-01-01 00:00:00')");
+        executeSql("create table TEST_QUERY_DB_TABLE (id integer not null, name varchar(100), scale float, created_on timestamp, bignum bigint default 0)");
+        executeSql("insert into TEST_QUERY_DB_TABLE (id, name, scale, created_on) VALUES (0, 'Joe Smith', 1.0, '1962-09-23 03:23:34.234')");
+        executeSql("insert into TEST_QUERY_DB_TABLE (id, name, scale, created_on) VALUES (1, 'Carrie Jones', 5.0, '2000-01-01 03:23:34.234')");
+        executeSql("insert into TEST_QUERY_DB_TABLE (id, name, scale, created_on) VALUES (2, NULL, 2.0, '2010-01-01 00:00:00')");
 
         runner.setProperty(GenerateTableFetch.TABLE_NAME, "TEST_QUERY_DB_TABLE");
         runner.setIncomingConnection(false);
@@ -962,22 +638,19 @@ public class TestGenerateTableFetch {
         runner.assertAllFlowFilesTransferred(REL_SUCCESS, 1);
         MockFlowFile flowFile = runner.getFlowFilesForRelationship(REL_SUCCESS).getFirst();
         String query = new String(flowFile.toByteArray());
-        assertEquals("SELECT * FROM TEST_QUERY_DB_TABLE WHERE ID > 1 AND ID <= 2 ORDER BY ID FETCH NEXT 10000 ROWS ONLY", query);
-        ResultSet resultSet = stmt.executeQuery(query);
-        // Should be one record (the initial max value skips the first two)
-        assertTrue(resultSet.next());
-        assertFalse(resultSet.next());
+        assertEquals("SELECT * FROM TEST_QUERY_DB_TABLE WHERE ID > 1 AND ID <= 2 ORDER BY ID LIMIT 10000", query);
+        assertResultsFound(query, 1);
         runner.clearTransferState();
 
-        // Run again, this time no flowfiles/rows should be transferred
+        // Run again, this time no FlowFiles/rows should be transferred
         runner.run();
         runner.assertAllFlowFilesTransferred(REL_SUCCESS, 0);
         runner.clearTransferState();
 
-        // Add 3 new rows with a higher ID and run with a partition size of 2. Two flow files should be transferred
-        stmt.execute("insert into TEST_QUERY_DB_TABLE (id, name, scale, created_on) VALUES (3, 'Mary West', 15.0, '2000-01-01 03:23:34.234')");
-        stmt.execute("insert into TEST_QUERY_DB_TABLE (id, name, scale, created_on) VALUES (4, 'Marty Johnson', 15.0, '2011-01-01 03:23:34.234')");
-        stmt.execute("insert into TEST_QUERY_DB_TABLE (id, name, scale, created_on) VALUES (5, 'Marty Johnson', 15.0, '2011-01-01 03:23:34.234')");
+        // Add 3 new rows with a higher ID and run with a partition size of 2. Two FlowFiles should be transferred
+        executeSql("insert into TEST_QUERY_DB_TABLE (id, name, scale, created_on) VALUES (3, 'Mary West', 15.0, '2000-01-01 03:23:34.234')");
+        executeSql("insert into TEST_QUERY_DB_TABLE (id, name, scale, created_on) VALUES (4, 'Marty Johnson', 15.0, '2011-01-01 03:23:34.234')");
+        executeSql("insert into TEST_QUERY_DB_TABLE (id, name, scale, created_on) VALUES (5, 'Marty Johnson', 15.0, '2011-01-01 03:23:34.234')");
         runner.setProperty(GenerateTableFetch.PARTITION_SIZE, "2");
         runner.setProperty("initial.maxvalue.ID", "5"); // This should have no effect as there is a max value in the processor state
         runner.run();
@@ -986,41 +659,23 @@ public class TestGenerateTableFetch {
         // Verify first flow file's contents
         flowFile = runner.getFlowFilesForRelationship(REL_SUCCESS).getFirst();
         query = new String(flowFile.toByteArray());
-        assertEquals("SELECT * FROM TEST_QUERY_DB_TABLE WHERE ID > 2 AND ID <= 5 ORDER BY ID FETCH NEXT 2 ROWS ONLY", query);
-        resultSet = stmt.executeQuery(query);
-        // Should be two records
-        assertTrue(resultSet.next());
-        assertTrue(resultSet.next());
-        assertFalse(resultSet.next());
+        assertEquals("SELECT * FROM TEST_QUERY_DB_TABLE WHERE ID > 2 AND ID <= 5 ORDER BY ID LIMIT 2", query);
+        assertResultsFound(query, 2);
 
         // Verify second flow file's contents
         flowFile = runner.getFlowFilesForRelationship(REL_SUCCESS).get(1);
         query = new String(flowFile.toByteArray());
-        assertEquals("SELECT * FROM TEST_QUERY_DB_TABLE WHERE ID > 2 AND ID <= 5 ORDER BY ID OFFSET 2 ROWS FETCH NEXT 2 ROWS ONLY", query);
-        resultSet = stmt.executeQuery(query);
-        // Should be one record
-        assertTrue(resultSet.next());
-        assertFalse(resultSet.next());
+        assertEquals("SELECT * FROM TEST_QUERY_DB_TABLE WHERE ID > 2 AND ID <= 5 ORDER BY ID LIMIT 2 OFFSET 2", query);
+        assertResultsFound(query, 1);
         runner.clearTransferState();
     }
 
     @Test
     public void testInitialMaxValueWithEL() throws SQLException {
-
-        // load test data to database
-        final Connection con = ((DBCPService) runner.getControllerService("dbcp")).getConnection();
-        Statement stmt = con.createStatement();
-
-        try {
-            stmt.execute("drop table TEST_QUERY_DB_TABLE");
-        } catch (final SQLException ignored) {
-            // Ignore this error, probably a "table does not exist" since Derby doesn't yet support DROP IF EXISTS [DERBY-4842]
-        }
-
-        stmt.execute("create table TEST_QUERY_DB_TABLE (id integer not null, name varchar(100), scale float, created_on timestamp, bignum bigint default 0)");
-        stmt.execute("insert into TEST_QUERY_DB_TABLE (id, name, scale, created_on) VALUES (0, 'Joe Smith', 1.0, '1962-09-23 03:23:34.234')");
-        stmt.execute("insert into TEST_QUERY_DB_TABLE (id, name, scale, created_on) VALUES (1, 'Carrie Jones', 5.0, '2000-01-01 03:23:34.234')");
-        stmt.execute("insert into TEST_QUERY_DB_TABLE (id, name, scale, created_on) VALUES (2, NULL, 2.0, '2010-01-01 00:00:00')");
+        executeSql("create table TEST_QUERY_DB_TABLE (id integer not null, name varchar(100), scale float, created_on timestamp, bignum bigint default 0)");
+        executeSql("insert into TEST_QUERY_DB_TABLE (id, name, scale, created_on) VALUES (0, 'Joe Smith', 1.0, '1962-09-23 03:23:34.234')");
+        executeSql("insert into TEST_QUERY_DB_TABLE (id, name, scale, created_on) VALUES (1, 'Carrie Jones', 5.0, '2000-01-01 03:23:34.234')");
+        executeSql("insert into TEST_QUERY_DB_TABLE (id, name, scale, created_on) VALUES (2, NULL, 2.0, '2010-01-01 00:00:00')");
 
         runner.setProperty(GenerateTableFetch.TABLE_NAME, "TEST_QUERY_DB_TABLE");
         runner.setIncomingConnection(false);
@@ -1032,14 +687,11 @@ public class TestGenerateTableFetch {
         runner.assertAllFlowFilesTransferred(REL_SUCCESS, 1);
         MockFlowFile flowFile = runner.getFlowFilesForRelationship(REL_SUCCESS).getFirst();
         String query = new String(flowFile.toByteArray());
-        assertEquals("SELECT * FROM TEST_QUERY_DB_TABLE WHERE ID > 1 AND ID <= 2 ORDER BY ID FETCH NEXT 10000 ROWS ONLY", query);
-        ResultSet resultSet = stmt.executeQuery(query);
-        // Should be one record (the initial max value skips the first two)
-        assertTrue(resultSet.next());
-        assertFalse(resultSet.next());
+        assertEquals("SELECT * FROM TEST_QUERY_DB_TABLE WHERE ID > 1 AND ID <= 2 ORDER BY ID LIMIT 10000", query);
+        assertResultsFound(query, 1);
         runner.clearTransferState();
 
-        // Run again, this time no flowfiles/rows should be transferred
+        // Run again, this time no FlowFiles/rows should be transferred
         runner.run();
         runner.assertAllFlowFilesTransferred(REL_SUCCESS, 0);
         runner.clearTransferState();
@@ -1047,21 +699,10 @@ public class TestGenerateTableFetch {
 
     @Test
     public void testInitialMaxValueWithELAndIncoming() throws SQLException {
-
-        // load test data to database
-        final Connection con = ((DBCPService) runner.getControllerService("dbcp")).getConnection();
-        Statement stmt = con.createStatement();
-
-        try {
-            stmt.execute("drop table TEST_QUERY_DB_TABLE");
-        } catch (final SQLException ignored) {
-            // Ignore this error, probably a "table does not exist" since Derby doesn't yet support DROP IF EXISTS [DERBY-4842]
-        }
-
-        stmt.execute("create table TEST_QUERY_DB_TABLE (id integer not null, name varchar(100), scale float, created_on timestamp, bignum bigint default 0)");
-        stmt.execute("insert into TEST_QUERY_DB_TABLE (id, name, scale, created_on) VALUES (0, 'Joe Smith', 1.0, '1962-09-23 03:23:34.234')");
-        stmt.execute("insert into TEST_QUERY_DB_TABLE (id, name, scale, created_on) VALUES (1, 'Carrie Jones', 5.0, '2000-01-01 03:23:34.234')");
-        stmt.execute("insert into TEST_QUERY_DB_TABLE (id, name, scale, created_on) VALUES (2, NULL, 2.0, '2010-01-01 00:00:00')");
+        executeSql("create table TEST_QUERY_DB_TABLE (id integer not null, name varchar(100), scale float, created_on timestamp, bignum bigint default 0)");
+        executeSql("insert into TEST_QUERY_DB_TABLE (id, name, scale, created_on) VALUES (0, 'Joe Smith', 1.0, '1962-09-23 03:23:34.234')");
+        executeSql("insert into TEST_QUERY_DB_TABLE (id, name, scale, created_on) VALUES (1, 'Carrie Jones', 5.0, '2000-01-01 03:23:34.234')");
+        executeSql("insert into TEST_QUERY_DB_TABLE (id, name, scale, created_on) VALUES (2, NULL, 2.0, '2010-01-01 00:00:00')");
 
         runner.setProperty(GenerateTableFetch.TABLE_NAME, "TEST_QUERY_DB_TABLE");
         runner.setProperty(GenerateTableFetch.MAX_VALUE_COLUMN_NAMES, "ID");
@@ -1073,14 +714,11 @@ public class TestGenerateTableFetch {
         runner.assertAllFlowFilesTransferred(REL_SUCCESS, 1);
         MockFlowFile flowFile = runner.getFlowFilesForRelationship(REL_SUCCESS).getFirst();
         String query = new String(flowFile.toByteArray());
-        assertEquals("SELECT * FROM TEST_QUERY_DB_TABLE WHERE ID > 1 AND ID <= 2 ORDER BY ID FETCH NEXT 10000 ROWS ONLY", query);
-        ResultSet resultSet = stmt.executeQuery(query);
-        // Should be one record (the initial max value skips the first two)
-        assertTrue(resultSet.next());
-        assertFalse(resultSet.next());
+        assertEquals("SELECT * FROM TEST_QUERY_DB_TABLE WHERE ID > 1 AND ID <= 2 ORDER BY ID LIMIT 10000", query);
+        assertResultsFound(query, 1);
         runner.clearTransferState();
 
-        // Run again, this time no flowfiles/rows should be transferred
+        // Run again, this time no FlowFiles/rows should be transferred
         runner.enqueue(new byte[0], attrs);
         runner.run();
         runner.assertAllFlowFilesTransferred(REL_SUCCESS, 0);
@@ -1089,41 +727,28 @@ public class TestGenerateTableFetch {
 
     @Test
     public void testInitialMaxValueWithELAndMultipleTables() throws SQLException {
-
-        // load test data to database
-        final Connection con = ((DBCPService) runner.getControllerService("dbcp")).getConnection();
-        Statement stmt = con.createStatement();
-
-        try {
-            stmt.execute("drop table TEST_QUERY_DB_TABLE");
-        } catch (final SQLException ignored) {
-            // Ignore this error, probably a "table does not exist" since Derby doesn't yet support DROP IF EXISTS [DERBY-4842]
-        }
-
-        stmt.execute("create table TEST_QUERY_DB_TABLE (id integer not null, name varchar(100), scale float, created_on timestamp, bignum bigint default 0)");
-        stmt.execute("insert into TEST_QUERY_DB_TABLE (id, name, scale, created_on) VALUES (0, 'Joe Smith', 1.0, '1962-09-23 03:23:34.234')");
-        stmt.execute("insert into TEST_QUERY_DB_TABLE (id, name, scale, created_on) VALUES (1, 'Carrie Jones', 5.0, '2000-01-01 03:23:34.234')");
-        stmt.execute("insert into TEST_QUERY_DB_TABLE (id, name, scale, created_on) VALUES (2, NULL, 2.0, '2010-01-01 00:00:00')");
+        executeSql("create table TEST_QUERY_DB_TABLE (id integer not null, name varchar(100), scale float, created_on timestamp, bignum bigint default 0)");
+        executeSql("insert into TEST_QUERY_DB_TABLE (id, name, scale, created_on) VALUES (0, 'Joe Smith', 1.0, '1962-09-23 03:23:34.234')");
+        executeSql("insert into TEST_QUERY_DB_TABLE (id, name, scale, created_on) VALUES (1, 'Carrie Jones', 5.0, '2000-01-01 03:23:34.234')");
+        executeSql("insert into TEST_QUERY_DB_TABLE (id, name, scale, created_on) VALUES (2, NULL, 2.0, '2010-01-01 00:00:00')");
 
         runner.setProperty(GenerateTableFetch.TABLE_NAME, "${table.name}");
         runner.setProperty(GenerateTableFetch.MAX_VALUE_COLUMN_NAMES, "ID");
         runner.setProperty("initial.maxvalue.ID", "${maxval.id}");
         Map<String, String> attrs = new HashMap<>();
         attrs.put("maxval.id", "1");
-        attrs.put("table.name", "TEST_QUERY_DB_TABLE");        runner.setIncomingConnection(true);
+        attrs.put("table.name", "TEST_QUERY_DB_TABLE");
+        runner.setIncomingConnection(true);
         runner.enqueue(new byte[0], attrs);
         runner.run();
         runner.assertAllFlowFilesTransferred(REL_SUCCESS, 1);
         MockFlowFile flowFile = runner.getFlowFilesForRelationship(REL_SUCCESS).getFirst();
         String query = new String(flowFile.toByteArray());
-        assertEquals("SELECT * FROM TEST_QUERY_DB_TABLE WHERE ID > 1 AND ID <= 2 ORDER BY ID FETCH NEXT 10000 ROWS ONLY", query);
-        ResultSet resultSet = stmt.executeQuery(query);
-        // Should be one record (the initial max value skips the first two)
-        assertTrue(resultSet.next());
-        assertFalse(resultSet.next());
+        assertEquals("SELECT * FROM TEST_QUERY_DB_TABLE WHERE ID > 1 AND ID <= 2 ORDER BY ID LIMIT 10000", query);
+        assertResultsFound(query, 1);
         runner.clearTransferState();
 
-        // Run again, this time no flowfiles/rows should be transferred
+        // Run again, this time no FlowFiles/rows should be transferred
         runner.enqueue(new byte[0], attrs);
         runner.run();
         runner.assertAllFlowFilesTransferred(REL_SUCCESS, 0);
@@ -1131,15 +756,15 @@ public class TestGenerateTableFetch {
 
         // Initial Max Value for second table
         try {
-            stmt.execute("drop table TEST_QUERY_DB_TABLE2");
+            executeSql("drop table TEST_QUERY_DB_TABLE2");
         } catch (final SQLException ignored) {
             // Ignore this error, probably a "table does not exist" since Derby doesn't yet support DROP IF EXISTS [DERBY-4842]
         }
 
-        stmt.execute("create table TEST_QUERY_DB_TABLE2 (id integer not null, name varchar(100), scale float, created_on timestamp, bignum bigint default 0)");
-        stmt.execute("insert into TEST_QUERY_DB_TABLE2 (id, name, scale, created_on) VALUES (0, 'Joe Smith', 1.0, '1962-09-23 03:23:34.234')");
-        stmt.execute("insert into TEST_QUERY_DB_TABLE2 (id, name, scale, created_on) VALUES (1, 'Carrie Jones', 5.0, '2000-01-01 03:23:34.234')");
-        stmt.execute("insert into TEST_QUERY_DB_TABLE2 (id, name, scale, created_on) VALUES (2, NULL, 2.0, '2010-01-01 00:00:00')");
+        executeSql("create table TEST_QUERY_DB_TABLE2 (id integer not null, name varchar(100), scale float, created_on timestamp, bignum bigint default 0)");
+        executeSql("insert into TEST_QUERY_DB_TABLE2 (id, name, scale, created_on) VALUES (0, 'Joe Smith', 1.0, '1962-09-23 03:23:34.234')");
+        executeSql("insert into TEST_QUERY_DB_TABLE2 (id, name, scale, created_on) VALUES (1, 'Carrie Jones', 5.0, '2000-01-01 03:23:34.234')");
+        executeSql("insert into TEST_QUERY_DB_TABLE2 (id, name, scale, created_on) VALUES (2, NULL, 2.0, '2010-01-01 00:00:00')");
 
         attrs.put("table.name", "TEST_QUERY_DB_TABLE2");
         runner.enqueue(new byte[0], attrs);
@@ -1147,14 +772,11 @@ public class TestGenerateTableFetch {
         runner.assertAllFlowFilesTransferred(REL_SUCCESS, 1);
         flowFile = runner.getFlowFilesForRelationship(REL_SUCCESS).getFirst();
         query = new String(flowFile.toByteArray());
-        assertEquals("SELECT * FROM TEST_QUERY_DB_TABLE2 WHERE ID > 1 AND ID <= 2 ORDER BY ID FETCH NEXT 10000 ROWS ONLY", query);
-        resultSet = stmt.executeQuery(query);
-        // Should be one record (the initial max value skips the first two)
-        assertTrue(resultSet.next());
-        assertFalse(resultSet.next());
+        assertEquals("SELECT * FROM TEST_QUERY_DB_TABLE2 WHERE ID > 1 AND ID <= 2 ORDER BY ID LIMIT 10000", query);
+        assertResultsFound(query, 1);
         runner.clearTransferState();
 
-        // Run again, this time no flowfiles/rows should be transferred
+        // Run again, this time no FlowFiles/rows should be transferred
         runner.enqueue(new byte[0], attrs);
         runner.run();
         runner.assertAllFlowFilesTransferred(REL_SUCCESS, 0);
@@ -1163,21 +785,10 @@ public class TestGenerateTableFetch {
 
     @Test
     public void testNoDuplicateWithRightBounded() throws SQLException {
-
-        // load test data to database
-        final Connection con = ((DBCPService) runner.getControllerService("dbcp")).getConnection();
-        Statement stmt = con.createStatement();
-
-        try {
-            stmt.execute("drop table TEST_QUERY_DB_TABLE");
-        } catch (final SQLException ignored) {
-            // Ignore this error, probably a "table does not exist" since Derby doesn't yet support DROP IF EXISTS [DERBY-4842]
-        }
-
-        stmt.execute("create table TEST_QUERY_DB_TABLE (id integer not null, name varchar(100), scale float, created_on timestamp, bignum bigint default 0)");
-        stmt.execute("insert into TEST_QUERY_DB_TABLE (id, name, scale, created_on) VALUES (0, 'Joe Smith', 1.0, '1962-09-23 03:23:34.234')");
-        stmt.execute("insert into TEST_QUERY_DB_TABLE (id, name, scale, created_on) VALUES (1, 'Carrie Jones', 5.0, '2000-01-01 03:23:34.234')");
-        stmt.execute("insert into TEST_QUERY_DB_TABLE (id, name, scale, created_on) VALUES (2, NULL, 2.0, '2010-01-01 00:00:00')");
+        executeSql("create table TEST_QUERY_DB_TABLE (id integer not null, name varchar(100), scale float, created_on timestamp, bignum bigint default 0)");
+        executeSql("insert into TEST_QUERY_DB_TABLE (id, name, scale, created_on) VALUES (0, 'Joe Smith', 1.0, '1962-09-23 03:23:34.234')");
+        executeSql("insert into TEST_QUERY_DB_TABLE (id, name, scale, created_on) VALUES (1, 'Carrie Jones', 5.0, '2000-01-01 03:23:34.234')");
+        executeSql("insert into TEST_QUERY_DB_TABLE (id, name, scale, created_on) VALUES (2, NULL, 2.0, '2010-01-01 00:00:00')");
 
         runner.setProperty(GenerateTableFetch.TABLE_NAME, "TEST_QUERY_DB_TABLE");
         runner.setIncomingConnection(false);
@@ -1189,15 +800,11 @@ public class TestGenerateTableFetch {
         String query = new String(flowFile.toByteArray());
 
         // we now insert a row before the query issued by GFT is actually executed by, let's say, ExecuteSQL processor
-        stmt.execute("insert into TEST_QUERY_DB_TABLE (id, name, scale, created_on) VALUES (3, 'Mary West', 15.0, '2000-01-01 03:23:34.234')");
-        stmt.execute("insert into TEST_QUERY_DB_TABLE (id, name, scale, created_on) VALUES (4, 'Marty Johnson', 15.0, '2011-01-01 03:23:34.234')");
-        stmt.execute("insert into TEST_QUERY_DB_TABLE (id, name, scale, created_on) VALUES (5, 'Marty Johnson', 15.0, '2011-01-01 03:23:34.234')");
+        executeSql("insert into TEST_QUERY_DB_TABLE (id, name, scale, created_on) VALUES (3, 'Mary West', 15.0, '2000-01-01 03:23:34.234')");
+        executeSql("insert into TEST_QUERY_DB_TABLE (id, name, scale, created_on) VALUES (4, 'Marty Johnson', 15.0, '2011-01-01 03:23:34.234')");
+        executeSql("insert into TEST_QUERY_DB_TABLE (id, name, scale, created_on) VALUES (5, 'Marty Johnson', 15.0, '2011-01-01 03:23:34.234')");
 
-        ResultSet resultSet = stmt.executeQuery(query);
-        int numberRecordsFirstExecution = 0; // Should be three records
-        while (resultSet.next()) {
-            numberRecordsFirstExecution++;
-        }
+        assertResultsFound(query, 3);
         runner.clearTransferState();
 
         // Run again
@@ -1206,35 +813,17 @@ public class TestGenerateTableFetch {
         flowFile = runner.getFlowFilesForRelationship(REL_SUCCESS).getFirst();
         query = new String(flowFile.toByteArray());
 
-        resultSet = stmt.executeQuery(query);
-        int numberRecordsSecondExecution = 0; // Should be three records
-        while (resultSet.next()) {
-            numberRecordsSecondExecution++;
-        }
-
-        // will fail and will be equal to 9 if right-bounded parameter is set to false.
-        assertEquals(numberRecordsFirstExecution + numberRecordsSecondExecution, 6);
+        assertResultsFound(query, 3);
 
         runner.clearTransferState();
     }
 
     @Test
     public void testAddedRowsWithCustomWhereClause() throws SQLException, IOException {
-
-        // load test data to database
-        final Connection con = ((DBCPService) runner.getControllerService("dbcp")).getConnection();
-        Statement stmt = con.createStatement();
-
-        try {
-            stmt.execute("drop table TEST_QUERY_DB_TABLE");
-        } catch (final SQLException ignored) {
-            // Ignore this error, probably a "table does not exist" since Derby doesn't yet support DROP IF EXISTS [DERBY-4842]
-        }
-
-        stmt.execute("create table TEST_QUERY_DB_TABLE (id integer not null, type varchar(20), name varchar(100), scale float, created_on timestamp, bignum bigint default 0)");
-        stmt.execute("insert into TEST_QUERY_DB_TABLE (id, type, name, scale, created_on) VALUES (0, 'male', 'Joe Smith', 1.0, '1962-09-23 03:23:34.234')");
-        stmt.execute("insert into TEST_QUERY_DB_TABLE (id, type, name, scale, created_on) VALUES (1, 'female', 'Carrie Jones', 5.0, '2000-01-01 03:23:34.234')");
-        stmt.execute("insert into TEST_QUERY_DB_TABLE (id, type, name, scale, created_on) VALUES (2, NULL, NULL, 2.0, '2010-01-01 00:00:00')");
+        executeSql("create table TEST_QUERY_DB_TABLE (id integer not null, type varchar(20), name varchar(100), scale float, created_on timestamp, bignum bigint default 0)");
+        executeSql("insert into TEST_QUERY_DB_TABLE (id, type, name, scale, created_on) VALUES (0, 'male', 'Joe Smith', 1.0, '1962-09-23 03:23:34.234')");
+        executeSql("insert into TEST_QUERY_DB_TABLE (id, type, name, scale, created_on) VALUES (1, 'female', 'Carrie Jones', 5.0, '2000-01-01 03:23:34.234')");
+        executeSql("insert into TEST_QUERY_DB_TABLE (id, type, name, scale, created_on) VALUES (2, NULL, NULL, 2.0, '2010-01-01 00:00:00')");
 
         runner.setProperty(GenerateTableFetch.TABLE_NAME, "TEST_QUERY_DB_TABLE");
         runner.setProperty(GenerateTableFetch.WHERE_CLAUSE, "type = 'male' OR type IS NULL");
@@ -1246,23 +835,19 @@ public class TestGenerateTableFetch {
         MockFlowFile flowFile = runner.getFlowFilesForRelationship(REL_SUCCESS).getFirst();
         String query = new String(flowFile.toByteArray());
         assertEquals("SELECT * FROM TEST_QUERY_DB_TABLE WHERE (type = 'male' OR type IS NULL)"
-                + " AND ID <= 2 ORDER BY ID FETCH NEXT 10000 ROWS ONLY", query);
-        ResultSet resultSet = stmt.executeQuery(query);
-        // Should be two records
-        assertTrue(resultSet.next());
-        assertTrue(resultSet.next());
-        assertFalse(resultSet.next());
+                + " AND ID <= 2 ORDER BY ID LIMIT 10000", query);
+        assertResultsFound(query, 2);
         runner.clearTransferState();
 
-        // Run again, this time no flowfiles/rows should be transferred
+        // Run again, this time no FlowFiles/rows should be transferred
         runner.run();
         runner.assertAllFlowFilesTransferred(REL_SUCCESS, 0);
         runner.clearTransferState();
 
-        // Add 3 new rows with a higher ID and run with a partition size of 2. Two flow files should be transferred
-        stmt.execute("insert into TEST_QUERY_DB_TABLE (id, type, name, scale, created_on) VALUES (3, 'female', 'Mary West', 15.0, '2000-01-01 03:23:34.234')");
-        stmt.execute("insert into TEST_QUERY_DB_TABLE (id, type, name, scale, created_on) VALUES (4, 'male', 'Marty Johnson', 15.0, '2011-01-01 03:23:34.234')");
-        stmt.execute("insert into TEST_QUERY_DB_TABLE (id, type, name, scale, created_on) VALUES (5, 'male', 'Marty Johnson', 15.0, '2011-01-01 03:23:34.234')");
+        // Add 3 new rows with a higher ID and run with a partition size of 2. Two FlowFiles should be transferred
+        executeSql("insert into TEST_QUERY_DB_TABLE (id, type, name, scale, created_on) VALUES (3, 'female', 'Mary West', 15.0, '2000-01-01 03:23:34.234')");
+        executeSql("insert into TEST_QUERY_DB_TABLE (id, type, name, scale, created_on) VALUES (4, 'male', 'Marty Johnson', 15.0, '2011-01-01 03:23:34.234')");
+        executeSql("insert into TEST_QUERY_DB_TABLE (id, type, name, scale, created_on) VALUES (5, 'male', 'Marty Johnson', 15.0, '2011-01-01 03:23:34.234')");
         runner.setProperty(GenerateTableFetch.PARTITION_SIZE, "1");
         runner.run();
         runner.assertAllFlowFilesTransferred(REL_SUCCESS, 2);
@@ -1271,35 +856,26 @@ public class TestGenerateTableFetch {
         flowFile = runner.getFlowFilesForRelationship(REL_SUCCESS).getFirst();
         query = new String(flowFile.toByteArray());
         assertEquals("SELECT * FROM TEST_QUERY_DB_TABLE WHERE ID > 2 AND (type = 'male' OR type IS NULL)"
-                + " AND ID <= 5 ORDER BY ID FETCH NEXT 1 ROWS ONLY", query);
-        resultSet = stmt.executeQuery(query);
-        // Should be one record
-        assertTrue(resultSet.next());
-        assertFalse(resultSet.next());
+                + " AND ID <= 5 ORDER BY ID LIMIT 1", query);
+        assertResultsFound(query, 1);
 
         // Verify second flow file's contents
         flowFile = runner.getFlowFilesForRelationship(REL_SUCCESS).get(1);
         query = new String(flowFile.toByteArray());
         assertEquals("SELECT * FROM TEST_QUERY_DB_TABLE WHERE ID > 2 AND (type = 'male' OR type IS NULL)"
-                + " AND ID <= 5 ORDER BY ID OFFSET 1 ROWS FETCH NEXT 1 ROWS ONLY", query);
-        resultSet = stmt.executeQuery(query);
-        // Should be one record
-        assertTrue(resultSet.next());
-        assertFalse(resultSet.next());
+                + " AND ID <= 5 ORDER BY ID LIMIT 1 OFFSET 1", query);
+        assertResultsFound(query, 1);
         runner.clearTransferState();
 
         // Add a new row with a higher ID and run, one flow file will be transferred
-        stmt.execute("insert into TEST_QUERY_DB_TABLE (id, type, name, scale, created_on) VALUES (6, 'male', 'Mr. NiFi', 1.0, '2012-01-01 03:23:34.234')");
+        executeSql("insert into TEST_QUERY_DB_TABLE (id, type, name, scale, created_on) VALUES (6, 'male', 'Mr. NiFi', 1.0, '2012-01-01 03:23:34.234')");
         runner.run();
         runner.assertAllFlowFilesTransferred(REL_SUCCESS, 1);
         flowFile = runner.getFlowFilesForRelationship(REL_SUCCESS).getFirst();
         query = new String(flowFile.toByteArray());
         assertEquals("SELECT * FROM TEST_QUERY_DB_TABLE WHERE ID > 5 AND (type = 'male' OR type IS NULL)"
-                + " AND ID <= 6 ORDER BY ID FETCH NEXT 1 ROWS ONLY", query);
-        resultSet = stmt.executeQuery(query);
-        // Should be one record
-        assertTrue(resultSet.next());
-        assertFalse(resultSet.next());
+                + " AND ID <= 6 ORDER BY ID LIMIT 1", query);
+        assertResultsFound(query, 1);
         runner.clearTransferState();
 
         // Set name as the max value column name (and clear the state), all rows should be returned since the max value for name has not been set
@@ -1310,19 +886,19 @@ public class TestGenerateTableFetch {
         runner.assertAllFlowFilesTransferred(REL_SUCCESS, 5); // 5 records with partition size 1 means 5 generated FlowFiles
         flowFile = runner.getFlowFilesForRelationship(REL_SUCCESS).get(0);
         assertEquals("SELECT id, type, name, scale, created_on FROM TEST_QUERY_DB_TABLE WHERE (type = 'male' OR type IS NULL)"
-                + " AND name <= 'Mr. NiFi' ORDER BY name FETCH NEXT 1 ROWS ONLY", new String(flowFile.toByteArray()));
+                + " AND name <= 'Mr. NiFi' ORDER BY name LIMIT 1", new String(flowFile.toByteArray()));
         flowFile = runner.getFlowFilesForRelationship(REL_SUCCESS).get(1);
         assertEquals("SELECT id, type, name, scale, created_on FROM TEST_QUERY_DB_TABLE WHERE (type = 'male' OR type IS NULL)"
-                + " AND name <= 'Mr. NiFi' ORDER BY name OFFSET 1 ROWS FETCH NEXT 1 ROWS ONLY", new String(flowFile.toByteArray()));
+                + " AND name <= 'Mr. NiFi' ORDER BY name LIMIT 1 OFFSET 1", new String(flowFile.toByteArray()));
         flowFile = runner.getFlowFilesForRelationship(REL_SUCCESS).get(2);
         assertEquals("SELECT id, type, name, scale, created_on FROM TEST_QUERY_DB_TABLE WHERE (type = 'male' OR type IS NULL)"
-                + " AND name <= 'Mr. NiFi' ORDER BY name OFFSET 2 ROWS FETCH NEXT 1 ROWS ONLY", new String(flowFile.toByteArray()));
+                + " AND name <= 'Mr. NiFi' ORDER BY name LIMIT 1 OFFSET 2", new String(flowFile.toByteArray()));
         flowFile = runner.getFlowFilesForRelationship(REL_SUCCESS).get(3);
         assertEquals("SELECT id, type, name, scale, created_on FROM TEST_QUERY_DB_TABLE WHERE (type = 'male' OR type IS NULL)"
-                + " AND name <= 'Mr. NiFi' ORDER BY name OFFSET 3 ROWS FETCH NEXT 1 ROWS ONLY", new String(flowFile.toByteArray()));
+                + " AND name <= 'Mr. NiFi' ORDER BY name LIMIT 1 OFFSET 3", new String(flowFile.toByteArray()));
         flowFile = runner.getFlowFilesForRelationship(REL_SUCCESS).get(4);
         assertEquals("SELECT id, type, name, scale, created_on FROM TEST_QUERY_DB_TABLE WHERE (type = 'male' OR type IS NULL)"
-                + " AND name <= 'Mr. NiFi' ORDER BY name OFFSET 4 ROWS FETCH NEXT 1 ROWS ONLY", new String(flowFile.toByteArray()));
+                + " AND name <= 'Mr. NiFi' ORDER BY name LIMIT 1 OFFSET 4", new String(flowFile.toByteArray()));
 
         assertEquals("TEST_QUERY_DB_TABLE", flowFile.getAttribute("generatetablefetch.tableName"));
         assertEquals("id, type, name, scale, created_on", flowFile.getAttribute("generatetablefetch.columnNames"));
@@ -1336,19 +912,9 @@ public class TestGenerateTableFetch {
 
     @Test
     public void testColumnTypeMissing() throws SQLException {
-        // Load test data to database
-        final Connection con = ((DBCPService) runner.getControllerService("dbcp")).getConnection();
-        Statement stmt = con.createStatement();
-
-        try {
-            stmt.execute("drop table TEST_QUERY_DB_TABLE");
-        } catch (final SQLException ignored) {
-            // Ignore this error, probably a "table does not exist" since Derby doesn't yet support DROP IF EXISTS [DERBY-4842]
-        }
-
-        stmt.execute("create table TEST_QUERY_DB_TABLE (id integer not null, bucket integer not null)");
-        stmt.execute("insert into TEST_QUERY_DB_TABLE (id, bucket) VALUES (0, 0)");
-        stmt.execute("insert into TEST_QUERY_DB_TABLE (id, bucket) VALUES (1, 0)");
+        executeSql("create table TEST_QUERY_DB_TABLE (id integer not null, bucket integer not null)");
+        executeSql("insert into TEST_QUERY_DB_TABLE (id, bucket) VALUES (0, 0)");
+        executeSql("insert into TEST_QUERY_DB_TABLE (id, bucket) VALUES (1, 0)");
 
         runner.setProperty(GenerateTableFetch.TABLE_NAME, "TEST_QUERY_DB_TABLE");
         runner.setIncomingConnection(true);
@@ -1361,15 +927,11 @@ public class TestGenerateTableFetch {
         runner.assertAllFlowFilesTransferred(REL_SUCCESS, 1);
         MockFlowFile flowFile = runner.getFlowFilesForRelationship(REL_SUCCESS).getFirst();
         String query = new String(flowFile.toByteArray());
-        assertEquals("SELECT * FROM TEST_QUERY_DB_TABLE WHERE id <= 1 ORDER BY id FETCH NEXT 10000 ROWS ONLY", query);
+        assertEquals("SELECT * FROM TEST_QUERY_DB_TABLE WHERE id <= 1 ORDER BY id LIMIT 10000", query);
         runner.clearTransferState();
 
-
-        // Clear columnTypeMap to simulate it's clean after instance reboot
-        processor.columnTypeMap.clear();
-
         // Insert new records
-        stmt.execute("insert into TEST_QUERY_DB_TABLE (id, bucket) VALUES (2, 0)");
+        executeSql("insert into TEST_QUERY_DB_TABLE (id, bucket) VALUES (2, 0)");
 
         // Re-launch FlowFile to se if re-cache column type works
         runner.enqueue("".getBytes(), Map.of("tableName", "TEST_QUERY_DB_TABLE", "maxValueCol", "id"));
@@ -1379,29 +941,16 @@ public class TestGenerateTableFetch {
         runner.assertAllFlowFilesTransferred(REL_SUCCESS, 1);
         flowFile = runner.getFlowFilesForRelationship(REL_SUCCESS).getFirst();
         query = new String(flowFile.toByteArray());
-        assertEquals("SELECT * FROM TEST_QUERY_DB_TABLE WHERE id > 1 AND id <= 2 ORDER BY id FETCH NEXT 10000 ROWS ONLY", query);
+        assertEquals("SELECT * FROM TEST_QUERY_DB_TABLE WHERE id > 1 AND id <= 2 ORDER BY id LIMIT 10000", query);
         runner.clearTransferState();
     }
 
     @Test
     public void testMultipleColumnTypeMissing() throws SQLException {
-
-        // Load test data to database
-        final Connection con = ((DBCPService) runner.getControllerService("dbcp")).getConnection();
-        Statement stmt = con.createStatement();
-
-        try {
-            stmt.execute("drop table TEST_QUERY_DB_TABLE");
-            stmt.execute("drop table TEST_QUERY_DB_TABLE_2");
-        } catch (final SQLException ignored) {
-            // Ignore this error, probably a "table does not exist" since Derby doesn't yet support DROP IF EXISTS [DERBY-4842]
-        }
-
-        // Create multiple table to invoke processor state stored
-        stmt.execute("create table TEST_QUERY_DB_TABLE (id integer not null, bucket integer not null)");
-        stmt.execute("insert into TEST_QUERY_DB_TABLE (id, bucket) VALUES (1, 0)");
-        stmt.execute("create table TEST_QUERY_DB_TABLE_2 (id integer not null, bucket integer not null)");
-        stmt.execute("insert into TEST_QUERY_DB_TABLE_2 (id, bucket) VALUES (1, 0)");
+        executeSql("create table TEST_QUERY_DB_TABLE (id integer not null, bucket integer not null)");
+        executeSql("insert into TEST_QUERY_DB_TABLE (id, bucket) VALUES (1, 0)");
+        executeSql("create table TEST_QUERY_DB_TABLE_2 (id integer not null, bucket integer not null)");
+        executeSql("insert into TEST_QUERY_DB_TABLE_2 (id, bucket) VALUES (1, 0)");
 
         runner.setProperty(GenerateTableFetch.TABLE_NAME, "${tableName}");
         runner.setIncomingConnection(true);
@@ -1413,15 +962,10 @@ public class TestGenerateTableFetch {
         runner.run(2);
         runner.assertAllFlowFilesTransferred(REL_SUCCESS, 2);
 
-        assertEquals(2, processor.columnTypeMap.size());
         runner.clearTransferState();
 
-
-        // Remove one element from columnTypeMap to simulate it's re-cache partial state
-        processor.columnTypeMap.remove("TEST_QUERY_DB_TABLE");
-
         // Insert new records
-        stmt.execute("insert into TEST_QUERY_DB_TABLE (id, bucket) VALUES (2, 0)");
+        executeSql("insert into TEST_QUERY_DB_TABLE (id, bucket) VALUES (2, 0)");
 
         // Re-launch FlowFile to se if re-cache column type works
         runner.enqueue("".getBytes(), Map.of("tableName", "TEST_QUERY_DB_TABLE", "maxValueCol", "id"));
@@ -1429,27 +973,15 @@ public class TestGenerateTableFetch {
         // It should re-cache column type
         runner.run();
         runner.assertAllFlowFilesTransferred(REL_SUCCESS, 1);
-        assertEquals(2, processor.columnTypeMap.size());
         runner.clearTransferState();
     }
 
     @Test
     public void testUseColumnValuesForPartitioning() throws SQLException {
-
-        // load test data to database
-        final Connection con = ((DBCPService) runner.getControllerService("dbcp")).getConnection();
-        Statement stmt = con.createStatement();
-
-        try {
-            stmt.execute("drop table TEST_QUERY_DB_TABLE");
-        } catch (final SQLException ignored) {
-            // Ignore this error, probably a "table does not exist" since Derby doesn't yet support DROP IF EXISTS [DERBY-4842]
-        }
-
-        stmt.execute("create table TEST_QUERY_DB_TABLE (id integer not null, name varchar(100), scale float, created_on timestamp, bignum bigint default 0)");
-        stmt.execute("insert into TEST_QUERY_DB_TABLE (id, name, scale, created_on) VALUES (10, 'Joe Smith', 1.0, '1962-09-23 03:23:34.234')");
-        stmt.execute("insert into TEST_QUERY_DB_TABLE (id, name, scale, created_on) VALUES (11, 'Carrie Jones', 5.0, '2000-01-01 03:23:34.234')");
-        stmt.execute("insert into TEST_QUERY_DB_TABLE (id, name, scale, created_on) VALUES (12, NULL, 2.0, '2010-01-01 00:00:00')");
+        executeSql("create table TEST_QUERY_DB_TABLE (id integer not null, name varchar(100), scale float, created_on timestamp, bignum bigint default 0)");
+        executeSql("insert into TEST_QUERY_DB_TABLE (id, name, scale, created_on) VALUES (10, 'Joe Smith', 1.0, '1962-09-23 03:23:34.234')");
+        executeSql("insert into TEST_QUERY_DB_TABLE (id, name, scale, created_on) VALUES (11, 'Carrie Jones', 5.0, '2000-01-01 03:23:34.234')");
+        executeSql("insert into TEST_QUERY_DB_TABLE (id, name, scale, created_on) VALUES (12, NULL, 2.0, '2010-01-01 00:00:00')");
 
         runner.setProperty(GenerateTableFetch.TABLE_NAME, "TEST_QUERY_DB_TABLE");
         runner.setIncomingConnection(false);
@@ -1463,30 +995,23 @@ public class TestGenerateTableFetch {
         MockFlowFile flowFile = runner.getFlowFilesForRelationship(REL_SUCCESS).getFirst();
         String query = new String(flowFile.toByteArray());
         assertEquals("SELECT * FROM TEST_QUERY_DB_TABLE WHERE ID <= 12 AND ID >= 10 AND ID < 12", query);
-        ResultSet resultSet = stmt.executeQuery(query);
-        // Should be two records
-        assertTrue(resultSet.next());
-        assertTrue(resultSet.next());
-        assertFalse(resultSet.next());
+        assertResultsFound(query, 2);
         // Second flow file
         flowFile = runner.getFlowFilesForRelationship(REL_SUCCESS).get(1);
         query = new String(flowFile.toByteArray());
         assertEquals("SELECT * FROM TEST_QUERY_DB_TABLE WHERE ID <= 12 AND ID >= 12 AND ID < 14", query);
-        resultSet = stmt.executeQuery(query);
-        // Should be one record
-        assertTrue(resultSet.next());
-        assertFalse(resultSet.next());
+        assertResultsFound(query, 1);
         runner.clearTransferState();
 
-        // Run again, this time no flowfiles/rows should be transferred
+        // Run again, this time no FlowFiles/rows should be transferred
         runner.run();
         runner.assertAllFlowFilesTransferred(REL_SUCCESS, 0);
         runner.clearTransferState();
 
-        // Add 3 new rows with a higher ID and run with a partition size of 2. Three flow files should be transferred
-        stmt.execute("insert into TEST_QUERY_DB_TABLE (id, name, scale, created_on) VALUES (20, 'Mary West', 15.0, '2000-01-01 03:23:34.234')");
-        stmt.execute("insert into TEST_QUERY_DB_TABLE (id, name, scale, created_on) VALUES (21, 'Marty Johnson', 15.0, '2011-01-01 03:23:34.234')");
-        stmt.execute("insert into TEST_QUERY_DB_TABLE (id, name, scale, created_on) VALUES (24, 'Marty Johnson', 15.0, '2011-01-01 03:23:34.234')");
+        // Add 3 new rows with a higher ID and run with a partition size of 2. Three FlowFiles should be transferred
+        executeSql("insert into TEST_QUERY_DB_TABLE (id, name, scale, created_on) VALUES (20, 'Mary West', 15.0, '2000-01-01 03:23:34.234')");
+        executeSql("insert into TEST_QUERY_DB_TABLE (id, name, scale, created_on) VALUES (21, 'Marty Johnson', 15.0, '2011-01-01 03:23:34.234')");
+        executeSql("insert into TEST_QUERY_DB_TABLE (id, name, scale, created_on) VALUES (24, 'Marty Johnson', 15.0, '2011-01-01 03:23:34.234')");
         runner.run();
         runner.assertAllFlowFilesTransferred(REL_SUCCESS, 3);
 
@@ -1494,48 +1019,28 @@ public class TestGenerateTableFetch {
         flowFile = runner.getFlowFilesForRelationship(REL_SUCCESS).getFirst();
         query = new String(flowFile.toByteArray());
         assertEquals("SELECT * FROM TEST_QUERY_DB_TABLE WHERE ID > 12 AND ID <= 24 AND ID >= 20 AND ID < 22", query);
-        resultSet = stmt.executeQuery(query);
-        // Should be two records
-        assertTrue(resultSet.next());
-        assertTrue(resultSet.next());
-        assertFalse(resultSet.next());
+        assertResultsFound(query, 2);
 
         // Verify second flow file's contents
         flowFile = runner.getFlowFilesForRelationship(REL_SUCCESS).get(1);
         query = new String(flowFile.toByteArray());
         assertEquals("SELECT * FROM TEST_QUERY_DB_TABLE WHERE ID > 12 AND ID <= 24 AND ID >= 22 AND ID < 24", query);
-        resultSet = stmt.executeQuery(query);
-        // Should be no records
-        assertFalse(resultSet.next());
+        assertResultsFound(query, 0);
 
         // Verify third flow file's contents
         flowFile = runner.getFlowFilesForRelationship(REL_SUCCESS).get(2);
         query = new String(flowFile.toByteArray());
         assertEquals("SELECT * FROM TEST_QUERY_DB_TABLE WHERE ID > 12 AND ID <= 24 AND ID >= 24 AND ID < 26", query);
-        resultSet = stmt.executeQuery(query);
-        // Should be one record
-        assertTrue(resultSet.next());
-        assertFalse(resultSet.next());
+        assertResultsFound(query, 1);
         runner.clearTransferState();
     }
 
     @Test
     public void testUseColumnValuesForPartitioningNoMaxValueColumn() throws SQLException {
-
-        // load test data to database
-        final Connection con = ((DBCPService) runner.getControllerService("dbcp")).getConnection();
-        Statement stmt = con.createStatement();
-
-        try {
-            stmt.execute("drop table TEST_QUERY_DB_TABLE");
-        } catch (final SQLException ignored) {
-            // Ignore this error, probably a "table does not exist" since Derby doesn't yet support DROP IF EXISTS [DERBY-4842]
-        }
-
-        stmt.execute("create table TEST_QUERY_DB_TABLE (id integer not null, name varchar(100), scale float, created_on timestamp, bignum bigint default 0)");
-        stmt.execute("insert into TEST_QUERY_DB_TABLE (id, name, scale, created_on) VALUES (10, 'Joe Smith', 1.0, '1962-09-23 03:23:34.234')");
-        stmt.execute("insert into TEST_QUERY_DB_TABLE (id, name, scale, created_on) VALUES (11, 'Carrie Jones', 5.0, '2000-01-01 03:23:34.234')");
-        stmt.execute("insert into TEST_QUERY_DB_TABLE (id, name, scale, created_on) VALUES (12, NULL, 2.0, '2010-01-01 00:00:00')");
+        executeSql("create table TEST_QUERY_DB_TABLE (id integer not null, name varchar(100), scale float, created_on timestamp, bignum bigint default 0)");
+        executeSql("insert into TEST_QUERY_DB_TABLE (id, name, scale, created_on) VALUES (10, 'Joe Smith', 1.0, '1962-09-23 03:23:34.234')");
+        executeSql("insert into TEST_QUERY_DB_TABLE (id, name, scale, created_on) VALUES (11, 'Carrie Jones', 5.0, '2000-01-01 03:23:34.234')");
+        executeSql("insert into TEST_QUERY_DB_TABLE (id, name, scale, created_on) VALUES (12, NULL, 2.0, '2010-01-01 00:00:00')");
 
         runner.setProperty(GenerateTableFetch.TABLE_NAME, "TEST_QUERY_DB_TABLE");
         runner.setIncomingConnection(false);
@@ -1548,22 +1053,16 @@ public class TestGenerateTableFetch {
         MockFlowFile flowFile = runner.getFlowFilesForRelationship(REL_SUCCESS).getFirst();
         String query = new String(flowFile.toByteArray());
         assertEquals("SELECT * FROM TEST_QUERY_DB_TABLE WHERE 1=1 AND ID >= 10 AND ID < 12", query);
-        ResultSet resultSet = stmt.executeQuery(query);
-        // Should be two records
-        assertTrue(resultSet.next());
-        assertTrue(resultSet.next());
-        assertFalse(resultSet.next());
+        assertResultsFound(query, 2);
+
         // Second flow file
         flowFile = runner.getFlowFilesForRelationship(REL_SUCCESS).get(1);
         query = new String(flowFile.toByteArray());
         assertEquals("SELECT * FROM TEST_QUERY_DB_TABLE WHERE ID <= 12 AND ID >= 12", query);
-        resultSet = stmt.executeQuery(query);
-        // Should be one record
-        assertTrue(resultSet.next());
-        assertFalse(resultSet.next());
+        assertResultsFound(query, 1);
         runner.clearTransferState();
 
-        // Run again, the same flowfiles should be transferred as we have no maximum-value column
+        // Run again, the same FlowFiles should be transferred as we have no maximum-value column
         runner.run();
         runner.assertAllFlowFilesTransferred(REL_SUCCESS, 2);
         runner.clearTransferState();
@@ -1571,21 +1070,10 @@ public class TestGenerateTableFetch {
 
     @Test
     public void testCustomOrderByColumn() throws SQLException {
-
-        // load test data to database
-        final Connection con = ((DBCPService) runner.getControllerService("dbcp")).getConnection();
-        Statement stmt = con.createStatement();
-
-        try {
-            stmt.execute("drop table TEST_QUERY_DB_TABLE");
-        } catch (final SQLException ignored) {
-            // Ignore this error, probably a "table does not exist" since Derby doesn't yet support DROP IF EXISTS [DERBY-4842]
-        }
-
-        stmt.execute("create table TEST_QUERY_DB_TABLE (id integer not null, name varchar(100), scale float, created_on timestamp, bignum bigint default 0)");
-        stmt.execute("insert into TEST_QUERY_DB_TABLE (id, name, scale, created_on) VALUES (0, 'Joe Smith', 1.0, '1962-09-23 03:23:34.234')");
-        stmt.execute("insert into TEST_QUERY_DB_TABLE (id, name, scale, created_on) VALUES (1, 'Carrie Jones', 5.0, '2000-01-01 03:23:34.234')");
-        stmt.execute("insert into TEST_QUERY_DB_TABLE (id, name, scale, created_on) VALUES (2, NULL, 2.0, '2010-01-01 00:00:00')");
+        executeSql("create table TEST_QUERY_DB_TABLE (id integer not null, name varchar(100), scale float, created_on timestamp, bignum bigint default 0)");
+        executeSql("insert into TEST_QUERY_DB_TABLE (id, name, scale, created_on) VALUES (0, 'Joe Smith', 1.0, '1962-09-23 03:23:34.234')");
+        executeSql("insert into TEST_QUERY_DB_TABLE (id, name, scale, created_on) VALUES (1, 'Carrie Jones', 5.0, '2000-01-01 03:23:34.234')");
+        executeSql("insert into TEST_QUERY_DB_TABLE (id, name, scale, created_on) VALUES (2, NULL, 2.0, '2010-01-01 00:00:00')");
 
         runner.setProperty(GenerateTableFetch.TABLE_NAME, "TEST_QUERY_DB_TABLE");
         runner.setIncomingConnection(false);
@@ -1596,46 +1084,48 @@ public class TestGenerateTableFetch {
         runner.assertAllFlowFilesTransferred(REL_SUCCESS, 2);
         MockFlowFile flowFile = runner.getFlowFilesForRelationship(REL_SUCCESS).getFirst();
         String query = new String(flowFile.toByteArray());
-        assertEquals("SELECT * FROM TEST_QUERY_DB_TABLE WHERE 1=1 ORDER BY SCALE FETCH NEXT 2 ROWS ONLY", query);
+        assertEquals("SELECT * FROM TEST_QUERY_DB_TABLE WHERE 1=1 ORDER BY SCALE LIMIT 2", query);
         flowFile.assertAttributeEquals(FRAGMENT_INDEX, "0");
         flowFile.assertAttributeEquals(FRAGMENT_COUNT, "2");
-        ResultSet resultSet = stmt.executeQuery(query);
-        // Should be two records
-        assertTrue(resultSet.next());
-        assertTrue(resultSet.next());
-        assertFalse(resultSet.next());
+        assertResultsFound(query, 2);
 
         flowFile = runner.getFlowFilesForRelationship(REL_SUCCESS).get(1);
         query = new String(flowFile.toByteArray());
-        assertEquals("SELECT * FROM TEST_QUERY_DB_TABLE WHERE 1=1 ORDER BY SCALE OFFSET 2 ROWS FETCH NEXT 2 ROWS ONLY", query);
+        assertEquals("SELECT * FROM TEST_QUERY_DB_TABLE WHERE 1=1 ORDER BY SCALE LIMIT 2 OFFSET 2", query);
         flowFile.assertAttributeEquals(FRAGMENT_INDEX, "1");
         flowFile.assertAttributeEquals(FRAGMENT_COUNT, "2");
-        resultSet = stmt.executeQuery(query);
-        // Should be one record
-        assertTrue(resultSet.next());
-        assertFalse(resultSet.next());
+        assertResultsFound(query, 1);
 
         runner.clearTransferState();
     }
 
-    /**
-     * Simple implementation only for GenerateTableFetch processor testing.
-     */
-    private class DBCPServiceSimpleImpl extends AbstractControllerService implements DBCPService {
+    @Test
+    void testMigrateProperties() {
+        final Map<String, String> expectedRenamed = Map.ofEntries(
+                Map.entry("db-fetch-db-type", AbstractDatabaseFetchProcessor.DB_TYPE.getName()),
+                Map.entry("db-fetch-where-clause", AbstractDatabaseFetchProcessor.WHERE_CLAUSE.getName()),
+                Map.entry("db-fetch-sql-query", AbstractDatabaseFetchProcessor.SQL_QUERY.getName()),
+                Map.entry("gen-table-fetch-partition-size", GenerateTableFetch.PARTITION_SIZE.getName()),
+                Map.entry("gen-table-column-for-val-partitioning", GenerateTableFetch.COLUMN_FOR_VALUE_PARTITIONING.getName()),
+                Map.entry("gen-table-output-flowfile-on-zero-results", GenerateTableFetch.OUTPUT_EMPTY_FLOWFILE_ON_ZERO_RESULTS.getName()),
+                Map.entry("gen-table-custom-orderby-column", GenerateTableFetch.CUSTOM_ORDERBY_COLUMN.getName())
+        );
 
-        @Override
-        public String getIdentifier() {
-            return "dbcp";
-        }
+        final PropertyMigrationResult propertyMigrationResult = runner.migrateProperties();
+        assertEquals(expectedRenamed, propertyMigrationResult.getPropertiesRenamed());
+    }
 
-        @Override
-        public Connection getConnection() throws ProcessException {
-            try {
-                Class.forName("org.apache.derby.jdbc.EmbeddedDriver");
-                return DriverManager.getConnection("jdbc:derby:" + DB_LOCATION + ";create=true");
-            } catch (final Exception e) {
-                throw new ProcessException("getConnection failed: " + e);
+    private void assertResultsFound(final String query, final int results) throws SQLException {
+        int resultsFound = 0;
+        try (
+                Connection connection = getConnection();
+                Statement statement = connection.createStatement();
+                ResultSet resultSet = statement.executeQuery(query)
+        ) {
+            while (resultSet.next()) {
+                resultsFound++;
             }
         }
+        assertEquals(results, resultsFound);
     }
 }

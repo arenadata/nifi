@@ -82,7 +82,7 @@ public class TestRemoteProcessGroupAuditor {
         // Setup updatedRPG mock based on inputRPGDTO.
         final RemoteProcessGroup updatedRPG = mock(RemoteProcessGroup.class);
         when(updatedRPG.getIdentifier()).thenReturn(remoteProcessGroupId);
-        when(updatedRPG.isTransmitting()).thenReturn(inputRPGDTO.isTransmitting());
+        when(updatedRPG.isConfiguredToTransmit()).thenReturn(inputRPGDTO.isTransmitting());
         when(updatedRPG.getCommunicationsTimeout()).thenReturn(inputRPGDTO.getCommunicationsTimeout());
         when(updatedRPG.getYieldDuration()).thenReturn(inputRPGDTO.getYieldDuration());
         when(updatedRPG.getTransportProtocol())
@@ -106,7 +106,6 @@ public class TestRemoteProcessGroupAuditor {
         auditor.setAuditService(auditService);
 
         auditor.auditUpdateProcessGroupConfiguration(joinPoint, inputRPGDTO, remoteProcessGroupDAO);
-
 
         final Collection<Action> actions = addedActions.get();
 
@@ -313,7 +312,6 @@ public class TestRemoteProcessGroupAuditor {
 
     }
 
-
     @Test
     public void testConfigureProxyPortClear() throws Throwable {
 
@@ -454,7 +452,6 @@ public class TestRemoteProcessGroupAuditor {
         auditor.setAuditService(auditService);
 
         auditor.auditUpdateProcessGroupInputPortConfiguration(joinPoint, remoteProcessGroupId, inputRPGPortDTO, remoteProcessGroupDAO);
-
 
         final Collection<Action> actions = addedActions.get();
 

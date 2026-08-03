@@ -16,15 +16,19 @@
  */
 package org.apache.nifi.controller;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.DeserializationFeature;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.apache.commons.lang3.builder.HashCodeBuilder;
 import org.apache.nifi.annotation.behavior.InputRequirement.Requirement;
-import org.apache.nifi.annotation.behavior.Restricted;
 import org.apache.nifi.annotation.behavior.SideEffectFree;
 import org.apache.nifi.annotation.behavior.TriggerWhenAnyDestinationAvailable;
 import org.apache.nifi.annotation.behavior.TriggerWhenEmpty;
 import org.apache.nifi.annotation.configuration.DefaultSchedule;
 import org.apache.nifi.annotation.documentation.DeprecationNotice;
 import org.apache.nifi.annotation.lifecycle.OnConfigurationRestored;
+import org.apache.nifi.annotation.lifecycle.OnRemoved;
 import org.apache.nifi.annotation.lifecycle.OnScheduled;
 import org.apache.nifi.annotation.lifecycle.OnStopped;
 import org.apache.nifi.annotation.lifecycle.OnUnscheduled;
@@ -42,12 +46,19 @@ import org.apache.nifi.components.ConfigurableComponent;
 import org.apache.nifi.components.PropertyDescriptor;
 import org.apache.nifi.components.ValidationContext;
 import org.apache.nifi.components.ValidationResult;
+import org.apache.nifi.components.connector.InvocationFailedException;
+import org.apache.nifi.components.connector.components.ComponentState;
+import org.apache.nifi.components.connector.components.ConnectorMethod;
+import org.apache.nifi.components.connector.components.MethodArgument;
 import org.apache.nifi.components.validation.ValidationState;
 import org.apache.nifi.components.validation.ValidationStatus;
 import org.apache.nifi.components.validation.ValidationTrigger;
+import org.apache.nifi.components.validation.VerifiableComponentFactory;
 import org.apache.nifi.connectable.Connectable;
+import org.apache.nifi.connectable.ConnectableFlowFileActivity;
 import org.apache.nifi.connectable.ConnectableType;
 import org.apache.nifi.connectable.Connection;
+import org.apache.nifi.connectable.FlowFileActivity;
 import org.apache.nifi.connectable.Position;
 import org.apache.nifi.controller.exception.ProcessorInstantiationException;
 import org.apache.nifi.controller.scheduling.LifecycleState;
@@ -134,7 +145,9 @@ import java.util.stream.Stream;
 public class StandardProcessorNode extends ProcessorNode implements Connectable {
 
     private static final Logger LOG = LoggerFactory.getLogger(StandardProcessorNode.class);
-
+    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper()
+        .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false)
+        .setDefaultPropertyInclusion(JsonInclude.Include.NON_NULL);
 
     public static final TimeUnit DEFAULT_TIME_UNIT = TimeUnit.MILLISECONDS;
     public static final String DEFAULT_YIELD_PERIOD = "1 sec";
@@ -160,6 +173,7 @@ public class StandardProcessorNode extends ProcessorNode implements Connectable 
     private final AtomicLong schedulingNanos;
     private final AtomicReference<String> versionedComponentId = new AtomicReference<>();
     private final ProcessScheduler processScheduler;
+    private final VerifiableComponentFactory verifiableComponentFactory;
     private long runNanos = 0L;
     private volatile long yieldNanos;
     private volatile ScheduledState desiredState = ScheduledState.STOPPED;
@@ -178,26 +192,30 @@ public class StandardProcessorNode extends ProcessorNode implements Connectable 
     private volatile BackoffMechanism backoffMechanism;
     private volatile String maxBackoffPeriod;
 
+    private final ConnectableFlowFileActivity flowFileActivity = new ConnectableFlowFileActivity();
+
     public StandardProcessorNode(final LoggableComponent<Processor> processor, final String uuid,
                                  final ValidationContextFactory validationContextFactory, final ProcessScheduler scheduler,
                                  final ControllerServiceProvider controllerServiceProvider, final ReloadComponent reloadComponent,
-                                 final ExtensionManager extensionManager, final ValidationTrigger validationTrigger) {
+                                 final VerifiableComponentFactory verifiableComponentFactory, final ExtensionManager extensionManager,
+                                 final ValidationTrigger validationTrigger) {
 
         this(processor, uuid, validationContextFactory, scheduler, controllerServiceProvider, processor.getComponent().getClass().getSimpleName(),
-            processor.getComponent().getClass().getCanonicalName(), reloadComponent, extensionManager, validationTrigger, false);
+            processor.getComponent().getClass().getCanonicalName(), reloadComponent, verifiableComponentFactory, extensionManager, validationTrigger, false);
     }
 
     public StandardProcessorNode(final LoggableComponent<Processor> processor, final String uuid,
                                  final ValidationContextFactory validationContextFactory, final ProcessScheduler scheduler,
                                  final ControllerServiceProvider controllerServiceProvider, final String componentType, final String componentCanonicalClass,
-                                 final ReloadComponent reloadComponent, final ExtensionManager extensionManager, final ValidationTrigger validationTrigger,
-                                 final boolean isExtensionMissing) {
+                                 final ReloadComponent reloadComponent, final VerifiableComponentFactory verifiableComponentFactory, final ExtensionManager extensionManager,
+                                 final ValidationTrigger validationTrigger, final boolean isExtensionMissing) {
 
         super(uuid, validationContextFactory, controllerServiceProvider, componentType, componentCanonicalClass, reloadComponent,
                 extensionManager, validationTrigger, isExtensionMissing);
 
         final ProcessorDetails processorDetails = new ProcessorDetails(processor);
         this.processorRef = new AtomicReference<>(processorDetails);
+        this.verifiableComponentFactory = verifiableComponentFactory;
 
         identifier = uuid;
         destinations = new ConcurrentHashMap<>();
@@ -272,11 +290,6 @@ public class StandardProcessorNode extends ProcessorNode implements Connectable 
     @Override
     public Resource getResource() {
         return ResourceFactory.getComponentResource(ResourceType.Processor, getIdentifier(), getName());
-    }
-
-    @Override
-    public boolean isRestricted() {
-        return getProcessor().getClass().isAnnotationPresent(Restricted.class);
     }
 
     @Override
@@ -422,7 +435,6 @@ public class StandardProcessorNode extends ProcessorNode implements Connectable 
 
         return Collections.unmodifiableSet(relationships);
     }
-
 
     @Override
     public synchronized void setName(final String name) {
@@ -895,7 +907,6 @@ public class StandardProcessorNode extends ProcessorNode implements Connectable 
         return nonSelfDestinations;
     }
 
-
     public Set<Relationship> getUndefinedRelationships() {
         final Set<Relationship> undefined = new HashSet<>();
         final Set<Relationship> relationships;
@@ -977,7 +988,9 @@ public class StandardProcessorNode extends ProcessorNode implements Connectable 
     }
 
     @Override
-    public List<ConfigVerificationResult> verifyConfiguration(final ProcessContext context, final ComponentLog logger, final Map<String, String> attributes, final ExtensionManager extensionManager) {
+    public List<ConfigVerificationResult> verifyConfiguration(final ProcessContext context, final ComponentLog logger, final Map<String, String> attributes, final ExtensionManager extensionManager,
+            final ParameterLookup parameterLookup) {
+
         final List<ConfigVerificationResult> results = new ArrayList<>();
 
         try {
@@ -985,7 +998,7 @@ public class StandardProcessorNode extends ProcessorNode implements Connectable 
 
             final long startNanos = System.nanoTime();
             // Call super's verifyConfig, which will perform component validation
-            results.addAll(super.verifyConfig(context.getProperties(), context.getAnnotationData(), getProcessGroup().getParameterContext()));
+            results.addAll(super.verifyConfig(context.getProperties(), context.getAnnotationData(), parameterLookup));
             final long validationComplete = System.nanoTime();
 
             // If any invalid outcomes from validation, we do not want to perform additional verification, because we only run additional verification when the component is valid.
@@ -1002,7 +1015,8 @@ public class StandardProcessorNode extends ProcessorNode implements Connectable 
                 // Check if the given configuration requires a different classloader than the current configuration
                 final boolean classpathDifferent = isClasspathDifferent(context.getProperties());
 
-                if (classpathDifferent) {
+                if (classpathDifferent || isReloadAdditionalResourcesNecessary()) {
+                    LOG.debug("Classpath reload required. Create temporary InstanceClassLoader for verification");
                     // Create a classloader for the given configuration and use that to verify the component's configuration
                     final Bundle bundle = extensionManager.getBundle(getBundleCoordinate());
                     final Set<URL> classpathUrls = getAdditionalClasspathResources(context.getProperties().keySet(), descriptor -> context.getProperty(descriptor).getValue());
@@ -1010,10 +1024,15 @@ public class StandardProcessorNode extends ProcessorNode implements Connectable 
                     final String classloaderIsolationKey = getClassLoaderIsolationKey(context);
 
                     final ClassLoader currentClassLoader = Thread.currentThread().getContextClassLoader();
-                    try (final InstanceClassLoader detectedClassLoader = extensionManager.createInstanceClassLoader(getComponentType(), getIdentifier(), bundle, classpathUrls, false,
+                    try (final InstanceClassLoader detectedClassLoader = extensionManager.createInstanceClassLoader(getCanonicalClassName(), getIdentifier(), bundle, classpathUrls, false,
                                 classloaderIsolationKey)) {
                         Thread.currentThread().setContextClassLoader(detectedClassLoader);
-                        results.addAll(verifiable.verify(context, logger, attributes));
+                        final VerifiableProcessor tempVerifiable = verifiableComponentFactory.createProcessor(this, detectedClassLoader);
+                        try {
+                            results.addAll(tempVerifiable.verify(context, logger, attributes));
+                        } finally {
+                            ReflectionUtils.quietlyInvokeMethodsWithAnnotation(OnRemoved.class, tempVerifiable, context);
+                        }
                     } finally {
                         Thread.currentThread().setContextClassLoader(currentClassLoader);
                     }
@@ -1113,89 +1132,88 @@ public class StandardProcessorNode extends ProcessorNode implements Connectable 
     }
 
     @Override
-    public List<ValidationResult> validateConfig() {
+    public List<ValidationResult> validateConfig(final ValidationContext validationContext) {
 
         final List<ValidationResult> results = new ArrayList<>();
-        final ParameterContext parameterContext = getParameterContext();
 
-        if (parameterContext == null && !this.parameterReferences.isEmpty()) {
-            results.add(new ValidationResult.Builder()
-                    .subject(RUN_SCHEDULE)
-                    .input("Parameter Context")
-                    .valid(false)
-                    .explanation("Processor configuration references one or more Parameters but no Parameter Context is currently set on the Process Group.")
-                    .build());
-        } else {
-            for (final ParameterReference paramRef : parameterReferences) {
-                final Optional<Parameter> parameterRef = parameterContext.getParameter(paramRef.getParameterName());
-                if (!parameterRef.isPresent() ) {
-                    results.add(new ValidationResult.Builder()
-                            .subject(RUN_SCHEDULE)
-                            .input(paramRef.getParameterName())
-                            .valid(false)
-                            .explanation("Processor configuration references Parameter '" + paramRef.getParameterName() +
-                                    "' but the currently selected Parameter Context does not have a Parameter with that name")
-                            .build());
-                } else {
-                    final ParameterDescriptor parameterDescriptor = parameterRef.get().getDescriptor();
-                    if (parameterDescriptor.isSensitive()) {
-                        results.add(new ValidationResult.Builder()
-                                .subject(RUN_SCHEDULE)
-                                .input(parameterDescriptor.getName())
-                                .valid(false)
-                                .explanation("Processor configuration cannot reference sensitive parameters")
-                                .build());
-                    }
-                }
-            }
+        for (final ParameterReference paramRef : parameterReferences) {
+            final String paramName = paramRef.getParameterName();
 
-            final String schedulingPeriod = getSchedulingPeriod();
-            final String evaluatedSchedulingPeriod = evaluateParameters(schedulingPeriod);
-
-            if (evaluatedSchedulingPeriod != null) {
-                switch (schedulingStrategy) {
-                    case CRON_DRIVEN: {
-                        try {
-                            CronExpression.parse(evaluatedSchedulingPeriod);
-                        } catch (final Exception e) {
+            if (!validationContext.isParameterDefined(paramName)) {
+                results.add(new ValidationResult.Builder()
+                        .subject(RUN_SCHEDULE)
+                        .input(paramName)
+                        .valid(false)
+                        .explanation("Processor configuration references Parameter '" + paramName +
+                                "' but the currently selected Parameter Context does not have a Parameter with that name")
+                        .build());
+            } else {
+                final ParameterContext parameterContext = getParameterContext();
+                if (parameterContext != null) {
+                    final Optional<Parameter> parameterFromContext = parameterContext.getParameter(paramName);
+                    if (parameterFromContext.isPresent()) {
+                        final ParameterDescriptor parameterDescriptor = parameterFromContext.get().getDescriptor();
+                        if (parameterDescriptor.isSensitive()) {
                             results.add(new ValidationResult.Builder()
                                     .subject(RUN_SCHEDULE)
-                                    .input(schedulingPeriod)
+                                    .input(parameterDescriptor.getName())
                                     .valid(false)
-                                    .explanation("Scheduling Period is not a valid cron expression")
+                                    .explanation("Processor configuration cannot reference sensitive parameters")
                                     .build());
                         }
+                        break;
                     }
-                    break;
-                    case TIMER_DRIVEN: {
-                        try {
-                            final long schedulingNanos = FormatUtils.getTimeDuration(Objects.requireNonNull(evaluatedSchedulingPeriod),
-                                    TimeUnit.NANOSECONDS);
-
-                            if (schedulingNanos < 0) {
-                                results.add(new ValidationResult.Builder()
-                                        .subject(RUN_SCHEDULE)
-                                        .input(schedulingPeriod)
-                                        .valid(false)
-                                        .explanation("Scheduling Period must be positive")
-                                        .build());
-                            }
-
-                            this.schedulingNanos.set(Math.max(MINIMUM_SCHEDULING_NANOS, schedulingNanos));
-
-                        } catch (final Exception e) {
-                            results.add(new ValidationResult.Builder()
-                                    .subject(RUN_SCHEDULE)
-                                    .input(schedulingPeriod)
-                                    .valid(false)
-                                    .explanation("Scheduling Period is not a valid time duration")
-                                    .build());
-                        }
-                    }
-                    break;
                 }
             }
         }
+
+        final String schedulingPeriod = getSchedulingPeriod();
+        final String evaluatedSchedulingPeriod = validationContext.evaluateParameters(schedulingPeriod);
+
+        if (evaluatedSchedulingPeriod != null) {
+            switch (schedulingStrategy) {
+                case CRON_DRIVEN: {
+                    try {
+                        CronExpression.parse(evaluatedSchedulingPeriod);
+                    } catch (final Exception e) {
+                        results.add(new ValidationResult.Builder()
+                                .subject(RUN_SCHEDULE)
+                                .input(schedulingPeriod)
+                                .valid(false)
+                                .explanation("Scheduling Period is not a valid cron expression")
+                                .build());
+                    }
+                }
+                break;
+                case TIMER_DRIVEN: {
+                    try {
+                        final long schedulingNanos = FormatUtils.getTimeDuration(Objects.requireNonNull(evaluatedSchedulingPeriod),
+                                TimeUnit.NANOSECONDS);
+
+                        if (schedulingNanos < 0) {
+                            results.add(new ValidationResult.Builder()
+                                    .subject(RUN_SCHEDULE)
+                                    .input(schedulingPeriod)
+                                    .valid(false)
+                                    .explanation("Scheduling Period must be positive")
+                                    .build());
+                        }
+
+                        this.schedulingNanos.set(Math.max(MINIMUM_SCHEDULING_NANOS, schedulingNanos));
+
+                    } catch (final Exception e) {
+                        results.add(new ValidationResult.Builder()
+                                .subject(RUN_SCHEDULE)
+                                .input(schedulingPeriod)
+                                .valid(false)
+                                .explanation("Scheduling Period is not a valid time duration")
+                                .build());
+                    }
+                }
+                break;
+            }
+        }
+
         return results;
     }
 
@@ -1330,8 +1348,11 @@ public class StandardProcessorNode extends ProcessorNode implements Connectable 
 
     @Override
     public void verifyCanStop() {
-        if (getScheduledState() != ScheduledState.RUNNING) {
-            throw new IllegalStateException(this + " cannot be stopped because is not scheduled to run");
+        final ScheduledState logicalState = getScheduledState();
+        final ScheduledState physicalState = getPhysicalScheduledState();
+
+        if (logicalState != ScheduledState.RUNNING && physicalState != ScheduledState.STARTING) {
+            throw new IllegalStateException(this + " cannot be stopped because is not scheduled to run and is not starting");
         }
     }
 
@@ -1501,6 +1522,8 @@ public class StandardProcessorNode extends ProcessorNode implements Connectable 
         } else {
             final String procName = processorRef.get().getProcessor().toString();
             procLog.warn("Cannot start {} because it is not currently stopped. Current state is {}", procName, currentState);
+            LOG.info("Cannot start {}: current scheduledState={}, current desiredState={}, requested scheduledState={}, requested desiredState={}",
+                    this, currentState, getDesiredState(), scheduledState, desiredState);
         }
     }
 
@@ -1568,7 +1591,6 @@ public class StandardProcessorNode extends ProcessorNode implements Connectable 
         return count;
     }
 
-
     @Override
     public int terminate() {
         verifyCanTerminate();
@@ -1614,7 +1636,6 @@ public class StandardProcessorNode extends ProcessorNode implements Connectable 
         }
     }
 
-
     private void initiateStart(final ScheduledExecutorService taskScheduler, final long administrativeYieldMillis, final long timeoutMillis,
             final AtomicLong startupAttemptCount, final Supplier<ProcessContext> processContextFactory, final SchedulingAgentCallback schedulingAgentCallback,
             final boolean triggerLifecycleMethods) {
@@ -1625,11 +1646,15 @@ public class StandardProcessorNode extends ProcessorNode implements Connectable 
         // Completion Timestamp is set to MAX_VALUE because we don't want to timeout until the task has a chance to run.
         final AtomicLong completionTimestampRef = new AtomicLong(Long.MAX_VALUE);
 
+        // Mark current time as latest activity time so that we don't show as idle when the processor was stopped.
+        flowFileActivity.reset();
+
         // Create a task to invoke the @OnScheduled annotation of the processor
         final Callable<Void> startupTask = () -> {
             final ScheduledState currentScheduleState = scheduledState.get();
             if (currentScheduleState == ScheduledState.STOPPING || currentScheduleState == ScheduledState.STOPPED || getDesiredState() == ScheduledState.STOPPED) {
-                LOG.debug("{} is stopped. Will not call @OnScheduled lifecycle methods or begin trigger onTrigger() method", StandardProcessorNode.this);
+                LOG.info("Aborting start of {}: scheduledState={}, desiredState={}, validationStatus={}",
+                        StandardProcessorNode.this, currentScheduleState, getDesiredState(), getValidationStatus());
                 schedulingAgentCallback.onTaskComplete();
                 completeStopAction();
                 return null;
@@ -1637,13 +1662,26 @@ public class StandardProcessorNode extends ProcessorNode implements Connectable 
 
             final ValidationStatus validationStatus = getValidationStatus();
             if (validationStatus != ValidationStatus.VALID) {
-                LOG.debug("Cannot start {} because Processor is currently not valid; will try again after 5 seconds", StandardProcessorNode.this);
-
-                startupAttemptCount.incrementAndGet();
-                if (startupAttemptCount.get() == 240 || startupAttemptCount.get() % 7200 == 0) {
+                if (desiredState == ScheduledState.RUN_ONCE) {
                     final ValidationState validationState = getValidationState();
-                    procLog.error("Encountering difficulty starting. (Validation State is {}: {}). Will continue trying to start.",
+                    procLog.warn("Cannot run once {} because Processor is not valid (Validation State is {}: {}). Returning to stopped.",
+                            StandardProcessorNode.this, validationState, validationState.getValidationErrors());
+                    schedulingAgentCallback.onTaskComplete();
+                    completeStopAction();
+                    return null;
+                }
+
+                final long attempt = startupAttemptCount.getAndIncrement();
+                if (attempt == 0) {
+                    final ValidationState validationState = getValidationState();
+                    LOG.info("Cannot start {} because Processor is currently not valid (Validation State is {}: {}). Will continue trying to start.",
+                            StandardProcessorNode.this, validationState, validationState.getValidationErrors());
+                } else if (attempt % 7200 == 0) {
+                    final ValidationState validationState = getValidationState();
+                    procLog.warn("Encountering difficulty starting. (Validation State is {}: {}). Will continue trying to start.",
                             validationState, validationState.getValidationErrors());
+                } else {
+                    LOG.debug("Cannot start {} because Processor is currently not valid; will try again after 500 ms", StandardProcessorNode.this);
                 }
 
                 // re-initiate the entire process
@@ -1767,7 +1805,7 @@ public class StandardProcessorNode extends ProcessorNode implements Connectable 
                 return;
             }
 
-           monitorAsyncTask(taskFuture, monitoringFuture, completionTimestampRef.get());
+            monitorAsyncTask(taskFuture, monitoringFuture, completionTimestampRef.get());
         };
 
         final Future<?> future = taskScheduler.scheduleWithFixedDelay(monitoringTask, 1, 10, TimeUnit.MILLISECONDS);
@@ -1827,6 +1865,7 @@ public class StandardProcessorNode extends ProcessorNode implements Connectable 
             executor.execute(new Runnable() {
                 @Override
                 public void run() {
+                    boolean cleanupHandled = false;
                     try {
                         if (lifecycleState.isScheduled()) {
                             schedulingAgent.unschedule(StandardProcessorNode.this, lifecycleState);
@@ -1852,6 +1891,7 @@ public class StandardProcessorNode extends ProcessorNode implements Connectable 
                                     LOG.debug("Will not trigger @OnStopped methods of {} because ProcessorStopLifecycleMethods.isTriggerOnStopped() = false", this);
                                 }
                             } finally {
+                                cleanupHandled = true;
                                 lifecycleState.decrementActiveThreadCount();
                                 completeStopAction();
 
@@ -1874,12 +1914,34 @@ public class StandardProcessorNode extends ProcessorNode implements Connectable 
                                     }
                                 }
                             }
+                        } else if (lifecycleState.isTerminated()) {
+                            // Termination was requested while the stop sequence was waiting for active threads to drain.
+                            // LifecycleState.terminate() reset the active thread count to zero, so the count==1
+                            // condition above will never be reached and rescheduling would loop forever. Complete the
+                            // stop action and exit. completeStopAction() is idempotent if procNode.terminate() already
+                            // invoked it.
+                            LOG.debug("Stop sequence for {} aborted because LifecycleState was terminated", this);
+                            cleanupHandled = true;
+                            completeStopAction();
                         } else {
                             // Not all of the active threads have finished. Try again in 100 milliseconds.
                             executor.schedule(this, 100, TimeUnit.MILLISECONDS);
+                            cleanupHandled = true;
                         }
                     } catch (final Exception e) {
                         LOG.warn("Failed while shutting down processor {}", processor, e);
+
+                        // If an exception escaped before the normal completion path ran (for example because
+                        // schedulingAgent.unschedule or an @OnUnscheduled method threw), the active thread count
+                        // increment performed at the top of stop() must still be reversed and the stop future must
+                        // still be completed. Otherwise the processor remains permanently in STOPPING.
+                        if (!cleanupHandled) {
+                            try {
+                                lifecycleState.decrementActiveThreadCount();
+                            } finally {
+                                completeStopAction();
+                            }
+                        }
                     }
                 }
             });
@@ -1917,6 +1979,99 @@ public class StandardProcessorNode extends ProcessorNode implements Connectable 
         } finally {
             deactivateThread();
         }
+    }
+
+    @Override
+    public List<ConnectorMethod> getConnectorMethods() {
+        return getConnectorMethods(getProcessor().getClass());
+    }
+
+    @Override
+    public String invokeConnectorMethod(final String methodName, final Map<String, String> jsonArguments, final ProcessContext processContext) throws InvocationFailedException {
+        final ConfigurableComponent component = getComponent();
+
+        try (final NarCloseable ignored = NarCloseable.withComponentNarLoader(getExtensionManager(), component.getClass(), getIdentifier())) {
+            final Method implementationMethod = discoverConnectorMethod(component.getClass(), methodName);
+            final MethodArgument[] methodArguments = getConnectorMethodArguments(methodName, implementationMethod, component);
+            final List<Object> argumentValues = new ArrayList<>();
+
+            for (final MethodArgument methodArgument : methodArguments) {
+                if (ProcessContext.class.equals(methodArgument.type())) {
+                    continue;
+                }
+
+                final String jsonValue = jsonArguments.get(methodArgument.name());
+                if (jsonValue == null && methodArgument.required()) {
+                    throw new IllegalArgumentException("Cannot invoke Connector Method '" + methodName + "' on " + this + " because the required argument '"
+                        + methodArgument.name() + "' was not provided");
+                }
+
+                if (jsonValue == null) {
+                    argumentValues.add(null);
+                } else {
+                    try {
+                        final Object argumentValue = OBJECT_MAPPER.readValue(jsonValue, methodArgument.type());
+                        argumentValues.add(argumentValue);
+                    } catch (final JsonProcessingException e) {
+                        throw new InvocationFailedException("Failed to deserialize argument '" + methodArgument.name() + "' as type " + methodArgument.type().getName() +
+                                                            " for Connector Method '" + methodName + "' on " + this, e);
+                    }
+                }
+            }
+
+            // Inject ProcessContext if the method signature supports it
+            final Class<?>[] argumentTypes = implementationMethod.getParameterTypes();
+            if (argumentTypes.length > 0 && ProcessContext.class.isAssignableFrom(argumentTypes[0])) {
+                argumentValues.addFirst(processContext);
+            }
+            if (argumentTypes.length > 1 && ProcessContext.class.isAssignableFrom(argumentTypes[argumentTypes.length - 1])) {
+                argumentValues.add(processContext);
+            }
+
+            try {
+                implementationMethod.setAccessible(true);
+                final Object result = implementationMethod.invoke(component, argumentValues.toArray());
+                if (result == null) {
+                    return null;
+                }
+
+                return OBJECT_MAPPER.writeValueAsString(result);
+            } catch (final JsonProcessingException e) {
+                throw new InvocationFailedException("Failed to serialize return value for Connector Method '" + methodName + "' on " + this, e);
+            } catch (final Exception e) {
+                throw new InvocationFailedException(e);
+            }
+        }
+    }
+
+    private MethodArgument[] getConnectorMethodArguments(final String methodName, final Method implementationMethod, final ConfigurableComponent component) throws InvocationFailedException {
+        if (implementationMethod == null) {
+            throw new InvocationFailedException("No such connector method '" + methodName + "' exists for " + component.getClass().getName());
+        }
+
+        final ConnectorMethod connectorMethodDefinition = implementationMethod.getAnnotation(ConnectorMethod.class);
+        final ComponentState[] componentStates = connectorMethodDefinition.allowedStates();
+        final ComponentState currentState = getComponentState();
+        final boolean validState = Set.of(componentStates).contains(currentState);
+        if (!validState) {
+            throw new IllegalStateException("Cannot invoke Connector Method '" + methodName + "' on " + this + " because Processor is in state " + currentState
+                                            + " but the Connector Method does not allow invocation in this state");
+        }
+
+        final MethodArgument[] methodArguments = connectorMethodDefinition.arguments();
+        return methodArguments;
+    }
+
+    private ComponentState getComponentState() {
+        final ScheduledState scheduledState = getScheduledState();
+
+        return switch (scheduledState) {
+            case DISABLED -> ComponentState.PROCESSOR_DISABLED;
+            case STOPPED -> ComponentState.STOPPED;
+            case RUNNING, RUN_ONCE -> ComponentState.RUNNING;
+            case STARTING -> ComponentState.STARTING;
+            case STOPPING -> ComponentState.STOPPING;
+        };
     }
 
     /**
@@ -2132,7 +2287,6 @@ public class StandardProcessorNode extends ProcessorNode implements Connectable 
         }
     }
 
-
     private void migrateRelationships() {
         final Processor processor = getProcessor();
 
@@ -2141,7 +2295,6 @@ public class StandardProcessorNode extends ProcessorNode implements Connectable 
             processor.migrateRelationships(relationshipConfig);
         }
     }
-
 
     private void updateControllerServiceReferences() {
         for (final Map.Entry<PropertyDescriptor, PropertyConfiguration> entry : getProperties().entrySet()) {
@@ -2163,5 +2316,10 @@ public class StandardProcessorNode extends ProcessorNode implements Connectable 
 
             serviceNode.updateReference(this, descriptor);
         }
+    }
+
+    @Override
+    public FlowFileActivity getFlowFileActivity() {
+        return flowFileActivity;
     }
 }

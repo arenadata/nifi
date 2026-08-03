@@ -70,7 +70,7 @@ public class VolatileProvenanceRepository implements ProvenanceRepository {
     // default property values
     public static final int DEFAULT_BUFFER_SIZE = 10000;
 
-    public static String CONTAINER_NAME = "in-memory";
+    public static final String CONTAINER_NAME = "in-memory";
 
     private final RingBuffer<ProvenanceEventRecord> ringBuffer;
     private final int maxSize;
@@ -646,7 +646,6 @@ public class VolatileProvenanceRepository implements ProvenanceRepository {
     public String getContainerFileStoreName(String containerName) {
         return null;
     }
-
 
     private AsyncLineageSubmission submitLineageComputation(final Collection<String> flowFileUuids, final NiFiUser user, final LineageComputationType computationType, final Long eventId) {
         final String userId = user == null ? null : user.getIdentity();

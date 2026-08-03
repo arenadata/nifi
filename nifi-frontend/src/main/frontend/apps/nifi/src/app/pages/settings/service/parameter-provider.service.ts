@@ -15,10 +15,9 @@
  * limitations under the License.
  */
 
-import { Injectable } from '@angular/core';
+import { Injectable, inject } from '@angular/core';
 import { HttpClient, HttpParams } from '@angular/common/http';
 import { Client } from '../../../service/client.service';
-import { NiFiCommon } from '@nifi/shared';
 import { Observable } from 'rxjs';
 import {
     ConfigureParameterProviderRequest,
@@ -34,14 +33,11 @@ import { ClusterConnectionService } from '../../../service/cluster-connection.se
 
 @Injectable({ providedIn: 'root' })
 export class ParameterProviderService implements PropertyDescriptorRetriever {
-    private static readonly API: string = '../nifi-api';
+    private httpClient = inject(HttpClient);
+    private client = inject(Client);
+    private clusterConnectionService = inject(ClusterConnectionService);
 
-    constructor(
-        private httpClient: HttpClient,
-        private client: Client,
-        private nifiCommon: NiFiCommon,
-        private clusterConnectionService: ClusterConnectionService
-    ) {}
+    private static readonly API: string = '../nifi-api';
 
     getParameterProviders(): Observable<any> {
         return this.httpClient.get(`${ParameterProviderService.API}/flow/parameter-providers`);
@@ -70,7 +66,17 @@ export class ParameterProviderService implements PropertyDescriptorRetriever {
                 disconnectedNodeAcknowledged: this.clusterConnectionService.isDisconnectionAcknowledged()
             }
         });
-        return this.httpClient.delete(this.nifiCommon.stripProtocol(entity.uri), { params });
+        return this.httpClient.delete(`${ParameterProviderService.API}/parameter-providers/${entity.id}`, { params });
+    }
+
+    clearBulletins(request: { id: string; fromTimestamp: string }): Observable<any> {
+        const payload = {
+            fromTimestamp: request.fromTimestamp
+        };
+        return this.httpClient.post(
+            `${ParameterProviderService.API}/parameter-providers/${request.id}/bulletins/clear-requests`,
+            payload
+        );
     }
 
     getPropertyDescriptor(id: string, propertyName: string, sensitive: boolean): Observable<any> {
@@ -84,7 +90,10 @@ export class ParameterProviderService implements PropertyDescriptorRetriever {
     }
 
     updateParameterProvider(configureRequest: ConfigureParameterProviderRequest): Observable<any> {
-        return this.httpClient.put(this.nifiCommon.stripProtocol(configureRequest.uri), configureRequest.payload);
+        return this.httpClient.put(
+            `${ParameterProviderService.API}/parameter-providers/${configureRequest.id}`,
+            configureRequest.payload
+        );
     }
 
     fetchParameters(request: FetchParameterProviderParametersRequest): Observable<any> {
@@ -109,7 +118,9 @@ export class ParameterProviderService implements PropertyDescriptorRetriever {
     pollParameterProviderParametersUpdateRequest(
         updateRequest: ParameterProviderApplyParametersRequest
     ): Observable<any> {
-        return this.httpClient.get(this.nifiCommon.stripProtocol(updateRequest.uri));
+        return this.httpClient.get(
+            `${ParameterProviderService.API}/parameter-providers/${updateRequest.parameterProvider.id}/apply-parameters-requests/${updateRequest.requestId}`
+        );
     }
 
     deleteParameterProviderParametersUpdateRequest(
@@ -120,6 +131,9 @@ export class ParameterProviderService implements PropertyDescriptorRetriever {
                 disconnectedNodeAcknowledged: this.clusterConnectionService.isDisconnectionAcknowledged()
             }
         });
-        return this.httpClient.delete(this.nifiCommon.stripProtocol(updateRequest.uri), { params });
+        return this.httpClient.delete(
+            `${ParameterProviderService.API}/parameter-providers/${updateRequest.parameterProvider.id}/apply-parameters-requests/${updateRequest.requestId}`,
+            { params }
+        );
     }
 }

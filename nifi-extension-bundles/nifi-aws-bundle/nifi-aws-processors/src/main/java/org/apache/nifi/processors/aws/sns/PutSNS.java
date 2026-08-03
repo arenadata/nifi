@@ -28,13 +28,14 @@ import org.apache.nifi.components.AllowableValue;
 import org.apache.nifi.components.PropertyDescriptor;
 import org.apache.nifi.expression.ExpressionLanguageScope;
 import org.apache.nifi.flowfile.FlowFile;
+import org.apache.nifi.migration.PropertyConfiguration;
 import org.apache.nifi.processor.ProcessContext;
 import org.apache.nifi.processor.ProcessSession;
 import org.apache.nifi.processor.exception.ProcessException;
 import org.apache.nifi.processor.util.StandardValidators;
+import org.apache.nifi.processors.aws.AbstractAwsSyncProcessor;
 import org.apache.nifi.processors.aws.sqs.GetSQS;
 import org.apache.nifi.processors.aws.sqs.PutSQS;
-import org.apache.nifi.processors.aws.v2.AbstractAwsSyncProcessor;
 import software.amazon.awssdk.services.sns.SnsClient;
 import software.amazon.awssdk.services.sns.SnsClientBuilder;
 import software.amazon.awssdk.services.sns.model.MessageAttributeValue;
@@ -46,6 +47,9 @@ import java.nio.charset.Charset;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+
+import static org.apache.nifi.processors.aws.region.RegionUtil.CUSTOM_REGION;
+import static org.apache.nifi.processors.aws.region.RegionUtil.REGION;
 
 @SupportsBatching
 @SeeAlso({GetSQS.class, PutSQS.class})
@@ -99,10 +103,9 @@ public class PutSNS extends AbstractAwsSyncProcessor<SnsClient, SnsClientBuilder
             .expressionLanguageSupported(ExpressionLanguageScope.FLOWFILE_ATTRIBUTES)
             .build();
 
-
     public static final PropertyDescriptor ARN = new PropertyDescriptor.Builder()
-            .name("Amazon Resource Name (ARN)")
-            .description("The name of the resource to which notifications should be published")
+            .name("Amazon Resource Name")
+            .description("The name of the resource (ARN) to which notifications should be published")
             .expressionLanguageSupported(ExpressionLanguageScope.FLOWFILE_ATTRIBUTES)
             .required(true)
             .addValidator(StandardValidators.NON_EMPTY_VALIDATOR)
@@ -119,12 +122,12 @@ public class PutSNS extends AbstractAwsSyncProcessor<SnsClient, SnsClientBuilder
             .defaultValue(ARN_TYPE_TOPIC.getValue())
             .build();
 
-
     public static final List<PropertyDescriptor> PROPERTY_DESCRIPTORS = List.of(
             ARN,
             ARN_TYPE,
             SUBJECT,
             REGION,
+            CUSTOM_REGION,
             AWS_CREDENTIALS_PROVIDER_SERVICE,
             SSL_CONTEXT_SERVICE,
             TIMEOUT,
@@ -233,6 +236,12 @@ public class PutSNS extends AbstractAwsSyncProcessor<SnsClient, SnsClientBuilder
             flowFile = session.penalize(flowFile);
             session.transfer(flowFile, REL_FAILURE);
         }
+    }
+
+    @Override
+    public void migrateProperties(PropertyConfiguration config) {
+        super.migrateProperties(config);
+        config.renameProperty("Amazon Resource Name (ARN)", ARN.getName());
     }
 
     @Override

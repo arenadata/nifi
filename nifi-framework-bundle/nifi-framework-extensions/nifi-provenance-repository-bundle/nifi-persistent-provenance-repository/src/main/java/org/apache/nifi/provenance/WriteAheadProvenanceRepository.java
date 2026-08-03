@@ -59,7 +59,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-
 /**
  * <p>
  * A Provenance Repository that is made up of two distinct concepts: An {@link EventStore Event Store} that is responsible
@@ -89,7 +88,7 @@ import java.util.Set;
  */
 public class WriteAheadProvenanceRepository implements ProvenanceRepository {
     private static final Logger logger = LoggerFactory.getLogger(WriteAheadProvenanceRepository.class);
-    static final int BLOCK_SIZE = 1024 * 32;
+    protected static final int BLOCK_SIZE = 1024 * 32;
     public static final String EVENT_CATEGORY = "Provenance Repository";
 
     private final RepositoryConfiguration config;
@@ -136,10 +135,10 @@ public class WriteAheadProvenanceRepository implements ProvenanceRepository {
             }
         };
 
-       init(recordWriterFactory, recordReaderFactory, eventReporter, authorizer, resourceFactory, fileManager);
+        init(recordWriterFactory, recordReaderFactory, eventReporter, authorizer, resourceFactory, fileManager);
     }
 
-    synchronized void init(RecordWriterFactory recordWriterFactory, RecordReaderFactory recordReaderFactory,
+    protected synchronized void init(RecordWriterFactory recordWriterFactory, RecordReaderFactory recordReaderFactory,
                            final EventReporter eventReporter, final Authorizer authorizer,
                            final ProvenanceAuthorizableFactory resourceFactory, final EventFileManager fileManager) throws IOException {
 
@@ -235,7 +234,6 @@ public class WriteAheadProvenanceRepository implements ProvenanceRepository {
         eventAuthorizable.authorize(authorizer, RequestAction.READ, user);
     }
 
-
     @Override
     public List<ProvenanceEventRecord> getEvents(final long firstRecordId, final int maxRecords, final NiFiUser user) throws IOException {
         final List<ProvenanceEventRecord> events = getEvents(firstRecordId, maxRecords);
@@ -301,7 +299,7 @@ public class WriteAheadProvenanceRepository implements ProvenanceRepository {
         return Collections.unmodifiableList(config.getSearchableAttributes());
     }
 
-    RepositoryConfiguration getConfig() {
+    protected RepositoryConfiguration getConfig() {
         return this.config;
     }
 

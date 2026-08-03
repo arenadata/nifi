@@ -16,10 +16,12 @@
  */
 package org.apache.nifi.kubernetes.state.provider;
 
+import io.fabric8.kubernetes.api.model.ObjectMeta;
+import org.apache.nifi.components.state.StateMap;
+
 import java.util.Collections;
 import java.util.Map;
 import java.util.Optional;
-import org.apache.nifi.components.state.StateMap;
 
 /**
  * Standard implementation of StateMap
@@ -29,11 +31,13 @@ class StandardStateMap implements StateMap {
 
     private final Optional<String> version;
 
-    StandardStateMap(final Map<String, String> data, final Optional<String> version) {
+    private final Optional<ObjectMeta> configMapMetadata;
+
+    StandardStateMap(final Map<String, String> data, final Optional<String> version, final Optional<ObjectMeta> configMapMetadata) {
         this.data = Collections.unmodifiableMap(data == null ? Collections.emptyMap() : data);
         this.version = version;
+        this.configMapMetadata = configMapMetadata;
     }
-
 
     /**
      * Get State Version
@@ -64,5 +68,9 @@ class StandardStateMap implements StateMap {
     @Override
     public Map<String, String> toMap() {
         return data;
+    }
+
+    public Optional<ObjectMeta> getConfigMapMetadata() {
+        return configMapMetadata;
     }
 }

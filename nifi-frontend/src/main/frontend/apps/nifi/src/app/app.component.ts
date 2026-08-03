@@ -15,17 +15,18 @@
  * limitations under the License.
  */
 
-import { Component, OnDestroy } from '@angular/core';
+import { Component, OnDestroy, inject } from '@angular/core';
 import {
     GuardsCheckEnd,
     GuardsCheckStart,
     NavigationCancel,
-    NavigationStart,
     NavigationEnd,
+    NavigationError,
+    NavigationStart,
     Router
 } from '@angular/router';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { Storage, ThemingService } from '@nifi/shared';
+import { OS_SETTING, Storage, ThemingService } from '@nifi/shared';
 import { MatDialog } from '@angular/material/dialog';
 import { NiFiState } from './state';
 import { Store } from '@ngrx/store';
@@ -44,6 +45,12 @@ import { DocumentVisibility } from './state/document-visibility';
     standalone: false
 })
 export class AppComponent implements OnDestroy {
+    private router = inject(Router);
+    private storage = inject(Storage);
+    private themingService = inject(ThemingService);
+    private dialog = inject(MatDialog);
+    private store = inject<Store<NiFiState>>(Store);
+
     title = 'nifi';
     guardLoading = true;
 
@@ -59,13 +66,7 @@ export class AppComponent implements OnDestroy {
         );
     };
 
-    constructor(
-        private router: Router,
-        private storage: Storage,
-        private themingService: ThemingService,
-        private dialog: MatDialog,
-        private store: Store<NiFiState>
-    ) {
+    constructor() {
         this.router.events
             .pipe(
                 takeUntilDestroyed(),
@@ -76,7 +77,11 @@ export class AppComponent implements OnDestroy {
                     if (event instanceof GuardsCheckStart) {
                         this.guardLoading = true;
                     }
-                    if (event instanceof GuardsCheckEnd || event instanceof NavigationCancel) {
+                    if (
+                        event instanceof GuardsCheckEnd ||
+                        event instanceof NavigationCancel ||
+                        event instanceof NavigationError
+                    ) {
                         this.guardLoading = false;
                     }
                 }),
@@ -85,7 +90,7 @@ export class AppComponent implements OnDestroy {
                 concatLatestFrom(() => this.store.select(selectBackNavigation))
             )
             .subscribe(([event, previousBackNavigation]) => {
-                const extras = this.router.getCurrentNavigation()?.extras;
+                const extras = this.router.currentNavigation()?.extras;
                 if (extras?.state?.['backNavigation']) {
                     const backNavigation: BackNavigation = extras?.state?.['backNavigation'];
                     this.store.dispatch(
@@ -102,7 +107,7 @@ export class AppComponent implements OnDestroy {
                 }
             });
 
-        let theme = this.storage.getItem('theme');
+        let theme = this.storage.getItem('theme') ? this.storage.getItem('theme') : OS_SETTING;
 
         // Initially check if dark mode is enabled on system
         const darkModeOn = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
@@ -113,7 +118,7 @@ export class AppComponent implements OnDestroy {
         if (window.matchMedia) {
             // Watch for changes of the preference
             window.matchMedia('(prefers-color-scheme: dark)').addListener((e) => {
-                theme = this.storage.getItem('theme');
+                theme = this.storage.getItem('theme') ? this.storage.getItem('theme') : OS_SETTING;
                 this.themingService.toggleTheme(e.matches, theme);
             });
         }

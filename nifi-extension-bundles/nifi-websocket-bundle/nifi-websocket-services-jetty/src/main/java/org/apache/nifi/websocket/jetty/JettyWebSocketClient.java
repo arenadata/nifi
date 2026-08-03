@@ -48,8 +48,6 @@ import org.eclipse.jetty.websocket.api.Session;
 import org.eclipse.jetty.websocket.client.ClientUpgradeRequest;
 import org.eclipse.jetty.websocket.client.WebSocketClient;
 
-import javax.net.ssl.SSLContext;
-
 import java.io.IOException;
 import java.net.URI;
 import java.net.URISyntaxException;
@@ -70,6 +68,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.stream.Stream;
+import javax.net.ssl.SSLContext;
 
 @Tags({"WebSocket", "Jetty", "client"})
 @CapabilityDescription("Implementation of WebSocketClientService." +
@@ -168,7 +167,6 @@ public class JettyWebSocketClient extends AbstractJettyWebSocketService implemen
             .sensitive(true)
             .build();
 
-
     public static final PropertyDescriptor PROXY_HOST = new PropertyDescriptor.Builder()
             .name("HTTP Proxy Host")
             .description("The host name of the HTTP Proxy.")
@@ -214,7 +212,6 @@ public class JettyWebSocketClient extends AbstractJettyWebSocketService implemen
     private volatile ScheduledExecutorService sessionMaintenanceScheduler;
     private ConfigurationContext configurationContext;
     protected String authorizationHeader;
-
 
     @Override
     public void migrateProperties(final PropertyConfiguration propertyConfiguration) {
@@ -377,7 +374,7 @@ public class JettyWebSocketClient extends AbstractJettyWebSocketService implemen
             listener.setSessionId(sessionId);
             listener.setSecure("wss".equalsIgnoreCase(webSocketUri.getScheme()));
 
-            final ClientUpgradeRequest request = new ClientUpgradeRequest();
+            final ClientUpgradeRequest request = new ClientUpgradeRequest(webSocketUri);
 
             if (!flowFileAttributes.isEmpty()) {
                 request.setHeaders(HeaderMapExtractor.getHeaderMap(flowFileAttributes));
@@ -432,7 +429,7 @@ public class JettyWebSocketClient extends AbstractJettyWebSocketService implemen
     }
 
     Future<Session> createWebsocketSession(RoutingWebSocketListener listener, ClientUpgradeRequest request) throws IOException {
-        return client.connect(listener, webSocketUri, request);
+        return client.connect(listener, request);
     }
 
     void maintainSessions() throws Exception {

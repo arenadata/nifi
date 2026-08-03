@@ -161,7 +161,6 @@ public class StatelessBasicsIT extends NiFiSystemIT {
         assertEquals(startClaimantCount + 1, getClaimantCounts());
     }
 
-
     private void createFlowShell() throws NiFiClientException, IOException, InterruptedException {
         createFlowShell("1 min");
     }
@@ -222,7 +221,6 @@ public class StatelessBasicsIT extends NiFiSystemIT {
             .mapToInt(ResourceClaimDetailsDTO::getClaimantCount)
             .sum();
     }
-
 
     @Test
     public void testOneInCloneWaitsForAll() throws NiFiClientException, IOException, InterruptedException {
@@ -486,7 +484,6 @@ public class StatelessBasicsIT extends NiFiSystemIT {
         assertEquals(startClaimantCount + 1, getClaimantCounts());
     }
 
-
     @Test
     public void testTimeoutWithSplitFlowFile() throws NiFiClientException, IOException, InterruptedException {
         createFlowShell("2 sec");
@@ -570,7 +567,6 @@ public class StatelessBasicsIT extends NiFiSystemIT {
 
         assertEquals(startClaimantCount + 1, getClaimantCounts());
     }
-
 
     @Test
     public void testOneInRouteToFailurePort() throws NiFiClientException, IOException, InterruptedException {
@@ -796,7 +792,7 @@ public class StatelessBasicsIT extends NiFiSystemIT {
 
         // Register the first version of the flow
         final VersionControlInformationEntity vci = getClientUtil().startVersionControl(statelessGroup, registryClient, "test-flows", "first-flow");
-        waitFor(() -> VersionControlInformationDTO.UP_TO_DATE.equals(getClientUtil().getVersionControlState(statelessGroup.getId())) );
+        waitFor(() -> VersionControlInformationDTO.UP_TO_DATE.equals(getClientUtil().getVersionControlState(statelessGroup.getId())));
 
         // Update the flow
         getNifiClient().getConnectionClient().deleteConnection(inputToOutput);
@@ -807,7 +803,7 @@ public class StatelessBasicsIT extends NiFiSystemIT {
 
         // Save v2 of the flow
         getClientUtil().saveFlowVersion(statelessGroup, registryClient, vci);
-        waitFor(() -> VersionControlInformationDTO.UP_TO_DATE.equals(getClientUtil().getVersionControlState(statelessGroup.getId())) );
+        waitFor(() -> VersionControlInformationDTO.UP_TO_DATE.equals(getClientUtil().getVersionControlState(statelessGroup.getId())));
 
         // Let a FlowFile go through and verify the results
         getClientUtil().startProcessor(generate);

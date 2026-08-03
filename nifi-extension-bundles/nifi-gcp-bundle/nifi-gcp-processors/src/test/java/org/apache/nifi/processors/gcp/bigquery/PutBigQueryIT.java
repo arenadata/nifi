@@ -33,6 +33,26 @@ import com.google.cloud.bigquery.TableId;
 import com.google.cloud.bigquery.TableInfo;
 import com.google.cloud.bigquery.TableResult;
 import com.google.cloud.bigquery.testing.RemoteBigQueryHelper;
+import org.apache.nifi.avro.AvroReader;
+import org.apache.nifi.components.AllowableValue;
+import org.apache.nifi.components.PropertyDescriptor;
+import org.apache.nifi.json.JsonTreeReader;
+import org.apache.nifi.processors.gcp.AbstractGCPProcessor;
+import org.apache.nifi.processors.gcp.ProxyAwareTransportFactory;
+import org.apache.nifi.processors.gcp.credentials.factory.AuthenticationStrategy;
+import org.apache.nifi.processors.gcp.credentials.factory.CredentialPropertyDescriptors;
+import org.apache.nifi.processors.gcp.credentials.factory.CredentialsFactory;
+import org.apache.nifi.processors.gcp.credentials.service.GCPCredentialsControllerService;
+import org.apache.nifi.reporting.InitializationException;
+import org.apache.nifi.schema.access.SchemaAccessUtils;
+import org.apache.nifi.serialization.DateTimeUtils;
+import org.apache.nifi.util.TestRunner;
+import org.apache.nifi.util.TestRunners;
+import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+
 import java.io.BufferedWriter;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
@@ -48,26 +68,12 @@ import java.util.HashMap;
 import java.util.Iterator;
 import java.util.Map;
 import java.util.UUID;
-import org.apache.nifi.avro.AvroReader;
-import org.apache.nifi.components.AllowableValue;
-import org.apache.nifi.components.PropertyDescriptor;
-import org.apache.nifi.json.JsonTreeReader;
-import org.apache.nifi.processors.gcp.AbstractGCPProcessor;
-import org.apache.nifi.processors.gcp.ProxyAwareTransportFactory;
-import org.apache.nifi.processors.gcp.credentials.factory.CredentialPropertyDescriptors;
-import org.apache.nifi.processors.gcp.credentials.factory.CredentialsFactory;
-import org.apache.nifi.processors.gcp.credentials.service.GCPCredentialsControllerService;
-import org.apache.nifi.reporting.InitializationException;
-import org.apache.nifi.schema.access.SchemaAccessUtils;
-import org.apache.nifi.serialization.DateTimeUtils;
-import org.apache.nifi.util.TestRunner;
-import org.apache.nifi.util.TestRunners;
-import org.junit.jupiter.api.AfterAll;
-import org.junit.jupiter.api.BeforeAll;
-import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Test;
 
+import static org.apache.nifi.processors.gcp.bigquery.AbstractBigQueryProcessor.DATASET;
+import static org.apache.nifi.processors.gcp.bigquery.AbstractBigQueryProcessor.TABLE_NAME;
 import static org.apache.nifi.processors.gcp.bigquery.PutBigQuery.BATCH_TYPE;
+import static org.apache.nifi.processors.gcp.bigquery.PutBigQuery.RECORD_READER;
+import static org.apache.nifi.processors.gcp.bigquery.PutBigQuery.SKIP_INVALID_ROWS;
 import static org.apache.nifi.processors.gcp.bigquery.PutBigQuery.STREAM_TYPE;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -92,6 +98,7 @@ public class PutBigQueryIT {
     @BeforeAll
     public static void beforeClass() throws IOException {
         final Map<PropertyDescriptor, String> propertiesMap = new HashMap<>();
+        propertiesMap.put(CredentialPropertyDescriptors.AUTHENTICATION_STRATEGY, AuthenticationStrategy.SERVICE_ACCOUNT_JSON_FILE.getValue());
         propertiesMap.put(CredentialPropertyDescriptors.SERVICE_ACCOUNT_JSON_FILE, SERVICE_ACCOUNT_JSON);
         Credentials credentials = credentialsProviderFactory.getGoogleCredentials(propertiesMap, new ProxyAwareTransportFactory(null));
 
@@ -111,11 +118,11 @@ public class PutBigQueryIT {
         bigquery.delete(dataset.getDatasetId(), BigQuery.DatasetDeleteOption.deleteContents());
     }
 
-
     protected TestRunner setCredentialsControllerService(TestRunner runner) throws InitializationException {
         final GCPCredentialsControllerService credentialsControllerService = new GCPCredentialsControllerService();
 
         final Map<String, String> propertiesMap = new HashMap<>();
+        propertiesMap.put(CredentialPropertyDescriptors.AUTHENTICATION_STRATEGY.getName(), AuthenticationStrategy.SERVICE_ACCOUNT_JSON_FILE.getValue());
         propertiesMap.put(CredentialPropertyDescriptors.SERVICE_ACCOUNT_JSON_FILE.getName(), SERVICE_ACCOUNT_JSON);
 
         runner.addControllerService(CONTROLLER_SERVICE, credentialsControllerService, propertiesMap);
@@ -144,7 +151,7 @@ public class PutBigQueryIT {
         runner.run();
 
         runner.assertAllFlowFilesTransferred(PutBigQuery.REL_SUCCESS, 1);
-        runner.getFlowFilesForRelationship(PutBigQuery.REL_SUCCESS).get(0).assertAttributeEquals(BigQueryAttributes.JOB_NB_RECORDS_ATTR, "2");
+        runner.getFlowFilesForRelationship(PutBigQuery.REL_SUCCESS).get(0).assertAttributeEquals(PutBigQuery.JOB_NB_RECORDS_ATTR, "2");
 
         assertStreamingData(tableName);
 
@@ -160,7 +167,7 @@ public class PutBigQueryIT {
         runner.run();
 
         runner.assertAllFlowFilesTransferred(PutBigQuery.REL_FAILURE, 1);
-        runner.getFlowFilesForRelationship(PutBigQuery.REL_FAILURE).get(0).assertAttributeEquals(BigQueryAttributes.JOB_NB_RECORDS_ATTR, "0");
+        runner.getFlowFilesForRelationship(PutBigQuery.REL_FAILURE).get(0).assertAttributeEquals(PutBigQuery.JOB_NB_RECORDS_ATTR, "0");
 
         TableResult result = bigquery.listTableData(dataset.getDatasetId().getDataset(), tableName, schema);
         assertFalse(result.getValues().iterator().hasNext());
@@ -173,13 +180,13 @@ public class PutBigQueryIT {
         String tableName = prepareTable(STREAM_TYPE);
         addRecordReader();
 
-        runner.setProperty(BigQueryAttributes.SKIP_INVALID_ROWS_ATTR, "true");
+        runner.setProperty(SKIP_INVALID_ROWS, "true");
 
         runner.enqueue(Paths.get("src/test/resources/bigquery/streaming-bad-data.json"));
         runner.run();
 
         runner.assertAllFlowFilesTransferred(PutBigQuery.REL_SUCCESS, 1);
-        runner.getFlowFilesForRelationship(PutBigQuery.REL_SUCCESS).get(0).assertAttributeEquals(BigQueryAttributes.JOB_NB_RECORDS_ATTR, "1");
+        runner.getFlowFilesForRelationship(PutBigQuery.REL_SUCCESS).get(0).assertAttributeEquals(PutBigQuery.JOB_NB_RECORDS_ATTR, "1");
 
         TableResult result = bigquery.listTableData(dataset.getDatasetId().getDataset(), tableName, schema);
         Iterator<FieldValueList> iterator = result.getValues().iterator();
@@ -200,7 +207,7 @@ public class PutBigQueryIT {
         runner.run();
 
         runner.assertAllFlowFilesTransferred(PutBigQuery.REL_SUCCESS, 1);
-        runner.getFlowFilesForRelationship(PutBigQuery.REL_SUCCESS).get(0).assertAttributeEquals(BigQueryAttributes.JOB_NB_RECORDS_ATTR, "2");
+        runner.getFlowFilesForRelationship(PutBigQuery.REL_SUCCESS).get(0).assertAttributeEquals(PutBigQuery.JOB_NB_RECORDS_ATTR, "2");
 
         assertStreamingData(tableName, true, false);
 
@@ -222,13 +229,13 @@ public class PutBigQueryIT {
         runner.setProperty(jsonReader, DateTimeUtils.TIMESTAMP_FORMAT, "MM-dd-yyyy HH:mm:ss z");
         runner.enableControllerService(jsonReader);
 
-        runner.setProperty(BigQueryAttributes.RECORD_READER_ATTR, "reader");
+        runner.setProperty(RECORD_READER, "reader");
 
         runner.enqueue(Paths.get("src/test/resources/bigquery/streaming-correct-data-with-date-formatted.json"));
 
         runner.run();
         runner.assertAllFlowFilesTransferred(PutBigQuery.REL_SUCCESS, 1);
-        runner.getFlowFilesForRelationship(PutBigQuery.REL_SUCCESS).get(0).assertAttributeEquals(BigQueryAttributes.JOB_NB_RECORDS_ATTR, "2");
+        runner.getFlowFilesForRelationship(PutBigQuery.REL_SUCCESS).get(0).assertAttributeEquals(PutBigQuery.JOB_NB_RECORDS_ATTR, "2");
 
         assertStreamingData(tableName, false, true);
 
@@ -245,7 +252,7 @@ public class PutBigQueryIT {
         runner.run();
 
         runner.assertAllFlowFilesTransferred(PutBigQuery.REL_SUCCESS, 1);
-        runner.getFlowFilesForRelationship(PutBigQuery.REL_SUCCESS).get(0).assertAttributeEquals(BigQueryAttributes.JOB_NB_RECORDS_ATTR, "1");
+        runner.getFlowFilesForRelationship(PutBigQuery.REL_SUCCESS).get(0).assertAttributeEquals(PutBigQuery.JOB_NB_RECORDS_ATTR, "1");
 
         deleteTable(tableName);
     }
@@ -288,7 +295,7 @@ public class PutBigQueryIT {
         runner.run();
 
         runner.assertAllFlowFilesTransferred(AbstractBigQueryProcessor.REL_SUCCESS, 1);
-        runner.getFlowFilesForRelationship(PutBigQuery.REL_SUCCESS).get(0).assertAttributeEquals(BigQueryAttributes.JOB_NB_RECORDS_ATTR, Integer.toString(recordCount));
+        runner.getFlowFilesForRelationship(PutBigQuery.REL_SUCCESS).get(0).assertAttributeEquals(PutBigQuery.JOB_NB_RECORDS_ATTR, Integer.toString(recordCount));
     }
 
     @Test
@@ -305,8 +312,8 @@ public class PutBigQueryIT {
         // create table
         bigquery.create(tableInfo);
 
-        runner.setProperty(BigQueryAttributes.DATASET_ATTR, dataset.getDatasetId().getDataset());
-        runner.setProperty(BigQueryAttributes.TABLE_NAME_ATTR, tableName);
+        runner.setProperty(DATASET, dataset.getDatasetId().getDataset());
+        runner.setProperty(TABLE_NAME, tableName);
         runner.setProperty(PutBigQuery.TRANSFER_TYPE, BATCH_TYPE);
 
         AvroReader reader = new AvroReader();
@@ -317,7 +324,7 @@ public class PutBigQueryIT {
         runner.setProperty(reader, SchemaAccessUtils.SCHEMA_TEXT, recordSchema);
 
         runner.enableControllerService(reader);
-        runner.setProperty(BigQueryAttributes.RECORD_READER_ATTR, "reader");
+        runner.setProperty(RECORD_READER, "reader");
 
         runner.enqueue(Paths.get("src/test/resources/bigquery/avrodecimal.avro"));
 
@@ -346,8 +353,8 @@ public class PutBigQueryIT {
         // create table
         bigquery.create(tableInfo);
 
-        runner.setProperty(BigQueryAttributes.DATASET_ATTR, dataset.getDatasetId().getDataset());
-        runner.setProperty(BigQueryAttributes.TABLE_NAME_ATTR, tableName);
+        runner.setProperty(DATASET, dataset.getDatasetId().getDataset());
+        runner.setProperty(TABLE_NAME, tableName);
         runner.setProperty(PutBigQuery.TRANSFER_TYPE, BATCH_TYPE);
 
         AvroReader reader = new AvroReader();
@@ -358,7 +365,7 @@ public class PutBigQueryIT {
         runner.setProperty(reader, SchemaAccessUtils.SCHEMA_TEXT, recordSchema);
 
         runner.enableControllerService(reader);
-        runner.setProperty(BigQueryAttributes.RECORD_READER_ATTR, "reader");
+        runner.setProperty(RECORD_READER, "reader");
 
         runner.enqueue(Paths.get("src/test/resources/bigquery/avrofloat.avro"));
 
@@ -387,8 +394,8 @@ public class PutBigQueryIT {
         // create table
         bigquery.create(tableInfo);
 
-        runner.setProperty(BigQueryAttributes.DATASET_ATTR, dataset.getDatasetId().getDataset());
-        runner.setProperty(BigQueryAttributes.TABLE_NAME_ATTR, tableName);
+        runner.setProperty(DATASET, dataset.getDatasetId().getDataset());
+        runner.setProperty(TABLE_NAME, tableName);
         runner.setProperty(PutBigQuery.TRANSFER_TYPE, BATCH_TYPE);
 
         AvroReader reader = new AvroReader();
@@ -399,7 +406,7 @@ public class PutBigQueryIT {
         runner.setProperty(reader, SchemaAccessUtils.SCHEMA_TEXT, recordSchema);
 
         runner.enableControllerService(reader);
-        runner.setProperty(BigQueryAttributes.RECORD_READER_ATTR, "reader");
+        runner.setProperty(RECORD_READER, "reader");
 
         runner.enqueue(Paths.get("src/test/resources/bigquery/avroint.avro"));
 
@@ -423,8 +430,8 @@ public class PutBigQueryIT {
             createTableForBatch(tableName);
         }
 
-        runner.setProperty(BigQueryAttributes.DATASET_ATTR, dataset.getDatasetId().getDataset());
-        runner.setProperty(BigQueryAttributes.TABLE_NAME_ATTR, tableName);
+        runner.setProperty(DATASET, dataset.getDatasetId().getDataset());
+        runner.setProperty(TABLE_NAME, tableName);
         runner.setProperty(PutBigQuery.TRANSFER_TYPE, transferType);
 
         return tableName;
@@ -435,13 +442,13 @@ public class PutBigQueryIT {
         runner.addControllerService("reader", jsonReader);
         runner.enableControllerService(jsonReader);
 
-        runner.setProperty(BigQueryAttributes.RECORD_READER_ATTR, "reader");
+        runner.setProperty(RECORD_READER, "reader");
     }
 
     private void addRecordReaderWithSchema(String schema) throws InitializationException, IOException {
         JsonTreeReader jsonReader = new JsonTreeReader();
         runner.addControllerService("reader", jsonReader);
-        runner.setProperty(BigQueryAttributes.RECORD_READER_ATTR, "reader");
+        runner.setProperty(RECORD_READER, "reader");
 
         String recordSchema = new String(Files.readAllBytes(Paths.get(schema)));
         runner.setProperty(jsonReader, SchemaAccessUtils.SCHEMA_ACCESS_STRATEGY, SchemaAccessUtils.SCHEMA_TEXT_PROPERTY);
@@ -554,7 +561,7 @@ public class PutBigQueryIT {
 
             assertEquals("1992-01-01", janeFields.get(0).getStringValue());
             assertEquals("00:00:00", janeFields.get(1).getStringValue());
-            assertEquals( Instant.parse("1992-01-01T00:00:00Z").toEpochMilli(), (janeFields.get(2).getTimestampValue() / 1000));
+            assertEquals(Instant.parse("1992-01-01T00:00:00Z").toEpochMilli(), (janeFields.get(2).getTimestampValue() / 1000));
         }
     }
 }

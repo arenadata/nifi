@@ -15,11 +15,10 @@
  * limitations under the License.
  */
 
-import { Injectable } from '@angular/core';
+import { Injectable, inject } from '@angular/core';
 import { EMPTY, Observable } from 'rxjs';
 import { HttpClient, HttpParams } from '@angular/common/http';
 import { Client } from '../../../service/client.service';
-import { NiFiCommon } from '@nifi/shared';
 import {
     ControllerServiceCreator,
     ControllerServiceEntity,
@@ -31,14 +30,11 @@ import { ClusterConnectionService } from '../../../service/cluster-connection.se
 
 @Injectable({ providedIn: 'root' })
 export class ControllerServiceService implements ControllerServiceCreator, PropertyDescriptorRetriever {
-    private static readonly API: string = '../nifi-api';
+    private httpClient = inject(HttpClient);
+    private client = inject(Client);
+    private clusterConnectionService = inject(ClusterConnectionService);
 
-    constructor(
-        private httpClient: HttpClient,
-        private client: Client,
-        private nifiCommon: NiFiCommon,
-        private clusterConnectionService: ClusterConnectionService
-    ) {}
+    private static readonly API: string = '../nifi-api';
 
     getControllerServices(processGroupId: string): Observable<any> {
         const uiOnly: any = { uiOnly: true };
@@ -91,8 +87,18 @@ export class ControllerServiceService implements ControllerServiceCreator, Prope
 
     updateControllerService(configureControllerService: ConfigureControllerServiceRequest): Observable<any> {
         return this.httpClient.put(
-            this.nifiCommon.stripProtocol(configureControllerService.uri),
+            `${ControllerServiceService.API}/controller-services/${configureControllerService.id}`,
             configureControllerService.payload
+        );
+    }
+
+    clearBulletins(request: { id: string; fromTimestamp: string }): Observable<any> {
+        const payload = {
+            fromTimestamp: request.fromTimestamp
+        };
+        return this.httpClient.post(
+            `${ControllerServiceService.API}/controller-services/${request.id}/bulletins/clear-requests`,
+            payload
         );
     }
 
@@ -104,6 +110,6 @@ export class ControllerServiceService implements ControllerServiceCreator, Prope
                 disconnectedNodeAcknowledged: this.clusterConnectionService.isDisconnectionAcknowledged()
             }
         });
-        return this.httpClient.delete(this.nifiCommon.stripProtocol(entity.uri), { params });
+        return this.httpClient.delete(`${ControllerServiceService.API}/controller-services/${entity.id}`, { params });
     }
 }

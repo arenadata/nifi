@@ -19,8 +19,6 @@ package org.apache.nifi.tests.system;
 import org.apache.nifi.security.cert.builder.StandardCertificateBuilder;
 import org.apache.nifi.security.ssl.StandardSslContextBuilder;
 
-import javax.net.ssl.SSLContext;
-import javax.security.auth.x500.X500Principal;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
@@ -40,6 +38,8 @@ import java.time.Duration;
 import java.util.Collections;
 import java.util.HexFormat;
 import java.util.List;
+import javax.net.ssl.SSLContext;
+import javax.security.auth.x500.X500Principal;
 
 /**
  * System Key Store Provider generates a Key Pair and Certificate for KeyStore and TrustStore files
@@ -82,7 +82,7 @@ public class NiFiSystemKeyStoreProvider {
      *
      * @param keyStoreDirectory Directory where KeyStore and TrustStore should be stored
      */
-    public synchronized static SSLContext configureKeyStores(final File keyStoreDirectory) {
+    public static synchronized SSLContext configureKeyStores(final File keyStoreDirectory) {
         if (persistentKeyStorePath == null) {
             createKeyStores();
         }

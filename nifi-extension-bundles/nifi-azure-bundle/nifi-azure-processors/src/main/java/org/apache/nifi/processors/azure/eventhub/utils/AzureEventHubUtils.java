@@ -18,26 +18,38 @@ package org.apache.nifi.processors.azure.eventhub.utils;
 
 import com.azure.core.amqp.ProxyAuthenticationType;
 import com.azure.core.amqp.ProxyOptions;
+import com.azure.core.credential.TokenCredential;
 import org.apache.nifi.components.AllowableValue;
 import org.apache.nifi.components.PropertyDescriptor;
 import org.apache.nifi.components.ValidationContext;
 import org.apache.nifi.components.ValidationResult;
 import org.apache.nifi.context.PropertyContext;
 import org.apache.nifi.expression.ExpressionLanguageScope;
+import org.apache.nifi.oauth2.AccessToken;
+import org.apache.nifi.oauth2.OAuth2AccessTokenProvider;
 import org.apache.nifi.processor.util.StandardValidators;
 import org.apache.nifi.proxy.ProxyConfiguration;
+import org.apache.nifi.services.azure.AzureIdentityFederationTokenProvider;
+import org.apache.nifi.shared.azure.eventhubs.AzureEventHubAuthenticationStrategy;
 import org.apache.nifi.shared.azure.eventhubs.AzureEventHubComponent;
 import org.apache.nifi.shared.azure.eventhubs.AzureEventHubTransportType;
+import reactor.core.publisher.Mono;
 
 import java.net.InetSocketAddress;
 import java.net.Proxy;
+import java.time.Instant;
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 
 public final class AzureEventHubUtils {
+
+    private static final long DEFAULT_TOKEN_EXPIRATION_SECONDS = 300;
 
     public static final AllowableValue AZURE_ENDPOINT = new AllowableValue(".servicebus.windows.net", "Azure", "Servicebus endpoint for general use");
     public static final AllowableValue AZURE_CHINA_ENDPOINT = new AllowableValue(".servicebus.chinacloudapi.cn", "Azure China", "Servicebus endpoint for China");
@@ -45,6 +57,7 @@ public final class AzureEventHubUtils {
     public static final AllowableValue AZURE_US_GOV_ENDPOINT = new AllowableValue(".servicebus.usgovcloudapi.net", "Azure US Government", "Servicebus endpoint for US Government");
     public static final String OLD_POLICY_PRIMARY_KEY_DESCRIPTOR_NAME = "Shared Access Policy Primary Key";
     public static final String OLD_USE_MANAGED_IDENTITY_DESCRIPTOR_NAME = "use-managed-identity";
+    public static final String LEGACY_USE_MANAGED_IDENTITY_PROPERTY_NAME = "Use Azure Managed Identity";
 
     public static final PropertyDescriptor POLICY_PRIMARY_KEY = new PropertyDescriptor.Builder()
             .name("Shared Access Policy Key")
@@ -53,13 +66,8 @@ public final class AzureEventHubUtils {
             .expressionLanguageSupported(ExpressionLanguageScope.NONE)
             .sensitive(true)
             .required(false)
+            .dependsOn(AzureEventHubComponent.AUTHENTICATION_STRATEGY, AzureEventHubAuthenticationStrategy.SHARED_ACCESS_SIGNATURE)
             .build();
-
-    public static final PropertyDescriptor USE_MANAGED_IDENTITY = new PropertyDescriptor.Builder()
-            .name("Use Azure Managed Identity")
-            .description("Choose whether or not to use the managed identity of Azure VM/VMSS")
-            .required(true).defaultValue("false").allowableValues("true", "false")
-            .addValidator(StandardValidators.BOOLEAN_VALIDATOR).build();
 
     public static final PropertyDescriptor SERVICE_BUS_ENDPOINT = new PropertyDescriptor.Builder()
             .name("Service Bus Endpoint")
@@ -75,28 +83,30 @@ public final class AzureEventHubUtils {
                                                         PropertyDescriptor policyKeyDescriptor,
                                                         ValidationContext context) {
         List<ValidationResult> validationResults = new ArrayList<>();
-
         boolean accessPolicyIsSet = context.getProperty(accessPolicyDescriptor).isSet();
         boolean policyKeyIsSet = context.getProperty(policyKeyDescriptor).isSet();
-        boolean useManagedIdentity = context.getProperty(USE_MANAGED_IDENTITY).asBoolean();
+        final AzureEventHubAuthenticationStrategy authenticationStrategy = Optional.ofNullable(
+                context.getProperty(AzureEventHubComponent.AUTHENTICATION_STRATEGY).asAllowableValue(AzureEventHubAuthenticationStrategy.class))
+                .orElse(AzureEventHubAuthenticationStrategy.MANAGED_IDENTITY);
 
-        if (useManagedIdentity && (accessPolicyIsSet || policyKeyIsSet)) {
-            final String msg = String.format(
-                    "('%s') and ('%s' with '%s') fields cannot be set at the same time.",
-                    USE_MANAGED_IDENTITY.getDisplayName(),
-                    accessPolicyDescriptor.getDisplayName(),
-                    POLICY_PRIMARY_KEY.getDisplayName()
-            );
-            validationResults.add(new ValidationResult.Builder().subject("Credentials config").valid(false).explanation(msg).build());
-        } else if (!useManagedIdentity && (!accessPolicyIsSet || !policyKeyIsSet)) {
-            final String msg = String.format(
-                    "either('%s') or (%s with '%s') must be set",
-                    USE_MANAGED_IDENTITY.getDisplayName(),
-                    accessPolicyDescriptor.getDisplayName(),
-                    POLICY_PRIMARY_KEY.getDisplayName()
-            );
-            validationResults.add(new ValidationResult.Builder().subject("Credentials config").valid(false).explanation(msg).build());
+        switch (authenticationStrategy) {
+            case MANAGED_IDENTITY, OAUTH2, IDENTITY_FEDERATION -> {
+                // Rely on required property + dependsOn validation to ensure proper configuration
+            }
+            case SHARED_ACCESS_SIGNATURE -> {
+                if (!accessPolicyIsSet || !policyKeyIsSet) {
+                    final String msg = String.format(
+                            "When '%s' is set to '%s', both '%s' and '%s' must be set",
+                            AzureEventHubComponent.AUTHENTICATION_STRATEGY.getDisplayName(),
+                            AzureEventHubAuthenticationStrategy.SHARED_ACCESS_SIGNATURE.getDisplayName(),
+                            accessPolicyDescriptor.getDisplayName(),
+                            policyKeyDescriptor.getDisplayName()
+                    );
+                    validationResults.add(new ValidationResult.Builder().subject("Credentials config").valid(false).explanation(msg).build());
+                }
+            }
         }
+
         ProxyConfiguration.validateProxySpec(context, validationResults, AzureEventHubComponent.PROXY_SPECS);
         return validationResults;
     }
@@ -146,6 +156,29 @@ public final class AzureEventHubUtils {
         }
 
         return Optional.ofNullable(proxyOptions);
+    }
+
+    public static TokenCredential createTokenCredential(final OAuth2AccessTokenProvider tokenProvider) {
+        Objects.requireNonNull(tokenProvider, "OAuth2 Access Token Provider is required");
+
+        return tokenRequestContext -> Mono.fromSupplier(() -> {
+            final AccessToken accessToken = tokenProvider.getAccessDetails();
+            Objects.requireNonNull(accessToken, "Access Token is required");
+            final String tokenValue = accessToken.getAccessToken();
+            if (tokenValue == null || tokenValue.isEmpty()) {
+                throw new IllegalStateException("Access Token value is required");
+            }
+            final Instant fetchTime = Objects.requireNonNull(accessToken.getFetchTime(), "Access Token fetch time required");
+            final long expiresIn = accessToken.getExpiresIn();
+            final Instant expirationInstant = expiresIn > 0 ? fetchTime.plusSeconds(expiresIn) : fetchTime.plusSeconds(DEFAULT_TOKEN_EXPIRATION_SECONDS);
+            final OffsetDateTime expirationTime = OffsetDateTime.ofInstant(expirationInstant, ZoneOffset.UTC);
+            return new com.azure.core.credential.AccessToken(tokenValue, expirationTime);
+        });
+    }
+
+    public static TokenCredential createTokenCredential(final AzureIdentityFederationTokenProvider tokenProvider) {
+        Objects.requireNonNull(tokenProvider, "Identity Federation Token Provider is required");
+        return tokenProvider.getCredentials();
     }
 
     private static Proxy getProxy(ProxyConfiguration proxyConfiguration) {

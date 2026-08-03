@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-import { Injectable } from '@angular/core';
+import { Injectable, inject } from '@angular/core';
 import { Observable } from 'rxjs';
 import { HttpClient } from '@angular/common/http';
 import {
@@ -29,14 +29,12 @@ import { ClusterConnectionService } from './cluster-connection.service';
 
 @Injectable({ providedIn: 'root' })
 export class ControllerServiceStateService {
-    private static readonly API: string = '../nifi-api';
+    private httpClient = inject(HttpClient);
+    private nifiCommon = inject(NiFiCommon);
+    private client = inject(Client);
+    private clusterConnectionService = inject(ClusterConnectionService);
 
-    constructor(
-        private httpClient: HttpClient,
-        private nifiCommon: NiFiCommon,
-        private client: Client,
-        private clusterConnectionService: ClusterConnectionService
-    ) {}
+    private static readonly API: string = '../nifi-api';
 
     getControllerService(id: string): Observable<any> {
         const uiOnly: any = { uiOnly: true };
@@ -46,12 +44,15 @@ export class ControllerServiceStateService {
     }
 
     setEnable(controllerService: ControllerServiceEntity, enabled: boolean): Observable<any> {
-        return this.httpClient.put(`${this.nifiCommon.stripProtocol(controllerService.uri)}/run-status`, {
-            revision: this.client.getRevision(controllerService),
-            disconnectedNodeAcknowledged: this.clusterConnectionService.isDisconnectionAcknowledged(),
-            state: enabled ? 'ENABLED' : 'DISABLED',
-            uiOnly: true
-        });
+        return this.httpClient.put(
+            `${ControllerServiceStateService.API}/controller-services/${controllerService.id}/run-status`,
+            {
+                revision: this.client.getRevision(controllerService),
+                disconnectedNodeAcknowledged: this.clusterConnectionService.isDisconnectionAcknowledged(),
+                state: enabled ? 'ENABLED' : 'DISABLED',
+                uiOnly: true
+            }
+        );
     }
 
     updateReferencingServices(controllerService: ControllerServiceEntity, enabled: boolean): Observable<any> {
@@ -62,13 +63,16 @@ export class ControllerServiceStateService {
             true
         );
 
-        return this.httpClient.put(`${this.nifiCommon.stripProtocol(controllerService.uri)}/references`, {
-            id: controllerService.id,
-            state: enabled ? 'ENABLED' : 'DISABLED',
-            referencingComponentRevisions: referencingComponentRevisions,
-            disconnectedNodeAcknowledged: this.clusterConnectionService.isDisconnectionAcknowledged(),
-            uiOnly: true
-        });
+        return this.httpClient.put(
+            `${ControllerServiceStateService.API}/controller-services/${controllerService.id}/references`,
+            {
+                id: controllerService.id,
+                state: enabled ? 'ENABLED' : 'DISABLED',
+                referencingComponentRevisions: referencingComponentRevisions,
+                disconnectedNodeAcknowledged: this.clusterConnectionService.isDisconnectionAcknowledged(),
+                uiOnly: true
+            }
+        );
     }
 
     updateReferencingSchedulableComponents(
@@ -82,13 +86,16 @@ export class ControllerServiceStateService {
             false
         );
 
-        return this.httpClient.put(`${this.nifiCommon.stripProtocol(controllerService.uri)}/references`, {
-            id: controllerService.id,
-            state: running ? 'RUNNING' : 'STOPPED',
-            referencingComponentRevisions: referencingComponentRevisions,
-            disconnectedNodeAcknowledged: this.clusterConnectionService.isDisconnectionAcknowledged(),
-            uiOnly: true
-        });
+        return this.httpClient.put(
+            `${ControllerServiceStateService.API}/controller-services/${controllerService.id}/references`,
+            {
+                id: controllerService.id,
+                state: running ? 'RUNNING' : 'STOPPED',
+                referencingComponentRevisions: referencingComponentRevisions,
+                disconnectedNodeAcknowledged: this.clusterConnectionService.isDisconnectionAcknowledged(),
+                uiOnly: true
+            }
+        );
     }
 
     /**

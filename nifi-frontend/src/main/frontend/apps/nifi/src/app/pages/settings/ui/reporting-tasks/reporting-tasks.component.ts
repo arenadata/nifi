@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-import { Component, OnDestroy, OnInit } from '@angular/core';
+import { Component, OnDestroy, OnInit, inject } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { Store } from '@ngrx/store';
 import { filter, switchMap, take } from 'rxjs';
@@ -27,6 +27,7 @@ import {
     selectTask
 } from '../../state/reporting-tasks/reporting-tasks.selectors';
 import {
+    clearReportingTaskBulletins,
     loadReportingTasks,
     navigateToAdvancedReportingTaskUi,
     navigateToEditReportingTask,
@@ -46,7 +47,7 @@ import { NiFiState } from '../../../../state';
 import { selectFlowConfiguration } from '../../../../state/flow-configuration/flow-configuration.selectors';
 import { getComponentStateAndOpenDialog } from '../../../../state/component-state/component-state.actions';
 import { navigateToComponentDocumentation } from '../../../../state/documentation/documentation.actions';
-import { ComponentType } from '@nifi/shared';
+import { ComponentType, NiFiCommon } from '@nifi/shared';
 import { AsyncPipe } from '@angular/common';
 import { NgxSkeletonLoaderComponent } from 'ngx-skeleton-loader';
 import { MatIconButton } from '@angular/material/button';
@@ -59,12 +60,15 @@ import { ReportingTaskTable } from './reporting-task-table/reporting-task-table.
     styleUrls: ['./reporting-tasks.component.scss']
 })
 export class ReportingTasks implements OnInit, OnDestroy {
+    private store = inject<Store<NiFiState>>(Store);
+    private nifiCommon = inject(NiFiCommon);
+
     reportingTaskState$ = this.store.select(selectReportingTasksState);
     selectedReportingTaskId$ = this.store.select(selectReportingTaskIdFromRoute);
     currentUser$ = this.store.select(selectCurrentUser);
     flowConfiguration$ = this.store.select(selectFlowConfiguration);
 
-    constructor(private store: Store<NiFiState>) {
+    constructor() {
         this.store
             .select(selectSingleEditedReportingTask)
             .pipe(
@@ -178,7 +182,8 @@ export class ReportingTasks implements OnInit, OnDestroy {
         this.store.dispatch(
             getComponentStateAndOpenDialog({
                 request: {
-                    componentUri: entity.uri,
+                    componentType: ComponentType.ReportingTask,
+                    componentId: entity.id,
                     componentName: entity.component.name,
                     canClear
                 }
@@ -215,6 +220,26 @@ export class ReportingTasks implements OnInit, OnDestroy {
                     uri: entity.uri,
                     type: entity.component.type,
                     revision: entity.revision
+                }
+            })
+        );
+    }
+
+    clearBulletinsReportingTask(entity: ReportingTaskEntity): void {
+        // Get the most recent bulletin timestamp from the entity's bulletins
+        // This will be reconstructed from the time-only string to a full timestamp
+        const fromTimestamp = this.nifiCommon.getMostRecentBulletinTimestamp(entity.bulletins || []);
+        if (fromTimestamp === null) {
+            return; // no bulletins to clear
+        }
+
+        this.store.dispatch(
+            clearReportingTaskBulletins({
+                request: {
+                    uri: entity.uri,
+                    fromTimestamp,
+                    componentId: entity.id,
+                    componentType: ComponentType.ReportingTask
                 }
             })
         );

@@ -16,9 +16,11 @@
  */
 package org.apache.nifi.processors.standard;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertThrows;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import org.apache.nifi.util.MockFlowFile;
+import org.apache.nifi.util.PropertyMigrationResult;
+import org.apache.nifi.util.TestRunner;
+import org.apache.nifi.util.TestRunners;
+import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -33,11 +35,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 
-import org.apache.nifi.util.MockFlowFile;
-import org.apache.nifi.util.TestRunner;
-import org.apache.nifi.util.TestRunners;
-
-import org.junit.jupiter.api.Test;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 public class TestEvaluateXQuery {
 
@@ -63,7 +63,7 @@ public class TestEvaluateXQuery {
                 for (final boolean omitDeclaration : booleans) {
                     formattedResults = getFormattedResult(XML_SNIPPET, atomicQuery, method, indent, omitDeclaration);
                     assertEquals(1, formattedResults.size());
-                    assertEquals("7", formattedResults.get(0));
+                    assertEquals("7", formattedResults.getFirst());
                 }
             }
         }
@@ -73,65 +73,68 @@ public class TestEvaluateXQuery {
                 for (final boolean omitDeclaration : booleans) {
                     formattedResults = getFormattedResult(XML_SNIPPET, singleTextNodeQuery, method, indent, omitDeclaration);
                     assertEquals(1, formattedResults.size());
-                    assertEquals("apple", formattedResults.get(0));
+                    assertEquals("apple", formattedResults.getFirst());
                 }
             }
         }
-        {
-            formattedResults = getFormattedResult(XML_SNIPPET, singleElementNodeQuery, "xml", false, false);
-            assertEquals(1, formattedResults.size());
-            String expectedXml
-                    = "<?xml version=\"1.0\" encoding=\"UTF-8\"?><fruit xmlns:ns=\"http://namespace/1\" taste=\"crisp\">\n"
-                    + "<!-- Apples are my favorite -->\n"
-                    + "    <name>apple</name>\n"
-                    + "    <color>red</color>\n"
-                    + "  </fruit>";
-            assertEquals(spaceTrimmed(expectedXml), spaceTrimmed(formattedResults.get(0)));
-        }
-        {
-            formattedResults = getFormattedResult(XML_SNIPPET, singleElementNodeQuery, "html", false, false);
-            assertEquals(1, formattedResults.size());
-            String expectedXml
-                    = "<fruit xmlns:ns=\"http://namespace/1\" taste=\"crisp\">\n"
-                    + "    <!-- Apples are my favorite -->\n"
-                    + "    <name>apple</name>\n"
-                    + "    <color>red</color>\n"
-                    + "  </fruit>";
-            assertEquals(spaceTrimmed(expectedXml), spaceTrimmed(formattedResults.get(0)));
-        }
-        {
-            formattedResults = getFormattedResult(XML_SNIPPET, singleElementNodeQuery, "text", false, false);
-            assertEquals(1, formattedResults.size());
-            String expectedXml
-                    = "\n    \n"
-                    + "    apple\n"
-                    + "    red\n"
-                    + "  ";
-            assertEquals(spaceTrimmed(expectedXml), spaceTrimmed(formattedResults.get(0)));
-        }
-        {
-            formattedResults = getFormattedResult(XML_SNIPPET, singleElementNodeQuery, "xml", true, false);
-            assertEquals(1, formattedResults.size());
-            String expectedXml
-                    = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
-                    + "<fruit xmlns:ns=\"http://namespace/1\" taste=\"crisp\">\n"
-                    + "    <!-- Apples are my favorite -->\n"
-                    + "    <name>apple</name>\n"
-                    + "    <color>red</color>\n"
-                    + "  </fruit>\n";
-            assertEquals(spaceTrimmed(expectedXml), spaceTrimmed(formattedResults.get(0)));
-        }
-        {
-            formattedResults = getFormattedResult(XML_SNIPPET, singleElementNodeQuery, "xml", true, true);
-            assertEquals(1, formattedResults.size());
-            String expectedXml
-                    = "<fruit xmlns:ns=\"http://namespace/1\" taste=\"crisp\">\n"
-                    + "    <!-- Apples are my favorite -->\n"
-                    + "    <name>apple</name>\n"
-                    + "    <color>red</color>\n"
-                    + "  </fruit>\n";
-            assertEquals(spaceTrimmed(expectedXml), spaceTrimmed(formattedResults.get(0)));
-        }
+        formattedResults = getFormattedResult(XML_SNIPPET, singleElementNodeQuery, "xml", false, false);
+        assertEquals(1, formattedResults.size());
+        String expectedXml
+                = """
+                <?xml version="1.0" encoding="UTF-8"?><fruit xmlns:ns="http://namespace/1" taste="crisp">
+                <!-- Apples are my favorite -->
+                    <name>apple</name>
+                    <color>red</color>
+                  </fruit>""";
+        assertEquals(spaceTrimmed(expectedXml), spaceTrimmed(formattedResults.getFirst()));
+
+        formattedResults = getFormattedResult(XML_SNIPPET, singleElementNodeQuery, "html", false, false);
+        assertEquals(1, formattedResults.size());
+        expectedXml
+                = """
+                <fruit xmlns:ns="http://namespace/1" taste="crisp">
+                    <!-- Apples are my favorite -->
+                    <name>apple</name>
+                    <color>red</color>
+                  </fruit>""";
+        assertEquals(spaceTrimmed(expectedXml), spaceTrimmed(formattedResults.getFirst()));
+
+        formattedResults = getFormattedResult(XML_SNIPPET, singleElementNodeQuery, "text", false, false);
+        assertEquals(1, formattedResults.size());
+        expectedXml
+                = """
+
+                   \s
+                    apple
+                    red
+                  \
+                """;
+        assertEquals(spaceTrimmed(expectedXml), spaceTrimmed(formattedResults.getFirst()));
+
+        formattedResults = getFormattedResult(XML_SNIPPET, singleElementNodeQuery, "xml", true, false);
+        assertEquals(1, formattedResults.size());
+        expectedXml
+                = """
+                <?xml version="1.0" encoding="UTF-8"?>
+                <fruit xmlns:ns="http://namespace/1" taste="crisp">
+                    <!-- Apples are my favorite -->
+                    <name>apple</name>
+                    <color>red</color>
+                  </fruit>
+                """;
+        assertEquals(spaceTrimmed(expectedXml), spaceTrimmed(formattedResults.getFirst()));
+
+        formattedResults = getFormattedResult(XML_SNIPPET, singleElementNodeQuery, "xml", true, true);
+        assertEquals(1, formattedResults.size());
+        expectedXml
+                = """
+                <fruit xmlns:ns="http://namespace/1" taste="crisp">
+                    <!-- Apples are my favorite -->
+                    <name>apple</name>
+                    <color>red</color>
+                  </fruit>
+                """;
+        assertEquals(spaceTrimmed(expectedXml), spaceTrimmed(formattedResults.getFirst()));
     }
 
     private String spaceTrimmed(String str) {
@@ -245,24 +248,26 @@ public class TestEvaluateXQuery {
         /* String all matches fruit & color (single, newline delimited result)*/
         doXqueryTest(XML_SNIPPET, "string-join((for $y in (for $x in //fruit return string-join(($x/name/text() , $x/color/text()), ' - ')) return $y), '\n')",
                 Collections.singletonList(
-                        "apple - red\n"
-                        + "apple - green\n"
-                        + "banana - yellow\n"
-                        + "orange - orange\n"
-                        + "blueberry - blue\n"
-                        + "raspberry - red\n"
-                        + "none"));
+                        """
+                                apple - red
+                                apple - green
+                                banana - yellow
+                                orange - orange
+                                blueberry - blue
+                                raspberry - red
+                                none"""));
 
         /* String all matches fruit & color using "let" (single, newline delimited result)*/
         doXqueryTest(XML_SNIPPET, "string-join((for $y in (for $x in //fruit let $d := string-join(($x/name/text() , $x/color/text()), ' - ')  return $d) return $y), '\n')",
                 Collections.singletonList(
-                        "apple - red\n"
-                        + "apple - green\n"
-                        + "banana - yellow\n"
-                        + "orange - orange\n"
-                        + "blueberry - blue\n"
-                        + "raspberry - red\n"
-                        + "none"));
+                        """
+                                apple - red
+                                apple - green
+                                banana - yellow
+                                orange - orange
+                                blueberry - blue
+                                raspberry - red
+                                none"""));
 
         /* String all matches name only, comma delimited (one result)*/
         doXqueryTest(XML_SNIPPET, "string-join((for $x in //fruit return $x/name/text()), ', ')",
@@ -275,7 +280,6 @@ public class TestEvaluateXQuery {
         /* String all matches color and name, comma delimited using let(one result)*/
         doXqueryTest(XML_SNIPPET, "string-join((for $y in (for $x in //fruit let $d := string-join(($x/color/text() , $x/name/text()), ' ')  return $d) return $y), ', ')",
                 Collections.singletonList("red apple, green apple, yellow banana, orange orange, blue blueberry, red raspberry, none"));
-
 
         /* Query for attribute */
         doXqueryTest(XML_SNIPPET, "string(//fruit[1]/@taste)", Collections.singletonList("crisp"));
@@ -300,7 +304,7 @@ public class TestEvaluateXQuery {
 
         assertEquals(1, resultFlowFiles.size());
 
-        final MockFlowFile out = resultFlowFiles.get(0);
+        final MockFlowFile out = resultFlowFiles.getFirst();
 
         for (int i = 0; i < expectedResults.size(); i++) {
             String key = "xquery";
@@ -360,9 +364,9 @@ public class TestEvaluateXQuery {
         testRunner.run();
 
         testRunner.assertAllFlowFilesTransferred(EvaluateXQuery.REL_MATCH, 1);
-        final MockFlowFile out = testRunner.getFlowFilesForRelationship(EvaluateXQuery.REL_MATCH).get(0);
+        final MockFlowFile out = testRunner.getFlowFilesForRelationship(EvaluateXQuery.REL_MATCH).getFirst();
         final String attributeString = out.getAttribute("xquery.result1").replaceAll(">\\s+<", "><");
-        final String xmlSnippetString = new String(Files.readAllBytes(XML_SNIPPET), StandardCharsets.UTF_8).replaceAll(">\\s+<", "><");
+        final String xmlSnippetString = Files.readString(XML_SNIPPET).replaceAll(">\\s+<", "><");
 
         assertEquals(xmlSnippetString, attributeString);
     }
@@ -378,7 +382,7 @@ public class TestEvaluateXQuery {
         testRunner.run();
 
         testRunner.assertAllFlowFilesTransferred(EvaluateXQuery.REL_MATCH, 1);
-        final MockFlowFile out = testRunner.getFlowFilesForRelationship(EvaluateXQuery.REL_MATCH).get(0);
+        final MockFlowFile out = testRunner.getFlowFilesForRelationship(EvaluateXQuery.REL_MATCH).getFirst();
         out.assertAttributeEquals("xquery.result.exist.1", "true");
         out.assertAttributeEquals("xquery.result.exist.2", "false");
     }
@@ -393,7 +397,7 @@ public class TestEvaluateXQuery {
         testRunner.run();
 
         testRunner.assertAllFlowFilesTransferred(EvaluateXQuery.REL_NO_MATCH, 1);
-        testRunner.getFlowFilesForRelationship(EvaluateXQuery.REL_NO_MATCH).get(0).assertContentEquals(XML_SNIPPET);
+        testRunner.getFlowFilesForRelationship(EvaluateXQuery.REL_NO_MATCH).getFirst().assertContentEquals(XML_SNIPPET);
     }
 
     @Test
@@ -406,9 +410,9 @@ public class TestEvaluateXQuery {
         testRunner.run();
 
         testRunner.assertAllFlowFilesTransferred(EvaluateXQuery.REL_NO_MATCH, 1);
-        final MockFlowFile out = testRunner.getFlowFilesForRelationship(EvaluateXQuery.REL_NO_MATCH).get(0);
+        final MockFlowFile out = testRunner.getFlowFilesForRelationship(EvaluateXQuery.REL_NO_MATCH).getFirst();
         out.assertAttributeEquals("xquery.result.exist.2", null);
-        testRunner.getFlowFilesForRelationship(EvaluateXQuery.REL_NO_MATCH).get(0).assertContentEquals(XML_SNIPPET);
+        testRunner.getFlowFilesForRelationship(EvaluateXQuery.REL_NO_MATCH).getFirst().assertContentEquals(XML_SNIPPET);
     }
 
     @Test
@@ -420,7 +424,7 @@ public class TestEvaluateXQuery {
         testRunner.run();
 
         testRunner.assertAllFlowFilesTransferred(EvaluateXQuery.REL_NO_MATCH, 1);
-        testRunner.getFlowFilesForRelationship(EvaluateXQuery.REL_NO_MATCH).get(0).assertContentEquals(XML_SNIPPET);
+        testRunner.getFlowFilesForRelationship(EvaluateXQuery.REL_NO_MATCH).getFirst().assertContentEquals(XML_SNIPPET);
     }
 
     @Test
@@ -444,7 +448,7 @@ public class TestEvaluateXQuery {
 
         testRunner.assertAllFlowFilesTransferred(EvaluateXQuery.REL_MATCH, 1);
 
-        final MockFlowFile out = testRunner.getFlowFilesForRelationship(EvaluateXQuery.REL_MATCH).get(0);
+        final MockFlowFile out = testRunner.getFlowFilesForRelationship(EvaluateXQuery.REL_MATCH).getFirst();
 
         for (int i = 0; i < fruitNames.length; i++) {
             final String outXml = out.getAttribute("some.property." + (i + 1));
@@ -452,7 +456,7 @@ public class TestEvaluateXQuery {
         }
 
         out.assertAttributeEquals("xquery.result.exist.2", null);
-        testRunner.getFlowFilesForRelationship(EvaluateXQuery.REL_MATCH).get(0).assertContentEquals(XML_SNIPPET);
+        testRunner.getFlowFilesForRelationship(EvaluateXQuery.REL_MATCH).getFirst().assertContentEquals(XML_SNIPPET);
     }
 
     @Test
@@ -465,10 +469,10 @@ public class TestEvaluateXQuery {
         testRunner.run();
 
         testRunner.assertAllFlowFilesTransferred(EvaluateXQuery.REL_NO_MATCH, 1);
-        final MockFlowFile out = testRunner.getFlowFilesForRelationship(EvaluateXQuery.REL_NO_MATCH).get(0);
+        final MockFlowFile out = testRunner.getFlowFilesForRelationship(EvaluateXQuery.REL_NO_MATCH).getFirst();
 
         out.assertAttributeEquals("xquery.result.exist.2", null);
-        testRunner.getFlowFilesForRelationship(EvaluateXQuery.REL_NO_MATCH).get(0).assertContentEquals(XML_SNIPPET);
+        testRunner.getFlowFilesForRelationship(EvaluateXQuery.REL_NO_MATCH).getFirst().assertContentEquals(XML_SNIPPET);
     }
 
     @Test
@@ -492,9 +496,9 @@ public class TestEvaluateXQuery {
         testRunner.run();
 
         testRunner.assertAllFlowFilesTransferred(EvaluateXQuery.REL_MATCH, 1);
-        final MockFlowFile out = testRunner.getFlowFilesForRelationship(EvaluateXQuery.REL_MATCH).get(0);
+        final MockFlowFile out = testRunner.getFlowFilesForRelationship(EvaluateXQuery.REL_MATCH).getFirst();
         out.assertAttributeEquals("xquery.result2", "apple");
-        testRunner.getFlowFilesForRelationship(EvaluateXQuery.REL_MATCH).get(0).assertContentEquals(XML_SNIPPET);
+        testRunner.getFlowFilesForRelationship(EvaluateXQuery.REL_MATCH).getFirst().assertContentEquals(XML_SNIPPET);
     }
 
     @Test
@@ -507,7 +511,7 @@ public class TestEvaluateXQuery {
         testRunner.run();
 
         testRunner.assertAllFlowFilesTransferred(EvaluateXQuery.REL_MATCH, 1);
-        final MockFlowFile out = testRunner.getFlowFilesForRelationship(EvaluateXQuery.REL_MATCH).get(0);
+        final MockFlowFile out = testRunner.getFlowFilesForRelationship(EvaluateXQuery.REL_MATCH).getFirst();
         out.assertContentEquals("apple");
     }
 
@@ -521,10 +525,10 @@ public class TestEvaluateXQuery {
         testRunner.run();
 
         testRunner.assertAllFlowFilesTransferred(EvaluateXQuery.REL_MATCH, 1);
-        final MockFlowFile out = testRunner.getFlowFilesForRelationship(EvaluateXQuery.REL_MATCH).get(0);
+        final MockFlowFile out = testRunner.getFlowFilesForRelationship(EvaluateXQuery.REL_MATCH).getFirst();
         final String outXml = out.getAttribute("some.property");
         assertTrue(outXml.contains("<name xmlns:ns=\"http://namespace/1\">apple</name>"));
-        testRunner.getFlowFilesForRelationship(EvaluateXQuery.REL_MATCH).get(0).assertContentEquals(XML_SNIPPET);
+        testRunner.getFlowFilesForRelationship(EvaluateXQuery.REL_MATCH).getFirst().assertContentEquals(XML_SNIPPET);
     }
 
     @Test
@@ -537,7 +541,7 @@ public class TestEvaluateXQuery {
         testRunner.run();
 
         testRunner.assertAllFlowFilesTransferred(EvaluateXQuery.REL_MATCH, 1);
-        final MockFlowFile out = testRunner.getFlowFilesForRelationship(EvaluateXQuery.REL_MATCH).get(0);
+        final MockFlowFile out = testRunner.getFlowFilesForRelationship(EvaluateXQuery.REL_MATCH).getFirst();
         final byte[] outData = testRunner.getContentAsByteArray(out);
         final String outXml = new String(outData, StandardCharsets.UTF_8);
         assertTrue(outXml.contains("<name xmlns:ns=\"http://namespace/1\">apple</name>"));
@@ -573,13 +577,13 @@ public class TestEvaluateXQuery {
 
         testRunner.assertAllFlowFilesTransferred(EvaluateXQuery.REL_MATCH, 1);
 
-        final MockFlowFile out = testRunner.getFlowFilesForRelationship(EvaluateXQuery.REL_MATCH).get(0);
+        final MockFlowFile out = testRunner.getFlowFilesForRelationship(EvaluateXQuery.REL_MATCH).getFirst();
 
         for (int i = 0; i < fruitNames.length; i++) {
             final String outXml = out.getAttribute("some.property." + (i + 1));
             assertEquals(fruitNames[i], outXml.trim());
         }
-        testRunner.getFlowFilesForRelationship(EvaluateXQuery.REL_MATCH).get(0).assertContentEquals(XML_SNIPPET);
+        testRunner.getFlowFilesForRelationship(EvaluateXQuery.REL_MATCH).getFirst().assertContentEquals(XML_SNIPPET);
     }
 
     @Test
@@ -615,14 +619,14 @@ public class TestEvaluateXQuery {
 
         testRunner.assertAllFlowFilesTransferred(EvaluateXQuery.REL_MATCH, 1);
 
-        final MockFlowFile out = testRunner.getFlowFilesForRelationship(EvaluateXQuery.REL_MATCH).get(0);
+        final MockFlowFile out = testRunner.getFlowFilesForRelationship(EvaluateXQuery.REL_MATCH).getFirst();
 
         for (int i = 0; i < fruitNames.length; i++) {
             final String outXml = out.getAttribute("some.property." + (i + 1));
             String expectedXml = "<?xml version=\"1.0\" encoding=\"UTF-8\"?><name xmlns:ns=\"http://namespace/1\">" + fruitNames[i] + "</name>";
             assertEquals(expectedXml, outXml.trim());
         }
-        testRunner.getFlowFilesForRelationship(EvaluateXQuery.REL_MATCH).get(0).assertContentEquals(XML_SNIPPET);
+        testRunner.getFlowFilesForRelationship(EvaluateXQuery.REL_MATCH).getFirst().assertContentEquals(XML_SNIPPET);
     }
 
     @Test
@@ -636,7 +640,7 @@ public class TestEvaluateXQuery {
         testRunner.run();
 
         testRunner.assertAllFlowFilesTransferred(EvaluateXQuery.REL_MATCH, 1);
-        final MockFlowFile out = testRunner.getFlowFilesForRelationship(EvaluateXQuery.REL_MATCH).get(0);
+        final MockFlowFile out = testRunner.getFlowFilesForRelationship(EvaluateXQuery.REL_MATCH).getFirst();
         out.assertContentEquals("Hello");
     }
 
@@ -652,7 +656,6 @@ public class TestEvaluateXQuery {
 
         testRunner.assertAllFlowFilesTransferred(EvaluateXQuery.REL_FAILURE, 1);
     }
-
 
     @Test
     public void testFailureForExternalDocTypeWithDocTypeValidationEnabled() throws IOException {
@@ -677,5 +680,14 @@ public class TestEvaluateXQuery {
         testRunner.run();
 
         testRunner.assertAllFlowFilesTransferred(EvaluateXQuery.REL_FAILURE, 1);
+    }
+
+    @Test
+    void testMigrateProperties() {
+        final TestRunner testRunner = TestRunners.newTestRunner(new EvaluateXQuery());
+        final Map<String, String> expectedRenamed = Map.of("Validate DTD", EvaluateXQuery.VALIDATE_DTD.getName());
+
+        final PropertyMigrationResult propertyMigrationResult = testRunner.migrateProperties();
+        assertEquals(expectedRenamed, propertyMigrationResult.getPropertiesRenamed());
     }
 }

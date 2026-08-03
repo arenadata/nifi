@@ -16,8 +16,8 @@
  */
 package org.apache.nifi.redis.testcontainers;
 
-import org.springframework.lang.NonNull;
-import org.springframework.lang.Nullable;
+import org.jspecify.annotations.NonNull;
+import org.jspecify.annotations.Nullable;
 import org.testcontainers.utility.DockerImageName;
 
 import java.util.ArrayList;
@@ -88,7 +88,6 @@ public class RedisSentinelContainer extends RedisContainer {
         this.parallelSyncs = parallelSyncs;
     }
 
-
     @Override
     protected void adjustConfiguration() {
         addConfigurationOption("port " + port);
@@ -121,7 +120,6 @@ public class RedisSentinelContainer extends RedisContainer {
     @Override
     protected void configure() {
         super.configure();
-
 
         List<String> commandParts = new ArrayList<>(Arrays.asList(getCommandParts()));
         commandParts.add("--sentinel");

@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-import { Component, EventEmitter, Input, Output } from '@angular/core';
+import { Component, EventEmitter, Input, Output, inject } from '@angular/core';
 import { MatButtonModule } from '@angular/material/button';
 import { MatDialogModule } from '@angular/material/dialog';
 import { MatTableDataSource, MatTableModule } from '@angular/material/table';
@@ -46,6 +46,8 @@ import { MatMenu, MatMenuItem, MatMenuTrigger } from '@angular/material/menu';
     styleUrls: ['./controller-service-table.component.scss']
 })
 export class ControllerServiceTable {
+    private nifiCommon = inject(NiFiCommon);
+
     @Input() initialSortColumn: 'name' | 'type' | 'bundle' | 'state' | 'scope' = 'name';
     @Input() initialSortDirection: 'asc' | 'desc' = 'asc';
     activeSort: Sort = {
@@ -63,6 +65,16 @@ export class ControllerServiceTable {
     @Input() flowConfiguration!: FlowConfiguration;
     @Input() currentUser!: CurrentUser;
     @Input() canModifyParent!: (entity: ControllerServiceEntity) => boolean;
+
+    /**
+     * When true, the row action menu is restricted to view-only entries
+     * (View Configuration, View State, View Documentation). Mutating actions
+     * such as Edit, Enable, Disable, Change Version, Delete, Clear Bulletins,
+     * Advanced UI, and Manage Access Policies are suppressed regardless of
+     * the underlying entity permissions. Used by the connector canvas
+     * controller services view.
+     */
+    @Input() readOnly = false;
 
     @Output() selectControllerService: EventEmitter<ControllerServiceEntity> =
         new EventEmitter<ControllerServiceEntity>();
@@ -84,6 +96,8 @@ export class ControllerServiceTable {
         new EventEmitter<ControllerServiceEntity>();
     @Output() goToControllerService: EventEmitter<ControllerServiceEntity> =
         new EventEmitter<ControllerServiceEntity>();
+    @Output() clearBulletinsControllerService: EventEmitter<ControllerServiceEntity> =
+        new EventEmitter<ControllerServiceEntity>();
 
     protected readonly TextTip = TextTip;
     protected readonly BulletinsTip = BulletinsTip;
@@ -91,8 +105,6 @@ export class ControllerServiceTable {
 
     displayedColumns: string[] = ['moreDetails', 'name', 'type', 'bundle', 'state', 'scope', 'actions'];
     dataSource: MatTableDataSource<ControllerServiceEntity> = new MatTableDataSource<ControllerServiceEntity>();
-
-    constructor(private nifiCommon: NiFiCommon) {}
 
     canRead(entity: ControllerServiceEntity): boolean {
         return entity.permissions.canRead;
@@ -136,6 +148,10 @@ export class ControllerServiceTable {
         return {
             bulletins: entity.bulletins
         };
+    }
+
+    getBulletinSeverityClass(entity: ControllerServiceEntity): string {
+        return this.nifiCommon.getBulletinSeverityClass(entity.bulletins);
     }
 
     getStateIcon(entity: ControllerServiceEntity): string {
@@ -247,8 +263,7 @@ export class ControllerServiceTable {
         return this.isDisabled(entity) && this.canRead(entity) && this.canWrite(entity) && this.canModifyParent(entity);
     }
 
-    deleteClicked(entity: ControllerServiceEntity, event: MouseEvent): void {
-        event.stopPropagation();
+    deleteClicked(entity: ControllerServiceEntity): void {
         this.deleteControllerService.next(entity);
     }
 
@@ -264,8 +279,16 @@ export class ControllerServiceTable {
         return this.canRead(entity) && this.canWrite(entity) && entity.component.persistsState === true;
     }
 
+    canClearBulletins(entity: ControllerServiceEntity): boolean {
+        return this.canWrite(entity) && !this.nifiCommon.isEmpty(entity.bulletins);
+    }
+
     viewStateClicked(entity: ControllerServiceEntity): void {
         this.viewStateControllerService.next(entity);
+    }
+
+    clearBulletinsClicked(entity: ControllerServiceEntity): void {
+        this.clearBulletinsControllerService.next(entity);
     }
 
     canManageAccessPolicies(): boolean {
@@ -294,7 +317,7 @@ export class ControllerServiceTable {
         }
         return data.slice().sort((a, b) => {
             const isAsc = sort.direction === 'asc';
-            let retVal = 0;
+            let retVal: number;
 
             switch (sort.active) {
                 case 'name':

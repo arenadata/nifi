@@ -39,6 +39,17 @@ import { ComponentEntityWithDimensions } from '../state/flow';
     providedIn: 'root'
 })
 export class BirdseyeView {
+    private store = inject<Store<CanvasState>>(Store);
+    private canvasView = inject(CanvasView);
+    private nifiCommon = inject(NiFiCommon);
+    private canvasUtils = inject(CanvasUtils);
+    private processorManager = inject(ProcessorManager);
+    private processGroupManager = inject(ProcessGroupManager);
+    private remoteProcessGroupManager = inject(RemoteProcessGroupManager);
+    private portManager = inject(PortManager);
+    private funnelManager = inject(FunnelManager);
+    private labelManager = inject(LabelManager);
+
     private destroyRef = inject(DestroyRef);
 
     private birdseyeGroup: any = null;
@@ -51,18 +62,7 @@ export class BirdseyeView {
 
     private initialized = false;
 
-    constructor(
-        private store: Store<CanvasState>,
-        private canvasView: CanvasView,
-        private nifiCommon: NiFiCommon,
-        private canvasUtils: CanvasUtils,
-        private processorManager: ProcessorManager,
-        private processGroupManager: ProcessGroupManager,
-        private remoteProcessGroupManager: RemoteProcessGroupManager,
-        private portManager: PortManager,
-        private funnelManager: FunnelManager,
-        private labelManager: LabelManager
-    ) {
+    constructor() {
         this.store
             .select(selectTransform)
             .pipe(takeUntilDestroyed(this.destroyRef))
@@ -81,7 +81,6 @@ export class BirdseyeView {
     }
 
     public init(birdseye: any) {
-        const self: BirdseyeView = this;
         const birdseyeBoundingBox: any = birdseye.getBoundingClientRect();
 
         d3.select(birdseye)
@@ -107,33 +106,33 @@ export class BirdseyeView {
         // define the brush drag behavior
         const brush = d3
             .drag()
-            .subject(function (d) {
+            .subject(function (this: Element, _event: any, d: any) {
                 return {
                     x: d.x,
                     y: d.y,
-                    source: 'birdseye'
+                    source: 'birdseye',
+                    element: this
                 };
             })
-            .on('start', function () {
-                self.canvasView.birdseyeDragStart();
+            .on('start', () => {
+                this.canvasView.birdseyeDragStart();
             })
-            .on('drag', function (this: any, event, d: any) {
+            .on('drag', (event: any) => {
+                const d = event.subject as { x: number; y: number };
                 d.x += event.dx;
                 d.y += event.dy;
 
                 // update the location of the brush
-                d3.select(this).attr('transform', function () {
-                    return 'translate(' + d.x + ', ' + d.y + ')';
-                });
+                d3.select(event.subject.element).attr('transform', () => 'translate(' + d.x + ', ' + d.y + ')');
 
                 // transform the canvas
-                self.canvasView.translate([-event.dx, -event.dy]);
+                this.canvasView.translate([-event.dx, -event.dy]);
             })
-            .on('end', function () {
-                self.canvasView.birdseyeDragEnd();
+            .on('end', () => {
+                this.canvasView.birdseyeDragEnd();
 
                 // refresh the birdseye
-                self.refresh();
+                this.refresh();
             });
 
         // context area
@@ -200,7 +199,7 @@ export class BirdseyeView {
         const birdseyeScale: number = Math.min(birdseyeWidthScale, birdseyeHeightScale);
 
         // calculate the translation for the birdseye and the brush
-        let birdseyeTranslate: [number, number] = [0, 0];
+        let birdseyeTranslate: [number, number];
         let brushTranslate: [number, number] = [0, 0];
         if (translate[0] < 0 && translate[1] < 0) {
             birdseyeTranslate = [0, 0];

@@ -244,7 +244,6 @@ class ElasticSearchClientService_IT extends AbstractElasticsearch_IT {
                 .build();
         final String query = prettyJson(temp);
 
-
         final SearchResponse response = service.search(query, "messages", type, new ElasticsearchRequestOptions(requestParameters, requestHeaders));
         assertNotNull(response, "Response was null");
 
@@ -297,7 +296,6 @@ class ElasticSearchClientService_IT extends AbstractElasticsearch_IT {
                 .build();
         final String query = prettyJson(temp);
 
-
         final SearchResponse response = service.search(query, "messages", type, new ElasticsearchRequestOptions(Map.of("_source", "not_exists"),
                 Map.of("ES-Client-Authentication", "sharedsecret foobar")));
         assertNotNull(response, "Response was null");
@@ -317,7 +315,6 @@ class ElasticSearchClientService_IT extends AbstractElasticsearch_IT {
                         "query", new MapBuilder().of("match_all", new HashMap<>()).build())
                 .build();
         final String query = prettyJson(temp);
-
 
         final SearchResponse response = service.search(query, "no_source", type, null);
         assertNotNull(response, "Response was null");
@@ -590,19 +587,20 @@ class ElasticSearchClientService_IT extends AbstractElasticsearch_IT {
 
     @Test
     void testDeleteById() throws Exception {
-        final String ID = "1";
-        final Map<String, Object> originalDoc = service.get(INDEX, type, ID, new ElasticsearchRequestOptions(null, Map.of("Accept", "application/json")));
+        final String id = "1";
+        final Map<String, Object> originalDoc = service.get(INDEX, type, id, new ElasticsearchRequestOptions(null, Map.of("Accept", "application/json")));
         try {
-            final DeleteOperationResponse response = service.deleteById(INDEX, type, ID, null);
+            final DeleteOperationResponse response = service.deleteById(INDEX, type, id, null);
             assertNotNull(response);
             final ElasticsearchException ee = assertThrows(ElasticsearchException.class, () ->
-                service.get(INDEX, type, ID, null));
+                service.get(INDEX, type, id, null));
             assertTrue(ee.isNotFound());
             final Map<String, Object> doc = service.get(INDEX, type, "2", new ElasticsearchRequestOptions());
             assertNotNull(doc);
         } finally {
             // replace the deleted doc
-            service.add(new IndexOperationRequest(INDEX, type, "1", originalDoc, IndexOperationRequest.Operation.Index, null, false, null, null),
+            service.add(IndexOperationRequest.builder()
+                            .index(INDEX).type(type).id("1").fields(originalDoc).operation(IndexOperationRequest.Operation.Index).build(),
                     new ElasticsearchRequestOptions(null, Map.of("Accept", "application/json")));
             waitForIndexRefresh(); // (affects later tests using _search or _bulk)
         }
@@ -722,7 +720,8 @@ class ElasticSearchClientService_IT extends AbstractElasticsearch_IT {
         suppressNulls(false);
         IndexOperationResponse response = service.bulk(
                 Collections.singletonList(
-                        new IndexOperationRequest("nulls", type, "1", doc, IndexOperationRequest.Operation.Index, null, false, null, null)
+                        IndexOperationRequest.builder()
+                                .index("nulls").type(type).id("1").fields(doc).operation(IndexOperationRequest.Operation.Index).build()
                 ),
                 new ElasticsearchRequestOptions(null, Map.of("Accept", "application/json"))
         );
@@ -734,7 +733,8 @@ class ElasticSearchClientService_IT extends AbstractElasticsearch_IT {
 
         // suppress nulls
         suppressNulls(true);
-        response = service.bulk(Collections.singletonList(new IndexOperationRequest("nulls", type, "2", doc, IndexOperationRequest.Operation.Index, null, false, null, null)), null);
+        response = service.bulk(Collections.singletonList(IndexOperationRequest.builder()
+                .index("nulls").type(type).id("2").fields(doc).operation(IndexOperationRequest.Operation.Index).build()), null);
         assertNotNull(response);
         waitForIndexRefresh();
 
@@ -760,12 +760,12 @@ class ElasticSearchClientService_IT extends AbstractElasticsearch_IT {
         final List<IndexOperationRequest> payload = new ArrayList<>();
         for (int x = 0; x < 20; x++) {
             final String index = x % 2 == 0 ? "bulk_a" : "bulk_b";
-            payload.add(new IndexOperationRequest(index, type, String.valueOf(x), Map.of("msg", "test"),
-                    IndexOperationRequest.Operation.Index, null, false, null, null));
+            payload.add(IndexOperationRequest.builder()
+                    .index(index).type(type).id(String.valueOf(x)).fields(Map.of("msg", "test")).operation(IndexOperationRequest.Operation.Index).build());
         }
         for (int x = 0; x < 5; x++) {
-            payload.add(new IndexOperationRequest("bulk_c", type, String.valueOf(x), Map.of("msg", "test"),
-                    IndexOperationRequest.Operation.Index, null, false, null, null));
+            payload.add(IndexOperationRequest.builder()
+                    .index("bulk_c").type(type).id(String.valueOf(x)).fields(Map.of("msg", "test")).operation(IndexOperationRequest.Operation.Index).build());
         }
         final IndexOperationResponse response = service.bulk(payload, new ElasticsearchRequestOptions(Map.of("refresh", "true"), null));
         assertNotNull(response);
@@ -797,12 +797,14 @@ class ElasticSearchClientService_IT extends AbstractElasticsearch_IT {
         final List<IndexOperationRequest> payload = new ArrayList<>();
         for (int x = 0; x < 20; x++) {
             final String index = x % 2 == 0 ? "bulk_a" : "bulk_b";
-            payload.add(new IndexOperationRequest(index, type, String.valueOf(x), new MapBuilder().of("msg", "test").build(),
-                    IndexOperationRequest.Operation.Index, null, false, null, Collections.singletonMap("retry_on_conflict", "3")));
+            payload.add(IndexOperationRequest.builder()
+                    .index(index).type(type).id(String.valueOf(x)).fields(new MapBuilder().of("msg", "test").build())
+                    .operation(IndexOperationRequest.Operation.Index).headerFields(Collections.singletonMap("retry_on_conflict", "3")).build());
         }
         for (int x = 0; x < 5; x++) {
-            payload.add(new IndexOperationRequest("bulk_c", type, String.valueOf(x), new MapBuilder().of("msg", "test").build(),
-                    IndexOperationRequest.Operation.Index, null, false, null, null));
+            payload.add(IndexOperationRequest.builder()
+                    .index("bulk_c").type(type).id(String.valueOf(x)).fields(new MapBuilder().of("msg", "test").build())
+                    .operation(IndexOperationRequest.Operation.Index).build());
         }
         final IndexOperationResponse response = service.bulk(payload, new ElasticsearchRequestOptions(Map.of("refresh", "true"), null));
         assertNotNull(response);
@@ -830,8 +832,9 @@ class ElasticSearchClientService_IT extends AbstractElasticsearch_IT {
 
     @Test
     void testUnknownBulkHeader() {
-        final IndexOperationRequest failingRequest = new IndexOperationRequest("bulk_c", type, "1", new MapBuilder().of("msg", "test").build(),
-                IndexOperationRequest.Operation.Index, null, false, null, Collections.singletonMap("not_exist", "true"));
+        final IndexOperationRequest failingRequest = IndexOperationRequest.builder()
+                .index("bulk_c").type(type).id("1").fields(new MapBuilder().of("msg", "test").build())
+                .operation(IndexOperationRequest.Operation.Index).headerFields(Collections.singletonMap("not_exist", "true")).build();
         final ElasticsearchException ee = assertThrows(ElasticsearchException.class, () -> service.add(failingRequest, null));
         assertInstanceOf(ResponseException.class, ee.getCause());
         assertTrue(ee.getCause().getMessage().contains("Action/metadata line [1] contains an unknown parameter [not_exist]"));
@@ -840,8 +843,9 @@ class ElasticSearchClientService_IT extends AbstractElasticsearch_IT {
     @Test
     void testDynamicTemplates() {
         final List<IndexOperationRequest> payload = Collections.singletonList(
-                new IndexOperationRequest("dynamo", type, "1", new MapBuilder().of("msg", "test", "hello", "world").build(),
-                        IndexOperationRequest.Operation.Index, null, false, new MapBuilder().of("hello", "test_text").build(), null)
+                IndexOperationRequest.builder()
+                        .index("dynamo").type(type).id("1").fields(new MapBuilder().of("msg", "test", "hello", "world").build())
+                        .operation(IndexOperationRequest.Operation.Index).dynamicTemplates(new MapBuilder().of("hello", "test_text").build()).build()
         );
 
         final IndexOperationResponse response = service.bulk(payload, new ElasticsearchRequestOptions(Map.of("refresh", "true"), null));
@@ -857,17 +861,18 @@ class ElasticSearchClientService_IT extends AbstractElasticsearch_IT {
 
     @Test
     void testUpdateAndUpsert() throws InterruptedException {
-        final String TEST_ID = "update-test";
-        final String UPSERTED_ID = "upsert-ftw";
-        final String UPSERT_SCRIPT_ID = "upsert-script";
-        final String SCRIPTED_UPSERT_ID = "scripted-upsert-test";
+        final String testId = "update-test";
+        final String upsertedId = "upsert-ftw";
+        final String upsertScriptId = "upsert-script";
+        final String scriptedUpsertId = "scripted-upsert-test";
         try {
             final Map<String, Object> doc = new HashMap<>();
             doc.put("msg", "Buongiorno, mondo");
             doc.put("counter", 1);
-            service.add(new IndexOperationRequest(INDEX, type, TEST_ID, doc, IndexOperationRequest.Operation.Index, null, false, null, null),
+            service.add(IndexOperationRequest.builder()
+                            .index(INDEX).type(type).id(testId).fields(doc).operation(IndexOperationRequest.Operation.Index).build(),
                     new ElasticsearchRequestOptions(Map.of("refresh", "true"), null));
-            Map<String, Object> result = service.get(INDEX, type, TEST_ID, null);
+            Map<String, Object> result = service.get(INDEX, type, testId, null);
             assertEquals(doc, result, "Not the same");
 
             final Map<String, Object> updates = new HashMap<>();
@@ -875,9 +880,10 @@ class ElasticSearchClientService_IT extends AbstractElasticsearch_IT {
             final Map<String, Object> merged = new HashMap<>();
             merged.putAll(updates);
             merged.putAll(doc);
-            IndexOperationRequest request = new IndexOperationRequest(INDEX, type, TEST_ID, updates, IndexOperationRequest.Operation.Update, null, false, null, null);
+            IndexOperationRequest request = IndexOperationRequest.builder()
+                    .index(INDEX).type(type).id(testId).fields(updates).operation(IndexOperationRequest.Operation.Update).build();
             service.add(request, new ElasticsearchRequestOptions(Map.of("refresh", "true"), null));
-            result = service.get(INDEX, type, TEST_ID, null);
+            result = service.get(INDEX, type, testId, null);
             assertTrue(result.containsKey("from"));
             assertTrue(result.containsKey("counter"));
             assertTrue(result.containsKey("msg"));
@@ -887,9 +893,10 @@ class ElasticSearchClientService_IT extends AbstractElasticsearch_IT {
             upsertItems.put("upsert_1", "hello");
             upsertItems.put("upsert_2", 1);
             upsertItems.put("upsert_3", true);
-            request = new IndexOperationRequest(INDEX, type, UPSERTED_ID, upsertItems, IndexOperationRequest.Operation.Upsert, null, false, null, null);
+            request = IndexOperationRequest.builder()
+                    .index(INDEX).type(type).id(upsertedId).fields(upsertItems).operation(IndexOperationRequest.Operation.Upsert).build();
             service.add(request, new ElasticsearchRequestOptions(Map.of("refresh", "true"), null));
-            result = service.get(INDEX, type, UPSERTED_ID, null);
+            result = service.get(INDEX, type, upsertedId, null);
             assertEquals(upsertItems, result);
 
             final Map<String, Object> upsertDoc = new HashMap<>();
@@ -899,15 +906,17 @@ class ElasticSearchClientService_IT extends AbstractElasticsearch_IT {
             script.put("lang", "painless");
             script.put("params", Collections.singletonMap("count", 2));
             // apply script to existing document
-            request = new IndexOperationRequest(INDEX, type, TEST_ID, upsertDoc, IndexOperationRequest.Operation.Upsert, script, false, null, null);
+            request = IndexOperationRequest.builder()
+                    .index(INDEX).type(type).id(testId).fields(upsertDoc).operation(IndexOperationRequest.Operation.Upsert).script(script).build();
             service.add(request, new ElasticsearchRequestOptions(Map.of("refresh", "true"), null));
-            result = service.get(INDEX, type, TEST_ID, new ElasticsearchRequestOptions());
+            result = service.get(INDEX, type, testId, new ElasticsearchRequestOptions());
             assertEquals(doc.get("msg"), result.get("msg"));
             assertEquals(3, result.get("counter"));
             // index document that doesn't already exist (don't apply script)
-            request = new IndexOperationRequest(INDEX, type, UPSERT_SCRIPT_ID, upsertDoc, IndexOperationRequest.Operation.Upsert, script, false, null, null);
+            request = IndexOperationRequest.builder()
+                    .index(INDEX).type(type).id(upsertScriptId).fields(upsertDoc).operation(IndexOperationRequest.Operation.Upsert).script(script).build();
             service.add(request, new ElasticsearchRequestOptions(Map.of("refresh", "true"), null));
-            result = service.get(INDEX, type, UPSERT_SCRIPT_ID, new ElasticsearchRequestOptions(null, null));
+            result = service.get(INDEX, type, upsertScriptId, new ElasticsearchRequestOptions(null, null));
             assertNull(result.get("counter"));
             assertEquals(upsertDoc, result);
 
@@ -917,37 +926,44 @@ class ElasticSearchClientService_IT extends AbstractElasticsearch_IT {
             upsertScript.put("lang", "painless");
             upsertScript.put("params", Collections.singletonMap("count", 2));
             // no script execution if doc found (without scripted_upsert)
-            request = new IndexOperationRequest(INDEX, type, SCRIPTED_UPSERT_ID, emptyUpsertDoc, IndexOperationRequest.Operation.Upsert, upsertScript, false, null, null);
+            request = IndexOperationRequest.builder()
+                    .index(INDEX).type(type).id(scriptedUpsertId).fields(emptyUpsertDoc).operation(IndexOperationRequest.Operation.Upsert).script(upsertScript).build();
             service.add(request, new ElasticsearchRequestOptions(Map.of("refresh", "true"), null));
-            assertFalse(service.documentExists(INDEX, type, SCRIPTED_UPSERT_ID, new ElasticsearchRequestOptions(null, Map.of("Accept", "application/json"))));
+            assertFalse(service.documentExists(INDEX, type, scriptedUpsertId, new ElasticsearchRequestOptions(null, Map.of("Accept", "application/json"))));
             // script execution with no doc found (with scripted_upsert) - doc not create, no "upsert" doc provided (empty objects suppressed)
             suppressNulls(true);
-            request = new IndexOperationRequest(INDEX, type, SCRIPTED_UPSERT_ID, emptyUpsertDoc, IndexOperationRequest.Operation.Upsert, upsertScript, true, null, null);
+            request = IndexOperationRequest.builder()
+                    .index(INDEX).type(type).id(scriptedUpsertId).fields(emptyUpsertDoc).operation(IndexOperationRequest.Operation.Upsert)
+                    .script(upsertScript).scriptedUpsert(true).build();
             service.add(request, new ElasticsearchRequestOptions(Map.of("refresh", "true"), null));
-            assertFalse(service.documentExists(INDEX, type, SCRIPTED_UPSERT_ID, null));
+            assertFalse(service.documentExists(INDEX, type, scriptedUpsertId, null));
             // script execution with no doc found (with scripted_upsert) - doc created, empty "upsert" doc provided
             suppressNulls(false);
-            request = new IndexOperationRequest(INDEX, type, SCRIPTED_UPSERT_ID, emptyUpsertDoc, IndexOperationRequest.Operation.Upsert, upsertScript, true, null, null);
+            request = IndexOperationRequest.builder()
+                    .index(INDEX).type(type).id(scriptedUpsertId).fields(emptyUpsertDoc).operation(IndexOperationRequest.Operation.Upsert)
+                    .script(upsertScript).scriptedUpsert(true).build();
             service.add(request, new ElasticsearchRequestOptions(Map.of("refresh", "true"), null));
-            result = service.get(INDEX, type, SCRIPTED_UPSERT_ID, new ElasticsearchRequestOptions(null, null));
+            result = service.get(INDEX, type, scriptedUpsertId, new ElasticsearchRequestOptions(null, null));
             assertEquals(2, result.get("counter"));
             // script execution with no doc found (with scripted_upsert) - doc updated
-            request = new IndexOperationRequest(INDEX, type, SCRIPTED_UPSERT_ID, emptyUpsertDoc, IndexOperationRequest.Operation.Upsert, upsertScript, true, null, null);
+            request = IndexOperationRequest.builder()
+                    .index(INDEX).type(type).id(scriptedUpsertId).fields(emptyUpsertDoc).operation(IndexOperationRequest.Operation.Upsert)
+                    .script(upsertScript).scriptedUpsert(true).build();
             service.add(request, new ElasticsearchRequestOptions(Map.of("refresh", "true"), null));
-            result = service.get(INDEX, type, SCRIPTED_UPSERT_ID, new ElasticsearchRequestOptions());
+            result = service.get(INDEX, type, scriptedUpsertId, new ElasticsearchRequestOptions());
             assertEquals(4, result.get("counter"));
         } finally {
             final List<IndexOperationRequest> deletes = new ArrayList<>();
-            deletes.add(new IndexOperationRequest(INDEX, type, TEST_ID, null, IndexOperationRequest.Operation.Delete, null, false, null, null));
-            deletes.add(new IndexOperationRequest(INDEX, type, UPSERTED_ID, null, IndexOperationRequest.Operation.Delete, null, false, null, null));
-            deletes.add(new IndexOperationRequest(INDEX, type, UPSERT_SCRIPT_ID, null, IndexOperationRequest.Operation.Delete, null, false, null, null));
-            deletes.add(new IndexOperationRequest(INDEX, type, SCRIPTED_UPSERT_ID, null, IndexOperationRequest.Operation.Delete, null, false, null, null));
+            deletes.add(IndexOperationRequest.builder().index(INDEX).type(type).id(testId).operation(IndexOperationRequest.Operation.Delete).build());
+            deletes.add(IndexOperationRequest.builder().index(INDEX).type(type).id(upsertedId).operation(IndexOperationRequest.Operation.Delete).build());
+            deletes.add(IndexOperationRequest.builder().index(INDEX).type(type).id(upsertScriptId).operation(IndexOperationRequest.Operation.Delete).build());
+            deletes.add(IndexOperationRequest.builder().index(INDEX).type(type).id(scriptedUpsertId).operation(IndexOperationRequest.Operation.Delete).build());
             assertFalse(service.bulk(deletes, new ElasticsearchRequestOptions(Map.of("refresh", "true"), null)).hasErrors());
             waitForIndexRefresh(); // wait 1s for index refresh (doesn't prevent GET but affects later tests using _search or _bulk)
-            assertFalse(service.documentExists(INDEX, type, TEST_ID, null));
-            assertFalse(service.documentExists(INDEX, type, UPSERTED_ID, null));
-            assertFalse(service.documentExists(INDEX, type, UPSERT_SCRIPT_ID, null));
-            assertFalse(service.documentExists(INDEX, type, SCRIPTED_UPSERT_ID, null));
+            assertFalse(service.documentExists(INDEX, type, testId, null));
+            assertFalse(service.documentExists(INDEX, type, upsertedId, null));
+            assertFalse(service.documentExists(INDEX, type, upsertScriptId, null));
+            assertFalse(service.documentExists(INDEX, type, scriptedUpsertId, null));
         }
     }
 
@@ -955,12 +971,12 @@ class ElasticSearchClientService_IT extends AbstractElasticsearch_IT {
     @Test
     void testGetBulkResponsesWithErrors() {
         final List<IndexOperationRequest> ops = Arrays.asList(
-                new IndexOperationRequest(INDEX, type, "1", new MapBuilder().of("msg", "one", "intField", 1).build(),
-                        IndexOperationRequest.Operation.Index, null, false, null, null), // OK
-                new IndexOperationRequest(INDEX, type, "2", new MapBuilder().of("msg", "two", "intField", 1).build(),
-                        IndexOperationRequest.Operation.Create, null, false, null, null), // already exists
-                new IndexOperationRequest(INDEX, type, "1", new MapBuilder().of("msg", "one", "intField", "notaninteger").build(),
-                        IndexOperationRequest.Operation.Index, null, false, null, null) // can't parse int field
+                IndexOperationRequest.builder().index(INDEX).type(type).id("1")
+                        .fields(new MapBuilder().of("msg", "one", "intField", 1).build()).operation(IndexOperationRequest.Operation.Index).build(), // OK
+                IndexOperationRequest.builder().index(INDEX).type(type).id("2")
+                        .fields(new MapBuilder().of("msg", "two", "intField", 1).build()).operation(IndexOperationRequest.Operation.Create).build(), // already exists
+                IndexOperationRequest.builder().index(INDEX).type(type).id("1")
+                        .fields(new MapBuilder().of("msg", "one", "intField", "notaninteger").build()).operation(IndexOperationRequest.Operation.Index).build() // can't parse int field
         );
         final IndexOperationResponse response = service.bulk(ops, new ElasticsearchRequestOptions(Map.of("refresh", "true"), null));
         assertTrue(response.hasErrors());

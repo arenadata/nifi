@@ -21,9 +21,12 @@ import { DisableControllerService } from './disable-controller-service.component
 import { NoopAnimationsModule } from '@angular/platform-browser/animations';
 import { provideMockStore } from '@ngrx/store/testing';
 import { initialState } from '../../../../state/contoller-service-state/controller-service-state.reducer';
+import { controllerServiceStateFeatureKey } from '../../../../state/contoller-service-state';
 import { ComponentType } from '@nifi/shared';
 import { SetEnableControllerServiceDialogRequest } from '../../../../state/shared';
 import { MAT_DIALOG_DATA, MatDialogRef } from '@angular/material/dialog';
+import { initialState as initialErrorState } from '../../../../state/error/error.reducer';
+import { errorFeatureKey } from '../../../../state/error';
 
 describe('EnableControllerService', () => {
     let component: DisableControllerService;
@@ -48,6 +51,7 @@ describe('EnableControllerService', () => {
                     groupId: 'asdf',
                     sourceId: 'asdf',
                     timestamp: '14:08:44 EST',
+                    timestampIso: new Date().toISOString(),
                     canRead: true,
                     bulletin: {
                         id: 0,
@@ -58,7 +62,8 @@ describe('EnableControllerService', () => {
                         sourceType: ComponentType.Processor,
                         level: 'ERROR',
                         message: 'asdf',
-                        timestamp: '14:08:44 EST'
+                        timestamp: '14:08:44 EST',
+                        timestampIso: new Date().toISOString()
                     }
                 }
             ],
@@ -303,7 +308,8 @@ describe('EnableControllerService', () => {
                                     sourceName: 'asdf',
                                     level: 'ERROR',
                                     message: 'asdf',
-                                    timestamp: '14:08:44 EST'
+                                    timestamp: '14:08:44 EST',
+                                    timestampIso: new Date().toISOString()
                                 }
                             }
                         ],
@@ -344,7 +350,12 @@ describe('EnableControllerService', () => {
         TestBed.configureTestingModule({
             imports: [DisableControllerService, NoopAnimationsModule],
             providers: [
-                provideMockStore({ initialState }),
+                provideMockStore({
+                    initialState: {
+                        [errorFeatureKey]: initialErrorState,
+                        [controllerServiceStateFeatureKey]: initialState
+                    }
+                }),
                 {
                     provide: MAT_DIALOG_DATA,
                     useValue: data

@@ -50,17 +50,27 @@ export const selectUpdateRequest = createSelector(
     (state: ParameterContextListingState) => state.updateRequestEntity
 );
 
+export const selectUpdateRequestParameterContextId = createSelector(
+    selectParameterContextListingState,
+    (state: ParameterContextListingState) => state.updateRequestParameterContextId
+);
+
 export const selectParameterContexts = createSelector(
     selectParameterContextListingState,
     (state: ParameterContextListingState) => state.parameterContexts
 );
 
-export const selectParameterContextStatus = createSelector(
+export const selectParameterContextLoadedTimestamp = createSelector(
     selectParameterContextListingState,
-    (state: ParameterContextListingState) => state.status
+    (state: ParameterContextListingState) => state.loadedTimestamp
 );
 
 export const selectContext = (id: string) =>
     createSelector(selectParameterContexts, (parameterContexts: ParameterContextEntity[]) =>
         parameterContexts.find((entity) => id == entity.id)
     );
+
+export const selectDeleteUpdateRequestInitiated = createSelector(
+    selectParameterContextListingState,
+    (state: ParameterContextListingState) => state.deleteUpdateRequestInitiated
+);

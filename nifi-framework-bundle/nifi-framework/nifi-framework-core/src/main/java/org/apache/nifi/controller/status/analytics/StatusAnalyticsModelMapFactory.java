@@ -16,12 +16,6 @@
  */
 package org.apache.nifi.controller.status.analytics;
 
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Random;
-
 import org.apache.nifi.controller.status.history.StatusHistoryUtil;
 import org.apache.nifi.nar.ExtensionManager;
 import org.apache.nifi.nar.NarThreadContextClassLoader;
@@ -30,6 +24,12 @@ import org.apache.nifi.util.Tuple;
 import org.apache.nifi.web.api.dto.status.StatusHistoryDTO;
 import org.apache.nifi.web.api.dto.status.StatusSnapshotDTO;
 
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Random;
+
 /**
  * <p>
  * This factory supports the creation of models and their associated extraction functions
@@ -37,12 +37,12 @@ import org.apache.nifi.web.api.dto.status.StatusSnapshotDTO;
  */
 public class StatusAnalyticsModelMapFactory {
 
-    private final static String QUEUED_COUNT_METRIC = "queuedCount";
-    private final static String QUEUED_BYTES_METRIC = "queuedBytes";
-    private final static String INPUT_COUNT_METRIC = "inputCount";
-    private final static String INPUT_BYTES_METRIC = "inputBytes";
-    private final static String OUTPUT_COUNT_METRIC = "outputCount";
-    private final static String OUTPUT_BYTES_METRIC = "outputBytes";
+    private static final String QUEUED_COUNT_METRIC = "queuedCount";
+    private static final String QUEUED_BYTES_METRIC = "queuedBytes";
+    private static final String INPUT_COUNT_METRIC = "inputCount";
+    private static final String INPUT_BYTES_METRIC = "inputBytes";
+    private static final String OUTPUT_COUNT_METRIC = "outputCount";
+    private static final String OUTPUT_BYTES_METRIC = "outputBytes";
 
     final ExtensionManager extensionManager;
     final NiFiProperties niFiProperties;
@@ -127,6 +127,5 @@ public class StatusAnalyticsModelMapFactory {
 
         };
     }
-
 
 }

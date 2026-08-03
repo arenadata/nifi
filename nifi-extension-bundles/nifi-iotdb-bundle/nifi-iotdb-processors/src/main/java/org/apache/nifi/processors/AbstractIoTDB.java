@@ -16,6 +16,32 @@
  */
 package org.apache.nifi.processors;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import org.apache.iotdb.rpc.IoTDBConnectionException;
+import org.apache.iotdb.session.Session;
+import org.apache.nifi.annotation.lifecycle.OnScheduled;
+import org.apache.nifi.annotation.lifecycle.OnStopped;
+import org.apache.nifi.components.PropertyDescriptor;
+import org.apache.nifi.processor.AbstractProcessor;
+import org.apache.nifi.processor.ProcessContext;
+import org.apache.nifi.processor.Relationship;
+import org.apache.nifi.processor.util.StandardValidators;
+import org.apache.nifi.processors.model.DatabaseField;
+import org.apache.nifi.processors.model.DatabaseSchema;
+import org.apache.nifi.processors.model.ValidationResult;
+import org.apache.nifi.serialization.record.DataType;
+import org.apache.nifi.serialization.record.RecordFieldType;
+import org.apache.nifi.serialization.record.RecordSchema;
+import org.apache.tsfile.enums.TSDataType;
+import org.apache.tsfile.file.metadata.enums.CompressionType;
+import org.apache.tsfile.file.metadata.enums.TSEncoding;
+import org.apache.tsfile.utils.Binary;
+import org.apache.tsfile.write.record.Tablet;
+import org.apache.tsfile.write.schema.IMeasurementSchema;
+import org.apache.tsfile.write.schema.MeasurementSchema;
+
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -27,32 +53,6 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicReference;
-
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import org.apache.nifi.annotation.lifecycle.OnStopped;
-import org.apache.nifi.processors.model.DatabaseField;
-import org.apache.nifi.processors.model.DatabaseSchema;
-import org.apache.iotdb.rpc.IoTDBConnectionException;
-import org.apache.iotdb.session.Session;
-import org.apache.tsfile.file.metadata.enums.CompressionType;
-import org.apache.tsfile.enums.TSDataType;
-import org.apache.tsfile.file.metadata.enums.TSEncoding;
-import org.apache.tsfile.utils.Binary;
-import org.apache.tsfile.write.record.Tablet;
-import org.apache.tsfile.write.schema.IMeasurementSchema;
-import org.apache.tsfile.write.schema.MeasurementSchema;
-import org.apache.nifi.annotation.lifecycle.OnScheduled;
-import org.apache.nifi.components.PropertyDescriptor;
-import org.apache.nifi.processor.AbstractProcessor;
-import org.apache.nifi.processor.ProcessContext;
-import org.apache.nifi.processor.Relationship;
-import org.apache.nifi.processor.util.StandardValidators;
-import org.apache.nifi.processors.model.ValidationResult;
-import org.apache.nifi.serialization.record.DataType;
-import org.apache.nifi.serialization.record.RecordFieldType;
-import org.apache.nifi.serialization.record.RecordSchema;
 
 public abstract class AbstractIoTDB extends AbstractProcessor {
     private static final int DEFAULT_IOTDB_PORT = 6667;
@@ -100,12 +100,12 @@ public abstract class AbstractIoTDB extends AbstractProcessor {
             .sensitive(true)
             .build();
 
-    protected final static Relationship REL_SUCCESS = new Relationship.Builder()
+    protected static final Relationship REL_SUCCESS = new Relationship.Builder()
             .name("success")
             .description("Processing succeeded")
             .build();
 
-    protected final static Relationship REL_FAILURE = new Relationship.Builder()
+    protected static final Relationship REL_FAILURE = new Relationship.Builder()
             .name("failure")
             .description("Processing failed")
             .build();
@@ -145,6 +145,7 @@ public abstract class AbstractIoTDB extends AbstractProcessor {
     }
 
     protected final AtomicReference<Session> session = new AtomicReference<>(null);
+    private volatile String transitUri;
 
     @Override
     public Set<Relationship> getRelationships() {
@@ -159,6 +160,7 @@ public abstract class AbstractIoTDB extends AbstractProcessor {
             final String username = context.getProperty(USERNAME).getValue();
             final String password = context.getProperty(PASSWORD).getValue();
 
+            transitUri = "iotdb://%s:%d".formatted(host, port);
             session.set(new Session.Builder()
                     .host(host)
                     .port(port)
@@ -179,6 +181,11 @@ public abstract class AbstractIoTDB extends AbstractProcessor {
             }
             session.set(null);
         }
+        transitUri = null;
+    }
+
+    protected String getTransitUri() {
+        return transitUri;
     }
 
     @Override

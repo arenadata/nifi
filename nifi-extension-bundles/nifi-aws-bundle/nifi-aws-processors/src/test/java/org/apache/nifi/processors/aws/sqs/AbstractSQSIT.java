@@ -18,14 +18,15 @@
 package org.apache.nifi.processors.aws.sqs;
 
 import org.apache.nifi.processor.Processor;
+import org.apache.nifi.processors.aws.AbstractAwsProcessor;
+import org.apache.nifi.processors.aws.region.RegionUtil;
 import org.apache.nifi.processors.aws.testutil.AuthUtils;
-import org.apache.nifi.processors.aws.v2.AbstractAwsProcessor;
+import org.apache.nifi.processors.aws.util.LocalStackContainers;
 import org.apache.nifi.util.TestRunner;
 import org.apache.nifi.util.TestRunners;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
-import org.testcontainers.containers.localstack.LocalStackContainer;
-import org.testcontainers.utility.DockerImageName;
+import org.testcontainers.localstack.LocalStackContainer;
 import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
 import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
 import software.amazon.awssdk.regions.Region;
@@ -36,10 +37,7 @@ import software.amazon.awssdk.services.sqs.model.CreateQueueResponse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 public abstract class AbstractSQSIT {
-    private static final DockerImageName localstackImage = DockerImageName.parse("localstack/localstack:4.12.0");
-
-    private static final LocalStackContainer localstack = new LocalStackContainer(localstackImage)
-            .withServices(LocalStackContainer.Service.SQS);
+    private static final LocalStackContainer localstack = LocalStackContainers.newContainer().withServices("sqs");
 
     private static String queueUrl;
     private static SqsClient client;
@@ -83,9 +81,8 @@ public abstract class AbstractSQSIT {
     protected TestRunner initRunner(final Class<? extends Processor> processorClass) {
         TestRunner runner = TestRunners.newTestRunner(processorClass);
         AuthUtils.enableAccessKey(runner, localstack.getAccessKey(), localstack.getSecretKey());
-
-        runner.setProperty(AbstractAwsProcessor.REGION, localstack.getRegion());
-        runner.setProperty(AbstractAwsProcessor.ENDPOINT_OVERRIDE, localstack.getEndpointOverride(LocalStackContainer.Service.SQS).toString());
+        runner.setProperty(RegionUtil.REGION, localstack.getRegion());
+        runner.setProperty(AbstractAwsProcessor.ENDPOINT_OVERRIDE, localstack.getEndpoint().toString());
         runner.setProperty("Queue URL", queueUrl);
         return runner;
     }

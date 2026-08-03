@@ -25,15 +25,21 @@ import org.apache.nifi.asset.AssetManager;
 import org.apache.nifi.asset.AssetSynchronizer;
 import org.apache.nifi.asset.StandardAssetComponentManager;
 import org.apache.nifi.asset.StandardAssetSynchronizer;
+import org.apache.nifi.asset.StandardConnectorAssetSynchronizer;
 import org.apache.nifi.authorization.Authorizer;
 import org.apache.nifi.cluster.coordination.ClusterCoordinator;
 import org.apache.nifi.cluster.coordination.heartbeat.HeartbeatMonitor;
 import org.apache.nifi.cluster.protocol.NodeProtocolSender;
 import org.apache.nifi.cluster.protocol.impl.NodeProtocolSenderListener;
+import org.apache.nifi.components.connector.ConnectorRequestReplicator;
 import org.apache.nifi.components.state.StateManagerProvider;
 import org.apache.nifi.controller.FlowController;
 import org.apache.nifi.controller.StandardFlowService;
 import org.apache.nifi.controller.leader.election.LeaderElectionManager;
+import org.apache.nifi.controller.metrics.ComponentMetricReporter;
+import org.apache.nifi.controller.metrics.ComponentMetricReporterConfigurationContext;
+import org.apache.nifi.controller.metrics.DefaultComponentMetricReporter;
+import org.apache.nifi.controller.metrics.StandardComponentMetricReporterConfigurationContext;
 import org.apache.nifi.controller.repository.metrics.RingBufferEventRepository;
 import org.apache.nifi.controller.status.history.JsonNodeStatusHistoryDumpFactory;
 import org.apache.nifi.controller.status.history.StatusHistoryDumpFactory;
@@ -73,12 +79,12 @@ import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
-import javax.net.ssl.SSLContext;
-import javax.net.ssl.X509KeyManager;
-import javax.net.ssl.X509TrustManager;
 import java.time.Duration;
 import java.util.Optional;
 import java.util.concurrent.TimeUnit;
+import javax.net.ssl.SSLContext;
+import javax.net.ssl.X509KeyManager;
+import javax.net.ssl.X509TrustManager;
 
 /**
  * Framework Flow Controller Configuration class for Spring Application
@@ -88,35 +94,24 @@ public class FlowControllerConfiguration {
 
     private static final String FLOW_ACTION_REPORTER_IMPLEMENTATION = "nifi.flow.action.reporter.implementation";
 
+    private static final String COMPONENT_METRIC_REPORTER_IMPLEMENTATION = "nifi.component.metric.reporter.implementation";
+
     private NiFiProperties properties;
-
     private ExtensionDiscoveringManager extensionManager;
-
     private AuditService auditService;
-
     private Authorizer authorizer;
-
     private RevisionManager revisionManager;
-
     private LeaderElectionManager leaderElectionManager;
-
     private SSLContext sslContext;
-
     private X509KeyManager keyManager;
-
     private X509TrustManager trustManager;
-
     private StateManagerProvider stateManagerProvider;
-
     private BulletinRepository bulletinRepository;
-
     private NodeProtocolSender nodeProtocolSender;
-
     private NodeProtocolSenderListener nodeProtocolSenderListener;
-
     private HeartbeatMonitor heartbeatMonitor;
-
     private ClusterCoordinator clusterCoordinator;
+    private ConnectorRequestReplicator connectorRequestReplicator;
 
     @Autowired
     public void setProperties(final NiFiProperties properties) {
@@ -159,6 +154,11 @@ public class FlowControllerConfiguration {
     }
 
     @Autowired(required = false)
+    public void setConnectorRequestReplicator(final ConnectorRequestReplicator connectorRequestReplicator) {
+        this.connectorRequestReplicator = connectorRequestReplicator;
+    }
+
+    @Autowired(required = false)
     public void setSslContext(final SSLContext sslContext) {
         this.sslContext = sslContext;
     }
@@ -194,6 +194,7 @@ public class FlowControllerConfiguration {
         this.clusterCoordinator = clusterCoordinator;
     }
 
+
     /**
      * Flow Controller implementation depends on cluster configuration
      *
@@ -211,12 +212,14 @@ public class FlowControllerConfiguration {
                     properties,
                     authorizer,
                     auditService,
+                    componentMetricReporter(),
                     propertyEncryptor(),
                     bulletinRepository,
                     extensionManager,
                     statusHistoryRepository(),
                     ruleViolationsManager(),
-                    stateManagerProvider
+                    stateManagerProvider,
+                    connectorRequestReplicator
             );
         } else {
             flowController = FlowController.createClusteredInstance(
@@ -225,6 +228,7 @@ public class FlowControllerConfiguration {
                     properties,
                     authorizer,
                     auditService,
+                    componentMetricReporter(),
                     propertyEncryptor(),
                     nodeProtocolSender,
                     bulletinRepository,
@@ -235,7 +239,8 @@ public class FlowControllerConfiguration {
                     revisionManager,
                     statusHistoryRepository(),
                     ruleViolationsManager(),
-                    stateManagerProvider
+                    stateManagerProvider,
+                    connectorRequestReplicator
             );
         }
 
@@ -258,7 +263,8 @@ public class FlowControllerConfiguration {
                     properties,
                     revisionManager,
                     narManager,
-                    assetSynchronizer(),
+                    parameterContextAssetSynchronizer(),
+                    connectorAssetSynchronizer(),
                     authorizer
             );
         } else {
@@ -269,7 +275,8 @@ public class FlowControllerConfiguration {
                     clusterCoordinator,
                     revisionManager,
                     narManager,
-                    assetSynchronizer(),
+                    parameterContextAssetSynchronizer(),
+                    connectorAssetSynchronizer(),
                     authorizer
             );
         }
@@ -458,13 +465,28 @@ public class FlowControllerConfiguration {
     }
 
     /**
-     * Asset Synchronizer depends on ClusterCoordinator, WebClientService, and NiFiProperties
+     * Parameter Conext Asset Synchronizer depends on ClusterCoordinator, WebClientService, and NiFiProperties
      *
      * @return Asset Synchronizer
      */
     @Bean
     public AssetSynchronizer assetSynchronizer() throws Exception {
-        return new StandardAssetSynchronizer(flowController(), clusterCoordinator, webClientService(), properties);
+        return new StandardAssetSynchronizer(flowController(), clusterCoordinator, webClientService(), properties, affectedComponentManager());
+    }
+
+    @Bean
+    public AssetSynchronizer parameterContextAssetSynchronizer() throws Exception {
+        return new StandardAssetSynchronizer(flowController(), clusterCoordinator, webClientService(), properties, affectedComponentManager());
+    }
+
+    /**
+     * Connector Asset Synchronizer depends on ClusterCoordinator, WebClientService, and NiFiProperties
+     *
+     * @return Connector Asset Synchronizer
+     */
+    @Bean
+    public AssetSynchronizer connectorAssetSynchronizer() throws Exception {
+        return new StandardConnectorAssetSynchronizer(flowController(), clusterCoordinator, webClientService(), properties);
     }
 
     /**
@@ -500,5 +522,30 @@ public class FlowControllerConfiguration {
         }
 
         return flowActionReporter;
+    }
+
+    /**
+     * Component Metric Reporter configured from NiFi Application Properties
+     *
+     * @return Component Metric Reporter
+     */
+    @Bean
+    public ComponentMetricReporter componentMetricReporter() {
+        final ComponentMetricReporter componentMetricReporter;
+
+        final String configuredClassName = properties.getProperty(COMPONENT_METRIC_REPORTER_IMPLEMENTATION);
+        if (configuredClassName == null || configuredClassName.isBlank()) {
+            componentMetricReporter = new DefaultComponentMetricReporter();
+        } else {
+            try {
+                componentMetricReporter = NarThreadContextClassLoader.createInstance(extensionManager, configuredClassName, ComponentMetricReporter.class, properties);
+                final ComponentMetricReporterConfigurationContext configurationContext = new StandardComponentMetricReporterConfigurationContext(sslContext, trustManager);
+                componentMetricReporter.onConfigured(configurationContext);
+            } catch (final Exception e) {
+                throw new IllegalStateException("Failed to create ComponentMetricReporter with class [%s]".formatted(configuredClassName), e);
+            }
+        }
+
+        return componentMetricReporter;
     }
 }

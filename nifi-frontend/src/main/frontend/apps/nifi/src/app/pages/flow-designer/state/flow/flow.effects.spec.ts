@@ -14,12 +14,13 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 import { FlowService } from '../../service/flow.service';
 import * as FlowActions from './flow.actions';
-import { of, ReplaySubject, take } from 'rxjs';
+import { of, ReplaySubject, take, throwError } from 'rxjs';
 import { MatDialog, MatDialogRef } from '@angular/material/dialog';
 import { ComponentHistoryEntity } from '../../../../state/shared';
-import { EditProcessor } from '../../ui/canvas/items/processor/edit-processor/edit-processor.component';
+import { EditProcessor } from '../../../../ui/common/component-dialogs/edit-processor/edit-processor.component';
 import { PropertyTableHelperService } from '../../../../service/property-table-helper.service';
 import { FlowEffects } from './flow.effects';
 import { provideMockActions } from '@ngrx/effects/testing';
@@ -32,13 +33,16 @@ import {
     CreateComponentRequest,
     CreateComponentResponse,
     CreateConnection,
+    flowFeatureKey,
+    MoveToFrontRequest
+} from './index';
+import {
     DisableComponentRequest,
     EnableComponentRequest,
-    MoveToFrontRequest,
     StartComponentRequest,
     StopComponentRequest,
     UpdateProcessorRequest
-} from './index';
+} from '../../../../state/shared';
 import { selectCurrentUser } from '../../../../state/current-user/current-user.selectors';
 import * as fromUser from '../../../../state/current-user/current-user.reducer';
 import { selectFlowConfiguration } from '../../../../state/flow-configuration/flow-configuration.selectors';
@@ -57,8 +61,24 @@ import { CopyPasteService } from '../../service/copy-paste.service';
 import { CanvasView } from '../../service/canvas-view.service';
 import { BirdseyeView } from '../../service/birdseye-view.service';
 import { selectDisconnectionAcknowledged } from '../../../../state/cluster-summary/cluster-summary.selectors';
-import { ComponentType } from '@nifi/shared';
+import { ComponentType, ComponentTypeNamePipe } from '@nifi/shared';
 import { ParameterContextService } from '../../../parameter-contexts/service/parameter-contexts.service';
+import { HttpErrorResponse } from '@angular/common/http';
+import { provideRouter, Router } from '@angular/router';
+import { ErrorHelper } from '../../../../service/error-helper.service';
+import { selectConnectedStateChanged } from '../../../../state/cluster-summary/cluster-summary.selectors';
+import { canvasFeatureKey } from '../index';
+import * as fromFlow from './flow.reducer';
+import { transformFeatureKey } from '../transform';
+import * as fromTransform from '../transform/transform.reducer';
+import { controllerServicesFeatureKey } from '../controller-services';
+import * as fromControllerServices from '../controller-services/controller-services.reducer';
+import { parameterFeatureKey } from '../parameter';
+import * as fromParameter from '../parameter/parameter.reducer';
+import { flowAnalysisFeatureKey } from '../flow-analysis';
+import * as fromFlowAnalysis from '../flow-analysis/flow-analysis.reducer';
+import * as EmptyQueueActions from '../../../../state/empty-queue/empty-queue.actions';
+import { firstValueFrom } from 'rxjs';
 
 describe('FlowEffects', () => {
     let action$: ReplaySubject<Action>;
@@ -67,8 +87,6 @@ describe('FlowEffects', () => {
     let propertyTableHelperService: PropertyTableHelperService;
     let dialog: MatDialog;
     let store: MockStore;
-    let copyPasteService: CopyPasteService;
-    let canvasView: CanvasView;
     let verify: EventEmitter<VerifyPropertiesRequestContext>;
     let editProcessor: EventEmitter<UpdateProcessorRequest>;
     let startRequest: EventEmitter<StartComponentRequest>;
@@ -773,8 +791,19 @@ describe('FlowEffects', () => {
             imports: [],
             providers: [
                 FlowEffects,
+                ComponentTypeNamePipe,
+                provideRouter([]),
                 provideMockActions(() => action$),
                 provideMockStore({
+                    initialState: {
+                        [canvasFeatureKey]: {
+                            [flowFeatureKey]: fromFlow.initialState,
+                            [transformFeatureKey]: fromTransform.initialState,
+                            [controllerServicesFeatureKey]: fromControllerServices.initialState,
+                            [parameterFeatureKey]: fromParameter.initialState,
+                            [flowAnalysisFeatureKey]: fromFlowAnalysis.initialState
+                        }
+                    },
                     selectors: [
                         {
                             selector: selectCurrentUser,
@@ -797,48 +826,49 @@ describe('FlowEffects', () => {
                 {
                     provide: FlowService,
                     useValue: {
-                        getProcessor: jest.fn(),
-                        updateComponent: jest.fn(),
-                        createConnection: jest.fn(),
-                        createLabel: jest.fn()
+                        getProcessor: vi.fn(),
+                        updateComponent: vi.fn(),
+                        createConnection: vi.fn(),
+                        createLabel: vi.fn(),
+                        clearBulletinsForProcessGroup: vi.fn()
                     }
                 },
                 {
                     provide: PropertyTableHelperService,
                     useValue: {
-                        getComponentHistory: jest.fn(),
-                        createNewProperty: jest.fn(),
-                        createNewService: jest.fn()
+                        getComponentHistory: vi.fn(),
+                        createNewProperty: vi.fn(),
+                        createNewService: vi.fn()
                     }
                 },
                 {
                     provide: ControllerServiceService,
                     useValue: {
-                        getControllerService: jest.fn()
+                        getControllerService: vi.fn()
                     }
                 },
                 {
                     provide: ParameterHelperService,
                     useValue: {
-                        getParameterContext: jest.fn()
+                        getParameterContext: vi.fn()
                     }
                 },
                 {
                     provide: ExtensionTypesService,
                     useValue: {
-                        getParameterContext: jest.fn()
+                        getParameterContext: vi.fn()
                     }
                 },
                 {
                     provide: ParameterContextService,
                     useValue: {
-                        getParameterContext: jest.fn()
+                        getParameterContext: vi.fn()
                     }
                 },
                 {
                     provide: RegistryService,
                     useValue: {
-                        getRegistryClients: jest.fn()
+                        getRegistryClients: vi.fn()
                     }
                 },
                 {
@@ -848,24 +878,24 @@ describe('FlowEffects', () => {
                 {
                     provide: CopyPasteService,
                     useValue: {
-                        isCopiedContentInView: jest.fn(),
-                        toOffsetPasteRequest: jest.fn(),
-                        toCenteredPasteRequest: jest.fn(),
-                        paste: jest.fn()
+                        isCopiedContentInView: vi.fn(),
+                        toOffsetPasteRequest: vi.fn(),
+                        toCenteredPasteRequest: vi.fn(),
+                        paste: vi.fn()
                     }
                 },
                 {
                     provide: CanvasView,
                     useValue: {
-                        updateCanvasVisibility: jest.fn(),
-                        centerBoundingBox: jest.fn(),
-                        isCanvasInitialized: jest.fn().mockReturnValue(false)
+                        updateCanvasVisibility: vi.fn(),
+                        centerBoundingBox: vi.fn(),
+                        isCanvasInitialized: vi.fn().mockReturnValue(false)
                     }
                 },
                 {
                     provide: BirdseyeView,
                     useValue: {
-                        refresh: jest.fn()
+                        refresh: vi.fn()
                     }
                 }
             ]
@@ -875,8 +905,6 @@ describe('FlowEffects', () => {
         action$ = new ReplaySubject<Action>();
         flowService = TestBed.inject(FlowService);
         propertyTableHelperService = TestBed.inject(PropertyTableHelperService);
-        copyPasteService = TestBed.inject(CopyPasteService);
-        canvasView = TestBed.inject(CanvasView);
         dialog = TestBed.inject(MatDialog);
         store = TestBed.inject(MockStore);
         verify = new EventEmitter<VerifyPropertiesRequestContext>();
@@ -886,8 +914,8 @@ describe('FlowEffects', () => {
         enableRequest = new EventEmitter<EnableComponentRequest>();
         disableRequest = new EventEmitter<DisableComponentRequest>();
 
-        jest.spyOn(dialog, 'open').mockReturnValue({
-            close: jest.fn(),
+        vi.spyOn(dialog, 'open').mockReturnValue({
+            close: vi.fn(),
             afterClosed: () => {
                 return of();
             },
@@ -902,13 +930,79 @@ describe('FlowEffects', () => {
             }
         } as unknown as MatDialogRef<EditProcessor>);
 
-        jest.spyOn(flowService, 'getProcessor').mockReturnValue(of(mockData.entity));
+        vi.spyOn(flowService, 'getProcessor').mockReturnValue(of(mockData.entity));
 
-        jest.spyOn(propertyTableHelperService, 'getComponentHistory').mockReturnValue(
+        vi.spyOn(propertyTableHelperService, 'getComponentHistory').mockReturnValue(
             of({ componentHistory: {} } as ComponentHistoryEntity)
         );
 
-        jest.spyOn(store, 'dispatch');
+        vi.spyOn(store, 'dispatch');
+    });
+
+    afterEach(() => {
+        if (action$) {
+            action$.complete();
+        }
+    });
+
+    describe('loadProcessGroup error handling', () => {
+        it('dispatches full-screen error on initial load (hasExistingData=false)', async () => {
+            // Arrange selectors
+            store.overrideSelector(flowSelectors.selectHasFlowData, false);
+            store.overrideSelector(selectConnectedStateChanged, false);
+
+            // Arrange service methods
+            (flowService as any).getFlow = vi.fn(() => throwError(() => new HttpErrorResponse({ status: 500 })));
+            (flowService as any).getFlowStatus = vi.fn(() => of({}));
+            (flowService as any).getControllerBulletins = vi.fn(() => of({}));
+            vi.spyOn(TestBed.inject(RegistryService), 'getRegistryClients').mockReturnValueOnce(
+                of({ registries: [] }) as any
+            );
+
+            // Arrange error helper
+            const errorHelper = TestBed.inject(ErrorHelper);
+            const errorAction = FlowActions.flowBannerError({
+                errorContext: { context: 'FLOW', errors: ['e'] } as any
+            });
+            vi.spyOn(errorHelper, 'handleLoadingError').mockReturnValueOnce(errorAction as any);
+
+            // Act
+            action$.next(FlowActions.loadProcessGroup({ request: { id: 'pg-1', transitionRequired: false } }));
+            const result = await new Promise((resolve) => effects.loadProcessGroup$.pipe(take(1)).subscribe(resolve));
+
+            // Assert
+            expect(errorHelper.handleLoadingError).toHaveBeenCalledWith(false, expect.any(HttpErrorResponse));
+            expect(result).toEqual(errorAction);
+        });
+
+        it('dispatches snackbar/banner error on refresh (hasExistingData=true)', async () => {
+            // Arrange selectors
+            store.overrideSelector(flowSelectors.selectHasFlowData, true);
+            store.overrideSelector(selectConnectedStateChanged, false);
+
+            // Arrange service methods
+            (flowService as any).getFlow = vi.fn(() => throwError(() => new HttpErrorResponse({ status: 500 })));
+            (flowService as any).getFlowStatus = vi.fn(() => of({}));
+            (flowService as any).getControllerBulletins = vi.fn(() => of({}));
+            vi.spyOn(TestBed.inject(RegistryService), 'getRegistryClients').mockReturnValueOnce(
+                of({ registries: [] }) as any
+            );
+
+            // Arrange error helper
+            const errorHelper = TestBed.inject(ErrorHelper);
+            const errorAction = FlowActions.flowBannerError({
+                errorContext: { context: 'FLOW', errors: ['e'] } as any
+            });
+            vi.spyOn(errorHelper, 'handleLoadingError').mockReturnValueOnce(errorAction as any);
+
+            // Act
+            action$.next(FlowActions.loadProcessGroup({ request: { id: 'pg-1', transitionRequired: false } }));
+            const result = await new Promise((resolve) => effects.loadProcessGroup$.pipe(take(1)).subscribe(resolve));
+
+            // Assert
+            expect(errorHelper.handleLoadingError).toHaveBeenCalledWith(true, expect.any(HttpErrorResponse));
+            expect(result).toEqual(errorAction);
+        });
     });
 
     describe('#moveToFront', () => {
@@ -923,8 +1017,8 @@ describe('FlowEffects', () => {
                 }
             };
 
-            jest.spyOn(flowService, 'updateComponent').mockReturnValue(of({}));
-            jest.spyOn(flowSelectors, 'selectMaxZIndex').mockReturnValue(createSelector(() => 0));
+            vi.spyOn(flowService, 'updateComponent').mockReturnValue(of({}));
+            vi.spyOn(flowSelectors, 'selectMaxZIndex').mockReturnValue(createSelector(() => 0));
 
             action$.next(FlowActions.moveToFront({ request: REQUEST }));
 
@@ -959,8 +1053,8 @@ describe('FlowEffects', () => {
 
             const MAX_Z_INDEX = 10;
 
-            jest.spyOn(flowService, 'createConnection').mockReturnValue(of({}));
-            jest.spyOn(flowSelectors, 'selectMaxZIndex').mockReturnValue(createSelector(() => MAX_Z_INDEX));
+            vi.spyOn(flowService, 'createConnection').mockReturnValue(of({}));
+            vi.spyOn(flowSelectors, 'selectMaxZIndex').mockReturnValue(createSelector(() => MAX_Z_INDEX));
             store.overrideSelector(selectCurrentProcessGroupId, 'some group id');
 
             action$.next(FlowActions.createConnection({ request: REQUEST }));
@@ -1004,8 +1098,8 @@ describe('FlowEffects', () => {
                 payload: {} // irrelevant
             } satisfies CreateComponentResponse;
 
-            jest.spyOn(flowService, 'createLabel').mockReturnValue(of(CREATE_COMPONENT_RESPONSE));
-            jest.spyOn(flowSelectors, 'selectMaxZIndex').mockReturnValue(createSelector(() => MAX_Z_INDEX));
+            vi.spyOn(flowService, 'createLabel').mockReturnValue(of(CREATE_COMPONENT_RESPONSE));
+            vi.spyOn(flowSelectors, 'selectMaxZIndex').mockReturnValue(createSelector(() => MAX_Z_INDEX));
             store.overrideSelector(selectCurrentProcessGroupId, 'some group id');
 
             action$.next(FlowActions.createLabel({ request: REQUEST }));
@@ -1024,6 +1118,272 @@ describe('FlowEffects', () => {
             expect(flowService.createLabel).toHaveBeenCalledWith('some group id', {
                 ...REQUEST,
                 zIndex: MAX_Z_INDEX + 1
+            });
+        });
+    });
+
+    describe('clearBulletinsForProcessGroup$', () => {
+        beforeEach(() => {
+            effects = TestBed.inject(FlowEffects);
+        });
+
+        it('should call flowService.clearBulletinsForProcessGroup and dispatch success action', async () => {
+            const request = {
+                processGroupId: 'test-group-id',
+                fromTimestamp: '2023-01-01T12:00:00.000Z',
+                components: ['component-1', 'component-2']
+            };
+
+            const mockResponse = {
+                bulletinsCleared: 10
+            };
+
+            vi.spyOn(flowService, 'clearBulletinsForProcessGroup').mockReturnValue(of(mockResponse));
+
+            const action = FlowActions.clearBulletinsForProcessGroup({ request });
+            action$.next(action);
+
+            const result = await new Promise((resolve) =>
+                effects.clearBulletinsForProcessGroup$.pipe(take(1)).subscribe(resolve)
+            );
+
+            expect(result).toEqual(
+                FlowActions.clearBulletinsForProcessGroupSuccess({
+                    response: {
+                        processGroupId: 'test-group-id',
+                        bulletinsCleared: 10
+                    }
+                })
+            );
+            expect(flowService.clearBulletinsForProcessGroup).toHaveBeenCalledWith(request);
+        });
+    });
+
+    describe('clearBulletinsForProcessGroupSuccess$', () => {
+        beforeEach(() => {
+            effects = TestBed.inject(FlowEffects);
+        });
+
+        it('should dispatch reloadFlow when clearing bulletins for the currently viewed process group', async () => {
+            const currentGroupId = 'current-group-id';
+            store.overrideSelector(selectCurrentProcessGroupId, currentGroupId);
+            store.refreshState();
+
+            const response = {
+                processGroupId: currentGroupId,
+                bulletinsCleared: 5
+            };
+
+            const action = FlowActions.clearBulletinsForProcessGroupSuccess({ response });
+            action$.next(action);
+
+            const result = await new Promise((resolve) =>
+                effects.clearBulletinsForProcessGroupSuccess$.pipe(take(1)).subscribe(resolve)
+            );
+
+            expect(result).toEqual(FlowActions.reloadFlow());
+        });
+
+        it('should dispatch loadChildProcessGroup when clearing bulletins for a child process group', async () => {
+            const currentGroupId = 'current-group-id';
+            const childGroupId = 'child-group-id';
+            store.overrideSelector(selectCurrentProcessGroupId, currentGroupId);
+            store.refreshState();
+
+            const response = {
+                processGroupId: childGroupId,
+                bulletinsCleared: 3
+            };
+
+            const action = FlowActions.clearBulletinsForProcessGroupSuccess({ response });
+            action$.next(action);
+
+            const result = await new Promise((resolve) =>
+                effects.clearBulletinsForProcessGroupSuccess$.pipe(take(1)).subscribe(resolve)
+            );
+
+            expect(result).toEqual(
+                FlowActions.loadChildProcessGroup({
+                    request: { id: childGroupId }
+                })
+            );
+        });
+    });
+
+    describe('refreshAfterQueueEmptied$', () => {
+        it('should dispatch loadConnection when the queueEmptied originates from the flow designer with a connectionId', async () => {
+            store.overrideSelector(selectCurrentProcessGroupId, 'pg-current');
+            store.refreshState();
+
+            action$.next(
+                EmptyQueueActions.queueEmptied({
+                    connectionId: 'conn-1',
+                    processGroupId: null,
+                    source: 'flow-designer'
+                })
+            );
+
+            const result = await firstValueFrom(effects.refreshAfterQueueEmptied$.pipe(take(1)));
+
+            expect(result).toEqual(FlowActions.loadConnection({ id: 'conn-1' }));
+        });
+
+        it('should dispatch loadProcessGroup when emptying queues for the currently viewed process group', async () => {
+            store.overrideSelector(selectCurrentProcessGroupId, 'pg-current');
+            store.refreshState();
+
+            action$.next(
+                EmptyQueueActions.queueEmptied({
+                    connectionId: null,
+                    processGroupId: 'pg-current',
+                    source: 'flow-designer'
+                })
+            );
+
+            const result = await firstValueFrom(effects.refreshAfterQueueEmptied$.pipe(take(1)));
+
+            expect(result).toEqual(
+                FlowActions.loadProcessGroup({
+                    request: { id: 'pg-current', transitionRequired: false }
+                })
+            );
+        });
+
+        it('should dispatch loadChildProcessGroup when emptying queues for a non-current process group', async () => {
+            store.overrideSelector(selectCurrentProcessGroupId, 'pg-current');
+            store.refreshState();
+
+            action$.next(
+                EmptyQueueActions.queueEmptied({
+                    connectionId: null,
+                    processGroupId: 'pg-child',
+                    source: 'flow-designer'
+                })
+            );
+
+            const result = await firstValueFrom(effects.refreshAfterQueueEmptied$.pipe(take(1)));
+
+            expect(result).toEqual(FlowActions.loadChildProcessGroup({ request: { id: 'pg-child' } }));
+        });
+
+        it('should ignore queueEmptied actions originating from other sources', async () => {
+            store.overrideSelector(selectCurrentProcessGroupId, 'pg-current');
+            store.refreshState();
+
+            const emissions: Action[] = [];
+            const subscription = effects.refreshAfterQueueEmptied$.subscribe((action) => emissions.push(action));
+
+            action$.next(
+                EmptyQueueActions.queueEmptied({
+                    connectionId: 'conn-1',
+                    processGroupId: null,
+                    source: 'connector-canvas'
+                })
+            );
+
+            await new Promise<void>((resolve) => setTimeout(resolve, 0));
+
+            subscription.unsubscribe();
+
+            expect(emissions).toEqual([]);
+        });
+    });
+
+    describe('navigateToProvenanceForComponent$', () => {
+        let router: Router;
+
+        beforeEach(() => {
+            router = TestBed.inject(Router);
+            vi.spyOn(router, 'navigate').mockImplementation(() => Promise.resolve(true));
+            store.overrideSelector(selectCurrentProcessGroupId, 'pg-123');
+            store.refreshState();
+        });
+
+        it('should navigate to provenance with Processor type in back navigation route and context', () => {
+            effects.navigateToProvenanceForComponent$.subscribe();
+
+            action$.next(
+                FlowActions.navigateToProvenanceForComponent({
+                    id: 'comp-1',
+                    componentType: ComponentType.Processor
+                })
+            );
+
+            expect(router.navigate).toHaveBeenCalledWith(['/provenance'], {
+                queryParams: { componentId: 'comp-1' },
+                state: {
+                    backNavigation: {
+                        route: ['/process-groups', 'pg-123', ComponentType.Processor, 'comp-1'],
+                        routeBoundary: ['/provenance'],
+                        context: 'Processor'
+                    }
+                }
+            });
+        });
+
+        it('should navigate to provenance with Funnel type in back navigation route and context', () => {
+            effects.navigateToProvenanceForComponent$.subscribe();
+
+            action$.next(
+                FlowActions.navigateToProvenanceForComponent({
+                    id: 'funnel-1',
+                    componentType: ComponentType.Funnel
+                })
+            );
+
+            expect(router.navigate).toHaveBeenCalledWith(['/provenance'], {
+                queryParams: { componentId: 'funnel-1' },
+                state: {
+                    backNavigation: {
+                        route: ['/process-groups', 'pg-123', ComponentType.Funnel, 'funnel-1'],
+                        routeBoundary: ['/provenance'],
+                        context: 'Funnel'
+                    }
+                }
+            });
+        });
+
+        it('should navigate to provenance with InputPort type in back navigation route and context', () => {
+            effects.navigateToProvenanceForComponent$.subscribe();
+
+            action$.next(
+                FlowActions.navigateToProvenanceForComponent({
+                    id: 'port-1',
+                    componentType: ComponentType.InputPort
+                })
+            );
+
+            expect(router.navigate).toHaveBeenCalledWith(['/provenance'], {
+                queryParams: { componentId: 'port-1' },
+                state: {
+                    backNavigation: {
+                        route: ['/process-groups', 'pg-123', ComponentType.InputPort, 'port-1'],
+                        routeBoundary: ['/provenance'],
+                        context: 'Input Port'
+                    }
+                }
+            });
+        });
+
+        it('should navigate to provenance with OutputPort type in back navigation route and context', () => {
+            effects.navigateToProvenanceForComponent$.subscribe();
+
+            action$.next(
+                FlowActions.navigateToProvenanceForComponent({
+                    id: 'port-2',
+                    componentType: ComponentType.OutputPort
+                })
+            );
+
+            expect(router.navigate).toHaveBeenCalledWith(['/provenance'], {
+                queryParams: { componentId: 'port-2' },
+                state: {
+                    backNavigation: {
+                        route: ['/process-groups', 'pg-123', ComponentType.OutputPort, 'port-2'],
+                        routeBoundary: ['/provenance'],
+                        context: 'Output Port'
+                    }
+                }
             });
         });
     });

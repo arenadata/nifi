@@ -16,15 +16,6 @@
  */
 package org.apache.nifi.remote.protocol.socket;
 
-import java.io.DataInputStream;
-import java.io.DataOutputStream;
-import java.io.IOException;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Optional;
 import org.apache.nifi.remote.Peer;
 import org.apache.nifi.remote.PeerDescription;
 import org.apache.nifi.remote.PeerDescriptionModifiable;
@@ -43,6 +34,16 @@ import org.apache.nifi.remote.protocol.HandshakeProperties;
 import org.apache.nifi.remote.protocol.RequestType;
 import org.apache.nifi.remote.protocol.ResponseCode;
 import org.apache.nifi.remote.protocol.SiteToSiteTransportProtocol;
+
+import java.io.DataInputStream;
+import java.io.DataOutputStream;
+import java.io.IOException;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
 
 public class SocketFlowFileServerProtocol extends AbstractFlowFileServerProtocol implements PeerDescriptionModifiable {
 
@@ -139,7 +140,6 @@ public class SocketFlowFileServerProtocol extends AbstractFlowFileServerProtocol
         }
     }
 
-
     @Override
     public RequestType getRequestType(final Peer peer) throws IOException {
         if (!handshakeCompleted) {
@@ -221,7 +221,6 @@ public class SocketFlowFileServerProtocol extends AbstractFlowFileServerProtocol
     public String getResourceName() {
         return RESOURCE_NAME;
     }
-
 
     @Override
     public VersionNegotiator getVersionNegotiator() {

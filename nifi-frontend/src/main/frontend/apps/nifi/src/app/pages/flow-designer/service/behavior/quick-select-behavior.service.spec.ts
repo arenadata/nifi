@@ -20,7 +20,7 @@ import { TestBed } from '@angular/core/testing';
 import { QuickSelectBehavior } from './quick-select-behavior.service';
 import { provideMockStore } from '@ngrx/store/testing';
 import { selectFlowState } from '../../state/flow/flow.selectors';
-import { CanvasState } from '../../state';
+import { canvasFeatureKey, CanvasState } from '../../state';
 import { flowFeatureKey } from '../../state/flow';
 import * as fromFlow from '../../state/flow/flow.reducer';
 import { transformFeatureKey } from '../../state/transform';
@@ -33,8 +33,6 @@ import { parameterFeatureKey } from '../../state/parameter';
 import * as fromParameter from '../../state/parameter/parameter.reducer';
 import { selectFlowConfiguration } from '../../../../state/flow-configuration/flow-configuration.selectors';
 import * as fromFlowConfiguration from '../../../../state/flow-configuration/flow-configuration.reducer';
-import { queueFeatureKey } from '../../../queue/state';
-import * as fromQueue from '../../state/queue/queue.reducer';
 import { flowAnalysisFeatureKey } from '../../state/flow-analysis';
 import * as fromFlowAnalysis from '../../state/flow-analysis/flow-analysis.reducer';
 
@@ -42,23 +40,24 @@ describe('QuickSelectBehavior', () => {
     let service: QuickSelectBehavior;
 
     beforeEach(() => {
-        const initialState: CanvasState = {
+        const canvasInitialState: CanvasState = {
             [flowFeatureKey]: fromFlow.initialState,
             [transformFeatureKey]: fromTransform.initialState,
             [controllerServicesFeatureKey]: fromControllerServices.initialState,
             [parameterFeatureKey]: fromParameter.initialState,
-            [queueFeatureKey]: fromQueue.initialState,
             [flowAnalysisFeatureKey]: fromFlowAnalysis.initialState
         };
 
         TestBed.configureTestingModule({
             providers: [
                 provideMockStore({
-                    initialState,
+                    initialState: {
+                        [canvasFeatureKey]: canvasInitialState
+                    },
                     selectors: [
                         {
                             selector: selectFlowState,
-                            value: initialState[flowFeatureKey]
+                            value: canvasInitialState[flowFeatureKey]
                         },
                         {
                             selector: selectCurrentUser,

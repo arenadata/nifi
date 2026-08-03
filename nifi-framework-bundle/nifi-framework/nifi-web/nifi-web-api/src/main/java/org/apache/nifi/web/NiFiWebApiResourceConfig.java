@@ -16,12 +16,15 @@
  */
 package org.apache.nifi.web;
 
+import jakarta.servlet.ServletContext;
+import jakarta.ws.rs.core.Context;
 import org.apache.nifi.web.api.config.AccessDeniedExceptionMapper;
 import org.apache.nifi.web.api.config.AdministrationExceptionMapper;
 import org.apache.nifi.web.api.config.AuthenticationCredentialsNotFoundExceptionMapper;
 import org.apache.nifi.web.api.config.AuthenticationNotSupportedExceptionMapper;
 import org.apache.nifi.web.api.config.AuthorizationAccessExceptionMapper;
 import org.apache.nifi.web.api.config.ClusterExceptionMapper;
+import org.apache.nifi.web.api.config.ConnectorConfigurationProviderExceptionMapper;
 import org.apache.nifi.web.api.config.IllegalArgumentExceptionMapper;
 import org.apache.nifi.web.api.config.IllegalClusterResourceRequestExceptionMapper;
 import org.apache.nifi.web.api.config.IllegalClusterStateExceptionMapper;
@@ -58,9 +61,6 @@ import org.glassfish.jersey.server.ResourceConfig;
 import org.glassfish.jersey.server.filter.EncodingFilter;
 import org.springframework.context.ApplicationContext;
 import org.springframework.web.context.support.WebApplicationContextUtils;
-
-import jakarta.servlet.ServletContext;
-import jakarta.ws.rs.core.Context;
 
 public class NiFiWebApiResourceConfig extends ResourceConfig {
 
@@ -105,6 +105,7 @@ public class NiFiWebApiResourceConfig extends ResourceConfig {
         register(ctx.getBean("versionsResource"));
         register(ctx.getBean("parameterContextResource"));
         register(ctx.getBean("parameterProviderResource"));
+        register(ctx.getBean("connectorResource"));
 
         // exception mappers
         register(AccessDeniedExceptionMapper.class);
@@ -114,6 +115,7 @@ public class NiFiWebApiResourceConfig extends ResourceConfig {
         register(AuthenticationCredentialsNotFoundExceptionMapper.class);
         register(AdministrationExceptionMapper.class);
         register(ClusterExceptionMapper.class);
+        register(ConnectorConfigurationProviderExceptionMapper.class);
         register(IllegalArgumentExceptionMapper.class);
         register(IllegalClusterResourceRequestExceptionMapper.class);
         register(IllegalClusterStateExceptionMapper.class);

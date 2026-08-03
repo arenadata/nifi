@@ -17,6 +17,7 @@
 package org.apache.nifi.tests.system;
 
 import org.apache.nifi.cluster.coordination.node.NodeConnectionState;
+import org.apache.nifi.components.connector.ConnectorState;
 import org.apache.nifi.controller.AbstractPort;
 import org.apache.nifi.controller.queue.LoadBalanceCompression;
 import org.apache.nifi.controller.queue.LoadBalanceStrategy;
@@ -27,6 +28,7 @@ import org.apache.nifi.remote.protocol.SiteToSiteTransportProtocol;
 import org.apache.nifi.scheduling.ExecutionNode;
 import org.apache.nifi.stream.io.StreamUtils;
 import org.apache.nifi.toolkit.client.ConnectionClient;
+import org.apache.nifi.toolkit.client.ConnectorClient;
 import org.apache.nifi.toolkit.client.NiFiClient;
 import org.apache.nifi.toolkit.client.NiFiClientException;
 import org.apache.nifi.toolkit.client.ProcessorClient;
@@ -34,8 +36,11 @@ import org.apache.nifi.toolkit.client.VersionsClient;
 import org.apache.nifi.web.api.dto.AssetReferenceDTO;
 import org.apache.nifi.web.api.dto.BundleDTO;
 import org.apache.nifi.web.api.dto.ConfigVerificationResultDTO;
+import org.apache.nifi.web.api.dto.ConfigurationStepConfigurationDTO;
 import org.apache.nifi.web.api.dto.ConnectableDTO;
 import org.apache.nifi.web.api.dto.ConnectionDTO;
+import org.apache.nifi.web.api.dto.ConnectorDTO;
+import org.apache.nifi.web.api.dto.ConnectorValueReferenceDTO;
 import org.apache.nifi.web.api.dto.ControllerServiceDTO;
 import org.apache.nifi.web.api.dto.CounterDTO;
 import org.apache.nifi.web.api.dto.CountersSnapshotDTO;
@@ -54,10 +59,12 @@ import org.apache.nifi.web.api.dto.PortDTO;
 import org.apache.nifi.web.api.dto.ProcessGroupDTO;
 import org.apache.nifi.web.api.dto.ProcessorConfigDTO;
 import org.apache.nifi.web.api.dto.ProcessorDTO;
+import org.apache.nifi.web.api.dto.PropertyGroupConfigurationDTO;
 import org.apache.nifi.web.api.dto.RemoteProcessGroupDTO;
 import org.apache.nifi.web.api.dto.ReportingTaskDTO;
 import org.apache.nifi.web.api.dto.RevisionDTO;
 import org.apache.nifi.web.api.dto.VerifyConfigRequestDTO;
+import org.apache.nifi.web.api.dto.VerifyConnectorConfigStepRequestDTO;
 import org.apache.nifi.web.api.dto.VersionControlInformationDTO;
 import org.apache.nifi.web.api.dto.VersionedFlowDTO;
 import org.apache.nifi.web.api.dto.flow.FlowDTO;
@@ -69,8 +76,11 @@ import org.apache.nifi.web.api.dto.status.ConnectionStatusSnapshotDTO;
 import org.apache.nifi.web.api.dto.status.ProcessGroupStatusSnapshotDTO;
 import org.apache.nifi.web.api.dto.status.ProcessorStatusSnapshotDTO;
 import org.apache.nifi.web.api.entity.ActivateControllerServicesEntity;
+import org.apache.nifi.web.api.entity.ConfigurationStepEntity;
 import org.apache.nifi.web.api.entity.ConnectionEntity;
 import org.apache.nifi.web.api.entity.ConnectionStatusEntity;
+import org.apache.nifi.web.api.entity.ConnectorEntity;
+import org.apache.nifi.web.api.entity.ConnectorsEntity;
 import org.apache.nifi.web.api.entity.ControllerServiceEntity;
 import org.apache.nifi.web.api.entity.ControllerServiceRunStatusEntity;
 import org.apache.nifi.web.api.entity.ControllerServicesEntity;
@@ -103,6 +113,7 @@ import org.apache.nifi.web.api.entity.PasteResponseEntity;
 import org.apache.nifi.web.api.entity.PortEntity;
 import org.apache.nifi.web.api.entity.ProcessGroupEntity;
 import org.apache.nifi.web.api.entity.ProcessGroupFlowEntity;
+import org.apache.nifi.web.api.entity.ProcessGroupRecursivity;
 import org.apache.nifi.web.api.entity.ProcessGroupStatusEntity;
 import org.apache.nifi.web.api.entity.ProcessorEntity;
 import org.apache.nifi.web.api.entity.ProvenanceEntity;
@@ -113,6 +124,7 @@ import org.apache.nifi.web.api.entity.ReportingTasksEntity;
 import org.apache.nifi.web.api.entity.ScheduleComponentsEntity;
 import org.apache.nifi.web.api.entity.StartVersionControlRequestEntity;
 import org.apache.nifi.web.api.entity.VerifyConfigRequestEntity;
+import org.apache.nifi.web.api.entity.VerifyConnectorConfigStepRequestEntity;
 import org.apache.nifi.web.api.entity.VersionControlInformationEntity;
 import org.apache.nifi.web.api.entity.VersionedFlowUpdateRequestEntity;
 import org.junit.jupiter.api.Assertions;
@@ -163,11 +175,41 @@ public class NiFiClientUtil {
         return client;
     }
 
+    private ConnectorClient getConnectorClient() {
+        final ConnectorClient client = nifiClient.getConnectorClient();
+        client.acknowledgeDisconnectedNode();
+        return client;
+    }
+
     public ProcessorEntity startProcessor(final ProcessorEntity currentEntity) throws NiFiClientException, IOException, InterruptedException {
         waitForValidationCompleted(currentEntity);
 
         currentEntity.setDisconnectedNodeAcknowledged(true);
         return getProcessorClient().startProcessor(currentEntity);
+    }
+
+    /**
+     * Runs the given Processor exactly one time. Waits for the Processor's validation to settle before issuing the
+     * run request so that recent modifications to the Processor, its inbound or outbound Connections, or any
+     * referenced Controller Service are reflected in the Processor's validation status. If validation settles to
+     * INVALID, an {@link IllegalStateException} is thrown immediately rather than waiting indefinitely; the toolkit
+     * client's run-once endpoint silently does nothing for an invalid Processor, so failing fast prevents flaky
+     * downstream assertions about FlowFiles that were never produced.
+     *
+     * @param currentEntity the Processor to run once
+     * @return the updated Processor entity returned by the run-once API call
+     */
+    public ProcessorEntity runProcessorOnce(final ProcessorEntity currentEntity) throws NiFiClientException, IOException, InterruptedException {
+        waitForValidationCompleted(currentEntity);
+
+        final ProcessorEntity refreshed = getProcessorClient().getProcessor(currentEntity.getId());
+        final String validationStatus = refreshed.getComponent().getValidationStatus();
+        if (ProcessorDTO.INVALID.equalsIgnoreCase(validationStatus)) {
+            throw new IllegalStateException(String.format("Processor %s is INVALID and cannot be run once. Validation errors: %s",
+                    currentEntity.getId(), refreshed.getComponent().getValidationErrors()));
+        }
+
+        return getProcessorClient().runProcessorOnce(currentEntity);
     }
 
     public void stopProcessor(final ProcessorEntity currentEntity) throws NiFiClientException, IOException, InterruptedException {
@@ -223,6 +265,296 @@ public class NiFiClientUtil {
         }
 
         return type.substring(lastIndex + 1);
+    }
+
+    public ConnectorEntity createConnector(final String simpleTypeName) throws NiFiClientException, IOException {
+        return createConnector(NiFiSystemIT.TEST_CONNECTORS_PACKAGE + "." + simpleTypeName, NiFiSystemIT.NIFI_GROUP_ID, NiFiSystemIT.TEST_EXTENSIONS_ARTIFACT_ID, nifiVersion);
+    }
+
+    public ConnectorEntity createConnector(final String type, final String bundleGroupId, final String artifactId, final String version) throws NiFiClientException, IOException {
+        final ConnectorDTO dto = new ConnectorDTO();
+        dto.setType(type);
+
+        final BundleDTO bundle = new BundleDTO();
+        bundle.setGroup(bundleGroupId);
+        bundle.setArtifact(artifactId);
+        bundle.setVersion(version);
+        dto.setBundle(bundle);
+
+        final ConnectorEntity entity = new ConnectorEntity();
+        entity.setComponent(dto);
+        entity.setRevision(createNewRevision());
+        entity.setDisconnectedNodeAcknowledged(true);
+
+        final ConnectorEntity connector = getConnectorClient().createConnector(entity);
+        logger.info("Created Connector [type={}, id={}, name={}] for Test [{}]", simpleName(type), connector.getId(), connector.getComponent().getName(), testName);
+        return connector;
+    }
+
+    public ConfigurationStepEntity configureConnector(final String connectorId, final String configurationStepName,
+            final Map<String, String> properties) throws NiFiClientException, IOException {
+        final ConnectorEntity connectorEntity = getConnectorClient().getConnector(connectorId);
+        return configureConnector(connectorEntity, configurationStepName, properties);
+    }
+
+    public ConfigurationStepEntity configureConnector(final ConnectorEntity connectorEntity, final String configurationStepName,
+            final Map<String, String> properties) throws NiFiClientException, IOException {
+        final Map<String, ConnectorValueReferenceDTO> propertyValues = properties.entrySet().stream()
+            .collect(Collectors.toMap(Map.Entry::getKey, entry -> createStringLiteralValueReference(entry.getValue())));
+
+        final PropertyGroupConfigurationDTO propertyGroupConfig = new PropertyGroupConfigurationDTO();
+        propertyGroupConfig.setPropertyValues(propertyValues);
+
+        final ConfigurationStepConfigurationDTO stepConfig = new ConfigurationStepConfigurationDTO();
+        stepConfig.setConfigurationStepName(configurationStepName);
+        stepConfig.setPropertyGroupConfigurations(Collections.singletonList(propertyGroupConfig));
+
+        final ConfigurationStepEntity stepEntity = new ConfigurationStepEntity();
+        stepEntity.setParentConnectorId(connectorEntity.getId());
+        stepEntity.setParentConnectorRevision(connectorEntity.getRevision());
+        stepEntity.setConfigurationStep(stepConfig);
+        stepEntity.setDisconnectedNodeAcknowledged(true);
+
+        final ConfigurationStepEntity result = getConnectorClient().updateConfigurationStep(stepEntity);
+        logger.info("Configured Connector [id={}, step={}] for Test [{}]", connectorEntity.getId(), configurationStepName, testName);
+        return result;
+    }
+
+    private ConnectorValueReferenceDTO createStringLiteralValueReference(final String value) {
+        final ConnectorValueReferenceDTO valueRef = new ConnectorValueReferenceDTO();
+        valueRef.setValueType("STRING_LITERAL");
+        valueRef.setValue(value);
+        return valueRef;
+    }
+
+    public ConnectorValueReferenceDTO createSecretValueReference(final String secretProviderId, final String secretName, final String fullyQualifiedSecretName) {
+        final ConnectorValueReferenceDTO valueRef = new ConnectorValueReferenceDTO();
+        valueRef.setValueType("SECRET_REFERENCE");
+        valueRef.setSecretProviderId(secretProviderId);
+        valueRef.setSecretName(secretName);
+        valueRef.setFullyQualifiedSecretName(fullyQualifiedSecretName);
+        return valueRef;
+    }
+
+    public ConfigurationStepEntity configureConnectorWithReferences(final String connectorId, final String configurationStepName,
+            final Map<String, ConnectorValueReferenceDTO> propertyValues) throws NiFiClientException, IOException {
+        final ConnectorEntity connectorEntity = getConnectorClient().getConnector(connectorId);
+        return configureConnectorWithReferences(connectorEntity, configurationStepName, propertyValues);
+    }
+
+    public ConfigurationStepEntity configureConnectorWithReferences(final ConnectorEntity connectorEntity, final String configurationStepName,
+            final Map<String, ConnectorValueReferenceDTO> propertyValues) throws NiFiClientException, IOException {
+        final PropertyGroupConfigurationDTO propertyGroupConfig = new PropertyGroupConfigurationDTO();
+        propertyGroupConfig.setPropertyValues(propertyValues);
+
+        final ConfigurationStepConfigurationDTO stepConfig = new ConfigurationStepConfigurationDTO();
+        stepConfig.setConfigurationStepName(configurationStepName);
+        stepConfig.setPropertyGroupConfigurations(Collections.singletonList(propertyGroupConfig));
+
+        final ConfigurationStepEntity stepEntity = new ConfigurationStepEntity();
+        stepEntity.setParentConnectorId(connectorEntity.getId());
+        stepEntity.setParentConnectorRevision(connectorEntity.getRevision());
+        stepEntity.setConfigurationStep(stepConfig);
+        stepEntity.setDisconnectedNodeAcknowledged(true);
+
+        final ConfigurationStepEntity result = getConnectorClient().updateConfigurationStep(stepEntity);
+        logger.info("Configured Connector [id={}, step={}] for Test [{}]", connectorEntity.getId(), configurationStepName, testName);
+        return result;
+    }
+
+    public void applyConnectorUpdate(final ConnectorEntity connectorEntity) throws NiFiClientException, IOException, InterruptedException {
+        final ConnectorClient client = nifiClient.getConnectorClient();
+        final ConnectorEntity initialEntity = client.getConnector(connectorEntity.getId());
+        final ConnectorState initialState = ConnectorState.valueOf(initialEntity.getComponent().getState());
+        client.applyUpdate(connectorEntity);
+
+        while (true) {
+            final ConnectorEntity currentEntity = client.getConnector(connectorEntity.getId());
+            final String state = currentEntity.getComponent().getState();
+            final ConnectorState currentState = ConnectorState.valueOf(state);
+
+            switch (currentState) {
+                case UPDATE_FAILED:
+                    throw new IllegalStateException("Connector failed to update");
+                case UPDATED:
+                case UPDATING:
+                case PREPARING_FOR_UPDATE:
+                    logger.debug("Waiting for Connector [id={}] to finish updating (current state={})...", connectorEntity.getId(), state);
+                    break;
+                default:
+                    if (initialState == currentState) {
+                        logger.info("Connector [id={}] has successfully updated and now has state of {}", connectorEntity.getId(), state);
+                        return;
+                    }
+                    logger.debug("Waiting for Connector [id={}] to return to initial state of {} (current state={})...", connectorEntity.getId(), initialState, state);
+                    break;
+            }
+
+            // Wait 250 milliseconds before polling again
+            Thread.sleep(250L);
+        }
+    }
+
+    public void waitForValidConnector(final String connectorId) throws NiFiClientException, IOException, InterruptedException {
+        waitForConnectorValidationStatus(connectorId, "VALID");
+    }
+
+    public void waitForInvalidConnector(final String connectorId) throws NiFiClientException, IOException, InterruptedException {
+        waitForConnectorValidationStatus(connectorId, "INVALID");
+    }
+
+    public void waitForConnectorValidationStatus(final String connectorId, final String expectedStatus) throws NiFiClientException, IOException, InterruptedException {
+        int iteration = 0;
+        while (true) {
+            final ConnectorEntity entity = getConnectorClient().getConnector(connectorId);
+            final String validationStatus = entity.getComponent().getValidationStatus();
+            if (expectedStatus.equals(validationStatus)) {
+                return;
+            }
+
+            if ("VALIDATING".equals(validationStatus)) {
+                logger.debug("Waiting for Connector {} to finish validating...", connectorId);
+            } else if (iteration++ % 30 == 0) { // Every 3 seconds log status
+                logger.info("Connector with ID {} has validation status {} but expected {}. Validation errors: {}",
+                    connectorId, validationStatus, expectedStatus, entity.getComponent().getValidationErrors());
+            }
+
+            Thread.sleep(100L);
+        }
+    }
+
+    public void stopConnectors() throws NiFiClientException, IOException, InterruptedException {
+        final ConnectorsEntity connectorsEntity = nifiClient.getFlowClient().getConnectors();
+        for (final ConnectorEntity connector : connectorsEntity.getConnectors()) {
+            connector.setDisconnectedNodeAcknowledged(true);
+            final String state = connector.getComponent() == null ? null : connector.getComponent().getState();
+
+            if (ConnectorState.TROUBLESHOOTING.name().equals(state)) {
+                final String managedGroupId = connector.getComponent().getManagedProcessGroupId();
+                if (managedGroupId != null) {
+                    try {
+                        stopProcessGroupComponents(managedGroupId);
+                        disableControllerServices(managedGroupId, true);
+                        emptyConnectorManagedQueues(connector.getId(), managedGroupId);
+                    } catch (final Exception stopException) {
+                        logger.warn("Failed to prepare managed Process Group [{}] for Connector [{}] during teardown",
+                                managedGroupId, connector.getId(), stopException);
+                    }
+                }
+
+                try {
+                    endTroubleshooting(connector.getId());
+                } catch (final Exception endException) {
+                    logger.warn("Failed to end Troubleshooting for Connector [{}] during teardown", connector.getId(), endException);
+                }
+
+                continue;
+            }
+
+            try {
+                getConnectorClient().stopConnector(connector);
+                waitForConnectorStopped(connector.getId());
+            } catch (final Exception stopException) {
+                logger.warn("Failed to stop Connector [{}] during teardown", connector.getId(), stopException);
+            }
+        }
+    }
+
+    private void emptyConnectorManagedQueues(final String connectorId, final String groupId) throws NiFiClientException, IOException {
+        final ProcessGroupFlowEntity flowEntity = getConnectorClient().getFlow(connectorId, groupId);
+        if (flowEntity == null || flowEntity.getProcessGroupFlow() == null || flowEntity.getProcessGroupFlow().getFlow() == null) {
+            return;
+        }
+
+        final FlowDTO flow = flowEntity.getProcessGroupFlow().getFlow();
+        if (flow.getConnections() != null) {
+            for (final ConnectionEntity connection : flow.getConnections()) {
+                try {
+                    emptyQueue(connection.getId());
+                } catch (final Exception ignored) {
+                }
+            }
+        }
+
+        if (flow.getProcessGroups() != null) {
+            for (final ProcessGroupEntity child : flow.getProcessGroups()) {
+                emptyConnectorManagedQueues(connectorId, child.getId());
+            }
+        }
+    }
+
+    public void startConnector(final ConnectorEntity connectorEntity) throws NiFiClientException, IOException, InterruptedException {
+        startConnector(connectorEntity.getId());
+    }
+
+    public void startConnector(final String connectorId) throws NiFiClientException, IOException, InterruptedException {
+        final ConnectorEntity entity = getConnectorClient().getConnector(connectorId);
+        entity.setDisconnectedNodeAcknowledged(true);
+        getConnectorClient().startConnector(entity);
+        waitForConnectorState(connectorId, ConnectorState.RUNNING);
+    }
+
+    public void stopConnector(final ConnectorEntity connectorEntity) throws NiFiClientException, IOException, InterruptedException {
+        stopConnector(connectorEntity.getId());
+    }
+
+    public void stopConnector(final String connectorId) throws NiFiClientException, IOException, InterruptedException {
+        final ConnectorEntity entity = getConnectorClient().getConnector(connectorId);
+        entity.setDisconnectedNodeAcknowledged(true);
+        getConnectorClient().stopConnector(entity);
+        waitForConnectorStopped(connectorId);
+    }
+
+    public void waitForConnectorStopped(final String connectorId) throws NiFiClientException, IOException, InterruptedException {
+        waitForConnectorState(connectorId, ConnectorState.STOPPED);
+    }
+
+    public void waitForConnectorState(final String connectorId, final ConnectorState desiredState) throws InterruptedException, NiFiClientException, IOException {
+        int iteration = 0;
+        while (true) {
+            final ConnectorEntity entity = getConnectorClient().getConnector(connectorId);
+            final String state = entity.getComponent().getState();
+            if (desiredState.name().equals(state)) {
+                return;
+            }
+
+            if (iteration++ % 30 == 0) { // Every 3 seconds log status
+                logger.info("Connector with ID {} has state {} but waiting for state {}.", connectorId, state, desiredState);
+            }
+
+            Thread.sleep(100L);
+        }
+    }
+
+    public ConnectorEntity drainConnector(final String connectorId) throws NiFiClientException, IOException {
+        final ConnectorEntity entity = getConnectorClient().getConnector(connectorId);
+        entity.setDisconnectedNodeAcknowledged(true);
+        return getConnectorClient().drainConnector(entity);
+    }
+
+    public ConnectorEntity cancelDrain(final String connectorId) throws NiFiClientException, IOException {
+        final ConnectorEntity entity = getConnectorClient().getConnector(connectorId);
+        entity.setDisconnectedNodeAcknowledged(true);
+        return getConnectorClient().cancelDrain(entity);
+    }
+
+    public void waitForConnectorDraining(final String connectorId) throws NiFiClientException, IOException, InterruptedException {
+        waitForConnectorState(connectorId, ConnectorState.DRAINING);
+    }
+
+    public ConnectorEntity enterTroubleshooting(final String connectorId) throws NiFiClientException, IOException, InterruptedException {
+        final ConnectorEntity entity = getConnectorClient().getConnector(connectorId);
+        entity.setDisconnectedNodeAcknowledged(true);
+        final ConnectorEntity result = getConnectorClient().enterTroubleshooting(entity);
+        waitForConnectorState(connectorId, ConnectorState.TROUBLESHOOTING);
+        return result;
+    }
+
+    public ConnectorEntity endTroubleshooting(final String connectorId) throws NiFiClientException, IOException, InterruptedException {
+        final ConnectorEntity entity = getConnectorClient().getConnector(connectorId);
+        final ConnectorEntity result = getConnectorClient().endTroubleshooting(connectorId, entity.getRevision().getClientId(), entity.getRevision().getVersion());
+        waitForConnectorStopped(connectorId);
+        return result;
     }
 
     public ParameterProviderEntity createParameterProvider(final String simpleTypeName) throws NiFiClientException, IOException {
@@ -672,6 +1004,13 @@ public class NiFiClientUtil {
         return nifiClient.getProcessGroupClient().updateProcessGroup(processGroup);
     }
 
+    public ProcessGroupEntity setParameterContextRecursively(final String groupId, final ParameterContextEntity parameterContext) throws NiFiClientException, IOException {
+        final ProcessGroupEntity processGroup = nifiClient.getProcessGroupClient().getProcessGroup(groupId);
+        processGroup.getComponent().setParameterContext(createReferenceEntity(parameterContext.getId()));
+        processGroup.setProcessGroupUpdateStrategy(ProcessGroupRecursivity.ALL_DESCENDANTS.name());
+        return nifiClient.getProcessGroupClient().updateProcessGroup(processGroup);
+    }
+
     public ParameterContextEntity createParameterContext(final String contextName, final String parameterName, final String parameterValue, final boolean sensitive)
             throws NiFiClientException, IOException {
 
@@ -741,7 +1080,6 @@ public class NiFiClientUtil {
 
         final ParameterContextEntity entityUpdate = createParameterContextEntity(existingEntity.getComponent().getName(), existingEntity.getComponent().getDescription(),
             parameterEntities, inheritedParameterContextIds, null);
-        entityUpdate.setId(existingEntity.getId());
         entityUpdate.setRevision(existingEntity.getRevision());
         entityUpdate.getComponent().setId(existingEntity.getComponent().getId());
 
@@ -914,9 +1252,15 @@ public class NiFiClientUtil {
         final long maxTimestamp = System.currentTimeMillis() + TimeUnit.MINUTES.toMillis(2);
         logger.info("Waiting for Processor {} to reach state {}", processorId, expectedState);
 
+        String lastObservedState = null;
+        String lastObservedPhysicalState = null;
+        Integer lastObservedActiveThreadCount = null;
+        Integer lastObservedTerminatedThreadCount = null;
+
         while (System.currentTimeMillis() < maxTimestamp) {
             final ProcessorEntity entity = getProcessorClient().getProcessor(processorId);
             final String state = entity.getComponent().getState();
+            lastObservedState = state;
 
             // We've reached the desired state if the state equal the expected state, OR if we expect stopped and the state is disabled (because disabled implies stopped)
             final boolean desiredStateReached = expectedState.equals(state) || ("STOPPED".equalsIgnoreCase(expectedState) && "DISABLED".equalsIgnoreCase(state));
@@ -929,8 +1273,28 @@ public class NiFiClientUtil {
             final ProcessorStatusSnapshotDTO snapshotDto = entity.getStatus().getAggregateSnapshot();
             final Integer activeThreadCount = snapshotDto.getActiveThreadCount();
             final Integer terminatedThreadCount = snapshotDto.getTerminatedThreadCount();
+            lastObservedActiveThreadCount = activeThreadCount;
+            lastObservedTerminatedThreadCount = terminatedThreadCount;
 
             if ("RUNNING".equals(expectedState) || (activeThreadCount == 0 && terminatedThreadCount == 0)) {
+                // The logical state masks the framework's physical STOPPING state as STOPPED. The framework's
+                // verifyCanStart check evaluates the physical state, so when the caller is waiting for STOPPED
+                // we additionally require the physical state to have settled to STOPPED or DISABLED. Without
+                // this, a tight loop of runProcessorOnce + waitForStoppedProcessor can race against an
+                // in-flight stop transition and the next start request fails with "cannot be started because
+                // it is not stopped. Current state is STOPPING".
+                if ("STOPPED".equalsIgnoreCase(expectedState)) {
+                    final String physicalState = entity.getComponent().getPhysicalState();
+                    lastObservedPhysicalState = physicalState;
+                    final boolean physicalStateSettled = physicalState == null
+                            || "STOPPED".equalsIgnoreCase(physicalState)
+                            || "DISABLED".equalsIgnoreCase(physicalState);
+                    if (!physicalStateSettled) {
+                        Thread.sleep(10L);
+                        continue;
+                    }
+                }
+
                 logger.info("Processor {} is now in desired state of {} with {} active threads and {} terminated threads",
                     processorId, expectedState, activeThreadCount, terminatedThreadCount);
                 return;
@@ -938,6 +1302,9 @@ public class NiFiClientUtil {
 
             Thread.sleep(10L);
         }
+
+        throw new IOException(String.format("Timed out waiting for Processor %s to reach state of %s. Last observed state=%s, physicalState=%s, activeThreadCount=%s, terminatedThreadCount=%s",
+                processorId, expectedState, lastObservedState, lastObservedPhysicalState, lastObservedActiveThreadCount, lastObservedTerminatedThreadCount));
     }
 
     public ReportingTaskEntity waitForReportingTaskState(final String reportingTaskId, final String expectedState) throws NiFiClientException, IOException, InterruptedException {
@@ -1033,7 +1400,6 @@ public class NiFiClientUtil {
             counterValues = getCountersAsMap(context);
         }
     }
-
 
     public Map<String, Long> getCountersAsMap(final String processorId) throws NiFiClientException, IOException {
         final CountersEntity firstCountersEntity = nifiClient.getCountersClient().getCounters();
@@ -1232,6 +1598,42 @@ public class NiFiClientUtil {
             service.setDisconnectedNodeAcknowledged(true);
             nifiClient.getControllerServicesClient().deleteControllerService(service);
         }
+    }
+
+    public void deleteConnectors() throws NiFiClientException, IOException {
+        final ConnectorsEntity connectors = nifiClient.getFlowClient().getConnectors();
+        for (final ConnectorEntity connector : connectors.getConnectors()) {
+            purgeConnectorFlowFiles(connector.getId());
+            connector.setDisconnectedNodeAcknowledged(true);
+            nifiClient.getConnectorClient().deleteConnector(connector);
+        }
+    }
+
+    public DropRequestEntity purgeConnectorFlowFiles(final String connectorId) throws NiFiClientException, IOException {
+        final ConnectorClient connectorClient = getConnectorClient();
+        final long maxTimestamp = System.currentTimeMillis() + TimeUnit.MINUTES.toMillis(1L);
+
+        DropRequestEntity requestEntity = connectorClient.createPurgeRequest(connectorId);
+        try {
+            while (requestEntity.getDropRequest().getPercentCompleted() < 100) {
+                if (System.currentTimeMillis() > maxTimestamp) {
+                    throw new IOException("Timed out waiting for Connector " + connectorId + " to purge FlowFiles");
+                }
+
+                try {
+                    Thread.sleep(50L);
+                } catch (final InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                    return null;
+                }
+
+                requestEntity = connectorClient.getPurgeRequest(connectorId, requestEntity.getDropRequest().getId());
+            }
+        } finally {
+            requestEntity = connectorClient.deletePurgeRequest(connectorId, requestEntity.getDropRequest().getId());
+        }
+
+        return requestEntity;
     }
 
     public void waitForControllerServiceRunStatus(final String id, final String requestedRunStatus) throws NiFiClientException, IOException {
@@ -1932,6 +2334,48 @@ public class NiFiClientUtil {
         return results.getRequest().getResults();
     }
 
+    public List<ConfigVerificationResultDTO> verifyConnectorStepConfig(final String connectorId, final String configurationStepName,
+            final Map<String, String> properties) throws NiFiClientException, IOException, InterruptedException {
+
+        final Map<String, ConnectorValueReferenceDTO> propertyValues = properties.entrySet().stream()
+            .collect(Collectors.toMap(Map.Entry::getKey, entry -> createStringLiteralValueReference(entry.getValue())));
+
+        return verifyConnectorStepConfigWithReferences(connectorId, configurationStepName, propertyValues);
+    }
+
+    public List<ConfigVerificationResultDTO> verifyConnectorStepConfigWithReferences(final String connectorId, final String configurationStepName,
+            final Map<String, ConnectorValueReferenceDTO> propertyValues) throws NiFiClientException, IOException, InterruptedException {
+
+        final PropertyGroupConfigurationDTO propertyGroupConfig = new PropertyGroupConfigurationDTO();
+        propertyGroupConfig.setPropertyValues(propertyValues);
+
+        final ConfigurationStepConfigurationDTO stepConfig = new ConfigurationStepConfigurationDTO();
+        stepConfig.setConfigurationStepName(configurationStepName);
+        stepConfig.setPropertyGroupConfigurations(Collections.singletonList(propertyGroupConfig));
+
+        final VerifyConnectorConfigStepRequestDTO requestDto = new VerifyConnectorConfigStepRequestDTO();
+        requestDto.setConnectorId(connectorId);
+        requestDto.setConfigurationStepName(configurationStepName);
+        requestDto.setConfigurationStep(stepConfig);
+
+        final VerifyConnectorConfigStepRequestEntity verificationRequest = new VerifyConnectorConfigStepRequestEntity();
+        verificationRequest.setRequest(requestDto);
+
+        VerifyConnectorConfigStepRequestEntity results = getConnectorClient().submitConfigStepVerificationRequest(verificationRequest);
+        while (!results.getRequest().isComplete()) {
+            Thread.sleep(50L);
+            results = getConnectorClient().getConfigStepVerificationRequest(connectorId, configurationStepName, results.getRequest().getRequestId());
+        }
+
+        final String failureReason = results.getRequest().getFailureReason();
+        if (failureReason != null) {
+            throw new IllegalStateException("Configuration step verification failed: " + failureReason);
+        }
+
+        getConnectorClient().deleteConfigStepVerificationRequest(connectorId, configurationStepName, results.getRequest().getRequestId());
+
+        return results.getRequest().getResults();
+    }
 
     public ReportingTaskEntity createReportingTask(final String type, final String bundleGroupId, final String artifactId, final String version)
                 throws NiFiClientException, IOException {
@@ -2020,8 +2464,6 @@ public class NiFiClientUtil {
         final VersionControlInformationDTO currentDto = currentVci.getVersionControlInformation();
         return publishFlowVersion(group, registryClient, currentDto.getBucketId(), currentDto.getFlowName(), currentDto.getFlowId());
     }
-
-
 
     public VersionedFlowUpdateRequestEntity revertChanges(final ProcessGroupEntity group) throws NiFiClientException, IOException, InterruptedException {
         final VersionControlInformationEntity vciEntity = nifiClient.getVersionsClient().getVersionControlInfo(group.getId());
@@ -2124,7 +2566,6 @@ public class NiFiClientUtil {
             return null;
         }
     }
-
 
     public void assertFlowStaleAndUnmodified(final String processGroupId) throws NiFiClientException, IOException {
         final String state = nifiClient.getProcessGroupClient().getProcessGroup(processGroupId).getVersionedFlowState();

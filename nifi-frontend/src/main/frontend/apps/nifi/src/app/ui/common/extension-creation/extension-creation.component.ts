@@ -15,17 +15,16 @@
  * limitations under the License.
  */
 
-import { Component, ElementRef, EventEmitter, Input, Output, ViewChild } from '@angular/core';
+import { Component, ElementRef, EventEmitter, Input, Output, ViewChild, inject } from '@angular/core';
 import { MatButtonModule } from '@angular/material/button';
 import { MatDialogModule } from '@angular/material/dialog';
 import { MatTableDataSource, MatTableModule } from '@angular/material/table';
 import { MatSortModule, Sort } from '@angular/material/sort';
 
 import { ControllerServiceApiTipInput, DocumentedType, RestrictionsTipInput } from '../../../state/shared';
-import { CloseOnEscapeDialog, NiFiCommon, NifiTooltipDirective } from '@nifi/shared';
+import { CloseOnEscapeDialog, NiFiCommon, NifiSpinnerDirective, NifiTooltipDirective } from '@nifi/shared';
 import { RestrictionsTip } from '../tooltips/restrictions-tip/restrictions-tip.component';
 import { ControllerServiceApiTip } from '../tooltips/controller-service-api-tip/controller-service-api-tip.component';
-import { NifiSpinnerDirective } from '../spinner/nifi-spinner.directive';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatInputModule } from '@angular/material/input';
 import { ReactiveFormsModule } from '@angular/forms';
@@ -53,6 +52,8 @@ import { NgxSkeletonLoaderComponent } from 'ngx-skeleton-loader';
     styleUrls: ['./extension-creation.component.scss']
 })
 export class ExtensionCreation extends CloseOnEscapeDialog {
+    private nifiCommon = inject(NiFiCommon);
+
     @Input() set documentedTypes(documentedTypes: DocumentedType[]) {
         if (this.selectedType == null && documentedTypes.length > 0) {
             this.selectedType = documentedTypes[0];
@@ -82,7 +83,7 @@ export class ExtensionCreation extends CloseOnEscapeDialog {
     dataSource: MatTableDataSource<DocumentedType> = new MatTableDataSource<DocumentedType>();
     selectedType: DocumentedType | null = null;
 
-    constructor(private nifiCommon: NiFiCommon) {
+    constructor() {
         super();
 
         const defaultPredicate = this.dataSource.filterPredicate;

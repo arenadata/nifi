@@ -17,10 +17,10 @@
 
 package org.apache.nifi.registry.flow;
 
-import java.util.Objects;
-
 import org.apache.nifi.flow.VersionedProcessGroup;
 import org.apache.nifi.web.api.dto.VersionControlInformationDTO;
+
+import java.util.Objects;
 
 public class StandardVersionControlInformation implements VersionControlInformation {
 
@@ -156,7 +156,6 @@ public class StandardVersionControlInformation implements VersionControlInformat
         }
     }
 
-
     public StandardVersionControlInformation(final String registryId, final String registryName, final String branch, final String bucketId, final String flowId, final String version,
         final String storageLocation, final VersionedProcessGroup snapshot, final VersionedFlowStatus status) {
         this.registryIdentifier = registryId;
@@ -169,7 +168,6 @@ public class StandardVersionControlInformation implements VersionControlInformat
         this.flowSnapshot = snapshot;
         this.status = status;
     }
-
 
     @Override
     public String getRegistryIdentifier() {

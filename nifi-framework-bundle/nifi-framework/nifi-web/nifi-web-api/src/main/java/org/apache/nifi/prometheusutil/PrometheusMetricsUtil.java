@@ -18,7 +18,6 @@
 package org.apache.nifi.prometheusutil;
 
 import io.prometheus.client.CollectorRegistry;
-import org.apache.nifi.components.AllowableValue;
 import org.apache.nifi.controller.status.ConnectionStatus;
 import org.apache.nifi.controller.status.PortStatus;
 import org.apache.nifi.controller.status.ProcessGroupStatus;
@@ -31,16 +30,15 @@ import org.apache.nifi.diagnostics.StorageUsage;
 import org.apache.nifi.metrics.jvm.JvmMetrics;
 import org.apache.nifi.processor.DataUnit;
 import org.apache.nifi.util.StringUtils;
+import org.apache.nifi.web.api.request.FlowMetricsReportingStrategy;
 
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
-public class PrometheusMetricsUtil {
+import static org.apache.nifi.web.api.request.FlowMetricsReportingStrategy.ALL_COMPONENTS;
+import static org.apache.nifi.web.api.request.FlowMetricsReportingStrategy.ALL_PROCESS_GROUPS;
 
-    public static final AllowableValue METRICS_STRATEGY_PG = new AllowableValue("All Process Groups", "All Process Groups",
-            "Send metrics for each process group");
-    public static final AllowableValue METRICS_STRATEGY_COMPONENTS = new AllowableValue("All Components", "All Components",
-            "Send metrics for each component in the system, to include processors, connections, controller services, etc.");
+public class PrometheusMetricsUtil {
 
     protected static final String DEFAULT_LABEL_STRING = "";
     private static final double MAXIMUM_BACKPRESSURE = 1.0;
@@ -48,7 +46,7 @@ public class PrometheusMetricsUtil {
     private static final double NANOS_PER_MILLI = 1000000.0;
 
     public static CollectorRegistry createNifiMetrics(NiFiMetricsRegistry nifiMetricsRegistry, ProcessGroupStatus status,
-                                                      String instId, String parentProcessGroupId, String compType, String metricsStrategy) {
+                                                      String instId, String parentProcessGroupId, String compType, FlowMetricsReportingStrategy metricsStrategy) {
 
         final String instanceId = StringUtils.isEmpty(instId) ? DEFAULT_LABEL_STRING : instId;
         final String parentPGId = StringUtils.isEmpty(parentProcessGroupId) ? DEFAULT_LABEL_STRING : parentProcessGroupId;
@@ -90,11 +88,11 @@ public class PrometheusMetricsUtil {
                 instanceId, componentType, componentName, componentId, parentPGId);
 
         // Report metrics for child process groups if specified
-        if (METRICS_STRATEGY_PG.getValue().equals(metricsStrategy) || METRICS_STRATEGY_COMPONENTS.getValue().equals(metricsStrategy)) {
+        if (ALL_PROCESS_GROUPS == metricsStrategy || ALL_COMPONENTS == metricsStrategy) {
             status.getProcessGroupStatus().forEach((childGroupStatus) -> createNifiMetrics(nifiMetricsRegistry, childGroupStatus, instanceId, componentId, "ProcessGroup", metricsStrategy));
         }
 
-        if (METRICS_STRATEGY_COMPONENTS.getValue().equals(metricsStrategy)) {
+        if (ALL_COMPONENTS == metricsStrategy) {
             // Report metrics for all components
             for (ProcessorStatus processorStatus : status.getProcessorStatus()) {
                 Map<String, Long> counters = processorStatus.getCounters();
@@ -267,7 +265,10 @@ public class PrometheusMetricsUtil {
         final String instanceId = StringUtils.isEmpty(instId) ? DEFAULT_LABEL_STRING : instId;
         jvmMetricsRegistry.setDataPoint(jvmMetrics.heapUsed(DataUnit.B), "JVM_HEAP_USED", instanceId);
         jvmMetricsRegistry.setDataPoint(jvmMetrics.heapUsage(), "JVM_HEAP_USAGE", instanceId);
+        jvmMetricsRegistry.setDataPoint(jvmMetrics.heapCommitted(DataUnit.B), "JVM_HEAP_COMMITTED", instanceId);
         jvmMetricsRegistry.setDataPoint(jvmMetrics.nonHeapUsage(), "JVM_HEAP_NON_USAGE", instanceId);
+        jvmMetricsRegistry.setDataPoint(jvmMetrics.nonHeapUsed(DataUnit.B), "JVM_NON_HEAP_USED", instanceId);
+        jvmMetricsRegistry.setDataPoint(jvmMetrics.nonHeapCommitted(DataUnit.B), "JVM_NON_HEAP_COMMITTED", instanceId);
         jvmMetricsRegistry.setDataPoint(jvmMetrics.threadCount(), "JVM_THREAD_COUNT", instanceId);
         jvmMetricsRegistry.setDataPoint(jvmMetrics.daemonThreadCount(), "JVM_DAEMON_THREAD_COUNT", instanceId);
         jvmMetricsRegistry.setDataPoint(jvmMetrics.uptime(), "JVM_UPTIME", instanceId);
@@ -295,7 +296,6 @@ public class PrometheusMetricsUtil {
             final String destinationId = StringUtils.isEmpty(destId) ? DEFAULT_LABEL_STRING : destId;
             final String destinationName = StringUtils.isEmpty(destName) ? DEFAULT_LABEL_STRING : destName;
             final String parentId = StringUtils.isEmpty(pgId) ? DEFAULT_LABEL_STRING : pgId;
-
 
             Map<String, Long> predictions = statusAnalytics.getPredictions();
             connectionAnalyticsMetricsRegistry.setDataPoint(predictions.get("timeToBytesBackpressureMillis"),
@@ -477,6 +477,26 @@ public class PrometheusMetricsUtil {
                 DEFAULT_LABEL_STRING);
 
         return niFiMetricsRegistry.getRegistry();
+    }
+
+    public static void createVersionInfoMetrics(final VersionInfoRegistry versionInfoRegistry, final String instanceId) {
+        // Retrieve the calculated version details
+        final VersionInfoRegistry.VersionDetails details = versionInfoRegistry.getVersionDetails();
+
+        versionInfoRegistry.setDataPoint(
+                1,
+                "NIFI_VERSION_INFO",
+                instanceId,
+                details.frameworkVersion(),
+                details.javaVersion(),
+                details.revision(),
+                details.tag(),
+                details.buildBranch(),
+                details.osName(),
+                details.osVersion(),
+                details.osArchitecture(),
+                details.javaVendor()
+        );
     }
 
     public static CollectorRegistry createClusterMetrics(final ClusterMetricsRegistry clusterMetricsRegistry, final String instId, final boolean isClustered, final boolean isConnectedToCluster,

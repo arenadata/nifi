@@ -95,6 +95,19 @@ public class PublishAMQP extends AbstractAMQPProcessor<AMQPPublisher> {
             .expressionLanguageSupported(ExpressionLanguageScope.FLOWFILE_ATTRIBUTES)
             .addValidator(StandardValidators.NON_EMPTY_VALIDATOR)
             .build();
+    public static final PropertyDescriptor DELIVERY_GUARANTEE = new PropertyDescriptor.Builder()
+            .name("Delivery Guarantee")
+            .description("Controls whether the processor waits for a publish confirmation (broker ack/nack) before routing the FlowFile. "
+                    + "\"At least once\" enables RabbitMQ Publisher Confirms: the processor blocks until the broker acknowledges the message, "
+                    + "and undeliverable messages (no matching queue binding) are reliably routed to 'failure'. "
+                    + "This prevents silent data loss at the cost of significantly higher latency, especially with remote brokers. "
+                    + "\"At most once\" uses the original fire-and-forget mode: the message is sent without waiting for confirmation. "
+                    + "Undeliverable messages are only logged as a warning and the FlowFile is still routed to 'success'. "
+                    + "This mode offers maximum throughput but provides no delivery guarantee.")
+            .required(true)
+            .allowableValues(DeliveryGuarantee.class)
+            .defaultValue(DeliveryGuarantee.AT_MOST_ONCE)
+            .build();
     public static final PropertyDescriptor HEADERS_SOURCE = new PropertyDescriptor.Builder()
             .name("Headers Source")
             .description("The source of the headers which will be applied to the published message.")
@@ -132,10 +145,11 @@ public class PublishAMQP extends AbstractAMQPProcessor<AMQPPublisher> {
             .description("All FlowFiles that cannot be routed to the AMQP destination are routed to this relationship")
             .build();
 
-    private final static List<PropertyDescriptor> PROPERTY_DESCRIPTORS = Stream.concat(
+    private static final List<PropertyDescriptor> PROPERTY_DESCRIPTORS = Stream.concat(
             Stream.of(
                     EXCHANGE,
                     ROUTING_KEY,
+                    DELIVERY_GUARANTEE,
                     HEADERS_SOURCE,
                     HEADERS_PATTERN,
                     HEADER_SEPARATOR
@@ -143,7 +157,7 @@ public class PublishAMQP extends AbstractAMQPProcessor<AMQPPublisher> {
             getCommonPropertyDescriptors().stream()
     ).toList();
 
-    private final static Set<Relationship> RELATIONSHIPS = Set.of(
+    private static final Set<Relationship> RELATIONSHIPS = Set.of(
             REL_SUCCESS,
             REL_FAILURE
     );
@@ -207,7 +221,8 @@ public class PublishAMQP extends AbstractAMQPProcessor<AMQPPublisher> {
 
     @Override
     protected AMQPPublisher createAMQPWorker(final ProcessContext context, final Connection connection) {
-        return new AMQPPublisher(connection, getLogger());
+        final boolean useConfirms = DeliveryGuarantee.AT_LEAST_ONCE == context.getProperty(DELIVERY_GUARANTEE).asAllowableValue(DeliveryGuarantee.class);
+        return new AMQPPublisher(connection, getLogger(), useConfirms);
     }
 
     @Override
@@ -224,7 +239,6 @@ public class PublishAMQP extends AbstractAMQPProcessor<AMQPPublisher> {
         session.read(flowFile, in -> StreamUtils.fillBuffer(in, messageContent, true));
         return messageContent;
     }
-
 
     /**
      * Reads an attribute from flowFile and pass it to the consumer function
@@ -283,7 +297,7 @@ public class PublishAMQP extends AbstractAMQPProcessor<AMQPPublisher> {
     private Map<String, Object> prepareAMQPHeaders(final FlowFile flowFile, final InputHeaderSource selectedHeaderSource, final Character headerSeparator, final Pattern pattern) {
         final Map<String, Object> headers = new HashMap<>();
         if (InputHeaderSource.FLOWFILE_ATTRIBUTES.equals(selectedHeaderSource)) {
-                headers.putAll(getMatchedAttributes(flowFile.getAttributes(), pattern));
+            headers.putAll(getMatchedAttributes(flowFile.getAttributes(), pattern));
         } else if (InputHeaderSource.AMQP_HEADERS_ATTRIBUTE.equals(selectedHeaderSource)) {
             readAmqpAttribute(flowFile, AMQP_HEADERS_ATTRIBUTE, value -> headers.putAll(validateAMQPHeaderProperty(value, headerSeparator)));
         }
@@ -345,6 +359,42 @@ public class PublishAMQP extends AbstractAMQPProcessor<AMQPPublisher> {
                 yield null;
             }
         };
+    }
+
+    public enum DeliveryGuarantee implements DescribedValue {
+
+        AT_MOST_ONCE("At most once",
+                "Fire-and-forget: message is sent without waiting for a broker acknowledgement. "
+                + "Undeliverable messages (no matching queue binding) are logged as a warning and "
+                + "the FlowFile is routed to 'success'. Offers maximum throughput."),
+        AT_LEAST_ONCE("At least once",
+                "Publisher Confirms are enabled: the processor blocks until the broker acknowledges "
+                + "the message (ack or nack). Undeliverable messages are reliably detected and routed "
+                + "to 'failure'. Prevents silent data loss at the cost of higher latency, particularly "
+                + "with remote brokers.");
+
+        private final String displayName;
+        private final String description;
+
+        DeliveryGuarantee(final String displayName, final String description) {
+            this.displayName = displayName;
+            this.description = description;
+        }
+
+        @Override
+        public String getValue() {
+            return name();
+        }
+
+        @Override
+        public String getDisplayName() {
+            return displayName;
+        }
+
+        @Override
+        public String getDescription() {
+            return description;
+        }
     }
 
     public enum InputHeaderSource implements DescribedValue {

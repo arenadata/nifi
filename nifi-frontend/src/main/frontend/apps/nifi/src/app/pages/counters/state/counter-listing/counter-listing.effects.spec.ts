@@ -28,8 +28,11 @@ import { MatDialog } from '@angular/material/dialog';
 import { ErrorHelper } from '../../../../service/error-helper.service';
 import { HttpErrorResponse } from '@angular/common/http';
 import { CounterEntity } from './index';
+import { countersFeatureKey } from '../index';
 
 describe('CounterListingEffects', () => {
+    let action$: ReplaySubject<Action>;
+
     interface SetupOptions {
         counterListingState?: any;
     }
@@ -67,40 +70,40 @@ describe('CounterListingEffects', () => {
                 provideMockActions(() => action$),
                 provideMockStore({
                     initialState: {
-                        counters: {
-                            counters: counterListingState
+                        [countersFeatureKey]: {
+                            [countersFeatureKey]: counterListingState
                         }
                     }
                 }),
                 {
                     provide: CountersService,
                     useValue: {
-                        getCounters: jest.fn(),
-                        resetCounter: jest.fn(),
-                        resetAllCounters: jest.fn()
+                        getCounters: vi.fn(),
+                        resetCounter: vi.fn(),
+                        resetAllCounters: vi.fn()
                     }
                 },
                 {
                     provide: MatDialog,
                     useValue: {
-                        open: jest.fn()
+                        open: vi.fn()
                     }
                 },
                 {
                     provide: ErrorHelper,
                     useValue: {
-                        handleLoadingError: jest.fn(),
-                        getErrorString: jest.fn()
+                        handleLoadingError: vi.fn(),
+                        getErrorString: vi.fn()
                     }
                 }
             ]
         }).compileComponents();
 
         const store = TestBed.inject(MockStore);
-        const dispatchSpy = jest.spyOn(store, 'dispatch');
+        const dispatchSpy = vi.spyOn(store, 'dispatch');
 
         const effects = TestBed.inject(CounterListingEffects);
-        const action$ = new ReplaySubject<Action>();
+        action$ = new ReplaySubject<Action>();
 
         const countersService = TestBed.inject(CountersService);
         const dialog = TestBed.inject(MatDialog);
@@ -108,6 +111,12 @@ describe('CounterListingEffects', () => {
 
         return { effects, action$, store, dispatchSpy, countersService, dialog, errorHelper };
     }
+
+    afterEach(() => {
+        if (action$) {
+            action$.complete();
+        }
+    });
 
     it('should create', async () => {
         const { effects } = await setup();
@@ -120,7 +129,7 @@ describe('CounterListingEffects', () => {
 
             action$.next(CounterListingActions.loadCounters());
 
-            jest.spyOn(countersService, 'getCounters').mockReturnValueOnce(of(mockCountersResponse) as never);
+            vi.spyOn(countersService, 'getCounters').mockReturnValueOnce(of(mockCountersResponse) as never);
 
             const result = await new Promise((resolve) => effects.loadCounters$.pipe(take(1)).subscribe(resolve));
 
@@ -134,21 +143,99 @@ describe('CounterListingEffects', () => {
             );
         });
 
-        it('should fail to load counters', async () => {
-            const { action$, effects, countersService, errorHelper } = await setup();
+        it('should fail to load counters on initial load with hasExistingData=false', async () => {
+            const { action$, effects, countersService } = await setup();
 
             action$.next(CounterListingActions.loadCounters());
 
             const error = new HttpErrorResponse({ status: 500 });
-            const errorAction = CounterListingActions.counterListingApiError({ errorResponse: error });
 
-            jest.spyOn(countersService, 'getCounters').mockImplementationOnce(() => {
+            vi.spyOn(countersService, 'getCounters').mockImplementationOnce(() => {
                 return throwError(() => error);
             });
-            jest.spyOn(errorHelper, 'handleLoadingError').mockReturnValueOnce(errorAction);
 
             const result = await new Promise((resolve) => effects.loadCounters$.pipe(take(1)).subscribe(resolve));
 
+            expect(result).toEqual(
+                CounterListingActions.loadCountersError({
+                    errorResponse: error,
+                    loadedTimestamp: initialState.loadedTimestamp,
+                    status: 'pending'
+                })
+            );
+        });
+
+        it('should fail to load counters on refresh with hasExistingData=true', async () => {
+            const stateWithData = {
+                ...initialState,
+                loadedTimestamp: '2023-01-01 11:00:00 EST'
+            };
+            const { action$, effects, countersService } = await setup({
+                counterListingState: stateWithData
+            });
+
+            action$.next(CounterListingActions.loadCounters());
+
+            const error = new HttpErrorResponse({ status: 500 });
+
+            vi.spyOn(countersService, 'getCounters').mockImplementationOnce(() => {
+                return throwError(() => error);
+            });
+
+            const result = await new Promise((resolve) => effects.loadCounters$.pipe(take(1)).subscribe(resolve));
+
+            expect(result).toEqual(
+                CounterListingActions.loadCountersError({
+                    errorResponse: error,
+                    loadedTimestamp: stateWithData.loadedTimestamp,
+                    status: 'success'
+                })
+            );
+        });
+    });
+
+    describe('Counter Listing Error', () => {
+        it('should handle counter listing error for initial load', async () => {
+            const { action$, effects, errorHelper } = await setup();
+
+            const error = new HttpErrorResponse({ status: 500 });
+            const errorAction = CounterListingActions.counterListingApiError({ errorResponse: error });
+            action$.next(
+                CounterListingActions.loadCountersError({
+                    errorResponse: error,
+                    loadedTimestamp: initialState.loadedTimestamp,
+                    status: 'pending'
+                })
+            );
+            vi.spyOn(errorHelper, 'handleLoadingError').mockReturnValueOnce(errorAction);
+
+            const result = await new Promise((resolve) =>
+                effects.counterListingError$.pipe(take(1)).subscribe(resolve)
+            );
+
+            expect(errorHelper.handleLoadingError).toHaveBeenCalledWith(false, error);
+            expect(result).toEqual(errorAction);
+        });
+
+        it('should handle counter listing error for refresh', async () => {
+            const { action$, effects, errorHelper } = await setup();
+
+            const error = new HttpErrorResponse({ status: 500 });
+            const errorAction = CounterListingActions.counterListingApiError({ errorResponse: error });
+            action$.next(
+                CounterListingActions.loadCountersError({
+                    errorResponse: error,
+                    loadedTimestamp: '2023-01-01 11:00:00 EST',
+                    status: 'success'
+                })
+            );
+            vi.spyOn(errorHelper, 'handleLoadingError').mockReturnValueOnce(errorAction);
+
+            const result = await new Promise((resolve) =>
+                effects.counterListingError$.pipe(take(1)).subscribe(resolve)
+            );
+
+            expect(errorHelper.handleLoadingError).toHaveBeenCalledWith(true, error);
             expect(result).toEqual(errorAction);
         });
     });
@@ -171,7 +258,7 @@ describe('CounterListingEffects', () => {
                 })
             );
 
-            jest.spyOn(dialog, 'open').mockReturnValueOnce(dialogRef as any);
+            vi.spyOn(dialog, 'open').mockReturnValueOnce(dialogRef as any);
 
             await new Promise((resolve) => effects.promptResetAllCounters$.pipe(take(1)).subscribe(resolve));
 
@@ -186,7 +273,7 @@ describe('CounterListingEffects', () => {
 
             action$.next(CounterListingActions.resetAllCounters());
 
-            jest.spyOn(countersService, 'resetAllCounters').mockReturnValueOnce(of(mockCountersResponse) as never);
+            vi.spyOn(countersService, 'resetAllCounters').mockReturnValueOnce(of(mockCountersResponse) as never);
 
             const result = await new Promise((resolve) => effects.resetAllCounters$.pipe(take(1)).subscribe(resolve));
 
@@ -207,7 +294,7 @@ describe('CounterListingEffects', () => {
 
             const error = new HttpErrorResponse({ status: 500 });
 
-            jest.spyOn(countersService, 'resetAllCounters').mockImplementationOnce(() => {
+            vi.spyOn(countersService, 'resetAllCounters').mockImplementationOnce(() => {
                 return throwError(() => error);
             });
 
@@ -226,7 +313,7 @@ describe('CounterListingEffects', () => {
 
             action$.next(CounterListingActions.resetCounter({ request }));
 
-            jest.spyOn(countersService, 'resetCounter').mockReturnValueOnce(of(response) as never);
+            vi.spyOn(countersService, 'resetCounter').mockReturnValueOnce(of(response) as never);
 
             const result = await new Promise((resolve) => effects.resetCounter$.pipe(take(1)).subscribe(resolve));
 
@@ -241,7 +328,7 @@ describe('CounterListingEffects', () => {
 
             action$.next(CounterListingActions.resetCounter({ request }));
 
-            jest.spyOn(countersService, 'resetCounter').mockImplementationOnce(() => {
+            vi.spyOn(countersService, 'resetCounter').mockImplementationOnce(() => {
                 return throwError(() => error);
             });
 

@@ -16,8 +16,6 @@
  */
 package org.apache.nifi.processors.aws.credentials.provider.factory.strategies;
 
-import com.amazonaws.auth.AWSCredentialsProvider;
-import com.amazonaws.auth.PropertiesFileCredentialsProvider;
 import org.apache.nifi.components.PropertyDescriptor;
 import org.apache.nifi.context.PropertyContext;
 import org.apache.nifi.processors.aws.credentials.provider.PropertiesCredentialsProvider;
@@ -26,14 +24,13 @@ import software.amazon.awssdk.auth.credentials.AwsCredentialsProvider;
 
 import java.io.File;
 
-
 /**
  * Supports AWS credentials stored in a file.  The file format should be a Java properties file like the following:
  *
- * <code>
- * accessKey = XXXXXXXXXXXXXXXXXXXX
- * secretKey = xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
- * </code>
+ * {@snippet lang="properties" :
+ *     accessKey = XXXXXXXXXXXXXXXXXXXX
+ *     secretKey = xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+ * }
  *
  *  * @see <a href="http://docs.aws.amazon.com/AWSJavaSDK/latest/javadoc/com/amazonaws/auth/PropertiesFileCredentialsProvider.html">
  *     PropertiesFileCredentialsProvider</a>
@@ -44,12 +41,6 @@ public class FileCredentialsStrategy extends AbstractCredentialsStrategy {
         super("Credentials File", new PropertyDescriptor[] {
             AWSCredentialsProviderControllerService.CREDENTIALS_FILE
         });
-    }
-
-    @Override
-    public AWSCredentialsProvider getCredentialsProvider(final PropertyContext propertyContext) {
-        final String credentialsFile = propertyContext.getProperty(AWSCredentialsProviderControllerService.CREDENTIALS_FILE).getValue();
-        return new PropertiesFileCredentialsProvider(credentialsFile);
     }
 
     @Override

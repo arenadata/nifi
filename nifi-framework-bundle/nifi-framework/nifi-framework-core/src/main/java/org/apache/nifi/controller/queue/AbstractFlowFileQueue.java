@@ -71,7 +71,6 @@ public abstract class AbstractFlowFileQueue implements FlowFileQueue {
 
     private LoadBalanceCompression compression = LoadBalanceCompression.DO_NOT_COMPRESS;
 
-
     public AbstractFlowFileQueue(final String identifier, final ProcessScheduler scheduler,
             final FlowFileRepository flowFileRepo, final ProvenanceEventRepository provRepo) {
         this.identifier = identifier;
@@ -169,7 +168,6 @@ public abstract class AbstractFlowFileQueue implements FlowFileQueue {
         return false;
     }
 
-
     @Override
     public ListFlowFileStatus listFlowFiles(final String requestIdentifier, final int maxResults) {
         // purge any old requests from the map just to keep it clean. But if there are very few requests, which is usually the case, then don't bother
@@ -254,7 +252,6 @@ public abstract class AbstractFlowFileQueue implements FlowFileQueue {
      */
     protected abstract List<FlowFileRecord> getListableFlowFiles();
 
-
     @Override
     public DropFlowFileStatus dropFlowFiles(final String requestIdentifier, final String requestor) {
         logger.info("Initiating drop of FlowFiles from {} on behalf of {} (request identifier={})", this, requestor, requestIdentifier);
@@ -298,7 +295,6 @@ public abstract class AbstractFlowFileQueue implements FlowFileQueue {
         return dropRequest;
     }
 
-
     @Override
     public DropFlowFileRequest cancelDropFlowFileRequest(final String requestIdentifier) {
         final DropFlowFileRequest request = dropRequestMap.remove(requestIdentifier);
@@ -326,7 +322,6 @@ public abstract class AbstractFlowFileQueue implements FlowFileQueue {
     @Override
     public void verifyCanList() throws IllegalStateException {
     }
-
 
     protected FlowFileSummary summarize(final FlowFileRecord flowFile, final int position) {
         // extract all of the information that we care about into new variables rather than just
@@ -392,12 +387,16 @@ public abstract class AbstractFlowFileQueue implements FlowFileQueue {
     }
 
     protected QueueSize drop(final List<FlowFileRecord> flowFiles, final String requestor) throws IOException {
+        return dropWithDetails(flowFiles, "FlowFile Queue emptied by " + requestor);
+    }
+
+    protected QueueSize dropWithDetails(final List<FlowFileRecord> flowFiles, final String details) throws IOException {
         // Create a Provenance Event and a FlowFile Repository record for each FlowFile
         final List<ProvenanceEventRecord> provenanceEvents = new ArrayList<>(flowFiles.size());
         final List<RepositoryRecord> flowFileRepoRecords = new ArrayList<>(flowFiles.size());
         long dropContentSize = 0L;
         for (final FlowFileRecord flowFile : flowFiles) {
-            provenanceEvents.add(createDropProvenanceEvent(flowFile, requestor));
+            provenanceEvents.add(createDropProvenanceEvent(flowFile, details));
             flowFileRepoRecords.add(createDeleteRepositoryRecord(flowFile));
             dropContentSize += flowFile.getSize();
         }
@@ -407,7 +406,31 @@ public abstract class AbstractFlowFileQueue implements FlowFileQueue {
         return new QueueSize(flowFiles.size(), dropContentSize);
     }
 
-    private ProvenanceEventRecord createDropProvenanceEvent(final FlowFileRecord flowFile, final String requestor) {
+    protected FlowFileRepository getFlowFileRepository() {
+        return flowFileRepository;
+    }
+
+    protected ProvenanceEventRepository getProvenanceRepository() {
+        return provRepository;
+    }
+
+    protected List<RepositoryRecord> createDeleteRepositoryRecords(final List<FlowFileRecord> flowFiles) {
+        final List<RepositoryRecord> records = new ArrayList<>(flowFiles.size());
+        for (final FlowFileRecord flowFile : flowFiles) {
+            records.add(createDeleteRepositoryRecord(flowFile));
+        }
+        return records;
+    }
+
+    protected List<ProvenanceEventRecord> createDropProvenanceEvents(final List<FlowFileRecord> flowFiles, final String details) {
+        final List<ProvenanceEventRecord> events = new ArrayList<>(flowFiles.size());
+        for (final FlowFileRecord flowFile : flowFiles) {
+            events.add(createDropProvenanceEvent(flowFile, details));
+        }
+        return events;
+    }
+
+    private ProvenanceEventRecord createDropProvenanceEvent(final FlowFileRecord flowFile, final String details) {
         final ProvenanceEventBuilder builder = provRepository.eventBuilder();
         builder.fromFlowFile(flowFile);
         builder.setEventType(ProvenanceEventType.DROP);
@@ -415,7 +438,7 @@ public abstract class AbstractFlowFileQueue implements FlowFileQueue {
         builder.setComponentId(getIdentifier());
         builder.setComponentType("Connection");
         builder.setAttributes(flowFile.getAttributes(), Collections.emptyMap());
-        builder.setDetails("FlowFile Queue emptied by " + requestor);
+        builder.setDetails(details);
         builder.setSourceQueueIdentifier(getIdentifier());
 
         final ContentClaim contentClaim = flowFile.getContentClaim();
@@ -504,5 +527,17 @@ public abstract class AbstractFlowFileQueue implements FlowFileQueue {
     @Override
     public int hashCode() {
         return identifier.hashCode();
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (o == this) {
+            return true;
+        }
+        if (!(o instanceof AbstractFlowFileQueue)) {
+            return false;
+        }
+        AbstractFlowFileQueue other = (AbstractFlowFileQueue) o;
+        return identifier.equals(other.identifier);
     }
 }

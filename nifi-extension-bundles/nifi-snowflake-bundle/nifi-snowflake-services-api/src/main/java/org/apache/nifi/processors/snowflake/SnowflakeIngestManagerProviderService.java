@@ -17,11 +17,25 @@
 
 package org.apache.nifi.processors.snowflake;
 
-import net.snowflake.ingest.SimpleIngestManager;
 import org.apache.nifi.controller.ControllerService;
+import org.apache.nifi.processors.snowflake.snowpipe.InsertFiles;
+import org.apache.nifi.processors.snowflake.snowpipe.InsertReport;
 
+/**
+ * Controller Service for interacting with Snowflake Snowpipe REST API
+ */
 public interface SnowflakeIngestManagerProviderService extends ControllerService {
+    /**
+     * Submit staged files for ingestion using the Snowpipe insertFiles REST API
+     *
+     * @param insertFiles Files to be ingested
+     */
+    void insertFiles(InsertFiles insertFiles);
 
-    String getPipeName();
-    SimpleIngestManager getIngestManager();
+    /**
+     * Retrieve the insert report for recently ingested files using the Snowpipe insertReport REST API
+     *
+     * @return Insert report containing file entries with ingestion status
+     */
+    InsertReport getInsertReport();
 }

@@ -20,19 +20,20 @@ import groovy.json.JsonOutput;
 import groovy.json.JsonSlurper;
 import org.apache.commons.io.FileUtils;
 import org.apache.nifi.components.PropertyDescriptor;
-import org.apache.nifi.controller.AbstractControllerService;
-import org.apache.nifi.dbcp.DBCPService;
+import org.apache.nifi.embedded.database.EmbeddedDatabaseConnectionService;
 import org.apache.nifi.expression.ExpressionLanguageScope;
-import org.apache.nifi.processor.exception.ProcessException;
 import org.apache.nifi.processor.util.StandardValidators;
+import org.apache.nifi.processors.groovyx.flow.ProcessSessionWrap;
 import org.apache.nifi.serialization.RecordSetWriterFactory;
 import org.apache.nifi.serialization.record.MockRecordParser;
 import org.apache.nifi.serialization.record.MockRecordWriter;
 import org.apache.nifi.serialization.record.RecordField;
 import org.apache.nifi.serialization.record.RecordFieldType;
+import org.apache.nifi.util.MockComponentLog;
 import org.apache.nifi.util.MockFlowFile;
 import org.apache.nifi.util.MockProcessContext;
 import org.apache.nifi.util.MockProcessorInitializationContext;
+import org.apache.nifi.util.PropertyMigrationResult;
 import org.apache.nifi.util.TestRunner;
 import org.apache.nifi.util.TestRunners;
 import org.codehaus.groovy.runtime.ResourceGroovyMethods;
@@ -40,19 +41,19 @@ import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.condition.DisabledOnOs;
-import org.junit.jupiter.api.condition.OS;
 import org.junit.jupiter.api.io.TempDir;
+
 import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileInputStream;
+import java.io.IOException;
 import java.io.PrintStream;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.sql.Connection;
-import java.sql.DriverManager;
+import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.Arrays;
 import java.util.HashMap;
@@ -64,33 +65,19 @@ import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
-@DisabledOnOs(OS.WINDOWS)
 public class ExecuteGroovyScriptTest {
-    private final static String DB_LOCATION = "target/db";
-
     protected TestRunner runner;
-    protected static DBCPService dbcp = null;  //to make single initialization
+    protected static EmbeddedDatabaseConnectionService dbcp = null;  //to make single initialization
     protected MockRecordParser recordParser = null;
     protected RecordSetWriterFactory recordWriter = null;
     protected ExecuteGroovyScript proc;
-    public final String TEST_RESOURCE_LOCATION = "target/test/resources/groovy/";
-    private final String TEST_CSV_DATA = """
+    public static final String TEST_RESOURCE_LOCATION = "target/test/resources/groovy/";
+    private static final String TEST_CSV_DATA = """
             gender,title,first,last
             female,miss,marlene,shaw
             male,mr,todd,graham""";
-
-
-    @AfterAll
-    public static void cleanUpAfterClass() {
-        try {
-            DriverManager.getConnection("jdbc:derby:" + DB_LOCATION + ";shutdown=true");
-        } catch (Exception ignored) {
-        }
-        // remove previous test database, if any
-        final File dbLocation = new File(DB_LOCATION);
-        FileUtils.deleteQuietly(dbLocation);
-    }
 
     /**
      * Copies all scripts to the target directory because when they are compiled they can leave unwanted .class files.
@@ -98,28 +85,27 @@ public class ExecuteGroovyScriptTest {
      * @throws Exception Any error encountered while testing
      */
     @BeforeAll
-    public static void setupBeforeClass() throws Exception {
+    public static void setupBeforeClass(@TempDir final Path tempDir) throws Exception {
         FileUtils.copyDirectory(new File("src/test/resources"), new File("target/test/resources"));
-        //prepare database connection
-        System.setProperty("derby.stream.error.file", "target" + File.separator + "derby.log");
 
-        // remove previous test database, if any
-        final File dbLocation = new File(DB_LOCATION);
-        FileUtils.deleteQuietly(dbLocation);
-        //insert some test data
-        dbcp = new DBCPServiceSimpleImpl();
-        Connection con = dbcp.getConnection();
-        Statement stmt = con.createStatement();
-        try {
-            stmt.execute("drop table mytable");
-        } catch (Exception ignored) {
+        dbcp = new EmbeddedDatabaseConnectionService(tempDir);
+        try (Connection con = dbcp.getConnection()) {
+            executeStatement(con, "drop table if exists mytable");
+            executeStatement(con, "create table mytable (id integer not null, name varchar(100), scale float, created timestamp, data blob)");
+            executeStatement(con, "insert into mytable (id, name, scale, created, data) VALUES (0, 'Joe Smith', 1.0, '1962-09-23 03:23:34.234', null)");
+            executeStatement(con, "insert into mytable (id, name, scale, created, data) VALUES (1, 'Carrie Jones', 5.1, '2000-01-01 03:23:34.234', null)");
         }
-        stmt.execute("create table mytable (id integer not null, name varchar(100), scale float, created timestamp, data blob)");
-        stmt.execute("insert into mytable (id, name, scale, created, data) VALUES (0, 'Joe Smith', 1.0, '1962-09-23 03:23:34.234', null)");
-        stmt.execute("insert into mytable (id, name, scale, created, data) VALUES (1, 'Carrie Jones', 5.1, '2000-01-01 03:23:34.234', null)");
-        stmt.close();
-        con.commit();
-        con.close();
+    }
+
+    @AfterAll
+    public static void close() throws IOException {
+        dbcp.close();
+    }
+
+    private static void executeStatement(final Connection connection, final String sql) throws SQLException {
+        try (Statement statement = connection.createStatement()) {
+            statement.execute(sql);
+        }
     }
 
     @BeforeEach
@@ -157,7 +143,6 @@ public class ExecuteGroovyScriptTest {
     @Test
     public void testReadFlowFileContentAndStoreInFlowFileAttribute() {
         runner.setProperty(ExecuteGroovyScript.SCRIPT_BODY, "def flowFile = session.get(); if(!flowFile)return; flowFile.testAttr = flowFile.read().getText('UTF-8'); REL_SUCCESS << flowFile;");
-        //runner.setProperty(proc.FAIL_STRATEGY, "rollback");
 
         runner.assertValid();
         runner.enqueue("test content".getBytes(StandardCharsets.UTF_8));
@@ -189,9 +174,19 @@ public class ExecuteGroovyScriptTest {
     }
 
     @Test
+    void testNonExistingAdditionalClasspath() {
+        runner.setProperty(ExecuteGroovyScript.SCRIPT_BODY, ";");
+        runner.setProperty(ExecuteGroovyScript.ADD_CLASSPATH, "someOtherPath");
+        runner.assertNotValid();
+
+        final MockComponentLog logger = runner.getLogger();
+        assertEquals(1, logger.getWarnMessages().size());
+        assertTrue(logger.getWarnMessages().getFirst().getMsg().contains("not found"));
+    }
+
+    @Test
     public void test_onTrigger_groovy() {
         runner.setProperty(ExecuteGroovyScript.SCRIPT_FILE, TEST_RESOURCE_LOCATION + "test_onTrigger.groovy");
-        //runner.setProperty(proc.FAIL_STRATEGY, "rollback");
         runner.assertValid();
 
         runner.enqueue("test content".getBytes(StandardCharsets.UTF_8));
@@ -204,7 +199,6 @@ public class ExecuteGroovyScriptTest {
     @Test
     public void test_onTriggerX_groovy() {
         runner.setProperty(ExecuteGroovyScript.SCRIPT_FILE, TEST_RESOURCE_LOCATION + "test_onTriggerX.groovy");
-        //runner.setProperty(proc.FAIL_STRATEGY, "rollback");
         runner.assertValid();
 
         runner.enqueue("test content".getBytes(StandardCharsets.UTF_8));
@@ -217,7 +211,6 @@ public class ExecuteGroovyScriptTest {
     @Test
     public void test_onTrigger_changeContent_groovy() {
         runner.setProperty(ExecuteGroovyScript.SCRIPT_FILE, TEST_RESOURCE_LOCATION + "test_onTrigger_changeContent.groovy");
-        //runner.setProperty(proc.FAIL_STRATEGY, "rollback");
         runner.assertValid();
 
         runner.enqueue(TEST_CSV_DATA.getBytes(StandardCharsets.UTF_8));
@@ -233,7 +226,6 @@ public class ExecuteGroovyScriptTest {
     @Test
     public void test_onTrigger_changeContentX_groovy() {
         runner.setProperty(ExecuteGroovyScript.SCRIPT_FILE, TEST_RESOURCE_LOCATION + "test_onTrigger_changeContentX.groovy");
-        //runner.setProperty(proc.FAIL_STRATEGY, "rollback");
         runner.assertValid();
 
         runner.enqueue(TEST_CSV_DATA.getBytes(StandardCharsets.UTF_8));
@@ -249,7 +241,6 @@ public class ExecuteGroovyScriptTest {
     @Test
     public void test_no_input_groovy() {
         runner.setProperty(ExecuteGroovyScript.SCRIPT_FILE, TEST_RESOURCE_LOCATION + "test_no_input.groovy");
-        //runner.setProperty(proc.FAIL_STRATEGY, "rollback");
         runner.assertValid();
         runner.run();
         runner.assertAllFlowFilesTransferred(ExecuteGroovyScript.REL_SUCCESS.getName(), 1);
@@ -258,7 +249,6 @@ public class ExecuteGroovyScriptTest {
         resultFile.assertAttributeEquals("filename", "test.txt");
         resultFile.assertContentEquals("Test");
     }
-
 
     @Test
     public void test_good_script() {
@@ -306,7 +296,7 @@ public class ExecuteGroovyScriptTest {
     public void test_sql_02_blob_write() throws Exception {
         runner.setProperty(ExecuteGroovyScript.SCRIPT_FILE, TEST_RESOURCE_LOCATION + "test_sql_02_blob_write.groovy");
         runner.setProperty("SQL.mydb", "dbcp");
-        //runner.setProperty("ID", "0");
+        runner.setProperty("ID", "0");
         runner.assertValid();
 
         runner.enqueue(TEST_CSV_DATA.getBytes(StandardCharsets.UTF_8), map("ID", "0"));
@@ -316,8 +306,6 @@ public class ExecuteGroovyScriptTest {
         final List<MockFlowFile> result = runner.getFlowFilesForRelationship(ExecuteGroovyScript.REL_SUCCESS.getName());
         MockFlowFile resultFile = result.getFirst();
         resultFile.assertContentEquals(TEST_CSV_DATA.getBytes(StandardCharsets.UTF_8));
-        //let's check database content in next text case
-
     }
 
     @Test
@@ -376,7 +364,6 @@ public class ExecuteGroovyScriptTest {
     @Test
     public void test_filter_01() {
         runner.setProperty(ExecuteGroovyScript.SCRIPT_BODY, "def ff = session.get{it.FILTER=='3'}; if(!ff)return; REL_SUCCESS << ff;");
-        //runner.setProperty(proc.FAIL_STRATEGY, "rollback");
 
         runner.assertValid();
 
@@ -529,7 +516,7 @@ public class ExecuteGroovyScriptTest {
         resultFile.assertAttributeExists("a");
         resultFile.assertAttributeEquals("a", "A");
         System.setOut(originalOut);
-        assertEquals("onStop invoked successfully\n", outContent.toString());
+        assertEquals(getExpectedContent("onStop invoked successfully\n"), outContent.toString());
 
         // Inspect the output visually for onStop, no way to pass back values
     }
@@ -543,7 +530,7 @@ public class ExecuteGroovyScriptTest {
         System.setOut(new PrintStream(outContent));
         runner.run();
         System.setOut(originalOut);
-        assertEquals("onUnscheduled invoked successfully\n", outContent.toString());
+        assertEquals(getExpectedContent("onUnscheduled invoked successfully\n"), outContent.toString());
     }
 
     @Test
@@ -554,11 +541,10 @@ public class ExecuteGroovyScriptTest {
         runner.assertValid();
 
         runner.run();
-        assertEquals("testDB", ((DBCPServiceSimpleImpl) dbcp).getDatabaseName());
     }
 
     @Test
-    public void test_sensitive_dynamic_property() throws Exception {
+    public void test_sensitive_dynamic_property() {
         new PropertyDescriptor.Builder()
                 .name("password")
                 .required(false)
@@ -574,6 +560,91 @@ public class ExecuteGroovyScriptTest {
         runner.run();
     }
 
+    @Test
+    void invalidExpressionLanguageInDynamicProperty() {
+        runner.setProperty("myProperty", "${myparam:isempty()}");
+        runner.setProperty(ExecuteGroovyScript.SCRIPT_BODY, "assert true == true");
+        runner.setProperty(ExecuteGroovyScript.FAIL_STRATEGY, ExecuteGroovyScript.TRANSFER_TO_FAILURE);
+        runner.assertNotValid();
+    }
+
+    @Test
+    void validExpressionLanguageInDynamicPropertyWithVariableValueWhichCannotBeUsedWithELExpression() {
+        runner.setProperty("myProperty", "${test:toDate('yyyy-MM-dd')}");
+        runner.setProperty(ExecuteGroovyScript.SCRIPT_BODY, "assert true == true");
+        runner.setProperty(ExecuteGroovyScript.FAIL_STRATEGY, ExecuteGroovyScript.TRANSFER_TO_FAILURE);
+        runner.assertValid();
+
+        runner.setEnvironmentVariableValue("test", "cannot be converted to a date");
+        runner.enqueue("test content");
+
+        runner.run();
+
+        runner.assertAllFlowFilesTransferred(ExecuteGroovyScript.REL_FAILURE.getName(), 1);
+        final MockFlowFile flowFile = runner.getFlowFilesForRelationship(ExecuteGroovyScript.REL_FAILURE).getFirst();
+        flowFile.assertAttributeExists(ProcessSessionWrap.ERROR_MESSAGE);
+        flowFile.assertAttributeExists(ProcessSessionWrap.ERROR_STACKTRACE);
+        assertTrue(flowFile.getAttribute(ProcessSessionWrap.ERROR_MESSAGE).contains("IllegalAttributeException"));
+    }
+
+    @Test
+    void testTransferToFailureStrategyWhereScriptHandlesRelationship() {
+        runner.setProperty(ExecuteGroovyScript.SCRIPT_BODY, """
+                def ff = session.get()
+                if (!ff) return
+                session.transfer(ff, REL_SUCCESS)
+                """);
+        runner.setProperty(ExecuteGroovyScript.FAIL_STRATEGY, ExecuteGroovyScript.TRANSFER_TO_FAILURE);
+        runner.assertValid();
+
+        runner.enqueue("test content");
+
+        runner.run();
+
+        runner.assertAllFlowFilesTransferred(ExecuteGroovyScript.REL_SUCCESS, 1);
+    }
+
+    @Test
+    void testTransferToFailureStrategyWhereScriptFailsBeforeSessionGet() {
+        runner.setProperty(ExecuteGroovyScript.SCRIPT_BODY, """
+                throw new RuntimeException("fail before session.get")
+                """);
+        runner.setProperty(ExecuteGroovyScript.FAIL_STRATEGY, ExecuteGroovyScript.TRANSFER_TO_FAILURE);
+        runner.assertValid();
+        runner.enqueue("test content");
+
+        runner.run();
+
+        runner.assertAllFlowFilesTransferred(ExecuteGroovyScript.REL_FAILURE, 1);
+    }
+
+    @Test
+    void testTransferToFailureStrategyWhereScriptFailsAfterSessionGet() {
+        runner.setProperty(ExecuteGroovyScript.SCRIPT_BODY, """
+                session.get()
+                throw new RuntimeException("fail after session.get")
+                """);
+        runner.setProperty(ExecuteGroovyScript.FAIL_STRATEGY, ExecuteGroovyScript.TRANSFER_TO_FAILURE);
+        runner.assertValid();
+        runner.enqueue("test content");
+
+        runner.run();
+
+        runner.assertAllFlowFilesTransferred(ExecuteGroovyScript.REL_FAILURE, 1);
+    }
+
+    @Test
+    void testMigrateProperties() {
+        final Map<String, String> expectedRenamed = Map.ofEntries(
+                Map.entry("groovyx-script-file", ExecuteGroovyScript.SCRIPT_FILE.getName()),
+                Map.entry("groovyx-script-body", ExecuteGroovyScript.SCRIPT_BODY.getName()),
+                Map.entry("groovyx-failure-strategy", ExecuteGroovyScript.FAIL_STRATEGY.getName()),
+                Map.entry("groovyx-additional-classpath", ExecuteGroovyScript.ADD_CLASSPATH.getName())
+        );
+
+        final PropertyMigrationResult propertyMigrationResult = runner.migrateProperties();
+        assertEquals(expectedRenamed, propertyMigrationResult.getPropertiesRenamed());
+    }
 
     private Map<String, String> map(String key, String value) {
         Map<String, String> attrs = new HashMap<>();
@@ -581,38 +652,14 @@ public class ExecuteGroovyScriptTest {
         return attrs;
     }
 
-    private static class DBCPServiceSimpleImpl extends AbstractControllerService implements DBCPService {
+    private static String getExpectedContent(String string) {
+        final boolean windows = System.getProperty("os.name").startsWith("Windows");
+        String expectedContent = string;
 
-        private String dbName;
-
-        @Override
-        public String getIdentifier() {
-            return "dbcp";
+        if (windows) {
+            expectedContent = expectedContent.replace("\n", "\r\n");
         }
 
-        @Override
-        public Connection getConnection() throws ProcessException {
-            try {
-                Class.forName("org.apache.derby.jdbc.EmbeddedDriver");
-                return DriverManager.getConnection("jdbc:derby:" + DB_LOCATION + ";create=true");
-            } catch (final Exception e) {
-                throw new ProcessException("getConnection failed: " + e);
-            }
-        }
-
-        @Override
-        public Connection getConnection(Map<String, String> attributes) throws ProcessException {
-            dbName = attributes.get("database.name");
-            try {
-                Class.forName("org.apache.derby.jdbc.EmbeddedDriver");
-                return DriverManager.getConnection("jdbc:derby:" + DB_LOCATION + ";create=true");
-            } catch (final Exception e) {
-                throw new ProcessException("getConnection failed: " + e);
-            }
-        }
-
-        public String getDatabaseName() {
-            return dbName;
-        }
+        return expectedContent;
     }
 }

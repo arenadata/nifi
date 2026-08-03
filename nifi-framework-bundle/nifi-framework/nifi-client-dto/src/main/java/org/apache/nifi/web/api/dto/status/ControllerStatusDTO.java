@@ -17,7 +17,6 @@
 package org.apache.nifi.web.api.dto.status;
 
 import io.swagger.v3.oas.annotations.media.Schema;
-
 import jakarta.xml.bind.annotation.XmlType;
 
 /**
@@ -76,7 +75,7 @@ public class ControllerStatusDTO implements Cloneable {
     /**
      * @return queue for the controller
      */
-    @Schema(description = "The number of flowfiles queued in the NiFi.")
+    @Schema(description = "The number of FlowFiles queued in the NiFi.")
     public String getQueued() {
         return queued;
     }

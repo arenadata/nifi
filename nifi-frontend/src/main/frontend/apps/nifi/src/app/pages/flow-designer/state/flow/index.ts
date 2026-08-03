@@ -15,25 +15,29 @@
  * limitations under the License.
  */
 
-import { BreadcrumbEntity, Position } from '../shared';
+import { Position } from '../shared';
 import {
-    Bundle,
-    ComponentHistory,
+    BreadcrumbEntity,
+    DisableComponentRequest,
+    EnableComponentRequest,
     ParameterContextEntity,
     RegistryClientEntity,
     SparseVersionedFlow,
+    StartComponentRequest,
+    StopComponentRequest,
+    UpdateComponentRequest,
     VersionedFlowSnapshotMetadataEntity
 } from '../../../../state/shared';
-import { HttpErrorResponse } from '@angular/common/http';
 import { BackNavigation } from '../../../../state/navigation';
 import {
     BulletinEntity,
+    Bundle,
     ComponentType,
     ParameterContextReferenceEntity,
     Permissions,
-    Revision,
-    SelectOption
+    Revision
 } from '@nifi/shared';
+import { VersionControlInformation } from '../../../../ui/common/tooltips/version-control-tip/version-control-tip.component';
 import { CopyResponseEntity, PasteRequestStrategy } from '../../../../state/copy';
 
 export const flowFeatureKey = 'flowState';
@@ -113,52 +117,6 @@ export interface CreateConnectionRequest {
     destination: SelectedComponent;
     bends?: Position[];
 }
-
-export const loadBalanceStrategies: SelectOption[] = [
-    {
-        text: 'Do not load balance',
-        value: 'DO_NOT_LOAD_BALANCE',
-        description: 'Do not load balance FlowFiles between nodes in the cluster.'
-    },
-    {
-        text: 'Partition by attribute',
-        value: 'PARTITION_BY_ATTRIBUTE',
-        description:
-            'Determine which node to send a given FlowFile to based on the value of a user-specified FlowFile Attribute. ' +
-            'All FlowFiles that have the same value for said Attribute will be sent to the same node in the cluster.'
-    },
-    {
-        text: 'Round robin',
-        value: 'ROUND_ROBIN',
-        description:
-            'FlowFiles will be distributed to nodes in the cluster in a Round-Robin fashion. However, if a node in the ' +
-            'cluster is not able to receive data as fast as other nodes, that node may be skipped in one or more iterations ' +
-            'in order to maximize throughput of data distribution across the cluster.'
-    },
-    {
-        text: 'Single node',
-        value: 'SINGLE_NODE',
-        description: 'All FlowFiles will be sent to the same node. Which node they are sent to is not defined.'
-    }
-];
-
-export const loadBalanceCompressionStrategies: SelectOption[] = [
-    {
-        text: 'Do not compress',
-        value: 'DO_NOT_COMPRESS',
-        description: 'FlowFiles will not be compressed'
-    },
-    {
-        text: 'Compress attributes only',
-        value: 'COMPRESS_ATTRIBUTES_ONLY',
-        description: "FlowFiles' attributes will be compressed, but the FlowFiles' contents will not be"
-    },
-    {
-        text: 'Compress attributes and content',
-        value: 'COMPRESS_ATTRIBUTES_AND_CONTENT',
-        description: "FlowFiles' attributes and content will be compressed"
-    }
-];
 
 export interface CreateConnectionDialogRequest {
     request: CreateConnectionRequest;
@@ -246,22 +204,6 @@ export interface SaveVersionRequest {
     flowDescription?: string;
     comments?: string;
     existingFlowId?: string;
-    branch?: string;
-}
-
-export interface VersionControlInformation {
-    groupId: string;
-    registryId: string;
-    registryName: string;
-    bucketId: string;
-    bucketName: string;
-    flowId: string;
-    flowName: string;
-    flowDescription: string;
-    version: string;
-    storageLocation?: string;
-    state: string;
-    stateExplanation: string;
     branch?: string;
 }
 
@@ -356,18 +298,6 @@ export interface NavigateToManageComponentPoliciesRequest {
     backNavigation: BackNavigation;
 }
 
-export interface EditComponentDialogRequest {
-    type: ComponentType;
-    uri: string;
-    entity: any;
-    history?: ComponentHistory;
-    parameterContexts?: ParameterContextEntity[];
-}
-
-export interface EditRemotePortDialogRequest extends EditComponentDialogRequest {
-    rpg?: any;
-}
-
 export interface RpgManageRemotePortsRequest {
     id: string;
 }
@@ -389,58 +319,6 @@ export interface EditCurrentProcessGroupRequest {
     id: string;
 }
 
-export interface EditConnectionDialogRequest extends EditComponentDialogRequest {
-    newDestination?: {
-        type: ComponentType | null;
-        id?: string;
-        groupId: string;
-        name: string;
-    };
-}
-
-export interface UpdateProcessorRequest extends UpdateComponentRequest {
-    postUpdateNavigation?: string[];
-    postUpdateNavigationBoundary?: string[];
-}
-
-export interface UpdateComponentRequest {
-    requestId?: number;
-    id: string;
-    type: ComponentType;
-    uri: string;
-    payload: any;
-    errorStrategy: 'snackbar' | 'banner';
-    restoreOnFailure?: any;
-}
-
-export interface UpdateComponentResponse {
-    requestId?: number;
-    id: string;
-    type: ComponentType;
-    response: any;
-}
-
-export interface UpdateProcessorResponse extends UpdateComponentResponse {
-    postUpdateNavigation?: string[];
-    postUpdateNavigationBoundary?: string[];
-}
-
-export interface UpdateComponentFailure {
-    errorResponse: HttpErrorResponse;
-    id: string;
-    type: ComponentType;
-    errorStrategy: 'snackbar' | 'banner';
-    restoreOnFailure?: any;
-}
-
-export interface UpdateConnectionRequest extends UpdateComponentRequest {
-    previousDestination?: any;
-}
-
-export interface UpdateConnectionSuccess extends UpdateComponentResponse {
-    previousDestination?: any;
-}
-
 export interface UpdatePositionsRequest {
     requestId: number;
     componentUpdates: UpdateComponentRequest[];
@@ -454,7 +332,7 @@ export interface SnippetComponentRequest {
     entity: any;
 }
 
-export interface MoveComponentRequest extends SnippetComponentRequest {}
+export type MoveComponentRequest = SnippetComponentRequest;
 
 export interface MoveComponentsRequest {
     components: MoveComponentRequest[];
@@ -511,6 +389,11 @@ export interface NavigateToComponentRequest {
     processGroupId?: string;
 }
 
+export interface NavigateToComponentsRequest {
+    ids: string[];
+    processGroupId?: string;
+}
+
 export interface ReplayLastProvenanceEventRequest {
     componentId: string;
     nodes: string;
@@ -555,15 +438,6 @@ export interface CopiedSnippet {
 }
 
 /*
-    Tooltips
- */
-
-export interface VersionControlTipInput {
-    versionControlInformation: VersionControlInformation;
-    registryClients?: RegistryClientEntity[];
-}
-
-/*
   Application State
  */
 
@@ -582,13 +456,6 @@ export interface ComponentEntityWithDimensions extends ComponentEntity {
 export interface Dimensions {
     width: number;
     height: number;
-}
-
-export interface Relationship {
-    autoTerminate: boolean;
-    description: string;
-    name: string;
-    retry: boolean;
 }
 
 export interface Flow {
@@ -673,7 +540,7 @@ export interface FlowState {
 }
 
 export interface RunOnceRequest {
-    uri: string;
+    id: string;
     revision: Revision;
 }
 
@@ -684,14 +551,6 @@ export interface RunOnceResponse {
 export interface EnableProcessGroupRequest {
     id: string;
     type: ComponentType;
-    errorStrategy: 'snackbar' | 'banner';
-}
-
-export interface EnableComponentRequest {
-    id: string;
-    uri: string;
-    type: ComponentType;
-    revision: Revision;
     errorStrategy: 'snackbar' | 'banner';
 }
 
@@ -718,14 +577,6 @@ export interface DisableProcessGroupRequest {
     errorStrategy: 'snackbar' | 'banner';
 }
 
-export interface DisableComponentRequest {
-    id: string;
-    uri: string;
-    type: ComponentType;
-    revision: Revision;
-    errorStrategy: 'snackbar' | 'banner';
-}
-
 export interface DisableComponentsRequest {
     components: DisableComponentRequest[];
 }
@@ -746,14 +597,6 @@ export interface DisableProcessGroupResponse {
 export interface StartProcessGroupRequest {
     id: string;
     type: ComponentType;
-    errorStrategy: 'snackbar' | 'banner';
-}
-
-export interface StartComponentRequest {
-    id: string;
-    uri: string;
-    type: ComponentType;
-    revision: Revision;
     errorStrategy: 'snackbar' | 'banner';
 }
 
@@ -794,14 +637,6 @@ export interface ProcessGroupRunStatusRequest {
     disconnectedNodeAcknowledged: boolean;
 }
 
-export interface StopComponentRequest {
-    id: string;
-    uri: string;
-    type: ComponentType;
-    revision: Revision;
-    errorStrategy: 'snackbar' | 'banner';
-}
-
 export interface StartPollingProcessorUntilStoppedRequest {
     id: string;
 }
@@ -836,6 +671,20 @@ export interface LoadChildProcessGroupRequest {
     id: string;
 }
 
+/*
+  Clear Bulletins
+*/
+
+export interface ClearBulletinsForGroupRequest {
+    processGroupId: string;
+    fromTimestamp: string;
+}
+
+export interface ClearBulletinsForGroupResponse {
+    processGroupId: string;
+    bulletinsCleared: number;
+}
+
 export interface FlowUpdateRequest {
     requestId: string;
     processGroupId: string;
@@ -855,6 +704,7 @@ export interface FlowUpdateRequestEntity {
 export interface Difference {
     differenceType: string;
     difference: string;
+    environmental?: boolean;
 }
 
 export interface ComponentDifference {

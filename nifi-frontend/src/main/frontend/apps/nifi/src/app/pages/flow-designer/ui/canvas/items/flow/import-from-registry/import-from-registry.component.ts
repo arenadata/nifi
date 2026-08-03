@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-import { Component, Inject, Input, OnInit, signal, WritableSignal } from '@angular/core';
+import { Component, Input, OnInit, signal, WritableSignal, inject } from '@angular/core';
 import { MAT_DIALOG_DATA, MatDialogModule } from '@angular/material/dialog';
 import { ImportFromRegistryDialogRequest } from '../../../../../state/flow';
 import { Store } from '@ngrx/store';
@@ -30,13 +30,12 @@ import {
     VersionedFlowSnapshotMetadataEntity
 } from '../../../../../../../state/shared';
 import { selectSaving } from '../../../../../state/flow/flow.selectors';
-import { AsyncPipe, NgForOf, NgIf } from '@angular/common';
+import { AsyncPipe } from '@angular/common';
 import { MatButtonModule } from '@angular/material/button';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatInputModule } from '@angular/material/input';
 import { MatOptionModule } from '@angular/material/core';
 import { MatSelectModule } from '@angular/material/select';
-import { NifiSpinnerDirective } from '../../../../../../../ui/common/spinner/nifi-spinner.directive';
 import { FormBuilder, FormControl, FormGroup, ReactiveFormsModule, Validators } from '@angular/forms';
 import { MatIconModule } from '@angular/material/icon';
 import { catchError, EMPTY, Observable, of, take } from 'rxjs';
@@ -49,7 +48,8 @@ import {
     NiFiCommon,
     TextTip,
     NifiTooltipDirective,
-    CloseOnEscapeDialog
+    CloseOnEscapeDialog,
+    NifiSpinnerDirective
 } from '@nifi/shared';
 import { selectTimeOffset } from '../../../../../../../state/flow-configuration/flow-configuration.selectors';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
@@ -70,12 +70,10 @@ import { NgxSkeletonLoaderComponent } from 'ngx-skeleton-loader';
         MatDialogModule,
         MatFormFieldModule,
         MatInputModule,
-        NgIf,
         NifiSpinnerDirective,
         ReactiveFormsModule,
         MatOptionModule,
         MatSelectModule,
-        NgForOf,
         NifiTooltipDirective,
         MatIconModule,
         MatCheckboxModule,
@@ -88,6 +86,14 @@ import { NgxSkeletonLoaderComponent } from 'ngx-skeleton-loader';
     styleUrls: ['./import-from-registry.component.scss']
 })
 export class ImportFromRegistry extends CloseOnEscapeDialog implements OnInit {
+    private dialogRequest = inject<ImportFromRegistryDialogRequest>(MAT_DIALOG_DATA);
+    private formBuilder = inject(FormBuilder);
+    private store = inject<Store<CanvasState>>(Store);
+    private nifiCommon = inject(NiFiCommon);
+    private client = inject(Client);
+    private clusterConnectionService = inject(ClusterConnectionService);
+    private errorHelper = inject(ErrorHelper);
+
     @Input() getBranches: (registryId: string) => Observable<BranchEntity[]> = () => of([]);
     @Input() getBuckets!: (registryId: string, branch?: string | null) => Observable<BucketEntity[]>;
     @Input() getFlows!: (
@@ -133,16 +139,10 @@ export class ImportFromRegistry extends CloseOnEscapeDialog implements OnInit {
     loadingVersions: WritableSignal<boolean> = signal(false);
     loadingVersionsError: WritableSignal<string | null> = signal(null);
 
-    constructor(
-        @Inject(MAT_DIALOG_DATA) private dialogRequest: ImportFromRegistryDialogRequest,
-        private formBuilder: FormBuilder,
-        private store: Store<CanvasState>,
-        private nifiCommon: NiFiCommon,
-        private client: Client,
-        private clusterConnectionService: ClusterConnectionService,
-        private errorHelper: ErrorHelper
-    ) {
+    constructor() {
         super();
+        const dialogRequest = this.dialogRequest;
+
         this.store
             .select(selectTimeOffset)
             .pipe(isDefinedAndNotNull(), takeUntilDestroyed())
@@ -193,11 +193,10 @@ export class ImportFromRegistry extends CloseOnEscapeDialog implements OnInit {
 
     registryChanged(registryId: string): void {
         this.supportsBranching = this.clientBranchingSupportMap.get(registryId) || false;
+        this.clearBranches();
         if (this.supportsBranching) {
-            this.clearBranches();
             this.loadBranches(registryId);
         } else {
-            this.clearBuckets();
             this.loadBuckets(registryId);
         }
     }

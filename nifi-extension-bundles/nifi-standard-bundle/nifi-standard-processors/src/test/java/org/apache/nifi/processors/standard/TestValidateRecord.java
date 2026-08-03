@@ -29,6 +29,7 @@ import org.apache.nifi.csv.CSVUtils;
 import org.apache.nifi.json.JsonRecordSetWriter;
 import org.apache.nifi.json.JsonTreeReader;
 import org.apache.nifi.reporting.InitializationException;
+import org.apache.nifi.schema.access.SchemaAccessUtils;
 import org.apache.nifi.schema.access.SchemaNotFoundException;
 import org.apache.nifi.schema.inference.SchemaInferenceUtil;
 import org.apache.nifi.serialization.DateTimeUtils;
@@ -41,6 +42,7 @@ import org.apache.nifi.serialization.record.RecordField;
 import org.apache.nifi.serialization.record.RecordFieldType;
 import org.apache.nifi.serialization.record.RecordSchema;
 import org.apache.nifi.util.MockFlowFile;
+import org.apache.nifi.util.PropertyMigrationResult;
 import org.apache.nifi.util.TestRunner;
 import org.apache.nifi.util.TestRunners;
 import org.junit.jupiter.api.BeforeEach;
@@ -62,9 +64,9 @@ import java.util.Map;
 import java.util.Optional;
 
 import static org.apache.nifi.schema.access.SchemaAccessUtils.SCHEMA_BRANCH_NAME;
-import static org.apache.nifi.schema.access.SchemaAccessUtils.SCHEMA_REGISTRY;
 import static org.apache.nifi.schema.access.SchemaAccessUtils.SCHEMA_NAME;
 import static org.apache.nifi.schema.access.SchemaAccessUtils.SCHEMA_NAME_PROPERTY;
+import static org.apache.nifi.schema.access.SchemaAccessUtils.SCHEMA_REGISTRY;
 import static org.apache.nifi.schema.access.SchemaAccessUtils.SCHEMA_TEXT;
 import static org.apache.nifi.schema.access.SchemaAccessUtils.SCHEMA_TEXT_PROPERTY;
 import static org.apache.nifi.schema.access.SchemaAccessUtils.SCHEMA_VERSION;
@@ -102,7 +104,6 @@ public class TestValidateRecord {
         runner.assertAllFlowFilesTransferred(ValidateRecord.REL_VALID, 1);
         runner.getFlowFilesForRelationship(ValidateRecord.REL_VALID).getFirst().assertContentEquals(content);
     }
-
 
     @Test
     public void testWriteFailureRoutesToFailure() throws InitializationException {
@@ -241,7 +242,7 @@ public class TestValidateRecord {
 
         final CSVReader csvReader = new CSVReader();
         runner.addControllerService("reader", csvReader);
-        runner.setProperty(csvReader, ValidateRecord.SCHEMA_ACCESS_STRATEGY, "csv-header-derived");
+        runner.setProperty(csvReader, SchemaAccessUtils.SCHEMA_ACCESS_STRATEGY.getName(), "csv-header-derived");
         runner.setProperty(csvReader, CSVUtils.FIRST_LINE_IS_HEADER, "true");
         runner.setProperty(csvReader, CSVUtils.IGNORE_CSV_HEADER, "true");
         runner.setProperty(csvReader, CSVUtils.QUOTE_MODE, CSVUtils.QUOTE_MINIMAL.getValue());
@@ -288,8 +289,8 @@ public class TestValidateRecord {
         final MockFlowFile validFlowFile = runner.getFlowFilesForRelationship(ValidateRecord.REL_VALID).getFirst();
         final byte[] validFlowFileBytes = validFlowFile.toByteArray();
         try (
-        final ByteArrayInputStream resultContentStream = new ByteArrayInputStream(validFlowFileBytes);
-        final RecordReader recordReader = avroReader.createRecordReader(validFlowFile.getAttributes(), resultContentStream, validFlowFileBytes.length, runner.getLogger())
+            final ByteArrayInputStream resultContentStream = new ByteArrayInputStream(validFlowFileBytes);
+            final RecordReader recordReader = avroReader.createRecordReader(validFlowFile.getAttributes(), resultContentStream, validFlowFileBytes.length, runner.getLogger())
         ) {
             final RecordSchema resultSchema = recordReader.getSchema();
             assertEquals(3, resultSchema.getFieldCount());
@@ -519,7 +520,6 @@ public class TestValidateRecord {
         runner.clearTransferState();
     }
 
-
     @Test
     public void testValidateJsonTimestamp() throws IOException, InitializationException {
         final String validateSchema = Files.readString(Paths.get("src/test/resources/TestValidateRecord/timestamp.avsc"));
@@ -546,6 +546,8 @@ public class TestValidateRecord {
 
         runner.setProperty(ValidateRecord.STRICT_TYPE_CHECKING, "true");
         final Path timestampPath = Paths.get("src/test/resources/TestValidateRecord/timestamp.json");
+
+        // 1) Valid with explicit schema + slash format
         runner.enqueue(timestampPath);
         runner.run();
 
@@ -553,33 +555,36 @@ public class TestValidateRecord {
         final MockFlowFile validFlowFile = runner.getFlowFilesForRelationship(ValidateRecord.REL_VALID).getFirst();
         validFlowFile.assertContentEquals(new File("src/test/resources/TestValidateRecord/timestamp.json"));
 
-        // Test with a timestamp that has an invalid format.
+        // 2) Inferred schema — run this BEFORE the invalid-format scenario to avoid order-dependence
         runner.clearTransferState();
 
-        runner.disableControllerService(jsonReader);
-        runner.setProperty(jsonReader, DateTimeUtils.TIMESTAMP_FORMAT, "yyyy-MM-dd HH:mm:ss");
-        runner.enqueue(timestampPath);
-        runner.enableControllerService(jsonReader);
-
-        runner.run();
-
-        runner.assertTransferCount(ValidateRecord.REL_INVALID, 1);
-        final MockFlowFile invalidFlowFile = runner.getFlowFilesForRelationship(ValidateRecord.REL_INVALID).getFirst();
-        invalidFlowFile.assertContentEquals(new File("src/test/resources/TestValidateRecord/timestamp.json"));
-
-        // Test with an Inferred Schema.
         runner.disableControllerService(jsonReader);
         runner.setProperty(jsonReader, ValidateRecord.SCHEMA_ACCESS_STRATEGY, SchemaInferenceUtil.INFER_SCHEMA.getValue());
         runner.setProperty(jsonReader, DateTimeUtils.TIMESTAMP_FORMAT, "yyyy/MM/dd HH:mm:ss");
         runner.enableControllerService(jsonReader);
 
-        runner.clearTransferState();
         runner.enqueue(timestampPath);
         runner.run();
 
         runner.assertTransferCount(ValidateRecord.REL_VALID, 1);
         final MockFlowFile validFlowFileInferredSchema = runner.getFlowFilesForRelationship(ValidateRecord.REL_VALID).getFirst();
         validFlowFileInferredSchema.assertContentEquals(new File("src/test/resources/TestValidateRecord/timestamp.json"));
+
+        // 3) Invalid timestamp format
+        runner.clearTransferState();
+
+        runner.disableControllerService(jsonReader);
+        // IMPORTANT: switch the READER back to schema-text strategy before changing the format
+        runner.setProperty(jsonReader, ValidateRecord.SCHEMA_ACCESS_STRATEGY, "schema-text-property");
+        runner.setProperty(jsonReader, SCHEMA_TEXT, validateSchema);
+        runner.setProperty(jsonReader, DateTimeUtils.TIMESTAMP_FORMAT, "yyyy-MM-dd HH:mm:ss");
+        runner.enableControllerService(jsonReader);
+
+        runner.enqueue(timestampPath);
+        runner.run();
+        runner.assertTransferCount(ValidateRecord.REL_INVALID, 1);
+        final MockFlowFile invalidFlowFile = runner.getFlowFilesForRelationship(ValidateRecord.REL_INVALID).getFirst();
+        invalidFlowFile.assertContentEquals(new File("src/test/resources/TestValidateRecord/timestamp.json"));
     }
 
     @Test
@@ -675,9 +680,9 @@ public class TestValidateRecord {
             assertEquals(2, ((Map<?, ?>) values[1]).size());
             final Object[] data = (Object[]) values[2];
             assertEquals(3, data.length);
-            assertEquals(2, ( (Map<?, ?>) ((Record) data[0]).getValue("points")).size());
-            assertEquals(2, ( (Map<?, ?>) ((Record) data[1]).getValue("points")).size());
-            assertEquals(2, ( (Map<?, ?>) ((Record) data[2]).getValue("points")).size());
+            assertEquals(2, ((Map<?, ?>) ((Record) data[0]).getValue("points")).size());
+            assertEquals(2, ((Map<?, ?>) ((Record) data[1]).getValue("points")).size());
+            assertEquals(2, ((Map<?, ?>) ((Record) data[2]).getValue("points")).size());
         }
     }
 
@@ -980,6 +985,29 @@ public class TestValidateRecord {
         invalidFlowFile.assertAttributeExists("valDetails");
         invalidFlowFile.assertAttributeEquals("valDetails", "Records in this FlowFile were invalid for the following reasons: ; "
                 + "The following 1 fields had values whose type did not match the schema: [/id]");
+    }
+
+    @Test
+    void testMigrateProperties() {
+        final Map<String, String> expectedRenamed = Map.ofEntries(
+                Map.entry("record-reader", ValidateRecord.RECORD_READER.getName()),
+                Map.entry("record-writer", ValidateRecord.RECORD_WRITER.getName()),
+                Map.entry("invalid-record-writer", ValidateRecord.INVALID_RECORD_WRITER.getName()),
+                Map.entry("allow-extra-fields", ValidateRecord.ALLOW_EXTRA_FIELDS.getName()),
+                Map.entry("strict-type-checking", ValidateRecord.STRICT_TYPE_CHECKING.getName()),
+                Map.entry("coerce-types", ValidateRecord.COERCE_TYPES.getName()),
+                Map.entry("validation-details-attribute-name", ValidateRecord.VALIDATION_DETAILS_ATTRIBUTE_NAME.getName()),
+                Map.entry("maximum-validation-details-length", ValidateRecord.MAX_VALIDATION_DETAILS_LENGTH.getName()),
+                Map.entry(SchemaAccessUtils.OLD_SCHEMA_REGISTRY_PROPERTY_NAME, SCHEMA_REGISTRY.getName()),
+                Map.entry(SchemaAccessUtils.OLD_SCHEMA_NAME_PROPERTY_NAME, SCHEMA_NAME.getName()),
+                Map.entry(SchemaAccessUtils.OLD_SCHEMA_BRANCH_NAME_PROPERTY_NAME, SCHEMA_BRANCH_NAME.getName()),
+                Map.entry(SchemaAccessUtils.OLD_SCHEMA_VERSION_PROPERTY_NAME, SCHEMA_VERSION.getName()),
+                Map.entry(SchemaAccessUtils.OLD_SCHEMA_TEXT_PROPERTY_NAME, SCHEMA_TEXT.getName()),
+                Map.entry(SchemaAccessUtils.OLD_SCHEMA_ACCESS_STRATEGY_PROPERTY_NAME, ValidateRecord.SCHEMA_ACCESS_STRATEGY.getName())
+        );
+
+        final PropertyMigrationResult propertyMigrationResult = runner.migrateProperties();
+        assertEquals(expectedRenamed, propertyMigrationResult.getPropertiesRenamed());
     }
 
     private String getSystemZoneOffsetId(final LocalDateTime inputLocalDateTime) {

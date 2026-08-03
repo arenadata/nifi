@@ -20,15 +20,15 @@ package org.apache.nifi.controller.queue.clustered.client.async.nio;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import javax.net.ssl.SSLEngine;
-import javax.net.ssl.SSLEngineResult;
-import javax.net.ssl.SSLException;
-import javax.net.ssl.SSLSession;
 import java.io.Closeable;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.channels.SocketChannel;
 import java.util.OptionalInt;
+import javax.net.ssl.SSLEngine;
+import javax.net.ssl.SSLEngineResult;
+import javax.net.ssl.SSLException;
+import javax.net.ssl.SSLSession;
 
 public class PeerChannel implements Closeable {
     private static final int END_OF_FILE = -1;
@@ -132,7 +132,7 @@ public class PeerChannel implements Closeable {
         singleByteBuffer.clear();
         final int bytesRead = read(singleByteBuffer);
         if (bytesRead < 0) {
-             return OptionalInt.of(END_OF_FILE);
+            return OptionalInt.of(END_OF_FILE);
         } else if (bytesRead == EMPTY_BUFFER) {
             return OptionalInt.empty();
         }
@@ -265,7 +265,6 @@ public class PeerChannel implements Closeable {
 
         return 0;
     }
-
 
     /**
      * Encrypts the given buffer of data, writing the result into {@link #destinationBuffer}.

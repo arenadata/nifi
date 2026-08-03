@@ -23,8 +23,8 @@ import org.apache.nifi.event.transport.configuration.TransportProtocol;
 import org.apache.nifi.event.transport.message.ByteArrayMessage;
 import org.apache.nifi.event.transport.netty.channel.ByteArrayMessageChannelHandler;
 import org.apache.nifi.event.transport.netty.channel.FilteringByteArrayMessageChannelHandler;
-import org.apache.nifi.event.transport.netty.codec.DatagramByteArrayMessageDecoder;
 import org.apache.nifi.event.transport.netty.channel.LogExceptionChannelHandler;
+import org.apache.nifi.event.transport.netty.codec.DatagramByteArrayMessageDecoder;
 import org.apache.nifi.event.transport.netty.codec.SocketByteArrayMessageDecoder;
 import org.apache.nifi.logging.ComponentLog;
 
@@ -58,7 +58,6 @@ public class ByteArrayMessageNettyEventServerFactory extends NettyEventServerFac
                                                    final BlockingQueue<ByteArrayMessage> messages) {
         this(log, address, port, protocol, delimiter, maxFrameLength, messages, FilteringStrategy.DISABLED);
     }
-
 
     /**
      * Netty Event Server Factory with configurable delimiter and queue of Byte Array Messages

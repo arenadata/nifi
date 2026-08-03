@@ -16,23 +16,54 @@
  */
 package org.apache.nifi.processors.aws.s3.encryption;
 
-import java.util.Base64;
+import org.apache.commons.codec.binary.Base64;
+import software.amazon.encryption.s3.CommitmentPolicy;
+
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.util.Random;
 
 final class S3EncryptionTestUtil {
 
-    private static Random RANDOM = new Random();
+    private static final Random RANDOM = new Random();
 
     private S3EncryptionTestUtil() {
     }
 
-    static String createKey(int keySize) {
+    static String createCustomerKey(int keySize) {
+        return base64Encode(createRawKey(keySize));
+    }
+
+    static S3EncryptionKeySpec createCustomerKeySpec(int keySize) {
+        return createCustomerKeySpec(keySize, null);
+    }
+
+    static S3EncryptionKeySpec createCustomerKeySpec(int keySize, CommitmentPolicy commitmentPolicy) {
+        byte[] keyMaterial = createRawKey(keySize);
+        byte[] keyMaterialMd5 = md5(keyMaterial);
+
+        return new S3EncryptionKeySpec(null, base64Encode(keyMaterial), base64Encode(keyMaterialMd5), commitmentPolicy);
+    }
+
+    private static byte[] createRawKey(int keySize) {
         if (keySize % 8 != 0) {
             throw new IllegalArgumentException("Invalid test data");
         }
 
         byte[] keyMaterial = new byte[keySize / 8];
         RANDOM.nextBytes(keyMaterial);
-        return new String(Base64.getEncoder().encode(keyMaterial));
+        return keyMaterial;
+    }
+
+    private static String base64Encode(byte[] payload) {
+        return Base64.encodeBase64String(payload);
+    }
+
+    private static byte[] md5(byte[] payload) {
+        try {
+            return MessageDigest.getInstance("MD5").digest(payload);
+        } catch (NoSuchAlgorithmException e) {
+            throw new IllegalArgumentException(e);
+        }
     }
 }

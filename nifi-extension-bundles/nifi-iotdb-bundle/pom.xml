@@ -18,7 +18,7 @@
     <parent>
         <groupId>org.apache.nifi</groupId>
         <artifactId>nifi-standard-shared-bom</artifactId>
-        <version>2.6.0</version>
+        <version>2.10.0.1</version>
         <relativePath>../nifi-standard-shared-bundle/nifi-standard-shared-bom</relativePath>
     </parent>
     <artifactId>nifi-iotdb-bundle</artifactId>
@@ -30,7 +30,7 @@
     </modules>
 
     <properties>
-        <iotdb.sdk.version>2.0.5</iotdb.sdk.version>
+        <iotdb.sdk.version>2.0.8</iotdb.sdk.version>
     </properties>
 </project>
 

@@ -34,6 +34,7 @@ import org.apache.nifi.expression.ExpressionLanguageScope;
 import org.apache.nifi.flowfile.FlowFile;
 import org.apache.nifi.flowfile.attributes.CoreAttributes;
 import org.apache.nifi.flowfile.attributes.FragmentAttributes;
+import org.apache.nifi.migration.PropertyConfiguration;
 import org.apache.nifi.processor.AbstractProcessor;
 import org.apache.nifi.processor.ProcessContext;
 import org.apache.nifi.processor.ProcessSession;
@@ -127,15 +128,13 @@ public class PartitionRecord extends AbstractProcessor {
     private final RecordPathCache recordPathCache = new RecordPathCache(25);
 
     static final PropertyDescriptor RECORD_READER = new PropertyDescriptor.Builder()
-        .name("record-reader")
-        .displayName("Record Reader")
+        .name("Record Reader")
         .description("Specifies the Controller Service to use for reading incoming data")
         .identifiesControllerService(RecordReaderFactory.class)
         .required(true)
         .build();
     static final PropertyDescriptor RECORD_WRITER = new PropertyDescriptor.Builder()
-        .name("record-writer")
-        .displayName("Record Writer")
+        .name("Record Writer")
         .description("Specifies the Controller Service to use for writing out the records")
         .identifiesControllerService(RecordSetWriterFactory.class)
         .required(true)
@@ -309,19 +308,24 @@ public class PartitionRecord extends AbstractProcessor {
                 session.remove(valueMap.getFlowFile());
             }
 
-
             getLogger().error("Failed to partition {}", flowFile, e);
             session.transfer(flowFile, REL_FAILURE);
             return;
         }
 
         // Transfer the FlowFiles. We wait until the end to do this, in case any IOException is thrown above,
-        // because we want to ensure that we are able to remove the child flowfiles in case of a failure.
+        // because we want to ensure that we are able to remove the child FlowFiles in case of a failure.
         for (final RecordValueMap valueMap : writerMap.keySet()) {
             session.transfer(valueMap.getFlowFile(), REL_SUCCESS);
         }
 
         session.transfer(flowFile, REL_ORIGINAL);
+    }
+
+    @Override
+    public void migrateProperties(PropertyConfiguration config) {
+        config.renameProperty("record-reader", RECORD_READER.getName());
+        config.renameProperty("record-writer", RECORD_WRITER.getName());
     }
 
     private RecordPath getRecordPath(final ProcessContext context, final PropertyDescriptor prop, final FlowFile flowFile) {
@@ -412,7 +416,7 @@ public class PartitionRecord extends AbstractProcessor {
                 }
 
                 // There exists a single value that is scalar. Create attribute using the property name as the attribute name
-                final String attributeValue = DataTypeUtils.toString(value, (String) null);
+                final String attributeValue = DataTypeUtils.toString(value, null);
                 attributes.put(entry.getKey(), attributeValue);
             }
 

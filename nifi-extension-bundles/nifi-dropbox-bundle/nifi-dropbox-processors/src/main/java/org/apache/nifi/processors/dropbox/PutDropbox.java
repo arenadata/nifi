@@ -17,6 +17,54 @@
 
 package org.apache.nifi.processors.dropbox;
 
+import com.dropbox.core.DbxApiException;
+import com.dropbox.core.DbxException;
+import com.dropbox.core.RateLimitException;
+import com.dropbox.core.v2.DbxClientV2;
+import com.dropbox.core.v2.files.CommitInfo;
+import com.dropbox.core.v2.files.FileMetadata;
+import com.dropbox.core.v2.files.UploadErrorException;
+import com.dropbox.core.v2.files.UploadSessionAppendV2Uploader;
+import com.dropbox.core.v2.files.UploadSessionCursor;
+import com.dropbox.core.v2.files.UploadSessionFinishErrorException;
+import com.dropbox.core.v2.files.UploadSessionFinishUploader;
+import com.dropbox.core.v2.files.UploadSessionStartUploader;
+import com.dropbox.core.v2.files.UploadUploader;
+import com.dropbox.core.v2.files.WriteMode;
+import org.apache.nifi.annotation.behavior.InputRequirement;
+import org.apache.nifi.annotation.behavior.InputRequirement.Requirement;
+import org.apache.nifi.annotation.behavior.ReadsAttribute;
+import org.apache.nifi.annotation.behavior.WritesAttribute;
+import org.apache.nifi.annotation.behavior.WritesAttributes;
+import org.apache.nifi.annotation.documentation.CapabilityDescription;
+import org.apache.nifi.annotation.documentation.SeeAlso;
+import org.apache.nifi.annotation.documentation.Tags;
+import org.apache.nifi.annotation.lifecycle.OnScheduled;
+import org.apache.nifi.components.PropertyDescriptor;
+import org.apache.nifi.expression.ExpressionLanguageScope;
+import org.apache.nifi.flowfile.FlowFile;
+import org.apache.nifi.migration.PropertyConfiguration;
+import org.apache.nifi.migration.ProxyServiceMigration;
+import org.apache.nifi.processor.AbstractProcessor;
+import org.apache.nifi.processor.DataUnit;
+import org.apache.nifi.processor.ProcessContext;
+import org.apache.nifi.processor.ProcessSession;
+import org.apache.nifi.processor.Relationship;
+import org.apache.nifi.processor.exception.ProcessException;
+import org.apache.nifi.processor.util.StandardValidators;
+import org.apache.nifi.processors.conflict.resolution.ConflictResolutionStrategy;
+import org.apache.nifi.proxy.ProxyConfiguration;
+import org.apache.nifi.proxy.ProxySpec;
+
+import java.io.IOException;
+import java.io.InputStream;
+import java.util.Date;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.TimeUnit;
+import java.util.regex.Pattern;
+
 import static java.lang.String.format;
 import static org.apache.nifi.processors.conflict.resolution.ConflictResolutionStrategy.FAIL;
 import static org.apache.nifi.processors.conflict.resolution.ConflictResolutionStrategy.IGNORE;
@@ -35,51 +83,6 @@ import static org.apache.nifi.processors.dropbox.DropboxAttributes.SIZE;
 import static org.apache.nifi.processors.dropbox.DropboxAttributes.SIZE_DESC;
 import static org.apache.nifi.processors.dropbox.DropboxAttributes.TIMESTAMP;
 import static org.apache.nifi.processors.dropbox.DropboxAttributes.TIMESTAMP_DESC;
-
-import com.dropbox.core.DbxApiException;
-import com.dropbox.core.DbxException;
-import com.dropbox.core.RateLimitException;
-import com.dropbox.core.v2.DbxClientV2;
-import com.dropbox.core.v2.files.CommitInfo;
-import com.dropbox.core.v2.files.FileMetadata;
-import com.dropbox.core.v2.files.UploadErrorException;
-import com.dropbox.core.v2.files.UploadSessionAppendV2Uploader;
-import com.dropbox.core.v2.files.UploadSessionCursor;
-import com.dropbox.core.v2.files.UploadSessionFinishErrorException;
-import com.dropbox.core.v2.files.UploadSessionFinishUploader;
-import com.dropbox.core.v2.files.UploadSessionStartUploader;
-import com.dropbox.core.v2.files.UploadUploader;
-import com.dropbox.core.v2.files.WriteMode;
-import java.io.IOException;
-import java.io.InputStream;
-import java.util.Date;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
-import java.util.concurrent.TimeUnit;
-import java.util.regex.Pattern;
-import org.apache.nifi.processors.conflict.resolution.ConflictResolutionStrategy;
-import org.apache.nifi.annotation.behavior.InputRequirement;
-import org.apache.nifi.annotation.behavior.InputRequirement.Requirement;
-import org.apache.nifi.annotation.behavior.ReadsAttribute;
-import org.apache.nifi.annotation.behavior.WritesAttribute;
-import org.apache.nifi.annotation.behavior.WritesAttributes;
-import org.apache.nifi.annotation.documentation.CapabilityDescription;
-import org.apache.nifi.annotation.documentation.SeeAlso;
-import org.apache.nifi.annotation.documentation.Tags;
-import org.apache.nifi.annotation.lifecycle.OnScheduled;
-import org.apache.nifi.components.PropertyDescriptor;
-import org.apache.nifi.expression.ExpressionLanguageScope;
-import org.apache.nifi.flowfile.FlowFile;
-import org.apache.nifi.processor.AbstractProcessor;
-import org.apache.nifi.processor.DataUnit;
-import org.apache.nifi.processor.ProcessContext;
-import org.apache.nifi.processor.ProcessSession;
-import org.apache.nifi.processor.Relationship;
-import org.apache.nifi.processor.exception.ProcessException;
-import org.apache.nifi.processor.util.StandardValidators;
-import org.apache.nifi.proxy.ProxyConfiguration;
-import org.apache.nifi.proxy.ProxySpec;
 
 /**
  * This processor uploads objects to Dropbox.
@@ -112,8 +115,7 @@ public class PutDropbox extends AbstractProcessor implements DropboxTrait {
             .build();
 
     public static final PropertyDescriptor FOLDER = new PropertyDescriptor.Builder()
-            .name("folder")
-            .displayName("Folder")
+            .name("Folder")
             .description("The path of the Dropbox folder to upload files to. "
                     + "The folder will be created if it does not exist yet.")
             .expressionLanguageSupported(ExpressionLanguageScope.FLOWFILE_ATTRIBUTES)
@@ -123,8 +125,7 @@ public class PutDropbox extends AbstractProcessor implements DropboxTrait {
             .build();
 
     public static final PropertyDescriptor FILE_NAME = new PropertyDescriptor.Builder()
-            .name("file-name")
-            .displayName("Filename")
+            .name("Filename")
             .description("The full name of the file to upload.")
             .expressionLanguageSupported(ExpressionLanguageScope.FLOWFILE_ATTRIBUTES)
             .defaultValue("${filename}")
@@ -133,8 +134,7 @@ public class PutDropbox extends AbstractProcessor implements DropboxTrait {
             .build();
 
     public static final PropertyDescriptor CONFLICT_RESOLUTION = new PropertyDescriptor.Builder()
-            .name("conflict-resolution-strategy")
-            .displayName("Conflict Resolution Strategy")
+            .name("Conflict Resolution Strategy")
             .description("Indicates what should happen when a file with the same name already exists in the specified Dropbox folder.")
             .required(true)
             .defaultValue(FAIL.getValue())
@@ -142,8 +142,7 @@ public class PutDropbox extends AbstractProcessor implements DropboxTrait {
             .build();
 
     public static final PropertyDescriptor CHUNKED_UPLOAD_SIZE = new PropertyDescriptor.Builder()
-            .name("chunked-upload-size")
-            .displayName("Chunked Upload Size")
+            .name("Chunked Upload Size")
             .description("Defines the size of a chunk. Used when a FlowFile's size exceeds 'Chunked Upload Threshold' and content is uploaded in smaller chunks. "
                     + "It is recommended to specify chunked upload size smaller than 'Chunked Upload Threshold' and as multiples of 4 MB. "
                     + "Maximum allowed value is 150 MB.")
@@ -153,8 +152,7 @@ public class PutDropbox extends AbstractProcessor implements DropboxTrait {
             .build();
 
     public static final PropertyDescriptor CHUNKED_UPLOAD_THRESHOLD = new PropertyDescriptor.Builder()
-            .name("chunked-upload-threshold")
-            .displayName("Chunked Upload Threshold")
+            .name("Chunked Upload Threshold")
             .description("The maximum size of the content which is uploaded at once. FlowFiles larger than this threshold are uploaded in chunks. "
                     + "Maximum allowed value is 150 MB.")
             .defaultValue("150 MB")
@@ -251,6 +249,17 @@ public class PutDropbox extends AbstractProcessor implements DropboxTrait {
             flowFile = session.penalize(flowFile);
             session.transfer(flowFile, REL_FAILURE);
         }
+    }
+
+    @Override
+    public void migrateProperties(PropertyConfiguration config) {
+        config.renameProperty(OLD_CREDENTIAL_SERVICE_PROPERTY_NAME, CREDENTIAL_SERVICE.getName());
+        config.renameProperty("folder", FOLDER.getName());
+        config.renameProperty("file-name", FILE_NAME.getName());
+        config.renameProperty("conflict-resolution-strategy", CONFLICT_RESOLUTION.getName());
+        config.renameProperty("chunked-upload-size", CHUNKED_UPLOAD_SIZE.getName());
+        config.renameProperty("chunked-upload-threshold", CHUNKED_UPLOAD_THRESHOLD.getName());
+        ProxyServiceMigration.renameProxyConfigurationServiceProperty(config);
     }
 
     private void handleUploadError(final ConflictResolutionStrategy conflictResolution, final String uploadPath, final UploadErrorException e)  {

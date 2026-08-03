@@ -17,6 +17,7 @@
 
 package org.apache.nifi.processors.standard;
 
+import com.jayway.jsonpath.JsonPath;
 import org.apache.avro.file.DataFileStream;
 import org.apache.avro.generic.GenericRecord;
 import org.apache.nifi.avro.AvroRecordSetWriter;
@@ -26,6 +27,7 @@ import org.apache.nifi.csv.CSVRecordSetWriter;
 import org.apache.nifi.csv.CSVUtils;
 import org.apache.nifi.json.JsonRecordSetWriter;
 import org.apache.nifi.json.JsonTreeReader;
+import org.apache.nifi.processors.standard.util.JsonUtil;
 import org.apache.nifi.reporting.InitializationException;
 import org.apache.nifi.schema.access.SchemaAccessUtils;
 import org.apache.nifi.schema.inference.SchemaInferenceUtil;
@@ -39,8 +41,6 @@ import org.apache.nifi.util.TestRunners;
 import org.apache.nifi.xml.XMLReader;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.condition.DisabledOnOs;
-import org.junit.jupiter.api.condition.OS;
 import org.xerial.snappy.SnappyInputStream;
 
 import java.io.ByteArrayInputStream;
@@ -52,18 +52,19 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-@DisabledOnOs(value = OS.WINDOWS, disabledReason = "Pretty-printing is not portable across operating systems")
 public class TestConvertRecord {
 
     private static final String PERSON_SCHEMA;
     private static final String READER_ID = "reader";
     private static final String WRITER_ID = "writer";
+    private static final String SCHEMA_WRITE_STRATEGY = "Schema Write Strategy";
     private TestRunner runner;
 
     static {
@@ -105,7 +106,7 @@ public class TestConvertRecord {
 
         final String input = """
                 <note>
-                  <to alias=\"Toto\">Thomas Mills</to>
+                  <to alias="Toto">Thomas Mills</to>
                 </note>
                 """;
 
@@ -219,7 +220,6 @@ public class TestConvertRecord {
         out.assertAttributeEquals("record.error.message", "Intentional Unit Test Exception because 2 records have been read");
     }
 
-
     @Test
     public void testWriteFailure() throws InitializationException, IOException {
         final MockRecordParser readerService = new MockRecordParser();
@@ -264,7 +264,7 @@ public class TestConvertRecord {
         runner.setProperty(jsonWriter, SchemaAccessUtils.SCHEMA_ACCESS_STRATEGY, SchemaAccessUtils.SCHEMA_TEXT_PROPERTY);
         runner.setProperty(jsonWriter, SchemaAccessUtils.SCHEMA_TEXT, PERSON_SCHEMA);
         runner.setProperty(jsonWriter, JsonRecordSetWriter.PRETTY_PRINT_JSON, "true");
-        runner.setProperty(jsonWriter, "Schema Write Strategy", "full-schema-attribute");
+        runner.setProperty(jsonWriter, SCHEMA_WRITE_STRATEGY, "full-schema-attribute");
         runner.setProperty(jsonWriter, JsonRecordSetWriter.COMPRESSION_FORMAT, "snappy");
         runner.enableControllerService(jsonWriter);
 
@@ -281,14 +281,15 @@ public class TestConvertRecord {
         final ByteArrayOutputStream baos = new ByteArrayOutputStream();
 
         try (final SnappyInputStream sis = new SnappyInputStream(new ByteArrayInputStream(flowFile.toByteArray())); final OutputStream out = baos) {
-            final byte[] buffer = new byte[8192]; int len;
+            final byte[] buffer = new byte[8192];
+            int len;
             while ((len = sis.read(buffer)) > 0) {
                 out.write(buffer, 0, len);
             }
             out.flush();
         }
 
-        assertEquals(Files.readString(person), baos.toString(StandardCharsets.UTF_8));
+        assertEquals(JsonUtil.getExpectedContent(person), baos.toString(StandardCharsets.UTF_8));
     }
 
     @Test
@@ -353,7 +354,7 @@ public class TestConvertRecord {
         runner.setProperty(jsonWriter, SchemaAccessUtils.SCHEMA_ACCESS_STRATEGY, SchemaAccessUtils.SCHEMA_TEXT_PROPERTY);
         runner.setProperty(jsonWriter, SchemaAccessUtils.SCHEMA_TEXT, PERSON_SCHEMA);
         runner.setProperty(jsonWriter, JsonRecordSetWriter.PRETTY_PRINT_JSON, "true");
-        runner.setProperty(jsonWriter, "Schema Write Strategy", "full-schema-attribute");
+        runner.setProperty(jsonWriter, SCHEMA_WRITE_STRATEGY, "full-schema-attribute");
         runner.enableControllerService(jsonWriter);
 
         runner.enqueue(Paths.get("src/test/resources/TestConvertRecord/input/person_long_id.json"));
@@ -425,6 +426,22 @@ public class TestConvertRecord {
             JsonTreeReader jsonTreeReader = new JsonTreeReader();
             runner.addControllerService("json-reader", jsonTreeReader);
             runner.setProperty(jsonTreeReader, DateTimeUtils.DATE_FORMAT, "yyyy-MM-dd");
+            runner.setProperty(jsonTreeReader, SchemaAccessUtils.SCHEMA_ACCESS_STRATEGY, SchemaAccessUtils.SCHEMA_TEXT_PROPERTY);
+            runner.setProperty(jsonTreeReader, SchemaAccessUtils.SCHEMA_TEXT, """
+                    {
+                      "type": "record",
+                      "name": "DateRecord",
+                      "fields": [
+                        {
+                          "name": "date",
+                          "type": {
+                            "type": "int",
+                            "logicalType": "date"
+                          }
+                        }
+                      ]
+                    }
+                    """);
             runner.enableControllerService(jsonTreeReader);
 
             AvroRecordSetWriter avroWriter = new AvroRecordSetWriter();
@@ -465,7 +482,7 @@ public class TestConvertRecord {
         runner.addControllerService(WRITER_ID, jsonWriter);
         runner.setProperty(jsonWriter, SchemaAccessUtils.SCHEMA_ACCESS_STRATEGY, SchemaAccessUtils.SCHEMA_TEXT_PROPERTY);
         runner.setProperty(jsonWriter, SchemaAccessUtils.SCHEMA_TEXT, personJobSchema);
-        runner.setProperty(jsonWriter, "Schema Write Strategy", "full-schema-attribute");
+        runner.setProperty(jsonWriter, SCHEMA_WRITE_STRATEGY, "full-schema-attribute");
         runner.enableControllerService(jsonWriter);
 
         runner.enqueue(Paths.get("src/test/resources/TestConvertRecord/input/personJob_dropfield.json"));
@@ -540,7 +557,7 @@ public class TestConvertRecord {
         runner.addControllerService(WRITER_ID, jsonWriter);
         runner.setProperty(jsonWriter, SchemaAccessUtils.SCHEMA_ACCESS_STRATEGY, SchemaAccessUtils.SCHEMA_TEXT_PROPERTY);
         runner.setProperty(jsonWriter, SchemaAccessUtils.SCHEMA_TEXT, schema);
-        runner.setProperty(jsonWriter, "Schema Write Strategy", "full-schema-attribute");
+        runner.setProperty(jsonWriter, SCHEMA_WRITE_STRATEGY, "full-schema-attribute");
         runner.enableControllerService(jsonWriter);
 
         runner.setProperty(ConvertRecord.RECORD_READER, READER_ID);
@@ -553,5 +570,99 @@ public class TestConvertRecord {
 
         final MockFlowFile flowFile = runner.getFlowFilesForRelationship(ConvertRecord.REL_SUCCESS).getFirst();
         flowFile.assertContentEquals(expectedContent);
+    }
+
+    @Test
+    public void testXMLReaderWithNamespacedAttributesAndInferredSchema() throws InitializationException {
+        final XMLReader xmlReader = new XMLReader();
+        runner.addControllerService(READER_ID, xmlReader);
+        runner.setProperty(xmlReader, SchemaAccessUtils.SCHEMA_ACCESS_STRATEGY, SchemaInferenceUtil.INFER_SCHEMA);
+        runner.setProperty(xmlReader, XMLReader.RECORD_FORMAT, XMLReader.RECORD_SINGLE.getValue());
+        runner.setProperty(xmlReader, XMLReader.PARSE_XML_ATTRIBUTES, "true");
+        runner.setProperty(xmlReader, XMLReader.CONTENT_FIELD_NAME, "content_value");
+        runner.enableControllerService(xmlReader);
+
+        final JsonRecordSetWriter jsonWriter = new JsonRecordSetWriter();
+        runner.addControllerService(WRITER_ID, jsonWriter);
+        runner.setProperty(jsonWriter, SchemaAccessUtils.SCHEMA_ACCESS_STRATEGY, SchemaAccessUtils.INHERIT_RECORD_SCHEMA);
+        runner.enableControllerService(jsonWriter);
+
+        runner.setProperty(ConvertRecord.RECORD_READER, READER_ID);
+        runner.setProperty(ConvertRecord.RECORD_WRITER, WRITER_ID);
+
+        final String xmlWithNamespacedAttributes = """
+                <?xml version='1.0' encoding='UTF-8'?>
+                     <wd:data xmlns:wd="urn:com.wd.report/foo">
+                        <wd:entry>
+                            <wd:something wd:attr1="attr1 content">
+                                <wd:record_with_attr2 wd:attr2="attr2 content 1">record_with_attr2 content 1</wd:record_with_attr2>
+                                <wd:record_with_attr2 wd:attr2="attr2 content 2">record_with_attr2 content 2</wd:record_with_attr2>
+                            </wd:something>
+                        </wd:entry>
+                     </wd:data>
+                """;
+        final String xmlWithPlainAttributes = """
+                <?xml version='1.0' encoding='UTF-8'?>
+                <wd:data xmlns:wd="urn:com.wd.report/foo">
+                    <wd:entry>
+                        <wd:something attr1="attr1 content">
+                            <wd:record_with_attr2 attr2="attr2 content 1">record_with_attr2 content 1</wd:record_with_attr2>
+                            <wd:record_with_attr2 attr2="attr2 content 2">record_with_attr2 content 2</wd:record_with_attr2>
+                        </wd:something>
+                    </wd:entry>
+                </wd:data>
+                """;
+
+        runner.enqueue(xmlWithNamespacedAttributes);
+        runner.enqueue(xmlWithPlainAttributes);
+        runner.run(2);
+
+        runner.assertAllFlowFilesTransferred(ConvertRecord.REL_SUCCESS, 2);
+        final MockFlowFile firstFlowFile = runner.getFlowFilesForRelationship(ConvertRecord.REL_SUCCESS).getFirst();
+        final MockFlowFile secondFlowFile = runner.getFlowFilesForRelationship(ConvertRecord.REL_SUCCESS).get(1);
+        final List<String> expectedAttributeValues = List.of("attr2 content 1", "attr2 content 2");
+        final String jsonPath = "$[0].entry.something.record_with_attr2[*].attr2";
+
+        final List<String> actualAttributeValuesFromFirstff = JsonPath.read(firstFlowFile.getContent(), jsonPath);
+        assertEquals(expectedAttributeValues, actualAttributeValuesFromFirstff);
+        final List<String> actualAttributeValuesFromSecondff = JsonPath.read(secondFlowFile.getContent(), jsonPath);
+        assertEquals(expectedAttributeValues, actualAttributeValuesFromSecondff);
+    }
+
+    @Test
+    public void testXMLReaderhasNoDefaultFieldNameWhenContentNameFieldNameNotSet() throws InitializationException {
+        final XMLReader xmlReader = new XMLReader();
+        runner.addControllerService(READER_ID, xmlReader);
+        runner.setProperty(xmlReader, SchemaAccessUtils.SCHEMA_ACCESS_STRATEGY, SchemaInferenceUtil.INFER_SCHEMA);
+        runner.setProperty(xmlReader, XMLReader.RECORD_FORMAT, XMLReader.RECORD_SINGLE.getValue());
+        runner.setProperty(xmlReader, XMLReader.PARSE_XML_ATTRIBUTES, "true");
+        runner.enableControllerService(xmlReader);
+
+        final JsonRecordSetWriter jsonWriter = new JsonRecordSetWriter();
+        runner.addControllerService(WRITER_ID, jsonWriter);
+        runner.setProperty(jsonWriter, SchemaAccessUtils.SCHEMA_ACCESS_STRATEGY, SchemaAccessUtils.INHERIT_RECORD_SCHEMA);
+        runner.setProperty(jsonWriter, JsonRecordSetWriter.PRETTY_PRINT_JSON, "true");
+        runner.enableControllerService(jsonWriter);
+
+        runner.setProperty(ConvertRecord.RECORD_READER, READER_ID);
+        runner.setProperty(ConvertRecord.RECORD_WRITER, WRITER_ID);
+        final String xml = """
+                <note>
+                    <to alias="TK">Kyle</to>
+                    <from>Stan</from>
+                    <heading>Reminder</heading>
+                    <body>Don't forget me this weekend!</body>
+                </note>
+                """;
+        runner.enqueue(xml);
+
+        runner.run();
+
+        runner.assertAllFlowFilesTransferred(ConvertRecord.REL_SUCCESS, 1);
+        final MockFlowFile firstFlowFile = runner.getFlowFilesForRelationship(ConvertRecord.REL_SUCCESS).getFirst();
+        final String jsonPath = "$[0].to";
+        final Map<String, String> toObject = JsonPath.read(firstFlowFile.getContent(), jsonPath);
+
+        assertFalse(toObject.containsKey("value"));
     }
 }

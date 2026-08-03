@@ -24,6 +24,7 @@ import org.apache.nifi.connectable.Connection;
 import org.apache.nifi.controller.BackoffMechanism;
 import org.apache.nifi.controller.ProcessorNode;
 import org.apache.nifi.controller.lifecycle.TaskTermination;
+import org.apache.nifi.controller.metrics.GaugeRecord;
 import org.apache.nifi.controller.queue.FlowFileQueue;
 import org.apache.nifi.controller.queue.PollStrategy;
 import org.apache.nifi.controller.queue.QueueSize;
@@ -55,6 +56,7 @@ import org.apache.nifi.processor.exception.TerminatedTaskException;
 import org.apache.nifi.processor.io.InputStreamCallback;
 import org.apache.nifi.processor.io.OutputStreamCallback;
 import org.apache.nifi.processor.io.StreamCallback;
+import org.apache.nifi.processor.metrics.CommitTiming;
 import org.apache.nifi.provenance.InternalProvenanceReporter;
 import org.apache.nifi.provenance.ProvenanceEventBuilder;
 import org.apache.nifi.provenance.ProvenanceEventRecord;
@@ -80,6 +82,7 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.BitSet;
 import java.util.Collection;
@@ -152,6 +155,7 @@ public class StandardProcessSession implements ProcessSession, ProvenanceEventEn
 
     private Map<String, Long> countersOnCommit;
     private Map<String, Long> immediateCounters;
+    private List<GaugeRecord> gaugeRecordsSessionCommitted;
 
     private final Set<String> removedFlowFiles = new HashSet<>();
     private final Set<String> createdFlowFiles = new HashSet<>(); // UUID of any FlowFile that was created in this session
@@ -159,12 +163,14 @@ public class StandardProcessSession implements ProcessSession, ProvenanceEventEn
 
     private final InternalProvenanceReporter provenanceReporter;
 
-    private int removedCount = 0; // number of flowfiles removed in this session
-    private long removedBytes = 0L; // size of all flowfiles removed in this session
+    private int removedCount = 0; // number of FlowFiles removed in this session
+    private long removedBytes = 0L; // size of all FlowFiles removed in this session
     private long bytesRead = 0L;
     private long bytesWritten = 0L;
-    private int flowFilesIn = 0, flowFilesOut = 0;
-    private long contentSizeIn = 0L, contentSizeOut = 0L;
+    private int flowFilesIn = 0;
+    private int flowFilesOut = 0;
+    private long contentSizeIn = 0L;
+    private long contentSizeOut = 0L;
 
     private ResourceClaim currentReadClaim = null;
     private ByteCountingInputStream currentReadClaimStream = null;
@@ -295,7 +301,10 @@ public class StandardProcessSession implements ProcessSession, ProvenanceEventEn
             this.checkpoint = new Checkpoint();
         }
 
-        if (records.isEmpty() && (countersOnCommit == null || countersOnCommit.isEmpty())) {
+        if (records.isEmpty()
+                && (countersOnCommit == null || countersOnCommit.isEmpty())
+                && (gaugeRecordsSessionCommitted == null || gaugeRecordsSessionCommitted.isEmpty())
+        ) {
             LOG.trace("{} checkpointed, but no events were performed by this ProcessSession", this);
             checkpoint.checkpoint(this, Collections.emptyList(), copyCollections);
             return;
@@ -594,7 +603,10 @@ public class StandardProcessSession implements ProcessSession, ProvenanceEventEn
             // Update the FlowFile Repository
             try {
                 final Collection<StandardRepositoryRecord> repoRecords = checkpoint.records.values();
-                context.getFlowFileRepository().updateRepository((Collection) repoRecords);
+                if (!repoRecords.isEmpty()) {
+                    context.getFlowFileRepository().updateRepository((Collection) repoRecords);
+                    context.getConnectable().getFlowFileActivity().updateLatestActivityTime();
+                }
             } catch (final IOException ioe) {
                 // if we fail to commit the session, we need to roll back
                 // the checkpoints as well because none of the checkpoints
@@ -623,7 +635,7 @@ public class StandardProcessSession implements ProcessSession, ProvenanceEventEn
             final long updateEventRepositoryFinishNanos = System.nanoTime();
             final long updateEventRepositoryNanos = updateEventRepositoryFinishNanos - flowFileRepoUpdateFinishNanos;
 
-            // transfer the flowfiles to the connections' queues.
+            // transfer the FlowFiles to the connections' queues.
             final Map<FlowFileQueue, Collection<FlowFileRecord>> recordMap = new HashMap<>();
             for (final StandardRepositoryRecord record : checkpoint.records.values()) {
                 if (record.isMarkedForAbort() || record.isMarkedForDelete()) {
@@ -667,6 +679,10 @@ public class StandardProcessSession implements ProcessSession, ProvenanceEventEn
 
             for (final Map.Entry<String, Long> entry : checkpoint.countersOnCommit.entrySet()) {
                 context.adjustCounter(entry.getKey(), entry.getValue());
+            }
+
+            for (final GaugeRecord gaugeRecord : checkpoint.gaugeRecordsSessionCommitted) {
+                context.recordGauge(gaugeRecord);
             }
 
             if (LOG.isDebugEnabled()) {
@@ -748,7 +764,6 @@ public class StandardProcessSession implements ProcessSession, ProvenanceEventEn
             performanceTracker.endSessionCommit();
         }
     }
-
 
     private void updateEventRepository(final Checkpoint checkpoint) {
         try {
@@ -972,7 +987,7 @@ public class StandardProcessSession implements ProcessSession, ProvenanceEventEn
         // Therefore, we create an Iterable that can iterate over each of these events, modifying them as needed, and returning them
         // in the appropriate order. This prevents an unnecessary step of creating an intermediate List and adding all of those values
         // to the List.
-        // This is done in a similar veign to how Java 8's streams work, iterating over the events and returning a processed version
+        // This is done in a similar vein to how Java 8's streams work, iterating over the events and returning a processed version
         // one-at-a-time as opposed to iterating over the entire Collection and putting the results in another Collection. However,
         // we don't want to change the Framework to require Java 8 at this time, because it's not yet as prevalent as we would desire
         final Map<String, FlowFileRecord> flowFileRecordMap = new HashMap<>();
@@ -980,6 +995,9 @@ public class StandardProcessSession implements ProcessSession, ProvenanceEventEn
             final FlowFileRecord flowFile = repoRecord.getCurrent();
             flowFileRecordMap.put(flowFile.getAttribute(CoreAttributes.UUID.key()), flowFile);
         }
+
+        // Update connectable to indicate how much data was received and sent.
+        updateTransferCounts(recordsToSubmit);
 
         final long commitNanos = System.nanoTime();
         final List<ProvenanceEventRecord> autoTermEvents = checkpoint.autoTerminatedEvents;
@@ -1027,6 +1045,23 @@ public class StandardProcessSession implements ProcessSession, ProvenanceEventEn
         provenanceRepo.registerEvents(iterable);
     }
 
+    private void updateTransferCounts(final Collection<ProvenanceEventRecord> events) {
+        int createdCount = 0;
+        long createdBytes = 0L;
+        for (final ProvenanceEventRecord event : events) {
+            if (event.getEventType() == ProvenanceEventType.CREATE) {
+                createdCount++;
+                createdBytes += event.getFileSize();
+            }
+        }
+
+        context.getConnectable().getFlowFileActivity().updateTransferCounts(
+            provenanceReporter.getFlowFilesReceived() + createdCount,
+            // For bytes, consider received and fetched; we don't include fetched in count, as the FlowFile count didn't change.
+            provenanceReporter.getBytesReceived() + provenanceReporter.getBytesFetched() + createdBytes,
+            provenanceReporter.getFlowFilesSent(),
+            provenanceReporter.getBytesSent());
+    }
 
     private void updateEventContentClaims(final ProvenanceEventBuilder builder, final FlowFile flowFile, final StandardRepositoryRecord repoRecord) {
         final ContentClaim originalClaim = repoRecord.getOriginalClaim();
@@ -1235,6 +1270,10 @@ public class StandardProcessSession implements ProcessSession, ProvenanceEventEn
         resetWriteClaims();
         resetReadClaim();
 
+        if (!recordValues.isEmpty()) {
+            context.getConnectable().getFlowFileActivity().updateLatestActivityTime();
+        }
+
         if (recordsToHandle.isEmpty()) {
             LOG.trace("{} was rolled back, but no events were performed by this ProcessSession", this);
             acknowledgeRecords();
@@ -1417,6 +1456,9 @@ public class StandardProcessSession implements ProcessSession, ProvenanceEventEn
         if (immediateCounters != null) {
             immediateCounters.clear();
         }
+        if (gaugeRecordsSessionCommitted != null) {
+            gaugeRecordsSessionCommitted.clear();
+        }
 
         generatedProvenanceEvents.clear();
         forkEventBuilders.clear();
@@ -1437,7 +1479,6 @@ public class StandardProcessSession implements ProcessSession, ProvenanceEventEn
             entry.getKey().acknowledge(entry.getValue());
         }
     }
-
 
     @Override
     public void migrate(final ProcessSession newOwner) {
@@ -1460,11 +1501,23 @@ public class StandardProcessSession implements ProcessSession, ProvenanceEventEn
             throw new IllegalArgumentException("Must supply at least one FlowFile to migrate");
         }
 
-        if (!(newOwner instanceof StandardProcessSession)) {
+        // Look through any framework-internal Session wrappers (such as the one used to keep an
+        // ActiveProcessSessionFactory reachable for the offload/terminate path) so the underlying
+        // StandardProcessSession can be located.
+        ProcessSession resolvedOwner = newOwner;
+        while (resolvedOwner instanceof DelegatingProcessSession delegating) {
+            resolvedOwner = delegating.getDelegate();
+        }
+
+        if (!(resolvedOwner instanceof StandardProcessSession standardOwner)) {
             throw new IllegalArgumentException("Cannot migrate from a StandardProcessSession to a " + newOwner.getClass());
         }
 
-        migrate((StandardProcessSession) newOwner, flowFiles);
+        if (standardOwner == this) {
+            throw new IllegalArgumentException("Cannot migrate FlowFiles from a Process Session to itself");
+        }
+
+        migrate(standardOwner, flowFiles);
     }
 
     private synchronized void migrate(final StandardProcessSession newOwner, Collection<FlowFile> flowFiles) {
@@ -1661,7 +1714,6 @@ public class StandardProcessSession implements ProcessSession, ProvenanceEventEn
         }
     }
 
-
     private String summarizeEvents(final Checkpoint checkpoint) {
         final Map<Relationship, Set<String>> transferMap = new HashMap<>(); // relationship to flowfile ID's
         final Set<String> modifiedFlowFileIds = new HashSet<>();
@@ -1835,6 +1887,24 @@ public class StandardProcessSession implements ProcessSession, ProvenanceEventEn
     }
 
     @Override
+    public void recordGauge(final String name, final double value, final CommitTiming commitTiming) {
+        Objects.requireNonNull(name, "Gauge Name required");
+        Objects.requireNonNull(commitTiming, "Commit Timing required");
+
+        final Instant recorded = Instant.now();
+        final GaugeRecord gaugeRecord = new GaugeRecord(name, value, recorded, context.getComponentMetricContext());
+
+        if (CommitTiming.NOW == commitTiming) {
+            context.recordGauge(gaugeRecord);
+        } else {
+            if (gaugeRecordsSessionCommitted == null) {
+                gaugeRecordsSessionCommitted = new ArrayList<>();
+            }
+            gaugeRecordsSessionCommitted.add(gaugeRecord);
+        }
+    }
+
+    @Override
     public void adjustCounter(final String name, final long delta, final boolean immediate) {
         // If we are adjusting the counter immediately, allow it even if the task is terminated. The contract states:
         // "the counter will be updated immediately, without regard to whether the session is committed or rolled back"
@@ -1856,21 +1926,14 @@ public class StandardProcessSession implements ProcessSession, ProvenanceEventEn
             counters = countersOnCommit;
         }
 
-        adjustCounter(name, delta, counters);
+        // Set current value or adjust when found
+        counters.compute(name, (currentName, currentValue) ->
+            currentValue == null ? delta : currentValue + delta
+        );
 
         if (immediate) {
             context.adjustCounter(name, delta);
         }
-    }
-
-    private void adjustCounter(final String name, final long delta, final Map<String, Long> map) {
-        Long curVal = map.get(name);
-        if (curVal == null) {
-            curVal = 0L;
-        }
-
-        final long newValue = curVal + delta;
-        map.put(name, newValue);
     }
 
     @Override
@@ -1905,7 +1968,7 @@ public class StandardProcessSession implements ProcessSession, ProvenanceEventEn
             return Collections.emptyList();
         }
 
-        // get batch of flow files in a round-robin manner
+        // get batch of FlowFiles in a round-robin manner
         final List<Connection> connections = context.getPollableConnections();
         if (connections.isEmpty()) {
             return Collections.emptyList();
@@ -1931,7 +1994,6 @@ public class StandardProcessSession implements ProcessSession, ProvenanceEventEn
 
         return get((connection, expiredRecords) -> connection.poll(filter, expiredRecords), true);
     }
-
 
     private List<FlowFile> get(final ConnectionPoller poller, final boolean lockAllQueues) {
         List<Connection> connections = context.getPollableConnections();
@@ -2007,8 +2069,13 @@ public class StandardProcessSession implements ProcessSession, ProvenanceEventEn
         attrs.put(CoreAttributes.PATH.key(), DEFAULT_FLOWFILE_PATH);
         attrs.put(CoreAttributes.UUID.key(), uuid);
 
-        final FlowFileRecord fFile = new StandardFlowFileRecord.Builder().id(context.getNextFlowFileSequence())
+        final long entryDate = System.currentTimeMillis();
+        final long id = context.getNextFlowFileSequence();
+        final FlowFileRecord fFile = new StandardFlowFileRecord.Builder().id(id)
             .addAttributes(attrs)
+            // Set Lineage Start to Entry Date and use Identifier as Lineage Start Index for unambiguous ordering
+            .entryDate(entryDate)
+            .lineageStart(entryDate, id)
             .build();
         final StandardRepositoryRecord record = new StandardRepositoryRecord((FlowFileQueue) null);
         record.setWorking(fFile, attrs, false);
@@ -2116,7 +2183,6 @@ public class StandardProcessSession implements ProcessSession, ProvenanceEventEn
 
         return fFile;
     }
-
 
     @Override
     public FlowFile clone(FlowFile example) {
@@ -2960,6 +3026,11 @@ public class StandardProcessSession implements ProcessSession, ProvenanceEventEn
             claimLog.debug("Creating ContentClaim {} for 'write' for {}", newClaim, source);
             ensureNotAppending(newClaim);
 
+            // Build an OutputStream that we can return to the caller. Note that the returned OutputStream is wrapped with multiple layers
+            // of OutputStream, each with its own purpose. This layering is important for driving the capabilities that are necessary at the
+            // framework level. For example, we intercept flushes and closes to ensure that the framework is able to efficiently manage what
+            // gets written to the Content Repository and manage the full lifecycle of the Content Repository's OutputStream. When the
+            // ProcessSession is committed or rolled back, we ensure that the underlying streams are closed and flushed appropriately.
             final OutputStream rawStream = claimCache.write(newClaim);
             final OutputStream nonFlushable = new NonFlushableOutputStream(rawStream);
             final OutputStream disableOnClose = new DisableOnCloseOutputStream(nonFlushable);
@@ -3097,6 +3168,12 @@ public class StandardProcessSession implements ProcessSession, ProvenanceEventEn
             claimLog.debug("Creating ContentClaim {} for 'write' for {}", newClaim, source);
 
             ensureNotAppending(newClaim);
+
+            // Build an OutputStream that we can return to the caller. Note that the returned OutputStream is wrapped with multiple layers
+            // of OutputStream, each with its own purpose. This layering is important for driving the capabilities that are necessary at the
+            // framework level. For example, we intercept flushes and closes to ensure that the framework is able to efficiently manage what
+            // gets written to the Content Repository and manage the full lifecycle of the Content Repository's OutputStream. When the
+            // ProcessSession is committed or rolled back, we ensure that the underlying streams are closed and flushed appropriately.
             try (final OutputStream stream = claimCache.write(newClaim);
                 final NonFlushableOutputStream nonFlushableOutputStream = new NonFlushableOutputStream(stream);
                 final OutputStream disableOnClose = new DisableOnCloseOutputStream(nonFlushableOutputStream);
@@ -3150,7 +3227,6 @@ public class StandardProcessSession implements ProcessSession, ProvenanceEventEn
         record.setWorking(newFile, true);
         return newFile;
     }
-
 
     @Override
     public FlowFile append(FlowFile source, final OutputStreamCallback writer) {
@@ -3366,7 +3442,6 @@ public class StandardProcessSession implements ProcessSession, ProvenanceEventEn
         currentReadClaim = null;
     }
 
-
     @Override
     public FlowFile write(FlowFile source, final StreamCallback writer) {
         verifyTaskActive();
@@ -3386,6 +3461,11 @@ public class StandardProcessSession implements ProcessSession, ProvenanceEventEn
                 claimCache.flush(currClaim.getResourceClaim());
             }
 
+            // Build a InputStream and OutputStream that we can return to the caller. Note that the returned streams are wrapped with multiple layers,
+            // each with its own purpose. This layering is important for driving the capabilities that are necessary at the
+            // framework level. For example, we intercept flushes and closes to ensure that the framework is able to efficiently manage what
+            // gets written to the Content Repository and manage the full lifecycle of the Content Repository's OutputStream. When the
+            // ProcessSession is committed or rolled back, we ensure that the underlying streams are closed and flushed appropriately.
             try (final InputStream is = getInputStream(source, currClaim, record.getCurrentClaimOffset(), true);
                 final InputStream limitedIn = new LimitedInputStream(is, source.getSize());
                 final InputStream disableOnCloseIn = new DisableOnCloseInputStream(limitedIn);
@@ -3671,13 +3751,14 @@ public class StandardProcessSession implements ProcessSession, ProvenanceEventEn
 
         if (missingClaim == registeredClaim) {
             suspectRecord.markForAbort();
+            LOG.warn("Unable to find content for {}; dropping FlowFile", suspectRecord.getCurrent(), nfe);
             rollback();
-            throw new MissingFlowFileException("Unable to find content for FlowFile", nfe);
+            throw new MissingFlowFileException("Unable to find content for " + suspectRecord.getCurrent() + "; dropping FlowFile", nfe);
         }
 
         if (missingClaim == transientClaim) {
             rollback();
-            throw new MissingFlowFileException("Unable to find content for FlowFile", nfe);
+            throw new MissingFlowFileException("Unable to find in-flight content for " + suspectRecord.getCurrent() + "; rolling back", nfe);
         }
     }
 
@@ -3733,7 +3814,6 @@ public class StandardProcessSession implements ProcessSession, ProvenanceEventEn
         final StandardRepositoryRecord existingRecord = getRecord(flowFile);
         return existingRecord == null ? flowFile : existingRecord.getCurrent();
     }
-
 
     /**
      * Returns the attributes that are common to every FlowFile given. The key
@@ -3885,18 +3965,24 @@ public class StandardProcessSession implements ProcessSession, ProvenanceEventEn
         private Map<String, Long> countersOnCommit;
         private Map<String, Long> immediateCounters;
 
+        private List<GaugeRecord> gaugeRecordsSessionCommitted;
+
         private Map<FlowFile, Path> deleteOnCommit;
         private Set<String> removedFlowFiles;
         private Set<String> createdFlowFiles;
 
-        private int removedCount = 0; // number of flowfiles removed in this session
-        private long removedBytes = 0L; // size of all flowfiles removed in this session
+        private int removedCount = 0; // number of FlowFiles removed in this session
+        private long removedBytes = 0L; // size of all FlowFiles removed in this session
         private long bytesRead = 0L;
         private long bytesWritten = 0L;
-        private int flowFilesIn = 0, flowFilesOut = 0;
-        private long contentSizeIn = 0L, contentSizeOut = 0L;
-        private int flowFilesReceived = 0, flowFilesSent = 0;
-        private long bytesReceived = 0L, bytesSent = 0L;
+        private int flowFilesIn = 0;
+        private int flowFilesOut = 0;
+        private long contentSizeIn = 0L;
+        private long contentSizeOut = 0L;
+        private int flowFilesReceived = 0;
+        private int flowFilesSent = 0;
+        private long bytesReceived = 0L;
+        private long bytesSent = 0L;
 
         private boolean initialized = false;
         private StateMap localState;
@@ -3917,6 +4003,7 @@ public class StandardProcessSession implements ProcessSession, ProvenanceEventEn
 
             countersOnCommit = new HashMap<>();
             immediateCounters = new HashMap<>();
+            gaugeRecordsSessionCommitted = new ArrayList<>();
 
             deleteOnCommit = new HashMap<>();
             removedFlowFiles = new HashSet<>();
@@ -3950,6 +4037,7 @@ public class StandardProcessSession implements ProcessSession, ProvenanceEventEn
             this.connectionCounts = session.connectionCounts;
             this.countersOnCommit = session.countersOnCommit == null ? Collections.emptyMap() : session.countersOnCommit;
             this.immediateCounters = session.immediateCounters == null ? Collections.emptyMap() : session.immediateCounters;
+            this.gaugeRecordsSessionCommitted = session.gaugeRecordsSessionCommitted == null ? List.of() : session.gaugeRecordsSessionCommitted;
 
             this.deleteOnCommit = session.deleteOnCommit;
             this.removedFlowFiles = session.removedFlowFiles;
@@ -3997,6 +4085,10 @@ public class StandardProcessSession implements ProcessSession, ProvenanceEventEn
             mergeMapsWithMutableValue(this.connectionCounts, session.connectionCounts, (destination, toMerge) -> destination.add(toMerge));
             mergeMaps(this.countersOnCommit, session.countersOnCommit, Long::sum);
             mergeMaps(this.immediateCounters, session.immediateCounters, Long::sum);
+
+            if (session.gaugeRecordsSessionCommitted != null) {
+                this.gaugeRecordsSessionCommitted.addAll(session.gaugeRecordsSessionCommitted);
+            }
 
             this.deleteOnCommit.putAll(session.deleteOnCommit);
             this.removedFlowFiles.addAll(session.removedFlowFiles);
@@ -4114,7 +4206,6 @@ public class StandardProcessSession implements ProcessSession, ProvenanceEventEn
             }
             return allLinked;
         }
-
 
         public void clear() {
             linkedIds.clear();

@@ -28,8 +28,9 @@ import org.apache.nifi.controller.AbstractControllerService;
 import org.apache.nifi.controller.ConfigurationContext;
 import org.apache.nifi.expression.ExpressionLanguageScope;
 import org.apache.nifi.migration.PropertyConfiguration;
+import org.apache.nifi.migration.ProxyServiceMigration;
 import org.apache.nifi.processor.util.StandardValidators;
-import org.apache.nifi.processors.aws.credentials.provider.service.AWSCredentialsProviderService;
+import org.apache.nifi.processors.aws.credentials.provider.AwsCredentialsProviderService;
 import org.apache.nifi.proxy.ProxyConfiguration;
 import org.apache.nifi.proxy.ProxySpec;
 import org.apache.nifi.schema.access.SchemaField;
@@ -45,10 +46,6 @@ import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.glue.GlueClient;
 import software.amazon.awssdk.services.glue.GlueClientBuilder;
 
-import javax.net.ssl.KeyManager;
-import javax.net.ssl.TrustManager;
-import javax.net.ssl.X509ExtendedKeyManager;
-import javax.net.ssl.X509TrustManager;
 import java.io.IOException;
 import java.net.Proxy;
 import java.net.URI;
@@ -61,6 +58,10 @@ import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
+import javax.net.ssl.KeyManager;
+import javax.net.ssl.TrustManager;
+import javax.net.ssl.X509ExtendedKeyManager;
+import javax.net.ssl.X509TrustManager;
 
 @Tags({"schema", "registry", "aws", "avro", "glue"})
 @CapabilityDescription("Provides a Schema Registry that interacts with the AWS Glue Schema Registry so that those Schemas that are stored in the Glue Schema "
@@ -116,7 +117,7 @@ public class AmazonGlueSchemaRegistry extends AbstractControllerService implemen
             .name("AWS Credentials Provider Service")
             .description("The Controller Service that is used to obtain AWS credentials provider")
             .required(false)
-            .identifiesControllerService(AWSCredentialsProviderService.class)
+            .identifiesControllerService(AwsCredentialsProviderService.class)
             .build();
 
     public static final PropertyDescriptor SSL_CONTEXT_SERVICE = new PropertyDescriptor.Builder()
@@ -150,6 +151,7 @@ public class AmazonGlueSchemaRegistry extends AbstractControllerService implemen
         propertyConfiguration.renameProperty("cache-expiration", CACHE_EXPIRATION.getName());
         propertyConfiguration.renameProperty("aws-credentials-provider-service", AWS_CREDENTIALS_PROVIDER_SERVICE.getName());
         propertyConfiguration.renameProperty("ssl-context-service", SSL_CONTEXT_SERVICE.getName());
+        ProxyServiceMigration.renameProxyConfigurationServiceProperty(propertyConfiguration);
     }
 
     @Override
@@ -161,8 +163,8 @@ public class AmazonGlueSchemaRegistry extends AbstractControllerService implemen
 
     @OnEnabled
     public void onEnabled(final ConfigurationContext context) {
-        final AWSCredentialsProviderService awsCredentialsProviderService = context.getProperty(AWS_CREDENTIALS_PROVIDER_SERVICE)
-                .asControllerService(AWSCredentialsProviderService.class);
+        final AwsCredentialsProviderService awsCredentialsProviderService = context.getProperty(AWS_CREDENTIALS_PROVIDER_SERVICE)
+                .asControllerService(AwsCredentialsProviderService.class);
         final AwsCredentialsProvider credentialsProvider = awsCredentialsProviderService.getAwsCredentialsProvider();
         final String schemaRegistryName = context.getProperty(SCHEMA_REGISTRY_NAME).getValue();
         final String region = context.getProperty(REGION).getValue();

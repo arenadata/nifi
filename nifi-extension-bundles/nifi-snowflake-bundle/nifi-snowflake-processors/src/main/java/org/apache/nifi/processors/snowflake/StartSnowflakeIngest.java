@@ -17,9 +17,6 @@
 
 package org.apache.nifi.processors.snowflake;
 
-import net.snowflake.ingest.SimpleIngestManager;
-import net.snowflake.ingest.connection.IngestResponseException;
-import net.snowflake.ingest.utils.StagedFileWrapper;
 import org.apache.nifi.annotation.behavior.InputRequirement;
 import org.apache.nifi.annotation.behavior.InputRequirement.Requirement;
 import org.apache.nifi.annotation.behavior.ReadsAttribute;
@@ -29,14 +26,15 @@ import org.apache.nifi.annotation.documentation.SeeAlso;
 import org.apache.nifi.annotation.documentation.Tags;
 import org.apache.nifi.components.PropertyDescriptor;
 import org.apache.nifi.flowfile.FlowFile;
+import org.apache.nifi.migration.PropertyConfiguration;
 import org.apache.nifi.processor.AbstractProcessor;
 import org.apache.nifi.processor.ProcessContext;
 import org.apache.nifi.processor.ProcessSession;
 import org.apache.nifi.processor.Relationship;
 import org.apache.nifi.processor.exception.ProcessException;
+import org.apache.nifi.processors.snowflake.snowpipe.InsertFile;
+import org.apache.nifi.processors.snowflake.snowpipe.InsertFiles;
 
-import java.io.IOException;
-import java.net.URISyntaxException;
 import java.util.List;
 import java.util.Set;
 
@@ -55,8 +53,7 @@ import static org.apache.nifi.processors.snowflake.util.SnowflakeAttributes.ATTR
 public class StartSnowflakeIngest extends AbstractProcessor {
 
     static final PropertyDescriptor INGEST_MANAGER_PROVIDER = new PropertyDescriptor.Builder()
-            .name("ingest-manager-provider")
-            .displayName("Ingest Manager Provider")
+            .name("Ingest Manager Provider")
             .description("Specifies the Controller Service to use for ingesting Snowflake staged files.")
             .identifiesControllerService(SnowflakeIngestManagerProviderService.class)
             .required(true)
@@ -108,17 +105,20 @@ public class StartSnowflakeIngest extends AbstractProcessor {
         final SnowflakeIngestManagerProviderService ingestManagerProviderService =
                 context.getProperty(INGEST_MANAGER_PROVIDER)
                         .asControllerService(SnowflakeIngestManagerProviderService.class);
-        final SimpleIngestManager snowflakeIngestManager = ingestManagerProviderService.getIngestManager();
-        final StagedFileWrapper stagedFile = new StagedFileWrapper(stagedFilePath);
         try {
-            snowflakeIngestManager.ingestFile(stagedFile, null);
-        } catch (URISyntaxException | IOException  e) {
-            throw new ProcessException(String.format("Failed to ingest Snowflake file [%s]", stagedFilePath), e);
-        } catch (IngestResponseException e) {
-            getLogger().error("Failed to ingest Snowflake file [{}]", stagedFilePath, e);
+            final List<InsertFile> files = List.of(new InsertFile(stagedFilePath));
+            final InsertFiles insertFiles = new InsertFiles(files);
+            ingestManagerProviderService.insertFiles(insertFiles);
+        } catch (final RuntimeException e) {
+            getLogger().error("Staged File [{}] insert failed", stagedFilePath, e);
             session.transfer(session.penalize(flowFile), REL_FAILURE);
             return;
         }
         session.transfer(flowFile, REL_SUCCESS);
+    }
+
+    @Override
+    public void migrateProperties(PropertyConfiguration config) {
+        config.renameProperty("ingest-manager-provider", INGEST_MANAGER_PROVIDER.getName());
     }
 }

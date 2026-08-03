@@ -18,14 +18,11 @@ package org.apache.nifi.processors.standard;
 
 import org.apache.nifi.annotation.behavior.DefaultRunDuration;
 import org.apache.nifi.annotation.behavior.InputRequirement;
-import org.apache.nifi.annotation.behavior.Restricted;
-import org.apache.nifi.annotation.behavior.Restriction;
 import org.apache.nifi.annotation.behavior.SupportsBatching;
 import org.apache.nifi.annotation.documentation.CapabilityDescription;
 import org.apache.nifi.annotation.documentation.Tags;
 import org.apache.nifi.annotation.documentation.UseCase;
 import org.apache.nifi.components.PropertyDescriptor;
-import org.apache.nifi.components.RequiredPermission;
 import org.apache.nifi.expression.ExpressionLanguageScope;
 import org.apache.nifi.flowfile.FlowFile;
 import org.apache.nifi.flowfile.attributes.CoreAttributes;
@@ -58,16 +55,7 @@ import java.util.concurrent.TimeUnit;
                 Using 'DeleteFile', delete the file from the filesystem only after the result has been stored.
                 """
 )
-@Restricted(
-        restrictions = {
-                @Restriction(
-                        requiredPermission = RequiredPermission.READ_FILESYSTEM,
-                        explanation = "Provides operator the ability to read from any file that NiFi has access to."),
-                @Restriction(
-                        requiredPermission = RequiredPermission.WRITE_FILESYSTEM,
-                        explanation = "Provides operator the ability to delete any file that NiFi has access to.")
-        }
-)
+
 public class DeleteFile extends AbstractProcessor {
 
     public static final Relationship REL_SUCCESS = new Relationship.Builder()
@@ -85,7 +73,7 @@ public class DeleteFile extends AbstractProcessor {
             .description("All FlowFiles, for which an existing file could not be deleted, are routed to this relationship")
             .build();
 
-    private final static Set<Relationship> RELATIONSHIPS = Set.of(
+    private static final Set<Relationship> RELATIONSHIPS = Set.of(
             REL_SUCCESS,
             REL_NOT_FOUND,
             REL_FAILURE
@@ -109,7 +97,7 @@ public class DeleteFile extends AbstractProcessor {
             .expressionLanguageSupported(ExpressionLanguageScope.FLOWFILE_ATTRIBUTES)
             .build();
 
-    private final static List<PropertyDescriptor> PROPERTY_DESCRIPTORS = List.of(
+    private static final List<PropertyDescriptor> PROPERTY_DESCRIPTORS = List.of(
             DIRECTORY_PATH,
             FILENAME
     );

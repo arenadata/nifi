@@ -21,6 +21,16 @@ import { OperationControl } from './operation-control.component';
 import { provideMockStore } from '@ngrx/store/testing';
 import { initialState } from '../../../../state/flow/flow.reducer';
 import { HttpClientTestingModule } from '@angular/common/http/testing';
+import { initialState as initialErrorState } from '../../../../../../state/error/error.reducer';
+import { errorFeatureKey } from '../../../../../../state/error';
+import { initialState as initialCurrentUserState } from '../../../../../../state/current-user/current-user.reducer';
+import { currentUserFeatureKey } from '../../../../../../state/current-user';
+import { flowConfigurationFeatureKey } from '../../../../../../state/flow-configuration';
+import { initialState as flowConfigurationInitialState } from '../../../../../../state/flow-configuration/flow-configuration.reducer';
+import { canvasFeatureKey } from '../../../../state';
+import { flowFeatureKey } from '../../../../state/flow';
+import { transformFeatureKey } from '../../../../state/transform';
+import { initialState as transformInitialState } from '../../../../state/transform/transform.reducer';
 
 describe('OperationControl', () => {
     let component: OperationControl;
@@ -31,7 +41,15 @@ describe('OperationControl', () => {
             imports: [OperationControl, HttpClientTestingModule],
             providers: [
                 provideMockStore({
-                    initialState
+                    initialState: {
+                        [errorFeatureKey]: initialErrorState,
+                        [currentUserFeatureKey]: initialCurrentUserState,
+                        [flowConfigurationFeatureKey]: flowConfigurationInitialState,
+                        [canvasFeatureKey]: {
+                            [flowFeatureKey]: initialState,
+                            [transformFeatureKey]: transformInitialState
+                        }
+                    }
                 })
             ]
         });

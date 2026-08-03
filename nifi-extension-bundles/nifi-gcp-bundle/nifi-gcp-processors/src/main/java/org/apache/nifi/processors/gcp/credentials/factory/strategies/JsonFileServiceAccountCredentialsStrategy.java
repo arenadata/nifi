@@ -26,7 +26,6 @@ import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.util.Map;
 
-
 /**
  * Supports service account credentials in a JSON file.
  *
@@ -36,9 +35,7 @@ import java.util.Map;
 public class JsonFileServiceAccountCredentialsStrategy extends AbstractServiceAccountCredentialsStrategy {
 
     public JsonFileServiceAccountCredentialsStrategy() {
-        super("Service Account Credentials (Json File)", new PropertyDescriptor[] {
-                CredentialPropertyDescriptors.SERVICE_ACCOUNT_JSON_FILE
-        });
+        super("Service Account Credentials (Json File)");
     }
 
     @Override

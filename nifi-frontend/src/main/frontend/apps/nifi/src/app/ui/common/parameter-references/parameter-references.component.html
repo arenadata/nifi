@@ -16,7 +16,7 @@
   -->
 
 <div class="parameter-references">
-    @if (parameterReferenceMap == null || parameterReferenceMap.size == 0) {
+    @if (parameterReferenceMap === null || parameterReferenceMap === undefined || parameterReferenceMap.size === 0) {
         <div class="tertiary-color font-medium">No referencing components</div>
     } @else {
         @for (pg of processGroups; track pg.id) {
@@ -75,7 +75,8 @@
                                 }
                                 @if (hasBulletins(reference)) {
                                     <div
-                                        class="pointer fa fa-sticky-note-o primary-color"
+                                        class="pointer fa fa-sticky-note"
+                                        [ngClass]="getBulletinSeverityClass(reference)"
                                         nifiTooltip
                                         [delayClose]="true"
                                         [tooltipComponentType]="BulletinsTip"
@@ -116,7 +117,8 @@
                                     }
                                     @if (hasBulletins(service)) {
                                         <div
-                                            class="pointer fa fa-sticky-note-o primary-color"
+                                            class="pointer fa fa-sticky-note"
+                                            [ngClass]="getBulletinSeverityClass(service)"
                                             nifiTooltip
                                             [delayClose]="true"
                                             [tooltipComponentType]="BulletinsTip"

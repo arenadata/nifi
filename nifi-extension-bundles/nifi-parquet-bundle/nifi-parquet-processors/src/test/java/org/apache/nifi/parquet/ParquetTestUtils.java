@@ -16,15 +16,7 @@
  */
 package org.apache.nifi.parquet;
 
-import static java.util.stream.Collectors.toList;
-
-import java.io.File;
-import java.io.IOException;
-import java.io.InputStream;
-import java.nio.charset.StandardCharsets;
-import java.util.Collection;
-import java.util.Map;
-import java.util.stream.IntStream;
+import org.apache.avro.LogicalTypes;
 import org.apache.avro.Schema;
 import org.apache.avro.generic.GenericData;
 import org.apache.avro.generic.GenericRecord;
@@ -35,6 +27,19 @@ import org.apache.parquet.avro.AvroParquetWriter;
 import org.apache.parquet.hadoop.ParquetWriter;
 import org.apache.parquet.hadoop.util.HadoopOutputFile;
 
+import java.io.File;
+import java.io.IOException;
+import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
+import java.time.Instant;
+import java.time.LocalDate;
+import java.time.LocalTime;
+import java.util.Collection;
+import java.util.List;
+import java.util.Map;
+import java.util.stream.IntStream;
+
+import static java.util.stream.Collectors.toList;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 
 public class ParquetTestUtils {
@@ -87,6 +92,62 @@ public class ParquetTestUtils {
                 .withConf(conf)
                 .withRowGroupSize(8192L)
                 .build();
+    }
+
+    /**
+     * Creates a parquet file with all temporal logical types for comprehensive testing of NIFI-15548.
+     * This tests: date, time-millis, time-micros, timestamp-millis, timestamp-micros,
+     * and a nullable timestamp-millis field (union with null).
+     *
+     * @param numRecords Number of records to create
+     * @param directory Directory where the parquet file will be created
+     * @return The created parquet file
+     * @throws IOException if file creation fails
+     */
+    public static File createAllTemporalTypesParquetFile(int numRecords, File directory) throws IOException {
+        // Create schemas for all temporal logical types
+        final Schema dateSchema = LogicalTypes.date().addToSchema(Schema.create(Schema.Type.INT));
+        final Schema timeMillisSchema = LogicalTypes.timeMillis().addToSchema(Schema.create(Schema.Type.INT));
+        final Schema timeMicrosSchema = LogicalTypes.timeMicros().addToSchema(Schema.create(Schema.Type.LONG));
+        final Schema timestampMillisSchema = LogicalTypes.timestampMillis().addToSchema(Schema.create(Schema.Type.LONG));
+        final Schema timestampMicrosSchema = LogicalTypes.timestampMicros().addToSchema(Schema.create(Schema.Type.LONG));
+        // Nullable timestamp (union with null) to test union handling
+        final Schema nullableTimestampSchema = Schema.createUnion(Schema.create(Schema.Type.NULL), timestampMillisSchema);
+
+        final Schema recordSchema = Schema.createRecord("AllTemporalTypesRecord", null, "test", false);
+        recordSchema.setFields(List.of(
+                new Schema.Field("id", Schema.create(Schema.Type.INT)),
+                new Schema.Field("date_field", dateSchema),
+                new Schema.Field("time_millis_field", timeMillisSchema),
+                new Schema.Field("time_micros_field", timeMicrosSchema),
+                new Schema.Field("timestamp_millis_field", timestampMillisSchema),
+                new Schema.Field("timestamp_micros_field", timestampMicrosSchema),
+                new Schema.Field("nullable_timestamp_field", nullableTimestampSchema)
+        ));
+
+        final File parquetFile = new File(directory, "TestParquetReader-testAllTemporalTypes-" + System.currentTimeMillis());
+
+        try (final ParquetWriter<GenericRecord> writer = createParquetWriter(recordSchema, parquetFile)) {
+            for (int i = 0; i < numRecords; i++) {
+                final GenericRecord record = new GenericData.Record(recordSchema);
+                record.put("id", i);
+                // date: days since epoch
+                record.put("date_field", (int) LocalDate.now().toEpochDay());
+                // time-millis: milliseconds since midnight
+                record.put("time_millis_field", LocalTime.now().toSecondOfDay() * 1000);
+                // time-micros: microseconds since midnight
+                record.put("time_micros_field", LocalTime.now().toNanoOfDay() / 1000L);
+                // timestamp-millis: milliseconds since epoch
+                record.put("timestamp_millis_field", Instant.now().toEpochMilli());
+                // timestamp-micros: microseconds since epoch
+                record.put("timestamp_micros_field", Instant.now().toEpochMilli() * 1000L);
+                // nullable timestamp: milliseconds since epoch (non-null value)
+                record.put("nullable_timestamp_field", Instant.now().toEpochMilli());
+                writer.write(record);
+            }
+        }
+
+        return parquetFile;
     }
 
     private ParquetTestUtils() { }

@@ -17,10 +17,25 @@
 
 package org.apache.nifi.processors.cipher;
 
-import static java.nio.charset.StandardCharsets.UTF_8;
-import static org.apache.nifi.processors.cipher.VerifyContentMAC.Encoding.BASE64;
-import static org.apache.nifi.processors.cipher.VerifyContentMAC.Encoding.HEXADECIMAL;
-import static org.apache.nifi.processors.cipher.VerifyContentMAC.Encoding.UTF8;
+import org.apache.nifi.annotation.behavior.InputRequirement;
+import org.apache.nifi.annotation.behavior.SupportsBatching;
+import org.apache.nifi.annotation.behavior.WritesAttribute;
+import org.apache.nifi.annotation.behavior.WritesAttributes;
+import org.apache.nifi.annotation.documentation.CapabilityDescription;
+import org.apache.nifi.annotation.documentation.Tags;
+import org.apache.nifi.annotation.lifecycle.OnScheduled;
+import org.apache.nifi.components.PropertyDescriptor;
+import org.apache.nifi.components.ValidationContext;
+import org.apache.nifi.components.ValidationResult;
+import org.apache.nifi.expression.ExpressionLanguageScope;
+import org.apache.nifi.flowfile.FlowFile;
+import org.apache.nifi.migration.PropertyConfiguration;
+import org.apache.nifi.processor.AbstractProcessor;
+import org.apache.nifi.processor.ProcessContext;
+import org.apache.nifi.processor.ProcessSession;
+import org.apache.nifi.processor.Relationship;
+import org.apache.nifi.processor.exception.ProcessException;
+import org.apache.nifi.processor.util.StandardValidators;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -39,24 +54,10 @@ import java.util.function.Function;
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
 
-import org.apache.nifi.annotation.behavior.InputRequirement;
-import org.apache.nifi.annotation.behavior.SupportsBatching;
-import org.apache.nifi.annotation.behavior.WritesAttribute;
-import org.apache.nifi.annotation.behavior.WritesAttributes;
-import org.apache.nifi.annotation.documentation.CapabilityDescription;
-import org.apache.nifi.annotation.documentation.Tags;
-import org.apache.nifi.annotation.lifecycle.OnScheduled;
-import org.apache.nifi.components.PropertyDescriptor;
-import org.apache.nifi.components.ValidationContext;
-import org.apache.nifi.components.ValidationResult;
-import org.apache.nifi.expression.ExpressionLanguageScope;
-import org.apache.nifi.flowfile.FlowFile;
-import org.apache.nifi.processor.AbstractProcessor;
-import org.apache.nifi.processor.ProcessContext;
-import org.apache.nifi.processor.ProcessSession;
-import org.apache.nifi.processor.Relationship;
-import org.apache.nifi.processor.exception.ProcessException;
-import org.apache.nifi.processor.util.StandardValidators;
+import static java.nio.charset.StandardCharsets.UTF_8;
+import static org.apache.nifi.processors.cipher.VerifyContentMAC.Encoding.BASE64;
+import static org.apache.nifi.processors.cipher.VerifyContentMAC.Encoding.HEXADECIMAL;
+import static org.apache.nifi.processors.cipher.VerifyContentMAC.Encoding.UTF8;
 
 @SupportsBatching
 @InputRequirement(InputRequirement.Requirement.INPUT_REQUIRED)
@@ -73,8 +74,7 @@ public class VerifyContentMAC extends AbstractProcessor {
     protected static final String HMAC_SHA512 = "HmacSHA512";
 
     protected static final PropertyDescriptor MAC_ALGORITHM = new PropertyDescriptor.Builder()
-            .name("mac-algorithm")
-            .displayName("Message Authentication Code Algorithm")
+            .name("Message Authentication Code Algorithm")
             .description("Hashed Message Authentication Code Function")
             .allowableValues(HMAC_SHA256, HMAC_SHA512)
             .required(true)
@@ -82,8 +82,7 @@ public class VerifyContentMAC extends AbstractProcessor {
             .build();
 
     protected static final PropertyDescriptor MAC_ENCODING = new PropertyDescriptor.Builder()
-            .name("message-authentication-code-encoding")
-            .displayName("Message Authentication Code Encoding")
+            .name("Message Authentication Code Encoding")
             .description("Encoding of the Message Authentication Code")
             .required(true)
             .addValidator(StandardValidators.NON_EMPTY_VALIDATOR)
@@ -92,8 +91,7 @@ public class VerifyContentMAC extends AbstractProcessor {
             .build();
 
     protected static final PropertyDescriptor MAC = new PropertyDescriptor.Builder()
-            .name("message-authentication-code")
-            .displayName("Message Authentication Code")
+            .name("Message Authentication Code")
             .description("The MAC to compare with the calculated value")
             .required(true)
             .addValidator(StandardValidators.NON_EMPTY_VALIDATOR)
@@ -101,8 +99,7 @@ public class VerifyContentMAC extends AbstractProcessor {
             .build();
 
     protected static final PropertyDescriptor SECRET_KEY_ENCODING = new PropertyDescriptor.Builder()
-            .name("secret-key-encoding")
-            .displayName("Secret Key Encoding")
+            .name("Secret Key Encoding")
             .description("Encoding of the Secret Key")
             .required(true)
             .addValidator(StandardValidators.NON_EMPTY_VALIDATOR)
@@ -111,8 +108,7 @@ public class VerifyContentMAC extends AbstractProcessor {
             .build();
 
     protected static final PropertyDescriptor SECRET_KEY = new PropertyDescriptor.Builder()
-            .name("secret-key")
-            .displayName("Secret Key")
+            .name("Secret Key")
             .description("Secret key to calculate the hash")
             .required(true)
             .addValidator(StandardValidators.NON_EMPTY_VALIDATOR)
@@ -194,6 +190,15 @@ public class VerifyContentMAC extends AbstractProcessor {
             getLogger().error("Processing Failed with Message Authentication Code Algorithm [{}]", macAlgorithm, e);
             session.transfer(flowFile, FAILURE);
         }
+    }
+
+    @Override
+    public void migrateProperties(PropertyConfiguration config) {
+        config.renameProperty("mac-algorithm", MAC_ALGORITHM.getName());
+        config.renameProperty("message-authentication-code-encoding", MAC_ENCODING.getName());
+        config.renameProperty("message-authentication-code", MAC.getName());
+        config.renameProperty("secret-key-encoding", SECRET_KEY_ENCODING.getName());
+        config.renameProperty("secret-key", SECRET_KEY.getName());
     }
 
     @Override

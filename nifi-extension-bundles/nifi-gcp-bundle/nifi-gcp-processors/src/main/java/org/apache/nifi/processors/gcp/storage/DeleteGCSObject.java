@@ -26,6 +26,7 @@ import org.apache.nifi.annotation.documentation.Tags;
 import org.apache.nifi.components.PropertyDescriptor;
 import org.apache.nifi.expression.ExpressionLanguageScope;
 import org.apache.nifi.flowfile.FlowFile;
+import org.apache.nifi.migration.PropertyConfiguration;
 import org.apache.nifi.processor.ProcessContext;
 import org.apache.nifi.processor.ProcessSession;
 import org.apache.nifi.processor.exception.ProcessException;
@@ -36,9 +37,7 @@ import java.util.List;
 import java.util.concurrent.TimeUnit;
 
 import static org.apache.nifi.processors.gcp.storage.StorageAttributes.BUCKET_ATTR;
-import static org.apache.nifi.processors.gcp.storage.StorageAttributes.BUCKET_DESC;
 import static org.apache.nifi.processors.gcp.storage.StorageAttributes.KEY_DESC;
-
 
 @SupportsBatching
 @Tags({"google cloud", "gcs", "google", "storage", "delete"})
@@ -47,19 +46,14 @@ import static org.apache.nifi.processors.gcp.storage.StorageAttributes.KEY_DESC;
 @SeeAlso({PutGCSObject.class, FetchGCSObject.class, ListGCSBucket.class})
 @InputRequirement(InputRequirement.Requirement.INPUT_REQUIRED)
 public class DeleteGCSObject extends AbstractGCSProcessor {
-    public static final PropertyDescriptor BUCKET = new PropertyDescriptor
-            .Builder().name("gcs-bucket")
-            .displayName("Bucket")
-            .description(BUCKET_DESC)
-            .required(true)
+    public static final PropertyDescriptor BUCKET = new PropertyDescriptor.Builder()
+            .fromPropertyDescriptor(AbstractGCSProcessor.BUCKET)
             .defaultValue("${" + BUCKET_ATTR + "}")
             .expressionLanguageSupported(ExpressionLanguageScope.FLOWFILE_ATTRIBUTES)
-            .addValidator(StandardValidators.NON_EMPTY_VALIDATOR)
             .build();
 
-    public static final PropertyDescriptor KEY = new PropertyDescriptor
-            .Builder().name("gcs-key")
-            .displayName("Key")
+    public static final PropertyDescriptor KEY = new PropertyDescriptor.Builder()
+            .name("Key")
             .description(KEY_DESC)
             .required(true)
             .defaultValue("${filename}")
@@ -68,8 +62,7 @@ public class DeleteGCSObject extends AbstractGCSProcessor {
             .build();
 
     public static final PropertyDescriptor GENERATION = new PropertyDescriptor.Builder()
-            .name("gcs-generation")
-            .displayName("Generation")
+            .name("Generation")
             .description("The generation of the object to be deleted. If null, will use latest version of the object.")
             .addValidator(StandardValidators.POSITIVE_LONG_VALIDATOR)
             .expressionLanguageSupported(ExpressionLanguageScope.FLOWFILE_ATTRIBUTES)
@@ -117,7 +110,6 @@ public class DeleteGCSObject extends AbstractGCSProcessor {
                 .evaluateAttributeExpressions(flowFile)
                 .asLong();
 
-
         final Storage storage = getCloudService();
 
         // Deletes a key on Google Cloud
@@ -133,5 +125,13 @@ public class DeleteGCSObject extends AbstractGCSProcessor {
         session.transfer(flowFile, REL_SUCCESS);
         final long millis = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startNanos);
         getLogger().info("Successfully deleted GCS Object for {} in {} millis; routing to success", flowFile, millis);
+    }
+
+    @Override
+    public void migrateProperties(PropertyConfiguration config) {
+        super.migrateProperties(config);
+        config.renameProperty("gcs-bucket", BUCKET.getName());
+        config.renameProperty("gcs-key", KEY.getName());
+        config.renameProperty("gcs-generation", GENERATION.getName());
     }
 }

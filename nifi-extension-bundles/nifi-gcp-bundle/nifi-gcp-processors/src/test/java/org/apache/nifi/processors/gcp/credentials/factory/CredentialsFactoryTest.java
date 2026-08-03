@@ -27,6 +27,7 @@ import org.apache.nifi.util.TestRunner;
 import org.apache.nifi.util.TestRunners;
 import org.junit.jupiter.api.Test;
 
+import java.io.IOException;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Modifier;
 import java.nio.file.Files;
@@ -35,10 +36,11 @@ import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * Tests of the validation and credentials provider capabilities of CredentialsFactory.
+ * Tests of the credentials provider capabilities of CredentialsFactory.
  */
 public class CredentialsFactoryTest {
 
@@ -68,7 +70,7 @@ public class CredentialsFactoryTest {
     @Test
     public void testExplicitApplicationDefaultCredentials() throws Exception {
         final TestRunner runner = TestRunners.newTestRunner(MockCredentialsFactoryProcessor.class);
-        runner.setProperty(CredentialPropertyDescriptors.USE_APPLICATION_DEFAULT_CREDENTIALS, "true");
+        runner.setProperty(CredentialPropertyDescriptors.AUTHENTICATION_STRATEGY, AuthenticationStrategy.APPLICATION_DEFAULT.getValue());
         runner.assertValid();
 
         Map<PropertyDescriptor, String> properties = runner.getProcessContext().getProperties();
@@ -79,16 +81,24 @@ public class CredentialsFactoryTest {
     }
 
     @Test
-    public void testExplicitApplicationDefaultCredentialsExclusive() throws Exception {
+    public void testExplicitApplicationDefaultCredentialsIgnoresServiceAccountFile() throws Exception {
         final TestRunner runner = TestRunners.newTestRunner(MockCredentialsFactoryProcessor.class);
-        runner.setProperty(CredentialPropertyDescriptors.USE_APPLICATION_DEFAULT_CREDENTIALS, "true");
-        runner.setProperty(CredentialPropertyDescriptors.USE_COMPUTE_ENGINE_CREDENTIALS, "true");
-        runner.assertNotValid();
+        runner.setProperty(CredentialPropertyDescriptors.AUTHENTICATION_STRATEGY, AuthenticationStrategy.APPLICATION_DEFAULT.getValue());
+        runner.setProperty(CredentialPropertyDescriptors.SERVICE_ACCOUNT_JSON_FILE,
+                "src/test/resources/mock-gcp-service-account.json");
+        runner.assertValid();
+
+        final Map<PropertyDescriptor, String> properties = runner.getProcessContext().getProperties();
+        final CredentialsFactory factory = new CredentialsFactory();
+        final GoogleCredentials credentials = factory.getGoogleCredentials(properties, TRANSPORT_FACTORY);
+
+        assertNotNull(credentials);
     }
 
     @Test
     public void testJsonFileCredentials() throws Exception {
         final TestRunner runner = TestRunners.newTestRunner(MockCredentialsFactoryProcessor.class);
+        runner.setProperty(CredentialPropertyDescriptors.AUTHENTICATION_STRATEGY, AuthenticationStrategy.SERVICE_ACCOUNT_JSON_FILE.getValue());
         runner.setProperty(CredentialPropertyDescriptors.SERVICE_ACCOUNT_JSON_FILE,
                 "src/test/resources/mock-gcp-service-account.json");
         runner.assertValid();
@@ -102,10 +112,10 @@ public class CredentialsFactoryTest {
                 "credentials class should be equal");
     }
 
-
     @Test
     public void testBadJsonFileCredentials() throws Exception {
         final TestRunner runner = TestRunners.newTestRunner(MockCredentialsFactoryProcessor.class);
+        runner.setProperty(CredentialPropertyDescriptors.AUTHENTICATION_STRATEGY, AuthenticationStrategy.SERVICE_ACCOUNT_JSON_FILE.getValue());
         runner.setProperty(CredentialPropertyDescriptors.SERVICE_ACCOUNT_JSON_FILE,
                 "src/test/resources/bad-mock-gcp-service-account.json");
         runner.assertNotValid();
@@ -117,6 +127,7 @@ public class CredentialsFactoryTest {
                 Files.readAllBytes(Paths.get("src/test/resources/mock-gcp-service-account.json"))
         );
         final TestRunner runner = TestRunners.newTestRunner(MockCredentialsFactoryProcessor.class);
+        runner.setProperty(CredentialPropertyDescriptors.AUTHENTICATION_STRATEGY, AuthenticationStrategy.SERVICE_ACCOUNT_JSON.getValue());
         runner.setProperty(CredentialPropertyDescriptors.SERVICE_ACCOUNT_JSON,
                 jsonRead);
         runner.assertValid();
@@ -131,9 +142,34 @@ public class CredentialsFactoryTest {
     }
 
     @Test
+    public void testJsonFileCredentialsRejectsExternalAccount() throws Exception {
+        final TestRunner runner = TestRunners.newTestRunner(MockCredentialsFactoryProcessor.class);
+        runner.setProperty(CredentialPropertyDescriptors.AUTHENTICATION_STRATEGY, AuthenticationStrategy.SERVICE_ACCOUNT_JSON_FILE.getValue());
+        runner.setProperty(CredentialPropertyDescriptors.SERVICE_ACCOUNT_JSON_FILE,
+                "src/test/resources/external-account-credentials.json");
+        runner.assertValid();
+
+        final Map<PropertyDescriptor, String> properties = runner.getProcessContext().getProperties();
+        final CredentialsFactory factory = new CredentialsFactory();
+        final IOException exception = assertThrows(IOException.class, () -> factory.getGoogleCredentials(properties, TRANSPORT_FACTORY));
+        assertTrue(exception.getMessage().contains("service_account"));
+    }
+
+    @Test
+    public void testJsonStringCredentialsRejectsExternalAccount() throws Exception {
+        final String externalAccountJson = new String(
+                Files.readAllBytes(Paths.get("src/test/resources/external-account-credentials.json"))
+        );
+        final TestRunner runner = TestRunners.newTestRunner(MockCredentialsFactoryProcessor.class);
+        runner.setProperty(CredentialPropertyDescriptors.AUTHENTICATION_STRATEGY, AuthenticationStrategy.SERVICE_ACCOUNT_JSON.getValue());
+        runner.setProperty(CredentialPropertyDescriptors.SERVICE_ACCOUNT_JSON, externalAccountJson);
+        runner.assertNotValid();
+    }
+
+    @Test
     public void testComputeEngineCredentials() throws Exception {
         final TestRunner runner = TestRunners.newTestRunner(MockCredentialsFactoryProcessor.class);
-        runner.setProperty(CredentialPropertyDescriptors.USE_COMPUTE_ENGINE_CREDENTIALS, "true");
+        runner.setProperty(CredentialPropertyDescriptors.AUTHENTICATION_STRATEGY, AuthenticationStrategy.COMPUTE_ENGINE.getValue());
         runner.assertValid();
 
         Map<PropertyDescriptor, String> properties = runner.getProcessContext().getProperties();

@@ -16,6 +16,19 @@
  */
 package org.apache.nifi.csv;
 
+import org.apache.commons.csv.CSVFormat;
+import org.apache.commons.csv.QuoteMode;
+import org.apache.nifi.schema.access.SchemaNameAsAttribute;
+import org.apache.nifi.serialization.SimpleRecordSchema;
+import org.apache.nifi.serialization.record.DataType;
+import org.apache.nifi.serialization.record.MapRecord;
+import org.apache.nifi.serialization.record.Record;
+import org.apache.nifi.serialization.record.RecordField;
+import org.apache.nifi.serialization.record.RecordFieldType;
+import org.apache.nifi.serialization.record.RecordSchema;
+import org.apache.nifi.serialization.record.RecordSet;
+import org.junit.jupiter.api.Test;
+
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.math.BigDecimal;
@@ -31,18 +44,6 @@ import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import org.apache.commons.csv.CSVFormat;
-import org.apache.commons.csv.QuoteMode;
-import org.apache.nifi.schema.access.SchemaNameAsAttribute;
-import org.apache.nifi.serialization.SimpleRecordSchema;
-import org.apache.nifi.serialization.record.DataType;
-import org.apache.nifi.serialization.record.MapRecord;
-import org.apache.nifi.serialization.record.Record;
-import org.apache.nifi.serialization.record.RecordField;
-import org.apache.nifi.serialization.record.RecordFieldType;
-import org.apache.nifi.serialization.record.RecordSchema;
-import org.apache.nifi.serialization.record.RecordSet;
-import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
@@ -52,7 +53,6 @@ public class TestWriteFastCSVResult {
         .setQuoteMode(QuoteMode.NONE)
         .setRecordSeparator("\n")
         .get();
-
 
     @Test
     public void testDataTypes() throws IOException {
@@ -234,7 +234,6 @@ public class TestWriteFastCSVResult {
         assertEquals("id,name\n1,\n", output);
     }
 
-
     @Test
     public void testMissingAndExtraFieldWriteRecord() throws IOException {
         final List<RecordField> fields = new ArrayList<>();
@@ -367,7 +366,6 @@ public class TestWriteFastCSVResult {
 
         assertEquals("id,name\n", output);
     }
-
 
     private DateTimeFormatter getFormatter(final String format) {
         return DateTimeFormatter.ofPattern(format);

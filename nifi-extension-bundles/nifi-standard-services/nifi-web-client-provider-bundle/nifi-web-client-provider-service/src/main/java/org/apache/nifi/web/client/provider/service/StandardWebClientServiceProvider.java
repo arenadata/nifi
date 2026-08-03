@@ -38,11 +38,6 @@ import org.apache.nifi.web.client.proxy.ProxyContext;
 import org.apache.nifi.web.client.redirect.RedirectHandling;
 import org.apache.nifi.web.client.ssl.TlsContext;
 
-import javax.net.ssl.SSLContext;
-import javax.net.ssl.X509ExtendedKeyManager;
-import javax.net.ssl.X509KeyManager;
-import javax.net.ssl.X509TrustManager;
-
 import java.net.Proxy;
 import java.net.http.HttpClient.Version;
 import java.time.Duration;
@@ -50,6 +45,10 @@ import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Function;
+import javax.net.ssl.SSLContext;
+import javax.net.ssl.X509ExtendedKeyManager;
+import javax.net.ssl.X509KeyManager;
+import javax.net.ssl.X509TrustManager;
 
 import static org.apache.nifi.proxy.ProxyConfigurationService.PROXY_CONFIGURATION_SERVICE;
 
@@ -123,6 +122,7 @@ public class StandardWebClientServiceProvider extends AbstractControllerService 
         propertyConfiguration.renameProperty("write-timeout", WRITE_TIMEOUT.getName());
         propertyConfiguration.renameProperty("redirect-handling-strategy", REDIRECT_HANDLING_STRATEGY.getName());
         propertyConfiguration.renameProperty("ssl-context-service", SSL_CONTEXT_SERVICE.getName());
+        propertyConfiguration.renameProperty(ProxyConfigurationService.OBSOLETE_PROXY_CONFIGURATION_SERVICE, ProxyConfigurationService.PROXY_CONFIGURATION_SERVICE.getName());
     }
 
     @OnEnabled
@@ -136,7 +136,7 @@ public class StandardWebClientServiceProvider extends AbstractControllerService 
         standardWebClientService.setReadTimeout(readTimeout);
 
         final Duration writeTimeout = getDuration(context, WRITE_TIMEOUT);
-        standardWebClientService.setReadTimeout(writeTimeout);
+        standardWebClientService.setWriteTimeout(writeTimeout);
 
         final String redirectHandlingStrategy = context.getProperty(REDIRECT_HANDLING_STRATEGY).getValue();
         final RedirectHandling redirectHandling = RedirectHandling.valueOf(redirectHandlingStrategy);

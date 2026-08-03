@@ -16,9 +16,9 @@
  */
 package org.apache.nifi.jaxb;
 
-import java.util.Date;
-
 import org.apache.nifi.reporting.ComponentType;
+
+import java.util.Date;
 
 /**
  *
@@ -30,6 +30,7 @@ public class AdaptedBulletin {
     private String level;
     private String category;
     private String message;
+    private String stackTrace;
 
     private String groupId;
     private String groupName;
@@ -83,6 +84,14 @@ public class AdaptedBulletin {
 
     public void setMessage(String message) {
         this.message = message;
+    }
+
+    public String getStackTrace() {
+        return stackTrace;
+    }
+
+    public void setStackTrace(String stackTrace) {
+        this.stackTrace = stackTrace;
     }
 
     public String getSourceId() {

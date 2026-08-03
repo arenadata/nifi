@@ -17,13 +17,13 @@
 package org.apache.nifi.web.api.dto.status;
 
 import io.swagger.v3.oas.annotations.media.Schema;
+import jakarta.xml.bind.annotation.XmlType;
 import org.apache.nifi.web.api.entity.ConnectionStatusSnapshotEntity;
 import org.apache.nifi.web.api.entity.PortStatusSnapshotEntity;
 import org.apache.nifi.web.api.entity.ProcessGroupStatusSnapshotEntity;
 import org.apache.nifi.web.api.entity.ProcessorStatusSnapshotEntity;
 import org.apache.nifi.web.api.entity.RemoteProcessGroupStatusSnapshotEntity;
 
-import jakarta.xml.bind.annotation.XmlType;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
@@ -252,7 +252,7 @@ public class ProcessGroupStatusSnapshotDTO implements Cloneable {
     }
 
     /**
-     * The transferred stats for this process group. This represents the count/size of flowfiles transferred to/from queues.
+     * The transferred stats for this process group. This represents the count/size of FlowFiles transferred to/from queues.
      *
      * @return The transferred status for this process group
      */
@@ -262,7 +262,7 @@ public class ProcessGroupStatusSnapshotDTO implements Cloneable {
     }
 
     /**
-     * The received stats for this process group. This represents the count/size of flowfiles received.
+     * The received stats for this process group. This represents the count/size of FlowFiles received.
      *
      * @return The received stats for this process group
      */
@@ -271,9 +271,8 @@ public class ProcessGroupStatusSnapshotDTO implements Cloneable {
         return received;
     }
 
-
     /**
-     * The sent stats for this process group. This represents the count/size of flowfiles sent.
+     * The sent stats for this process group. This represents the count/size of FlowFiles sent.
      *
      * @return The sent stats for this process group
      */
@@ -281,7 +280,6 @@ public class ProcessGroupStatusSnapshotDTO implements Cloneable {
     public String getSent() {
         return sent;
     }
-
 
     /**
      * The queued count for this process group.
@@ -293,7 +291,6 @@ public class ProcessGroupStatusSnapshotDTO implements Cloneable {
         return queuedCount;
     }
 
-
     /**
      * The queued size for this process group.
      *
@@ -303,7 +300,6 @@ public class ProcessGroupStatusSnapshotDTO implements Cloneable {
     public String getQueuedSize() {
         return queuedSize;
     }
-
 
     /**
      * The queued stats for this process group.
@@ -315,7 +311,6 @@ public class ProcessGroupStatusSnapshotDTO implements Cloneable {
         return queued;
     }
 
-
     /**
      * The read stats for this process group.
      *
@@ -325,7 +320,6 @@ public class ProcessGroupStatusSnapshotDTO implements Cloneable {
     public String getRead() {
         return read;
     }
-
 
     /**
      * The written stats for this process group.
@@ -337,7 +331,6 @@ public class ProcessGroupStatusSnapshotDTO implements Cloneable {
         return written;
     }
 
-
     /**
      * The input stats for this process group.
      *
@@ -347,7 +340,6 @@ public class ProcessGroupStatusSnapshotDTO implements Cloneable {
     public String getInput() {
         return input;
     }
-
 
     @Schema(description = "The number of FlowFiles that have come into this ProcessGroup in the last 5 minutes")
     public Integer getFlowFilesIn() {
@@ -609,7 +601,6 @@ public class ProcessGroupStatusSnapshotDTO implements Cloneable {
             other.setProcessGroupStatusSnapshots(childGroups);
         }
 
-
         other.setProcessingPerformanceStatus(getProcessingPerformanceStatus());
 
         return other;
@@ -619,7 +610,7 @@ public class ProcessGroupStatusSnapshotDTO implements Cloneable {
         if (portStatusSnapshots != null) {
             final List<PortStatusSnapshotEntity> portStatusSnapshotEntities = new ArrayList<>();
             for (final PortStatusSnapshotEntity portStatusSnapshotEntity : portStatusSnapshots) {
-               portStatusSnapshotEntities.add(portStatusSnapshotEntity.clone());
+                portStatusSnapshotEntities.add(portStatusSnapshotEntity.clone());
             }
             return portStatusSnapshotEntities;
         }

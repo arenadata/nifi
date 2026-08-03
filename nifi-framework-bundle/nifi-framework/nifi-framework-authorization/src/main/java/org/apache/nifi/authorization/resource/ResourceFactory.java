@@ -17,13 +17,12 @@
 package org.apache.nifi.authorization.resource;
 
 import org.apache.nifi.authorization.Resource;
-import org.apache.nifi.components.RequiredPermission;
 
 import java.util.Objects;
 
 public final class ResourceFactory {
 
-    private final static Resource CONTROLLER_RESOURCE = new Resource() {
+    private static final Resource CONTROLLER_RESOURCE = new Resource() {
         @Override
         public String getIdentifier() {
             return ResourceType.Controller.getValue();
@@ -40,7 +39,7 @@ public final class ResourceFactory {
         }
     };
 
-    private final static Resource FLOW_RESOURCE = new Resource() {
+    private static final Resource FLOW_RESOURCE = new Resource() {
         @Override
         public String getIdentifier() {
             return ResourceType.Flow.getValue();
@@ -57,7 +56,7 @@ public final class ResourceFactory {
         }
     };
 
-    private final static Resource POLICY_RESOURCE = new Resource() {
+    private static final Resource POLICY_RESOURCE = new Resource() {
         @Override
         public String getIdentifier() {
             return ResourceType.Policy.getValue();
@@ -74,7 +73,7 @@ public final class ResourceFactory {
         }
     };
 
-    private final static Resource COUNTERS_RESOURCE = new Resource() {
+    private static final Resource COUNTERS_RESOURCE = new Resource() {
         @Override
         public String getIdentifier() {
             return ResourceType.Counters.getValue();
@@ -91,7 +90,7 @@ public final class ResourceFactory {
         }
     };
 
-    private final static Resource PROVENANCE_RESOURCE = new Resource() {
+    private static final Resource PROVENANCE_RESOURCE = new Resource() {
         @Override
         public String getIdentifier() {
             return ResourceType.Provenance.getValue();
@@ -108,7 +107,7 @@ public final class ResourceFactory {
         }
     };
 
-    private final static Resource PROVENANCE_DATA_RESOURCE = new Resource() {
+    private static final Resource PROVENANCE_DATA_RESOURCE = new Resource() {
         @Override
         public String getIdentifier() {
             return ResourceType.ProvenanceData.getValue();
@@ -125,7 +124,7 @@ public final class ResourceFactory {
         }
     };
 
-    private final static Resource DATA_RESOURCE = new Resource() {
+    private static final Resource DATA_RESOURCE = new Resource() {
         @Override
         public String getIdentifier() {
             return ResourceType.Data.getValue();
@@ -142,7 +141,7 @@ public final class ResourceFactory {
         }
     };
 
-    private final static Resource PROXY_RESOURCE = new Resource() {
+    private static final Resource PROXY_RESOURCE = new Resource() {
         @Override
         public String getIdentifier() {
             return ResourceType.Proxy.getValue();
@@ -159,7 +158,7 @@ public final class ResourceFactory {
         }
     };
 
-    private final static Resource RESOURCE_RESOURCE = new Resource() {
+    private static final Resource RESOURCE_RESOURCE = new Resource() {
         @Override
         public String getIdentifier() {
             return ResourceType.Resource.getValue();
@@ -176,7 +175,7 @@ public final class ResourceFactory {
         }
     };
 
-    private final static Resource SITE_TO_SITE_RESOURCE = new Resource() {
+    private static final Resource SITE_TO_SITE_RESOURCE = new Resource() {
         @Override
         public String getIdentifier() {
             return ResourceType.SiteToSite.getValue();
@@ -193,7 +192,7 @@ public final class ResourceFactory {
         }
     };
 
-    private final static Resource SYSTEM_RESOURCE = new Resource() {
+    private static final Resource SYSTEM_RESOURCE = new Resource() {
         @Override
         public String getIdentifier() {
             return ResourceType.System.getValue();
@@ -210,24 +209,7 @@ public final class ResourceFactory {
         }
     };
 
-    private final static Resource RESTRICTED_COMPONENTS_RESOURCE = new Resource() {
-        @Override
-        public String getIdentifier() {
-            return ResourceType.RestrictedComponents.getValue();
-        }
-
-        @Override
-        public String getName() {
-            return "Restricted Components";
-        }
-
-        @Override
-        public String getSafeDescription() {
-            return "restricted components";
-        }
-    };
-
-    private final static Resource TENANT_RESOURCE = new Resource() {
+    private static final Resource TENANT_RESOURCE = new Resource() {
         @Override
         public String getIdentifier() {
             return ResourceType.Tenant.getValue();
@@ -244,7 +226,7 @@ public final class ResourceFactory {
         }
     };
 
-    private final static Resource POLICIES_RESOURCE = new Resource() {
+    private static final Resource POLICIES_RESOURCE = new Resource() {
 
         @Override
         public String getIdentifier() {
@@ -262,7 +244,7 @@ public final class ResourceFactory {
         }
     };
 
-    private final static Resource PARAMETER_CONTEXTS_RESOURCE = new Resource() {
+    private static final Resource PARAMETER_CONTEXTS_RESOURCE = new Resource() {
 
         @Override
         public String getIdentifier() {
@@ -280,7 +262,7 @@ public final class ResourceFactory {
         }
     };
 
-    private final static Resource PARAMETER_PROVIDERS_RESOURCE = new Resource() {
+    private static final Resource PARAMETER_PROVIDERS_RESOURCE = new Resource() {
 
         @Override
         public String getIdentifier() {
@@ -298,6 +280,23 @@ public final class ResourceFactory {
         }
     };
 
+    private static final Resource CONNECTORS_RESOURCE = new Resource() {
+
+        @Override
+        public String getIdentifier() {
+            return ResourceType.Connector.getValue();
+        }
+
+        @Override
+        public String getName() {
+            return "Connectors";
+        }
+
+        @Override
+        public String getSafeDescription() {
+            return "connectors";
+        }
+    };
 
     /**
      * Gets the Resource for accessing the Controller. This includes Controller level configuration, bulletins, reporting tasks, and the cluster.
@@ -340,6 +339,14 @@ public final class ResourceFactory {
      */
     public static Resource getParameterProvidersResource() {
         return PARAMETER_PROVIDERS_RESOURCE;
+    }
+
+    /**
+     * Gets the Resource for accessing Connectors.
+     * @return The resource for access Connectors
+     */
+    public static Resource getConnectorsResource() {
+        return CONNECTORS_RESOURCE;
     }
 
     /**
@@ -387,40 +394,6 @@ public final class ResourceFactory {
      */
     public static Resource getSystemResource() {
         return SYSTEM_RESOURCE;
-    }
-
-    /**
-     * Gets the Resource for accessing restricted components.
-     *
-     * @return The restricted components resource
-     */
-    public static Resource getRestrictedComponentsResource() {
-        return RESTRICTED_COMPONENTS_RESOURCE;
-    }
-
-    /**
-     * Gets a Resource for accessing certain kinds of restricted components.
-     *
-     * @param requiredPermission The required permission
-     * @return The restricted components resource
-     */
-    public static Resource getRestrictedComponentsResource(final RequiredPermission requiredPermission) {
-        return new Resource() {
-            @Override
-            public String getIdentifier() {
-                return RESTRICTED_COMPONENTS_RESOURCE.getIdentifier() + "/" + requiredPermission.getPermissionIdentifier();
-            }
-
-            @Override
-            public String getName() {
-                return requiredPermission.getPermissionLabel();
-            }
-
-            @Override
-            public String getSafeDescription() {
-                return "Components requiring additional permission: " + requiredPermission.getPermissionLabel();
-            }
-        };
     }
 
     /**
@@ -560,6 +533,7 @@ public final class ResourceFactory {
                     case Label -> "Label";
                     case ParameterContext -> "Parameter Context";
                     case ParameterProvider -> "Parameter Provider";
+                    case Connector -> "Connector";
                     default -> "Component";
                 };
                 return componentType + " with ID " + identifier;

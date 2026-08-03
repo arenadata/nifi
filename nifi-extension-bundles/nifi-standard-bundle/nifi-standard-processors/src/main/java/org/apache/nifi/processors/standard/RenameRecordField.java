@@ -127,7 +127,6 @@ public class RenameRecordField extends AbstractRecordProcessor {
     private volatile RecordPathCache recordPathCache;
     private volatile List<String> recordPaths;
 
-
     @Override
     protected PropertyDescriptor getSupportedDynamicPropertyDescriptor(final String propertyDescriptorName) {
         return new PropertyDescriptor.Builder()
@@ -139,7 +138,6 @@ public class RenameRecordField extends AbstractRecordProcessor {
             .addValidator(new RecordPathPropertyNameValidator())
             .build();
     }
-
 
     @Override
     protected Collection<ValidationResult> customValidate(final ValidationContext validationContext) {
@@ -156,7 +154,6 @@ public class RenameRecordField extends AbstractRecordProcessor {
             .build());
     }
 
-
     @OnScheduled
     public void createRecordPaths(final ProcessContext context) {
         recordPathCache = new RecordPathCache(context.getProperties().size());
@@ -170,7 +167,6 @@ public class RenameRecordField extends AbstractRecordProcessor {
 
         this.recordPaths = recordPaths;
     }
-
 
     @Override
     protected Record process(final Record record, final FlowFile flowFile, final ProcessContext context, final long count) {
@@ -205,6 +201,11 @@ public class RenameRecordField extends AbstractRecordProcessor {
                 });
             }
         }
+
+        // After renaming fields (especially in nested records), we need to update the
+        // top-level record's schema to reflect the schema changes in nested records.
+        // This ensures the writer uses the correct schema with renamed fields.
+        record.regenerateSchema();
 
         return record;
     }

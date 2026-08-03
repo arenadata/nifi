@@ -16,6 +16,34 @@
  */
 package org.apache.nifi.processors.gcp.drive;
 
+import com.google.api.client.http.HttpHeaders;
+import com.google.api.client.http.HttpResponseException;
+import com.google.api.client.http.HttpTransport;
+import com.google.api.client.util.DateTime;
+import com.google.api.services.drive.Drive;
+import com.google.api.services.drive.model.File;
+import com.google.api.services.drive.model.User;
+import org.apache.nifi.json.JsonRecordSetWriter;
+import org.apache.nifi.processor.ProcessContext;
+import org.apache.nifi.processors.gcp.credentials.service.GCPCredentialsControllerService;
+import org.apache.nifi.processors.gcp.util.GoogleUtils;
+import org.apache.nifi.reporting.InitializationException;
+import org.apache.nifi.serialization.RecordSetWriterFactory;
+import org.apache.nifi.util.TestRunner;
+import org.apache.nifi.util.TestRunners;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
+
+import java.io.IOException;
+import java.time.Instant;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
+
 import static java.lang.String.valueOf;
 import static java.util.Collections.singletonList;
 import static org.apache.nifi.processors.gcp.drive.GoogleDriveAttributes.CREATED_TIME;
@@ -40,32 +68,6 @@ import static org.apache.nifi.processors.gcp.drive.GoogleDriveAttributes.WEB_VIE
 import static org.mockito.Mockito.RETURNS_DEEP_STUBS;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
-
-import com.google.api.client.http.HttpTransport;
-import com.google.api.client.util.DateTime;
-import com.google.api.services.drive.Drive;
-import com.google.api.services.drive.model.File;
-import java.io.IOException;
-import java.time.Instant;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Map;
-import java.util.Optional;
-import java.util.Set;
-
-import com.google.api.services.drive.model.User;
-import org.apache.nifi.json.JsonRecordSetWriter;
-import org.apache.nifi.processor.ProcessContext;
-import org.apache.nifi.processors.gcp.credentials.service.GCPCredentialsControllerService;
-import org.apache.nifi.processors.gcp.util.GoogleUtils;
-import org.apache.nifi.reporting.InitializationException;
-import org.apache.nifi.serialization.RecordSetWriterFactory;
-import org.apache.nifi.util.TestRunner;
-import org.apache.nifi.util.TestRunners;
-import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Test;
-import org.mockito.Mockito;
 
 public class ListGoogleDriveTestRunnerTest implements OutputChecker {
     private ListGoogleDrive testSubject;
@@ -175,6 +177,28 @@ public class ListGoogleDriveTestRunnerTest implements OutputChecker {
     }
 
     @Test
+    void testOutputAsAttributesWhereSharedDriveNameIsNotAvailable() throws Exception {
+        when(mockDriverService.drives()
+                .get(driveId)
+                .setFields("name")
+                .execute()
+        ).thenThrow(new HttpResponseException.Builder(404, "Not Found", new HttpHeaders()).build());
+
+        String id = "id_1";
+        String filename = "file_name_1";
+        Long size = null;
+        Long createdTime = 123456L;
+        Long modifiedTime = 123456L + 1L;
+        String mimeType = "mime_type_1";
+        String owner = "user1";
+        String lastModifyingUser = "user2";
+        String webViewLink = "http://web.view";
+        String webContentLink = "http://web.content";
+
+        testOutputAsAttributes(id, filename, size, createdTime, modifiedTime, mimeType, owner, lastModifyingUser, webViewLink, webContentLink, modifiedTime, folderId, folderName, driveId, null);
+    }
+
+    @Test
     void testOutputAsContent() throws Exception {
         String id = "id_1";
         String filename = "file_name_1";
@@ -257,9 +281,25 @@ public class ListGoogleDriveTestRunnerTest implements OutputChecker {
     private void testOutputAsAttributes(String id, String filename, Long size, Long createdTime, Long modifiedTime, String mimeType,
                                         String owner, String lastModifyingUser, String webViewLink, String webContentLink,
                                         Long expectedTimestamp) throws IOException {
+        testOutputAsAttributes(id, filename, size, createdTime, modifiedTime, mimeType, owner, lastModifyingUser, webViewLink, webContentLink, expectedTimestamp,
+                folderId, folderName, driveId, driveName);
+    }
+
+    private void testOutputAsAttributes(String id, String filename, Long size, Long createdTime, Long modifiedTime, String mimeType,
+                                        String owner, String lastModifyingUser, String webViewLink, String webContentLink,
+                                        Long expectedTimestamp, String folderId, String folderName, String driveId, String driveName) throws IOException {
         mockFetchedGoogleDriveFileList(id, filename, size, createdTime, modifiedTime, mimeType, owner, lastModifyingUser, webViewLink, webContentLink);
 
-        Map<String, String> inputFlowFileAttributes = new HashMap<>();
+        Map<String, String> inputFlowFileAttributes = new HashMap<>() {
+            @Override
+            public String put(String key, String value) {
+                if (value == null) {
+                    // skip null values as a FlowFile attribute is not added in that case
+                    return null;
+                }
+                return super.put(key, value);
+            }
+        };
         inputFlowFileAttributes.put(GoogleDriveAttributes.ID, id);
         inputFlowFileAttributes.put(GoogleDriveAttributes.FILENAME, filename);
         inputFlowFileAttributes.put(GoogleDriveAttributes.SIZE, valueOf(size != null ? size : 0L));

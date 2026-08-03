@@ -17,15 +17,16 @@
 
 package org.apache.nifi.minifi.bootstrap.configuration.differentiators;
 
-import java.io.IOException;
 import org.apache.nifi.minifi.bootstrap.ConfigurationFileHolder;
+
+import java.io.IOException;
 
 /**
  * Helper to support differentiating between config files to recognise changes
  *
  * @param <T> the type of the config files
  */
-public interface Differentiator <T> {
+public interface Differentiator<T> {
 
     /**
      * Initialise the differentiator with the initial configuration

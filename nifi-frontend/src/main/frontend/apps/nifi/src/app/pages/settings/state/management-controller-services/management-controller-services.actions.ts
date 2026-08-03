@@ -26,6 +26,8 @@ import {
     SelectControllerServiceRequest
 } from './index';
 import {
+    ClearBulletinsRequest,
+    ClearBulletinsResponse,
     CreateControllerServiceRequest,
     DisableControllerServiceDialogRequest,
     EditControllerServiceDialogRequest,
@@ -44,6 +46,11 @@ export const loadManagementControllerServices = createAction(
 export const loadManagementControllerServicesSuccess = createAction(
     '[Management Controller Services] Load Management Controller Services Success',
     props<{ response: LoadManagementControllerServicesResponse }>()
+);
+
+export const loadManagementControllerServicesError = createAction(
+    '[Management Controller Services] Load Management Controller Services Error',
+    props<{ errorResponse: any; loadedTimestamp: string; status: 'pending' | 'success' }>()
 );
 
 export const managementControllerServicesBannerApiError = createAction(
@@ -138,4 +145,14 @@ export const selectControllerService = createAction(
 export const openChangeMgtControllerServiceVersionDialog = createAction(
     `[Management Controller Services] Open Change Management Controller Service Version Dialog`,
     props<{ request: FetchComponentVersionsRequest }>()
+);
+
+export const clearControllerServiceBulletins = createAction(
+    '[Management Controller Services] Clear Controller Service Bulletins',
+    props<{ request: ClearBulletinsRequest }>()
+);
+
+export const clearControllerServiceBulletinsSuccess = createAction(
+    '[Management Controller Services] Clear Controller Service Bulletins Success',
+    props<{ response: ClearBulletinsResponse }>()
 );

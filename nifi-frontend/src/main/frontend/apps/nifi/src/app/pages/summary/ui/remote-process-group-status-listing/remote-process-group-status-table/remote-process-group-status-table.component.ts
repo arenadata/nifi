@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-import { Component } from '@angular/core';
+import { Component, inject } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { MatSortModule, Sort } from '@angular/material/sort';
 import {
@@ -51,15 +51,13 @@ export type SupportedColumns = 'name' | 'uri' | 'transmitting' | 'sent' | 'recei
     styleUrls: ['./remote-process-group-status-table.component.scss']
 })
 export class RemoteProcessGroupStatusTable extends ComponentStatusTable<RemoteProcessGroupStatusSnapshotEntity> {
+    private nifiCommon = inject(NiFiCommon);
+
     filterableColumns: SummaryTableFilterColumn[] = [
         { key: 'name', label: 'name' },
         { key: 'targetUri', label: 'uri' }
     ];
     displayedColumns: string[] = ['name', 'uri', 'transmitting', 'sent', 'received', 'actions'];
-
-    constructor(private nifiCommon: NiFiCommon) {
-        super();
-    }
 
     override filterPredicate(data: RemoteProcessGroupStatusSnapshotEntity, filter: string): boolean {
         const { filterTerm, filterColumn } = JSON.parse(filter);
@@ -139,7 +137,7 @@ export class RemoteProcessGroupStatusTable extends ComponentStatusTable<RemotePr
 
         return data.slice().sort((a, b) => {
             const isAsc: boolean = sort.direction === 'asc';
-            let retVal = 0;
+            let retVal: number;
             switch (sort.active) {
                 case 'name':
                     retVal = this.nifiCommon.compareString(

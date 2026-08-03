@@ -16,23 +16,23 @@
  */
 package org.apache.nifi.web.api;
 
+import jakarta.ws.rs.HttpMethod;
+import jakarta.ws.rs.core.MediaType;
+import jakarta.ws.rs.core.Response;
+import jakarta.ws.rs.core.Response.Status;
 import org.apache.nifi.authorization.AuthorizableLookup;
 import org.apache.nifi.authorization.AuthorizeControllerServiceReference;
 import org.apache.nifi.authorization.AuthorizeParameterProviders;
 import org.apache.nifi.authorization.AuthorizeParameterReference;
 import org.apache.nifi.authorization.Authorizer;
-import org.apache.nifi.authorization.ComponentAuthorizable;
 import org.apache.nifi.authorization.ProcessGroupAuthorizable;
 import org.apache.nifi.authorization.RequestAction;
 import org.apache.nifi.authorization.user.NiFiUser;
 import org.apache.nifi.authorization.user.NiFiUserUtils;
 import org.apache.nifi.cluster.manager.NodeResponse;
-import org.apache.nifi.components.ConfigurableComponent;
 import org.apache.nifi.controller.ScheduledState;
 import org.apache.nifi.controller.service.ControllerServiceState;
 import org.apache.nifi.flow.VersionedParameterContext;
-import org.apache.nifi.flow.VersionedProcessGroup;
-import org.apache.nifi.registry.flow.FlowRegistryUtils;
 import org.apache.nifi.registry.flow.FlowSnapshotContainer;
 import org.apache.nifi.registry.flow.RegisteredFlowSnapshot;
 import org.apache.nifi.web.NiFiServiceFacade;
@@ -64,11 +64,6 @@ import org.apache.nifi.web.util.InvalidComponentAction;
 import org.apache.nifi.web.util.LifecycleManagementException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
-import jakarta.ws.rs.HttpMethod;
-import jakarta.ws.rs.core.MediaType;
-import jakarta.ws.rs.core.Response;
-import jakarta.ws.rs.core.Response.Status;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 
@@ -230,7 +225,7 @@ public abstract class FlowUpdateResource<T extends ProcessGroupDescriptorEntity,
      * @param lookup A lookup instance to use for retrieving components for authorization purposes
      * @param user the user to authorize
      * @param groupId the id of the process group being evaluated
-     * @param flowSnapshot the new flow contents to examine for restricted components
+     * @param flowSnapshot the new flow contents to authorize
      */
     protected void authorizeFlowUpdate(final AuthorizableLookup lookup, final NiFiUser user, final String groupId,
                                        final RegisteredFlowSnapshot flowSnapshot, final Set<String> unresolvedControllerServices,
@@ -241,13 +236,6 @@ public abstract class FlowUpdateResource<T extends ProcessGroupDescriptorEntity,
                 false, true, false, true);
         authorizeProcessGroup(groupAuthorizable, authorizer, lookup, RequestAction.WRITE, true,
                 false, true, false, false);
-
-        final VersionedProcessGroup groupContents = flowSnapshot.getFlowContents();
-        final Set<ConfigurableComponent> restrictedComponents = FlowRegistryUtils.getRestrictedComponents(groupContents, serviceFacade);
-        restrictedComponents.forEach(restrictedComponent -> {
-            final ComponentAuthorizable restrictedComponentAuthorizable = lookup.getConfigurableComponent(restrictedComponent);
-            authorizeRestrictions(authorizer, restrictedComponentAuthorizable);
-        });
 
         final Map<String, VersionedParameterContext> parameterContexts = flowSnapshot.getParameterContexts();
         if (parameterContexts != null) {
@@ -399,6 +387,14 @@ public abstract class FlowUpdateResource<T extends ProcessGroupDescriptorEntity,
         } else {
             final FlowSnapshotContainer originalFlowSnapshotContainer = serviceFacade.getVersionedFlowSnapshot(vciEntity.getVersionControlInformation(), true);
             originalFlowSnapshot = originalFlowSnapshotContainer.getFlowSnapshot();
+
+            // Resolve compatible bundles, inherited controller services, and parameter providers for the rollback snapshot before any
+            // replication occurs, ensuring that all nodes in the cluster receive the same resolved references.
+            serviceFacade.discoverCompatibleBundles(originalFlowSnapshot.getFlowContents());
+            serviceFacade.discoverCompatibleBundles(originalFlowSnapshot.getParameterProviders());
+            final NiFiUser user = NiFiUserUtils.getNiFiUser();
+            serviceFacade.resolveInheritedControllerServices(originalFlowSnapshotContainer, groupId, user);
+            serviceFacade.resolveParameterProviders(originalFlowSnapshot, user);
         }
 
         try {

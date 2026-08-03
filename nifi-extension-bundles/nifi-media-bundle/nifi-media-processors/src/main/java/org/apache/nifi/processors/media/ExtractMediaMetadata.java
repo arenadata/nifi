@@ -16,15 +16,6 @@
  */
 package org.apache.nifi.processors.media;
 
-import java.io.IOException;
-import java.io.InputStream;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
-import java.util.concurrent.atomic.AtomicReference;
-import java.util.regex.Pattern;
-
 import org.apache.nifi.annotation.behavior.InputRequirement;
 import org.apache.nifi.annotation.behavior.InputRequirement.Requirement;
 import org.apache.nifi.annotation.behavior.SupportsBatching;
@@ -43,17 +34,27 @@ import org.apache.nifi.processor.ProcessSession;
 import org.apache.nifi.processor.Relationship;
 import org.apache.nifi.processor.exception.ProcessException;
 import org.apache.nifi.processor.util.StandardValidators;
-
 import org.apache.tika.exception.TikaException;
 import org.apache.tika.io.TikaInputStream;
 import org.apache.tika.metadata.Metadata;
 import org.apache.tika.parser.AutoDetectParser;
+import org.apache.tika.parser.ParseContext;
+import org.apache.tika.parser.ocr.TesseractOCRConfig;
 import org.xml.sax.SAXException;
 import org.xml.sax.helpers.DefaultHandler;
 
+import java.io.IOException;
+import java.io.InputStream;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.regex.Pattern;
+
 @InputRequirement(Requirement.INPUT_REQUIRED)
 @Tags({"media", "file", "format", "metadata", "audio", "video", "image", "document", "pdf"})
-@CapabilityDescription("Extract the content metadata from flowfiles containing audio, video, image, and other file "
+@CapabilityDescription("Extract the content metadata from FlowFiles containing audio, video, image, and other file "
         + "types.  This processor relies on the Apache Tika project for file format detection and parsing.  It "
         + "extracts a long list of metadata types for media files including audio, video, and print media "
         + "formats."
@@ -68,7 +69,7 @@ public class ExtractMediaMetadata extends AbstractProcessor {
 
     static final PropertyDescriptor MAX_NUMBER_OF_ATTRIBUTES = new PropertyDescriptor.Builder()
             .name("Max Number of Attributes")
-            .description("Specify the max number of attributes to add to the flowfile. There is no guarantee in what order"
+            .description("Specify the max number of attributes to add to the FlowFile. There is no guarantee in what order"
                     + " the tags will be processed. By default it will process all of them.")
             .required(false)
             .defaultValue("100")
@@ -89,15 +90,15 @@ public class ExtractMediaMetadata extends AbstractProcessor {
     static final PropertyDescriptor METADATA_KEY_FILTER = new PropertyDescriptor.Builder()
             .name("Metadata Key Filter")
             .description("A regular expression identifying which metadata keys received from the parser should be"
-                    + " added to the flowfile attributes.  If left blank, all metadata keys parsed will be added to the"
-                    + " flowfile attributes.")
+                    + " added to the FlowFile attributes.  If left blank, all metadata keys parsed will be added to the"
+                    + " FlowFile attributes.")
             .required(false)
             .addValidator(StandardValidators.REGULAR_EXPRESSION_VALIDATOR)
             .build();
 
     static final PropertyDescriptor METADATA_KEY_PREFIX = new PropertyDescriptor.Builder()
             .name("Metadata Key Prefix")
-            .description("Text to be prefixed to metadata keys as the are added to the flowfile attributes.  It is"
+            .description("Text to be prefixed to metadata keys as the are added to the FlowFile attributes.  It is"
                     + " recommended to end with with a separator character like '.' or '-', this is not automatically "
                     + " added by the processor.")
             .required(false)
@@ -170,7 +171,7 @@ public class ExtractMediaMetadata extends AbstractProcessor {
         try {
             session.read(flowFile, in -> {
                 try {
-                    Map<String, String> results = tika_parse(in, prefix, maxAttribCount, maxAttribLength);
+                    Map<String, String> results = tikaParse(in, prefix, maxAttribCount, maxAttribLength);
                     value.set(results);
                 } catch (SAXException | TikaException e) {
                     throw new IOException(e);
@@ -192,12 +193,20 @@ public class ExtractMediaMetadata extends AbstractProcessor {
         }
     }
 
-    private Map<String, String> tika_parse(InputStream sourceStream, String prefix, Integer maxAttribs,
+    private Map<String, String> tikaParse(InputStream sourceStream, String prefix, Integer maxAttribs,
                                            Integer maxAttribLen) throws IOException, TikaException, SAXException {
         final Metadata metadata = new Metadata();
         final TikaInputStream tikaInputStream = TikaInputStream.get(sourceStream);
+
+        // Configure ParseContext to disable OCR - metadata extraction does not require OCR
+        // https://issues.apache.org/jira/browse/NIFI-15098
+        final TesseractOCRConfig ocrConfig = new TesseractOCRConfig();
+        ocrConfig.setSkipOcr(true);
+        final ParseContext parseContext = new ParseContext();
+        parseContext.set(TesseractOCRConfig.class, ocrConfig);
+
         try {
-            autoDetectParser.parse(tikaInputStream, new DefaultHandler(), metadata);
+            autoDetectParser.parse(tikaInputStream, new DefaultHandler(), metadata, parseContext);
         } finally {
             tikaInputStream.close();
         }

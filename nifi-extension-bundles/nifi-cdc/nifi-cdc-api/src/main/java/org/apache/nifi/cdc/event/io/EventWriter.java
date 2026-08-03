@@ -16,12 +16,12 @@
  */
 package org.apache.nifi.cdc.event.io;
 
-import org.apache.nifi.processor.ProcessSession;
 import org.apache.nifi.cdc.event.EventInfo;
+import org.apache.nifi.processor.ProcessSession;
 import org.apache.nifi.processor.Relationship;
 
 /**
- * An interface to write an event to the process session. Note that a single event may produce multiple flow files.
+ * An interface to write an event to the process session. Note that a single event may produce multiple FlowFiles.
  */
 public interface EventWriter<T extends EventInfo> {
 

@@ -18,14 +18,16 @@ package org.apache.nifi.controller;
 
 import org.apache.nifi.components.ConfigVerificationResult;
 import org.apache.nifi.logging.ComponentLog;
+import org.apache.nifi.migration.ControllerServiceFactory;
 import org.apache.nifi.nar.ExtensionManager;
 import org.apache.nifi.parameter.ParameterContext;
 import org.apache.nifi.parameter.ParameterGroup;
-import org.apache.nifi.parameter.ParameterProvider;
 import org.apache.nifi.parameter.ParameterGroupConfiguration;
+import org.apache.nifi.parameter.ParameterProvider;
 
 import java.util.Collection;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
@@ -48,6 +50,19 @@ public interface ParameterProviderNode extends ComponentNode {
      *
      */
     void fetchParameters();
+
+    /**
+     * Fetches all parameter values from the Parameter Provider and returns them. This method does not cache the results for later retrieval.
+     * @return all Parameter Groups with Parameter Names and Values
+     */
+    List<ParameterGroup> fetchParameterValues();
+
+    /**
+     * Fetches parameters that match the provided fully qualified parameter names. This method does not cache the results for later retrieval.
+     * @param fullyQualifiedParameterNames fully qualified names of parameters to fetch
+     * @return Parameter Groups with Parameter Names and Values that match the provided names
+     */
+    List<ParameterGroup> fetchParameterValues(List<String> fullyQualifiedParameterNames);
 
     /**
      * Find a named Parameter Group cached from previous request to fetch Parameters from the configured Parameter Provider
@@ -99,4 +114,12 @@ public interface ParameterProviderNode extends ComponentNode {
      * @return a list of results indicating whether the given configuration is valid
      */
     List<ConfigVerificationResult> verifyConfiguration(ConfigurationContext context, ComponentLog logger, ExtensionManager extensionManager);
+
+    /**
+     * Migrates the configuration of the Parameter Provider, allowing properties to be renamed, removed, or reconfigured.
+     *
+     * @param originalPropertyValues the original property values prior to migration
+     * @param controllerServiceFactory factory for creating controller services during migration
+     */
+    void migrateConfiguration(Map<String, String> originalPropertyValues, ControllerServiceFactory controllerServiceFactory);
 }

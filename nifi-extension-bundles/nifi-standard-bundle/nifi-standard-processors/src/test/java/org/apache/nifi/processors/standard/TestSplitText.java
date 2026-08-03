@@ -35,7 +35,7 @@ public class TestSplitText {
     final String originalFilename = "original.txt";
     final Path dataPath = Paths.get("src/test/resources/TestSplitText");
     final Path file = dataPath.resolve(originalFilename);
-    final static String TEST_INPUT_DATA = "HeaderLine1\nLine2SpacesAtEnd  \nLine3\nLine4\n\n\nLine8\nLine9\n\n\n13\n14\n15    EndofLine15\n16\n"
+    static final String TEST_INPUT_DATA = "HeaderLine1\nLine2SpacesAtEnd  \nLine3\nLine4\n\n\nLine8\nLine9\n\n\n13\n14\n15    EndofLine15\n16\n"
             + "\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\nLastLine\n";
 
     @Test
@@ -668,7 +668,6 @@ public class TestSplitText {
         flowFile.assertContentEquals(file);
     }
 
-
     /*
      * If an input FlowFile has a number of blank lines greater than the Line Split Count property,
      * ensure that the remainder of the FlowFile will be processed, resulting in no data loss.
@@ -804,7 +803,6 @@ public class TestSplitText {
         split1.assertAttributeEquals(SplitText.FRAGMENT_COUNT, "2");
         split1.assertAttributeEquals(SplitText.SPLIT_LINE_COUNT, "1");
     }
-
 
     /*
      * Previous behavior that was exhibited:

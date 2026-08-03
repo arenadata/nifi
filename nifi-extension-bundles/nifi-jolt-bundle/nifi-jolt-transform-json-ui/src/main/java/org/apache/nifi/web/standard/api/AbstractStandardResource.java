@@ -20,9 +20,7 @@ package org.apache.nifi.web.standard.api;
 import jakarta.servlet.ServletContext;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.ws.rs.core.Context;
-
 import org.apache.nifi.web.NiFiWebConfigurationContext;
-
 
 public abstract class AbstractStandardResource {
 
@@ -31,7 +29,6 @@ public abstract class AbstractStandardResource {
 
     @Context
     protected HttpServletRequest request;
-
 
     protected NiFiWebConfigurationContext getWebConfigurationContext() {
         return (NiFiWebConfigurationContext) servletContext.getAttribute("nifi-web-configuration-context");

@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-import { Injectable, OnDestroy } from '@angular/core';
+import { Injectable, OnDestroy, inject } from '@angular/core';
 import { Store } from '@ngrx/store';
 import { CanvasState } from '../../state';
 import { CanvasUtils } from '../canvas-utils.service';
@@ -32,7 +32,7 @@ import {
 import { Client } from '../../../../service/client.service';
 import { updateComponent } from '../../state/flow/flow.actions';
 import { QuickSelectBehavior } from '../behavior/quick-select-behavior.service';
-import { UpdateComponentRequest } from '../../state/flow';
+import { UpdateComponentRequest } from '../../../../state/shared';
 import { filter, Subject, switchMap, takeUntil } from 'rxjs';
 import { ComponentType, NiFiCommon } from '@nifi/shared';
 import { ClusterConnectionService } from '../../../../service/cluster-connection.service';
@@ -41,6 +41,16 @@ import { ClusterConnectionService } from '../../../../service/cluster-connection
     providedIn: 'root'
 })
 export class LabelManager implements OnDestroy {
+    private store = inject<Store<CanvasState>>(Store);
+    private canvasUtils = inject(CanvasUtils);
+    private nifiCommon = inject(NiFiCommon);
+    private client = inject(Client);
+    private clusterConnectionService = inject(ClusterConnectionService);
+    private positionBehavior = inject(PositionBehavior);
+    private selectableBehavior = inject(SelectableBehavior);
+    private quickSelectBehavior = inject(QuickSelectBehavior);
+    private editableBehavior = inject(EditableBehavior);
+
     private destroyed$: Subject<boolean> = new Subject();
 
     public static readonly INITIAL_WIDTH: number = 148;
@@ -56,60 +66,52 @@ export class LabelManager implements OnDestroy {
     private labelPointDrag: any;
     private snapEnabled = true;
 
-    constructor(
-        private store: Store<CanvasState>,
-        private canvasUtils: CanvasUtils,
-        private nifiCommon: NiFiCommon,
-        private client: Client,
-        private clusterConnectionService: ClusterConnectionService,
-        private positionBehavior: PositionBehavior,
-        private selectableBehavior: SelectableBehavior,
-        private quickSelectBehavior: QuickSelectBehavior,
-        private editableBehavior: EditableBehavior
-    ) {
-        const self: LabelManager = this;
-
+    constructor() {
         // handle bend point drag events
         this.labelPointDrag = d3
             .drag()
-            .on('start', function (this: any, event) {
+            .subject(function (this: Element) {
+                // Capture DOM element via subject; currentTarget is valid during the initiating mousedown.
+                return { element: this };
+            })
+            .on('start', (event: any) => {
                 // stop further propagation
                 event.sourceEvent.stopPropagation();
 
                 // indicate dragging start
-                const label = d3.select(this.parentNode);
+                const label = d3.select(event.subject.element.parentNode as Element);
                 const labelData: any = label.datum();
                 labelData.dragging = true;
             })
-            .on('drag', function (this: any, event) {
-                const label = d3.select(this.parentNode);
+            .on('drag', (event: any) => {
+                const label = d3.select(event.subject.element.parentNode as Element);
                 const labelData: any = label.datum();
 
                 if (labelData.dragging) {
                     // update the dimensions and ensure they are still within bounds
                     // snap between aligned sizes unless the user is holding shift
-                    self.snapEnabled = !event.sourceEvent.shiftKey;
+                    this.snapEnabled = !event.sourceEvent.shiftKey;
                     labelData.dimensions.width = Math.max(
                         LabelManager.MIN_WIDTH,
-                        self.snapEnabled
+                        this.snapEnabled
                             ? Math.round(event.x / LabelManager.SNAP_ALIGNMENT_PIXELS) *
                                   LabelManager.SNAP_ALIGNMENT_PIXELS
                             : event.x
                     );
                     labelData.dimensions.height = Math.max(
                         LabelManager.MIN_HEIGHT,
-                        self.snapEnabled
+                        this.snapEnabled
                             ? Math.round(event.y / LabelManager.SNAP_ALIGNMENT_PIXELS) *
                                   LabelManager.SNAP_ALIGNMENT_PIXELS
                             : event.y
                     );
 
                     // redraw this connection
-                    self.updateLabels(label);
+                    this.updateLabels(label);
                 }
             })
-            .on('end', function (this: any, event) {
-                const label = d3.select(this.parentNode);
+            .on('end', (event: any) => {
+                const label = d3.select(event.subject.element.parentNode as Element);
                 const labelData: any = label.datum();
 
                 if (labelData.dragging) {
@@ -133,9 +135,9 @@ export class LabelManager implements OnDestroy {
                             type: ComponentType.Label,
                             uri: labelData.uri,
                             payload: {
-                                revision: self.client.getRevision(labelData),
+                                revision: this.client.getRevision(labelData),
                                 disconnectedNodeAcknowledged:
-                                    self.clusterConnectionService.isDisconnectionAcknowledged(),
+                                    this.clusterConnectionService.isDisconnectionAcknowledged(),
                                 component: {
                                     id: labelData.id,
                                     width: labelData.dimensions.width,
@@ -151,7 +153,7 @@ export class LabelManager implements OnDestroy {
                             errorStrategy: 'snackbar'
                         };
 
-                        self.store.dispatch(
+                        this.store.dispatch(
                             updateComponent({
                                 request: updateLabel
                             })
@@ -225,36 +227,25 @@ export class LabelManager implements OnDestroy {
         if (updated.empty()) {
             return;
         }
-        const self: LabelManager = this;
 
         // update the border using the configured color
         updated
             .select('rect.border')
-            .attr('width', function (d: any) {
-                return d.dimensions.width;
-            })
-            .attr('height', function (d: any) {
-                return d.dimensions.height;
-            })
-            .classed('unauthorized', function (d: any) {
-                return d.permissions.canRead === false;
-            });
+            .attr('width', (d: any) => d.dimensions.width)
+            .attr('height', (d: any) => d.dimensions.height)
+            .classed('unauthorized', (d: any) => d.permissions.canRead === false);
 
         // update the body fill using the configured color
         updated
             .select('rect.body')
-            .attr('width', function (d: any) {
-                return d.dimensions.width;
-            })
-            .attr('height', function (d: any) {
-                return d.dimensions.height;
-            })
-            .style('fill', function (d: any) {
+            .attr('width', (d: any) => d.dimensions.width)
+            .attr('height', (d: any) => d.dimensions.height)
+            .style('fill', (d: any) => {
                 if (!d.permissions.canRead) {
                     return null;
                 }
 
-                let color = self.defaultColor();
+                let color = this.defaultColor();
 
                 // use the specified color if appropriate
                 if (d.component.style['background-color']) {
@@ -263,23 +254,21 @@ export class LabelManager implements OnDestroy {
 
                 return color;
             })
-            .classed('unauthorized', function (d: any) {
-                return d.permissions.canRead === false;
-            });
+            .classed('unauthorized', (d: any) => d.permissions.canRead === false);
 
         // go through each label being updated
-        updated.each(function (this: any, d: any) {
-            const label = d3.select(this);
+        updated.each((d: any, i: number, nodes: Element[]) => {
+            const label = d3.select(nodes[i]);
 
             // update the component behavior as appropriate
-            self.editableBehavior.editable(label);
+            this.editableBehavior.editable(label);
 
             // update the label
             const labelText = label.select('text.label-value');
             const labelPoint = label.selectAll('path.labelpoint');
             if (d.permissions.canRead) {
                 // update the font size
-                labelText.attr('font-size', function () {
+                labelText.attr('font-size', () => {
                     let fontSize = '12px';
 
                     // use the specified color if appropriate
@@ -301,7 +290,7 @@ export class LabelManager implements OnDestroy {
                     lines.push('');
                 }
 
-                let color = self.defaultColor();
+                let color = this.defaultColor();
 
                 // use the specified color if appropriate
                 if (d.component.style['background-color']) {
@@ -311,15 +300,15 @@ export class LabelManager implements OnDestroy {
                 // add label value
                 const textWidth = d.dimensions.width - 15;
                 const textHeight = d.dimensions.height;
-                self.canvasUtils.boundedMultilineEllipsis(
+                this.canvasUtils.boundedMultilineEllipsis(
                     labelText,
                     textWidth,
                     textHeight,
                     lines,
                     `label-text.${d.id}.width.${textWidth}`
                 );
-                labelText.selectAll('tspan').style('fill', function () {
-                    return self.canvasUtils.determineContrastColor(self.nifiCommon.substringAfterLast(color, '#'));
+                labelText.selectAll('tspan').style('fill', () => {
+                    return this.canvasUtils.determineContrastColor(this.nifiCommon.substringAfterLast(color, '#'));
                 });
 
                 // -----------
@@ -336,10 +325,10 @@ export class LabelManager implements OnDestroy {
                         .append('path')
                         .attr('class', 'labelpoint resizable-triangle')
                         .attr('d', 'm0,0 l0,8 l-8,0 z')
-                        .call(self.labelPointDrag);
+                        .call(this.labelPointDrag);
 
                     // update the midpoints
-                    points.merge(pointsEntered).attr('transform', function (p) {
+                    points.merge(pointsEntered).attr('transform', (p: any) => {
                         return 'translate(' + (p.x - 2) + ', ' + (p.y - 10) + ')';
                     });
 

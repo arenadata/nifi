@@ -16,8 +16,8 @@
  */
 package org.apache.nifi.registry.db.entity;
 
-import org.apache.nifi.registry.extension.bundle.BundleType;
 import org.apache.nifi.extension.manifest.ExtensionType;
+import org.apache.nifi.registry.extension.bundle.BundleType;
 
 import java.util.Set;
 
@@ -53,7 +53,6 @@ public class ExtensionEntity {
     private String version;
     private String systemApiVersion;
     private BundleType bundleType;
-
 
     public String getId() {
         return id;
@@ -142,7 +141,6 @@ public class ExtensionEntity {
     public void setRestrictions(Set<ExtensionRestrictionEntity> restrictions) {
         this.restrictions = restrictions;
     }
-
 
     public String getBucketId() {
         return bucketId;

@@ -19,8 +19,6 @@ package org.apache.nifi.processors.script;
 import org.apache.commons.io.IOUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.nifi.annotation.behavior.DynamicProperty;
-import org.apache.nifi.annotation.behavior.Restricted;
-import org.apache.nifi.annotation.behavior.Restriction;
 import org.apache.nifi.annotation.behavior.Stateful;
 import org.apache.nifi.annotation.behavior.SupportsSensitiveDynamicProperties;
 import org.apache.nifi.annotation.documentation.CapabilityDescription;
@@ -33,7 +31,6 @@ import org.apache.nifi.annotation.lifecycle.OnStopped;
 import org.apache.nifi.annotation.notification.OnPrimaryNodeStateChange;
 import org.apache.nifi.annotation.notification.PrimaryNodeState;
 import org.apache.nifi.components.PropertyDescriptor;
-import org.apache.nifi.components.RequiredPermission;
 import org.apache.nifi.components.ValidationContext;
 import org.apache.nifi.components.ValidationResult;
 import org.apache.nifi.components.resource.ResourceReferences;
@@ -42,6 +39,7 @@ import org.apache.nifi.controller.ControllerServiceLookup;
 import org.apache.nifi.controller.NodeTypeProvider;
 import org.apache.nifi.expression.ExpressionLanguageScope;
 import org.apache.nifi.logging.ComponentLog;
+import org.apache.nifi.migration.PropertyConfiguration;
 import org.apache.nifi.processor.AbstractSessionFactoryProcessor;
 import org.apache.nifi.processor.ProcessContext;
 import org.apache.nifi.processor.ProcessSessionFactory;
@@ -54,10 +52,6 @@ import org.apache.nifi.script.ScriptingComponentHelper;
 import org.apache.nifi.script.ScriptingComponentUtils;
 import org.apache.nifi.script.impl.FilteredPropertiesValidationContextAdapter;
 
-import javax.script.Invocable;
-import javax.script.ScriptContext;
-import javax.script.ScriptEngine;
-import javax.script.ScriptException;
 import java.io.File;
 import java.io.FileInputStream;
 import java.nio.charset.Charset;
@@ -69,6 +63,10 @@ import java.util.List;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
+import javax.script.Invocable;
+import javax.script.ScriptContext;
+import javax.script.ScriptEngine;
+import javax.script.ScriptException;
 
 @Tags({"script", "invoke", "groovy"})
 @CapabilityDescription("Experimental - Invokes a script engine for a Processor defined in the given script. The script must define "
@@ -86,13 +84,7 @@ import java.util.concurrent.atomic.AtomicReference;
 @Stateful(scopes = {Scope.LOCAL, Scope.CLUSTER},
         description = "Scripts can store and retrieve state using the State Management APIs. Consult the State Manager section of the Developer's Guide for more details.")
 @SeeAlso({ExecuteScript.class})
-@Restricted(
-        restrictions = {
-                @Restriction(
-                        requiredPermission = RequiredPermission.EXECUTE_CODE,
-                        explanation = "Provides operator the ability to execute arbitrary code assuming all permissions that NiFi has.")
-        }
-)
+
 public class InvokeScriptedProcessor extends AbstractSessionFactoryProcessor {
 
     private final AtomicReference<Processor> processor = new AtomicReference<>();
@@ -105,6 +97,11 @@ public class InvokeScriptedProcessor extends AbstractSessionFactoryProcessor {
     private volatile File kerberosConfigFile = null;
     private volatile File kerberosServiceKeytab = null;
     volatile ScriptingComponentHelper scriptingComponentHelper = new ScriptingComponentHelper();
+
+    @Override
+    public void migrateProperties(final PropertyConfiguration config) {
+        ScriptingComponentHelper.migrateProperties(config);
+    }
 
     /**
      * Returns the valid relationships for this processor as supplied by the
@@ -258,14 +255,14 @@ public class InvokeScriptedProcessor extends AbstractSessionFactoryProcessor {
         if (ScriptingComponentUtils.SCRIPT_FILE.equals(descriptor)
                 || ScriptingComponentUtils.SCRIPT_BODY.equals(descriptor)
                 || ScriptingComponentUtils.MODULES.equals(descriptor)
-                || scriptingComponentHelper.SCRIPT_ENGINE.equals(descriptor)) {
+                || scriptingComponentHelper.scriptEngine.equals(descriptor)) {
 
             // Update the ScriptingComponentHelper's value(s)
             if (ScriptingComponentUtils.SCRIPT_FILE.equals(descriptor)) {
                 scriptingComponentHelper.setScriptPath(newValue);
             } else if (ScriptingComponentUtils.SCRIPT_BODY.equals(descriptor)) {
                 scriptingComponentHelper.setScriptBody(newValue);
-            } else if (scriptingComponentHelper.SCRIPT_ENGINE.equals(descriptor)) {
+            } else if (scriptingComponentHelper.scriptEngine.equals(descriptor)) {
                 scriptingComponentHelper.setScriptEngineName(newValue);
             }
 
@@ -501,7 +498,7 @@ public class InvokeScriptedProcessor extends AbstractSessionFactoryProcessor {
             return scriptingComponentHelperResults;
         }
 
-        scriptingComponentHelper.setScriptEngineName(context.getProperty(scriptingComponentHelper.SCRIPT_ENGINE).getValue());
+        scriptingComponentHelper.setScriptEngineName(context.getProperty(scriptingComponentHelper.scriptEngine).getValue());
         scriptingComponentHelper.setScriptPath(context.getProperty(ScriptingComponentUtils.SCRIPT_FILE).evaluateAttributeExpressions().getValue());
         scriptingComponentHelper.setScriptBody(context.getProperty(ScriptingComponentUtils.SCRIPT_BODY).getValue());
         final ResourceReferences resourceReferences = context.getProperty(ScriptingComponentUtils.MODULES).evaluateAttributeExpressions().asResources();

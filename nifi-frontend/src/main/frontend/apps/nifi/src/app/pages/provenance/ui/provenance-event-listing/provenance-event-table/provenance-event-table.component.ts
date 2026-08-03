@@ -67,6 +67,9 @@ import { ErrorContextKey } from '../../../../../state/error';
     styleUrls: ['./provenance-event-table.component.scss']
 })
 export class ProvenanceEventTable implements AfterViewInit {
+    private formBuilder = inject(FormBuilder);
+    private nifiCommon = inject(NiFiCommon);
+
     @Input() set events(events: ProvenanceEventSummary[]) {
         if (events) {
             this.dataSource.data = this.sortEvents(events, this.sort);
@@ -221,10 +224,7 @@ export class ProvenanceEventTable implements AfterViewInit {
     initialEventTimestampThreshold = 0;
     currentEventTimestampThreshold = 0;
 
-    constructor(
-        private formBuilder: FormBuilder,
-        private nifiCommon: NiFiCommon
-    ) {
+    constructor() {
         this.filterForm = this.formBuilder.group({ filterTerm: '', filterColumn: this.filterColumnOptions[0] });
     }
 
@@ -262,9 +262,8 @@ export class ProvenanceEventTable implements AfterViewInit {
             let retVal = 0;
             switch (sort.active) {
                 case 'eventTime':
-                    // event ideas are increasing, so we can use this simple number for sorting purposes
-                    // since we don't surface the timestamp as millis
-                    retVal = this.nifiCommon.compareNumber(a.eventId, b.eventId);
+                    // Compare Event Timestamp with ISO8601 formatting
+                    retVal = this.nifiCommon.compareString(a.eventTimestamp, b.eventTimestamp);
                     break;
                 case 'eventType':
                     retVal = this.nifiCommon.compareString(a.eventType, b.eventType);
@@ -339,12 +338,13 @@ export class ProvenanceEventTable implements AfterViewInit {
             return false;
         }
 
-        return !(event.componentId === 'Remote Output Port' || event.componentId === 'Remote Input Port');
+        return !(event.componentType === 'Remote Output Port' || event.componentType === 'Remote Input Port');
     }
 
     goToClicked(event: ProvenanceEventSummary): void {
         this.goToEventSource({
             componentId: event.componentId,
+            componentType: event.componentType,
             groupId: event.groupId
         });
     }

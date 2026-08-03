@@ -21,6 +21,7 @@ import org.apache.nifi.components.state.StateMap;
 import org.apache.nifi.processors.standard.TailFile.TailFileState;
 import org.apache.nifi.util.MockFlowFile;
 import org.apache.nifi.util.MockProcessContext;
+import org.apache.nifi.util.PropertyMigrationResult;
 import org.apache.nifi.util.TestRunner;
 import org.apache.nifi.util.TestRunners;
 import org.junit.jupiter.api.AfterEach;
@@ -56,11 +57,9 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.fail;
 
-@DisabledOnOs({ OS.WINDOWS })
 public class TestTailFile {
 
     private File file;
-    private File existingFile;
     private File otherFile;
 
     private RandomAccessFile raf;
@@ -77,7 +76,7 @@ public class TestTailFile {
         file.delete();
         assertTrue(file.createNewFile());
 
-        existingFile = new File("target/existing-log.txt");
+        File existingFile = new File("target/existing-log.txt");
         existingFile.delete();
         assertTrue(existingFile.createNewFile());
         try (BufferedWriter writer = new BufferedWriter(new OutputStreamWriter(new FileOutputStream(existingFile)))) {
@@ -215,7 +214,6 @@ public class TestTailFile {
         runner.setProperty(TailFile.START_POSITION, TailFile.START_CURRENT_FILE.getValue());
         runner.setProperty(TailFile.REREAD_ON_NUL, "true");
 
-
         // first line fully written, second partially
         raf.write("a\nb".getBytes());
         // read the first line
@@ -247,8 +245,6 @@ public class TestTailFile {
         List<String> lines = flowFiles.stream().map(MockFlowFile::toByteArray).map(String::new).collect(Collectors.toList());
         assertEquals(Arrays.asList("a\n", "bc\n", "d\n"), lines);
     }
-
-
 
     @Test
     public void testRotateMultipleBeforeConsuming() throws IOException {
@@ -285,7 +281,6 @@ public class TestTailFile {
         runner.clearTransferState();
     }
 
-
     @Test
     public void testStartPositionCurrentTime() throws IOException {
         raf.write("1\n".getBytes());
@@ -313,7 +308,6 @@ public class TestTailFile {
         raf = new RandomAccessFile(file, "rw");
         return rolledOverFile;
     }
-
 
     @DisabledOnOs(value = OS.WINDOWS, disabledReason = "Test requires renaming a file while a file handle is still open to it, so it won't run on Windows")
     @Test
@@ -401,7 +395,6 @@ public class TestTailFile {
 
         raf.close();
     }
-
 
     @Test
     public void testConsumeAfterTruncationStartAtBeginningOfFile() throws IOException, InterruptedException {
@@ -638,7 +631,6 @@ public class TestTailFile {
         runner.getFlowFilesForRelationship(TailFile.REL_SUCCESS).get(0).assertContentEquals("world");
         runner.getFlowFilesForRelationship(TailFile.REL_SUCCESS).get(1).assertContentEquals("longer than hello\n");
     }
-
 
     @Test
     public void testMultipleRolloversAfterHavingReadAllData() throws IOException, InterruptedException {
@@ -889,7 +881,6 @@ public class TestTailFile {
         final MockFlowFile finalOutputFile = runner.getFlowFilesForRelationship(TailFile.REL_SUCCESS).getFirst();
         finalOutputFile.assertContentEquals("<4>Last One\n");
     }
-
 
     @Test
     public void testRolloverAndUpdateAtSameTime() throws IOException {
@@ -1288,6 +1279,24 @@ public class TestTailFile {
         assertTrue(runner.getFlowFilesForRelationship(TailFile.REL_SUCCESS).stream().anyMatch(mockFlowFile -> mockFlowFile.isContentEqual("hey3\n")));
         assertTrue(runner.getFlowFilesForRelationship(TailFile.REL_SUCCESS).stream().anyMatch(mockFlowFile -> mockFlowFile.isContentEqual("hey\n")));
         runner.clearTransferState();
+    }
+
+    @Test
+    void testMigrateProperties() {
+        final Map<String, String> expectedRenamed = Map.ofEntries(
+                Map.entry("tail-base-directory", TailFile.BASE_DIRECTORY.getName()),
+                Map.entry("tail-mode", TailFile.MODE.getName()),
+                Map.entry("File to Tail", TailFile.FILENAME.getName()),
+                Map.entry("File Location", TailFile.STATE_LOCATION.getName()),
+                Map.entry("tailfile-recursive-lookup", TailFile.RECURSIVE.getName()),
+                Map.entry("tailfile-lookup-frequency", TailFile.LOOKUP_FREQUENCY.getName()),
+                Map.entry("tailfile-maximum-age", TailFile.MAXIMUM_AGE.getName()),
+                Map.entry("reread-on-nul", TailFile.REREAD_ON_NUL.getName()),
+                Map.entry("pre-allocated-buffer-size", TailFile.PRE_ALLOCATED_BUFFER_SIZE.getName())
+        );
+
+        final PropertyMigrationResult propertyMigrationResult = runner.migrateProperties();
+        assertEquals(expectedRenamed, propertyMigrationResult.getPropertiesRenamed());
     }
 
     private void assertNumberOfStateMapEntries(int expectedNumberOfLogFiles) throws IOException {

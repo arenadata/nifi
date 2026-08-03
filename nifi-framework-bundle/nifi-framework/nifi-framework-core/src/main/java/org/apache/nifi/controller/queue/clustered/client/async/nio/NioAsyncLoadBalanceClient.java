@@ -35,8 +35,6 @@ import org.apache.nifi.reporting.Severity;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import javax.net.ssl.SSLContext;
-import javax.net.ssl.SSLEngine;
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.net.Socket;
@@ -57,7 +55,8 @@ import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.BooleanSupplier;
 import java.util.function.Predicate;
 import java.util.function.Supplier;
-
+import javax.net.ssl.SSLContext;
+import javax.net.ssl.SSLEngine;
 
 public class NioAsyncLoadBalanceClient implements AsyncLoadBalanceClient {
     private static final Logger logger = LoggerFactory.getLogger(NioAsyncLoadBalanceClient.class);
@@ -90,9 +89,8 @@ public class NioAsyncLoadBalanceClient implements AsyncLoadBalanceClient {
     private final Lock loadBalanceSessionLock = new ReentrantLock();
     private LoadBalanceSession loadBalanceSession = null;
 
-
     public NioAsyncLoadBalanceClient(final NodeIdentifier nodeIdentifier, final SSLContext sslContext, final int timeoutMillis, final FlowFileContentAccess flowFileContentAccess,
-                                     final LoadBalanceFlowFileCodec flowFileCodec, final EventReporter eventReporter, final ClusterCoordinator clusterCoordinator) {
+                                    final LoadBalanceFlowFileCodec flowFileCodec, final EventReporter eventReporter, final ClusterCoordinator clusterCoordinator) {
         this.nodeIdentifier = nodeIdentifier;
         this.sslContext = sslContext;
         this.timeoutMillis = timeoutMillis;
@@ -301,13 +299,13 @@ public class NioAsyncLoadBalanceClient implements AsyncLoadBalanceClient {
     }
 
     /**
-     * If any FlowFiles have been transferred in an active session, fail the transaction. Otherwise, gather up to the Transaction Threshold's limits
-     * worth of FlowFiles and treat them as a failed transaction. In either case, terminate the session. This allows us to transfer FlowFiles from
-     * queue partitions where the partitioner indicates that the data should be rebalanced, but does so in a way that we don't immediately rebalance
-     * all FlowFiles. This is desirable in a case such as when we have a lot of data queued up in a connection and then a node temporarily disconnects.
-     * We don't want to then just push all data to other nodes. We'd rather push the data out to other nodes slowly while waiting for the disconnected
-     * node to reconnect. And if the node reconnects, we want to keep sending it data.
-     */
+    * If any FlowFiles have been transferred in an active session, fail the transaction. Otherwise, gather up to the Transaction Threshold's limits
+    * worth of FlowFiles and treat them as a failed transaction. In either case, terminate the session. This allows us to transfer FlowFiles from
+    * queue partitions where the partitioner indicates that the data should be rebalanced, but does so in a way that we don't immediately rebalance
+    * all FlowFiles. This is desirable in a case such as when we have a lot of data queued up in a connection and then a node temporarily disconnects.
+    * We don't want to then just push all data to other nodes. We'd rather push the data out to other nodes slowly while waiting for the disconnected
+    * node to reconnect. And if the node reconnects, we want to keep sending it data.
+    */
     @Override
     public void nodeDisconnected() {
         if (!loadBalanceSessionLock.tryLock()) {
@@ -372,7 +370,6 @@ public class NioAsyncLoadBalanceClient implements AsyncLoadBalanceClient {
         return null;
     }
 
-
     private RegisteredPartition getReadyPartition() {
         return getReadyPartition(true, partition -> true);
     }
@@ -427,7 +424,7 @@ public class NioAsyncLoadBalanceClient implements AsyncLoadBalanceClient {
     }
 
     private TransactionThreshold newTransactionThreshold() {
-         return new SimpleLimitThreshold(1000, 10_000_000L);
+        return new SimpleLimitThreshold(1000, 10_000_000L);
     }
 
     private synchronized boolean isConnectionEstablished() {
@@ -478,7 +475,6 @@ public class NioAsyncLoadBalanceClient implements AsyncLoadBalanceClient {
         }
     }
 
-
     private PeerChannel createPeerChannel(final SocketChannel channel, final String peerDescription) {
         if (sslContext == null) {
             logger.debug("No SSL Context is available so will not perform SSL Handshake with Peer {}", peerDescription);
@@ -493,7 +489,6 @@ public class NioAsyncLoadBalanceClient implements AsyncLoadBalanceClient {
 
         return new PeerChannel(channel, sslEngine, peerDescription);
     }
-
 
     private SocketChannel createChannel() throws IOException {
         final SocketChannel socketChannel = SocketChannel.open();
@@ -516,7 +511,6 @@ public class NioAsyncLoadBalanceClient implements AsyncLoadBalanceClient {
             throw e;
         }
     }
-
 
     @Override
     public String toString() {

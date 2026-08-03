@@ -16,13 +16,10 @@
  */
 package org.apache.nifi.processors.aws.credentials.provider.factory.strategies;
 
-import com.amazonaws.auth.AWSCredentialsProvider;
-import com.amazonaws.auth.profile.ProfileCredentialsProvider;
 import org.apache.nifi.components.PropertyDescriptor;
 import org.apache.nifi.context.PropertyContext;
 import org.apache.nifi.processors.aws.credentials.provider.service.AWSCredentialsProviderControllerService;
 import software.amazon.awssdk.auth.credentials.AwsCredentialsProvider;
-
 
 /**
  * Supports AWS Credentials using a named profile configured in the credentials file (typically ~/.aws/credentials).
@@ -36,12 +33,6 @@ public class NamedProfileCredentialsStrategy extends AbstractCredentialsStrategy
         super("Named Profile", new PropertyDescriptor[] {
             AWSCredentialsProviderControllerService.PROFILE_NAME
         });
-    }
-
-    @Override
-    public AWSCredentialsProvider getCredentialsProvider(final PropertyContext propertyContext) {
-        final String profileName = propertyContext.getProperty(AWSCredentialsProviderControllerService.PROFILE_NAME).evaluateAttributeExpressions().getValue();
-        return new ProfileCredentialsProvider(profileName);
     }
 
     @Override

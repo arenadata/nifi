@@ -33,17 +33,17 @@ import org.apache.nifi.ssl.SSLContextProvider;
 import org.springframework.data.redis.connection.RedisConnection;
 import org.springframework.data.redis.connection.jedis.JedisConnectionFactory;
 
-import javax.net.ssl.SSLContext;
 import java.util.Collection;
 import java.util.List;
+import javax.net.ssl.SSLContext;
 
 @Tags({"redis", "cache"})
 @CapabilityDescription("A service that provides connections to Redis.")
-public class
-RedisConnectionPoolService extends AbstractControllerService implements RedisConnectionPool {
+public class RedisConnectionPoolService extends AbstractControllerService implements RedisConnectionPool {
 
     private volatile PropertyContext context;
     private volatile RedisType redisType;
+    private volatile String connectionString;
     private volatile JedisConnectionFactory connectionFactory;
     private volatile SSLContext sslContext;
 
@@ -67,6 +67,7 @@ RedisConnectionPoolService extends AbstractControllerService implements RedisCon
 
         final String redisMode = context.getProperty(RedisUtils.REDIS_MODE).getValue();
         this.redisType = RedisType.fromDisplayName(redisMode);
+        this.connectionString = context.getProperty(RedisUtils.CONNECTION_STRING).evaluateAttributeExpressions().getValue();
     }
 
     @OnDisabled
@@ -75,6 +76,7 @@ RedisConnectionPoolService extends AbstractControllerService implements RedisCon
             connectionFactory.destroy();
             connectionFactory = null;
             redisType = null;
+            connectionString = null;
             context = null;
             sslContext = null;
         }
@@ -83,6 +85,11 @@ RedisConnectionPoolService extends AbstractControllerService implements RedisCon
     @Override
     public RedisType getRedisType() {
         return redisType;
+    }
+
+    @Override
+    public String getConnectionString() {
+        return connectionString;
     }
 
     @Override
@@ -97,6 +104,5 @@ RedisConnectionPoolService extends AbstractControllerService implements RedisCon
 
         return connectionFactory.getConnection();
     }
-
 
 }

@@ -36,7 +36,6 @@ import java.util.List;
 import java.util.NoSuchElementException;
 import java.util.Objects;
 
-
 /**
  * <p>
  * NiFiPythonGateway is a custom extension of the Py4J Gateway class.
@@ -68,7 +67,7 @@ public class NiFiPythonGateway extends Gateway {
     // Guarded by synchronized methods
     private final List<InvocationBindings> activeInvocations = new ArrayList<>();
 
-    private final ReturnObject END_OF_ITERATOR_OBJECT = ReturnObject.getErrorReturnObject(new NoSuchElementException());
+    private static final ReturnObject END_OF_ITERATOR_OBJECT = ReturnObject.getErrorReturnObject(new NoSuchElementException());
     private final Method freeMethod;
     private final Method pingMethod;
 
@@ -158,7 +157,6 @@ public class NiFiPythonGateway extends Gateway {
         objectBindings.unbind(objectId);
     }
 
-
     @Override
     protected PythonProxyHandler createPythonProxyHandler(final String id) {
         logger.debug("Creating Python Proxy Handler for ID {}", id);
@@ -239,7 +237,6 @@ public class NiFiPythonGateway extends Gateway {
     private boolean isBindNecessary(final Class<?> type) {
         return !type.isPrimitive() && type != String.class && type != byte[].class;
     }
-
 
     public static class InvocationBindings {
         private final String targetObjectId;

@@ -26,6 +26,7 @@ import org.apache.nifi.elasticsearch.SearchResponse;
 import org.apache.nifi.expression.ExpressionLanguageScope;
 import org.apache.nifi.flowfile.FlowFile;
 import org.apache.nifi.flowfile.attributes.CoreAttributes;
+import org.apache.nifi.migration.PropertyConfiguration;
 import org.apache.nifi.processor.AbstractProcessor;
 import org.apache.nifi.processor.ProcessContext;
 import org.apache.nifi.processor.ProcessSession;
@@ -52,7 +53,7 @@ import java.util.stream.Collectors;
 
 public abstract class AbstractJsonQueryElasticsearch<Q extends JsonQueryParameters> extends AbstractProcessor implements ElasticsearchRestProcessor {
     public static final Relationship REL_ORIGINAL = new Relationship.Builder().name("original")
-            .description("All original flowfiles that don't cause an error to occur go to this relationship.").build();
+            .description("All original FlowFiles that don't cause an error to occur go to this relationship.").build();
     public static final Relationship REL_HITS = new Relationship.Builder().name("hits")
             .description("Search hits are routed to this relationship.")
             .build();
@@ -61,9 +62,8 @@ public abstract class AbstractJsonQueryElasticsearch<Q extends JsonQueryParamete
             .build();
 
     public static final PropertyDescriptor SEARCH_RESULTS_SPLIT = new PropertyDescriptor.Builder()
-            .name("el-rest-split-up-hits")
-            .displayName("Search Results Split")
-            .description("Output a flowfile containing all hits or one flowfile for each individual hit.")
+            .name("Search Results Split")
+            .description("Output a FlowFile containing all hits or one FlowFile for each individual hit.")
             .allowableValues(ResultOutputStrategy.getNonPaginatedResponseOutputStrategies())
             .defaultValue(ResultOutputStrategy.PER_RESPONSE)
             .required(true)
@@ -71,8 +71,7 @@ public abstract class AbstractJsonQueryElasticsearch<Q extends JsonQueryParamete
             .build();
 
     public static final PropertyDescriptor SEARCH_RESULTS_FORMAT = new PropertyDescriptor.Builder()
-            .name("el-rest-format-hits")
-            .displayName("Search Results Format")
+            .name("Search Results Format")
             .description("Format of Hits output.")
             .allowableValues(SearchResultsFormat.class)
             .defaultValue(SearchResultsFormat.FULL)
@@ -80,9 +79,8 @@ public abstract class AbstractJsonQueryElasticsearch<Q extends JsonQueryParamete
             .expressionLanguageSupported(ExpressionLanguageScope.NONE)
             .build();
     public static final PropertyDescriptor AGGREGATION_RESULTS_SPLIT = new PropertyDescriptor.Builder()
-            .name("el-rest-split-up-aggregations")
-            .displayName("Aggregation Results Split")
-            .description("Output a flowfile containing all aggregations or one flowfile for each individual aggregation.")
+            .name("Aggregation Results Split")
+            .description("Output a FlowFile containing all aggregations or one FlowFile for each individual aggregation.")
             .allowableValues(ResultOutputStrategy.getNonPaginatedResponseOutputStrategies())
             .defaultValue(ResultOutputStrategy.PER_RESPONSE)
             .required(true)
@@ -90,8 +88,7 @@ public abstract class AbstractJsonQueryElasticsearch<Q extends JsonQueryParamete
             .build();
 
     public static final PropertyDescriptor AGGREGATION_RESULTS_FORMAT = new PropertyDescriptor.Builder()
-            .name("el-rest-format-aggregations")
-            .displayName("Aggregation Results Format")
+            .name("Aggregation Results Format")
             .description("Format of Aggregation output.")
             .allowableValues(AggregationResultsFormat.class)
             .defaultValue(AggregationResultsFormat.FULL)
@@ -99,10 +96,9 @@ public abstract class AbstractJsonQueryElasticsearch<Q extends JsonQueryParamete
             .expressionLanguageSupported(ExpressionLanguageScope.NONE)
             .build();
     public static final PropertyDescriptor OUTPUT_NO_HITS = new PropertyDescriptor.Builder()
-            .name("el-rest-output-no-hits")
-            .displayName("Output No Hits")
-            .description("Output a \"" + REL_HITS.getName() + "\" flowfile even if no hits found for query. " +
-                    "If true, an empty \"" + REL_HITS.getName() + "\" flowfile will be output even if \"" +
+            .name("Output No Hits")
+            .description("Output a \"" + REL_HITS.getName() + "\" FlowFile even if no hits found for query. " +
+                    "If true, an empty \"" + REL_HITS.getName() + "\" FlowFile will be output even if \"" +
                     REL_AGGREGATIONS.getName() + "\" are output.")
             .allowableValues("true", "false")
             .defaultValue("false")
@@ -150,6 +146,16 @@ public abstract class AbstractJsonQueryElasticsearch<Q extends JsonQueryParamete
     @Override
     public List<PropertyDescriptor> getSupportedPropertyDescriptors() {
         return queryPropertyDescriptors;
+    }
+
+    @Override
+    public void migrateProperties(PropertyConfiguration config) {
+        ElasticsearchRestProcessor.super.migrateProperties(config);
+        config.renameProperty("el-rest-split-up-hits", SEARCH_RESULTS_SPLIT.getName());
+        config.renameProperty("el-rest-format-hits", SEARCH_RESULTS_FORMAT.getName());
+        config.renameProperty("el-rest-split-up-aggregations", AGGREGATION_RESULTS_SPLIT.getName());
+        config.renameProperty("el-rest-format-aggregations", AGGREGATION_RESULTS_FORMAT.getName());
+        config.renameProperty("el-rest-output-no-hits", OUTPUT_NO_HITS.getName());
     }
 
     @Override

@@ -61,7 +61,7 @@ public class StandardStateManager implements StateManager {
         final LogRepository repo = LogRepositoryFactory.getRepository(componentId);
         final ComponentLog logger = (repo == null) ? null : repo.getLogger();
         if (repo == null || logger == null) {
-            return new SimpleProcessLogger(componentId, this, new StandardLoggingContext(null));
+            return new SimpleProcessLogger(componentId, this, new StandardLoggingContext());
         }
 
         return logger;
@@ -73,7 +73,6 @@ public class StandardStateManager implements StateManager {
         getLogger(componentId).debug("Returning {} State: {}", scope, stateMap);
         return stateMap;
     }
-
 
     @Override
     public boolean replace(final StateMap oldValue, final Map<String, String> newValue, final Scope scope) throws IOException {

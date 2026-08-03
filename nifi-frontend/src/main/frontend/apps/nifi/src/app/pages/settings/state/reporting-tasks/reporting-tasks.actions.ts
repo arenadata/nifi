@@ -31,7 +31,7 @@ import {
     StopReportingTaskRequest,
     StopReportingTaskSuccess
 } from './index';
-import { FetchComponentVersionsRequest } from '../../../../state/shared';
+import { ClearBulletinsRequest, ClearBulletinsResponse, FetchComponentVersionsRequest } from '../../../../state/shared';
 
 export const resetReportingTasksState = createAction('[Reporting Tasks] Reset Reporting Tasks State');
 
@@ -40,6 +40,11 @@ export const loadReportingTasks = createAction('[Reporting Tasks] Load Reporting
 export const loadReportingTasksSuccess = createAction(
     '[Reporting Tasks] Load Reporting Tasks Success',
     props<{ response: LoadReportingTasksResponse }>()
+);
+
+export const loadReportingTasksError = createAction(
+    '[Reporting Tasks] Load Reporting Tasks Error',
+    props<{ errorResponse: any; loadedTimestamp: string; status: 'pending' | 'success' }>()
 );
 
 export const openConfigureReportingTaskDialog = createAction(
@@ -58,7 +63,7 @@ export const configureReportingTaskSuccess = createAction(
 );
 
 export const reportingTasksBannerApiError = createAction(
-    '[Reporting Tasks] Load Reporting Tasks Banner Api Error',
+    '[Reporting Tasks] Reporting Tasks Banner Api Error',
     props<{ error: string }>()
 );
 
@@ -137,4 +142,14 @@ export const selectReportingTask = createAction(
 export const openChangeReportingTaskVersionDialog = createAction(
     `[Reporting Tasks] Open Change Reporting Task Version Dialog`,
     props<{ request: FetchComponentVersionsRequest }>()
+);
+
+export const clearReportingTaskBulletins = createAction(
+    '[Reporting Tasks] Clear Reporting Task Bulletins',
+    props<{ request: ClearBulletinsRequest }>()
+);
+
+export const clearReportingTaskBulletinsSuccess = createAction(
+    '[Reporting Tasks] Clear Reporting Task Bulletins Success',
+    props<{ response: ClearBulletinsResponse }>()
 );

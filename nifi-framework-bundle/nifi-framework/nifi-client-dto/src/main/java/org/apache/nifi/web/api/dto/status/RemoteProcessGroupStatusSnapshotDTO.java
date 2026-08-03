@@ -17,7 +17,6 @@
 package org.apache.nifi.web.api.dto.status;
 
 import io.swagger.v3.oas.annotations.media.Schema;
-
 import jakarta.xml.bind.annotation.XmlType;
 
 /**
@@ -116,7 +115,7 @@ public class RemoteProcessGroupStatusSnapshotDTO implements Cloneable {
     /**
      * @return Formatted description of the amount of data sent to this remote process group
      */
-    @Schema(description = "The count/size of the flowfiles sent to the remote process group in the last 5 minutes.")
+    @Schema(description = "The count/size of the FlowFiles sent to the remote process group in the last 5 minutes.")
     public String getSent() {
         return sent;
     }
@@ -125,11 +124,10 @@ public class RemoteProcessGroupStatusSnapshotDTO implements Cloneable {
         this.sent = sent;
     }
 
-
     /**
      * @return Formatted description of the amount of data received from this remote process group
      */
-    @Schema(description = "The count/size of the flowfiles received from the remote process group in the last 5 minutes.")
+    @Schema(description = "The count/size of the FlowFiles received from the remote process group in the last 5 minutes.")
     public String getReceived() {
         return received;
     }

@@ -17,10 +17,10 @@
 package org.apache.nifi.web.api.dto.status;
 
 import io.swagger.v3.oas.annotations.media.Schema;
-import org.apache.nifi.web.api.dto.util.TimeAdapter;
-
 import jakarta.xml.bind.annotation.XmlType;
 import jakarta.xml.bind.annotation.adapters.XmlJavaTypeAdapter;
+import org.apache.nifi.web.api.dto.util.TimeAdapter;
+
 import java.util.Date;
 import java.util.List;
 
@@ -45,7 +45,6 @@ public class PortStatusDTO {
         this.transmitting = transmitting;
     }
 
-
     @Schema(description = "The id of the port.")
     public String getId() {
         return id;
@@ -54,7 +53,6 @@ public class PortStatusDTO {
     public void setId(String id) {
         this.id = id;
     }
-
 
     @Schema(description = "The id of the parent process group of the port.")
     public String getGroupId() {
@@ -65,7 +63,6 @@ public class PortStatusDTO {
         this.groupId = groupId;
     }
 
-
     @Schema(description = "The name of the port.")
     public String getName() {
         return name;
@@ -74,7 +71,6 @@ public class PortStatusDTO {
     public void setName(String name) {
         this.name = name;
     }
-
 
     @Schema(description = "The run status of the port.",
             allowableValues = {"Running", "Stopped", "Validating", "Disabled", "Invalid"})

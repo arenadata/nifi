@@ -28,7 +28,7 @@ import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.testcontainers.containers.PostgreSQLContainer;
+import org.testcontainers.postgresql.PostgreSQLContainer;
 
 import java.sql.Connection;
 import java.sql.Date;
@@ -49,12 +49,12 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 @SuppressWarnings("resource")
 public class PutDatabaseRecordIT {
 
-    private final long MILLIS_TIMESTAMP_LONG = 1707238288351L;
-    private final long MICROS_TIMESTAMP_LONG = 1707238288351567L;
-    private final String MICROS_TIMESTAMP_FORMATTED = "2024-02-06 11:51:28.351567";
-    private final double MICROS_TIMESTAMP_DOUBLE = ((double) MICROS_TIMESTAMP_LONG) / 1000000D;
-    private final long NANOS_AFTER_SECOND = 351567000L;
-    private final Instant INSTANT_MICROS_PRECISION = Instant.ofEpochMilli(MILLIS_TIMESTAMP_LONG).plusNanos(NANOS_AFTER_SECOND).minusMillis(MILLIS_TIMESTAMP_LONG % 1000);
+    private static final long MILLIS_TIMESTAMP_LONG = 1707238288351L;
+    private static final long MICROS_TIMESTAMP_LONG = 1707238288351567L;
+    private static final String MICROS_TIMESTAMP_FORMATTED = "2024-02-06 11:51:28.351567";
+    private static final double MICROS_TIMESTAMP_DOUBLE = ((double) MICROS_TIMESTAMP_LONG) / 1000000D;
+    private static final long NANOS_AFTER_SECOND = 351567000L;
+    private static final Instant INSTANT_MICROS_PRECISION = Instant.ofEpochMilli(MILLIS_TIMESTAMP_LONG).plusNanos(NANOS_AFTER_SECOND).minusMillis(MILLIS_TIMESTAMP_LONG % 1000);
 
     private static final String SIMPLE_INPUT_RECORD = """
             {
@@ -67,14 +67,12 @@ public class PutDatabaseRecordIT {
     private static final String FAVORITE_COLOR_FIELD = "favorite_color";
     private static final String FAVORITE_COLOR = "blue";
 
-    private static PostgreSQLContainer<?> postgres;
+    private static PostgreSQLContainer postgres;
     private TestRunner runner;
-
 
     @BeforeAll
     public static void startPostgres() {
-        postgres = new PostgreSQLContainer<>("postgres:9.6.12")
-            .withInitScript("PutDatabaseRecordIT/create-person-table.sql");
+        postgres = new PostgreSQLContainer("postgres:18.0").withInitScript("PutDatabaseRecordIT/create-person-table.sql");
         postgres.start();
     }
 
@@ -112,7 +110,6 @@ public class PutDatabaseRecordIT {
         runner.setProperty(PutDatabaseRecord.DB_TYPE, "PostgreSQL");
         runner.setProperty(PutDatabaseRecord.STATEMENT_TYPE, "INSERT");
     }
-
 
     @Test
     public void testSimplePut() throws SQLException {
@@ -216,7 +213,6 @@ public class PutDatabaseRecordIT {
         assertEquals(INSTANT_MICROS_PRECISION, lastTransactionTime.toInstant());
     }
 
-
     @Test
     public void testWithDecimalTimestampUsingMicros() throws SQLException {
         runner.enqueue(createJson(Double.toString(MICROS_TIMESTAMP_DOUBLE)));
@@ -238,7 +234,6 @@ public class PutDatabaseRecordIT {
         final Timestamp lastTransactionTime = (Timestamp) results.get("lasttransactiontime");
         assertEquals(INSTANT_MICROS_PRECISION, lastTransactionTime.toInstant());
     }
-
 
     private static void truncateTable() throws SQLException {
         try (final Connection connection = DriverManager.getConnection(postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword())) {

@@ -1,0 +1,267 @@
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+name: build
+
+on: [push]
+
+env:
+  MAVEN_COMMAND: ./mvnw
+  DEFAULT_MAVEN_OPTS: >-
+    -Xmx4g
+    -XX:ReservedCodeCacheSize=1g
+    -Dorg.slf4j.simpleLogger.defaultLogLevel=WARN
+    -Daether.connector.http.retryHandler.count=5
+    -Daether.connector.http.connectionMaxTtl=30
+  COMPILE_MAVEN_OPTS: >-
+    -Xmx3g
+    -Daether.connector.http.retryHandler.count=5
+    -Daether.connector.http.connectionMaxTtl=30
+  MAVEN_COMPILE_COMMAND: >-
+    test-compile
+    --show-version
+    --no-snapshot-updates
+    --no-transfer-progress
+    --fail-fast
+    --threads 1C
+  MAVEN_VERIFY_COMMAND: >-
+    verify
+    --show-version
+    --no-snapshot-updates
+    --no-transfer-progress
+    --fail-fast
+    --threads 1C
+    -D dir-only
+  DEVELOCITY_ACCESS_KEY: ${{ secrets.NIFI_DEVELOCITY_ACCESS_KEY }}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  validate-pull-request:
+    timeout-minutes: 10
+    runs-on: ubuntu-24.04
+    name: Validate Pull Request
+    if: github.event_name == 'pull_request' && github.repository == 'apache/nifi' && github.actor != 'dependabot[bot]'
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - name: Validate Title
+        id: validate-title
+        continue-on-error: true
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: .github/scripts/build/validate-title.sh
+      - name: Validate Jira Issue
+        id: validate-jira-issue
+        continue-on-error: true
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: .github/scripts/build/validate-jira-issue.sh
+      - name: Validate Commit Messages
+        id: validate-commit-messages
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: .github/scripts/build/validate-commit-messages.sh
+      - name: Validate Signed Commits
+        id: validate-signed-commits
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: .github/scripts/build/validate-signed-commits.sh
+      - name: Validate Branch Status
+        id: validate-branch-status
+        continue-on-error: true
+        env:
+          TARGET_BRANCH: ${{ github.event.pull_request.base.ref }}
+        run: .github/scripts/build/validate-branch-status.sh
+      - name: Validate Single Commit
+        id: validate-single-commit
+        continue-on-error: true
+        env:
+          COMMIT_COUNT: ${{ github.event.pull_request.commits }}
+          GITHUB_EVENT_ACTION: ${{ github.event.action }}
+        run: .github/scripts/build/validate-single-commit.sh
+      - name: Validation Results
+        env:
+          VALIDATION_FAILED: ${{ contains(steps.*.outcome, 'failure') }}
+        run: |
+          if [[ "${VALIDATION_FAILED}" == "true" ]]; then
+            RUN_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+            echo "::error::Pull request validation failed. Review workflow run: ${RUN_URL}"
+            exit 1
+          fi
+
+  ubuntu-build-en:
+    timeout-minutes: 120
+    runs-on: ubuntu-24.04
+    name: Ubuntu Corretto JDK 21 EN
+    needs: validate-pull-request
+    if: ${{ !cancelled() && (needs.validate-pull-request.result == 'success' || needs.validate-pull-request.result == 'skipped') }}
+    steps:
+      - name: Clear Disk Space
+        run: |
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /opt/ghc
+          sudo rm -rf "/usr/local/share/boost"
+          sudo rm -rf /usr/local/lib/android
+      - name: System Information
+        run: |
+          hostname
+          cat /proc/cpuinfo
+          cat /proc/meminfo
+          df
+      - name: Checkout Code
+        uses: actions/checkout@v6
+      - name: Cache Node Modules
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/.npm
+            **/node_modules
+          key: ${{ runner.os }}-npm-${{ hashFiles('**/package-lock.json') }}
+      - name: Set up Java 21
+        uses: actions/setup-java@v5
+        with:
+          distribution: 'corretto'
+          java-version: '21'
+          cache: 'maven'
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Evaluate Changed Paths
+        uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d
+        id: changes
+        with:
+          filters: |
+            frontend:
+              - 'nifi-frontend/**'
+      - name: Maven Compile
+        env:
+          MAVEN_OPTS: >-
+            ${{ env.COMPILE_MAVEN_OPTS }}
+            -Dfrontend.skipTests=${{ steps.changes.outputs.frontend == 'true' && 'false' || 'true' }}
+        run: >
+          ${{ env.MAVEN_COMMAND }}
+          ${{ env.MAVEN_COMPILE_COMMAND }}
+      - name: Maven Verify
+        env:
+          MAVEN_OPTS: >-
+            ${{ env.DEFAULT_MAVEN_OPTS }}
+            -Dfrontend.skipTests=${{ steps.changes.outputs.frontend == 'true' && 'false' || 'true' }}
+        run: >
+          ${{ env.MAVEN_COMMAND }}        
+          ${{ env.MAVEN_VERIFY_COMMAND }}        
+          -P python-unit-tests
+      - name: Upload Test Reports
+        uses: actions/upload-artifact@v5
+        with:
+          name: surefire-reports-ubuntu-21
+          path: |
+            ./**/target/surefire-reports/*.txt
+            ./**/target/surefire-reports/*.xml
+          retention-days: 3
+        if: failure()
+      - name: Post Disk Usage
+        run: df
+        if: ${{ always() }}
+
+  ubuntu--jdk-25-build-en:
+    timeout-minutes: 120
+    runs-on: ubuntu-24.04
+    name: Ubuntu Corretto JDK 25 EN
+    needs: validate-pull-request
+    if: ${{ !cancelled() && (needs.validate-pull-request.result == 'success' || needs.validate-pull-request.result == 'skipped') }}
+    steps:
+      - name: Clear Disk Space
+        run: |
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /opt/ghc
+          sudo rm -rf "/usr/local/share/boost"
+          sudo rm -rf /usr/local/lib/android
+      - name: System Information
+        run: |
+          hostname
+          cat /proc/cpuinfo
+          cat /proc/meminfo
+          df
+      - name: Checkout Code
+        uses: actions/checkout@v6
+      - name: Cache Node Modules
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/.npm
+            **/node_modules
+          key: ${{ runner.os }}-npm-${{ hashFiles('**/package-lock.json') }}
+      - name: Set up Java 25
+        uses: actions/setup-java@v5
+        with:
+          distribution: 'corretto'
+          java-version: '25'
+          cache: 'maven'
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Evaluate Changed Paths
+        uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d
+        id: changes
+        with:
+          filters: |
+            frontend:
+              - 'nifi-frontend/**'
+      - name: Maven Compile
+        env:
+          MAVEN_OPTS: >-
+            ${{ env.COMPILE_MAVEN_OPTS }}
+            -Dfrontend.skipTests=${{ steps.changes.outputs.frontend == 'true' && 'false' || 'true' }}
+        run: >
+          ${{ env.MAVEN_COMMAND }}
+          ${{ env.MAVEN_COMPILE_COMMAND }}
+      - name: Maven Verify
+        env:
+          MAVEN_OPTS: >-
+            ${{ env.DEFAULT_MAVEN_OPTS }}
+            -Dfrontend.skipTests=${{ steps.changes.outputs.frontend == 'true' && 'false' || 'true' }}
+        run: >
+          ${{ env.MAVEN_COMMAND }}        
+          ${{ env.MAVEN_VERIFY_COMMAND }}        
+          -P python-unit-tests
+      - name: Upload Test Reports
+        uses: actions/upload-artifact@v5
+        with:
+          name: surefire-reports-ubuntu-jdk-25
+          path: |
+            ./**/target/surefire-reports/*.txt
+            ./**/target/surefire-reports/*.xml
+          retention-days: 3
+        if: failure()
+      - name: Post Disk Usage
+        run: df
+        if: ${{ always() }}

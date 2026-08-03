@@ -20,8 +20,6 @@ package org.apache.nifi.processors.standard;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.nifi.annotation.behavior.InputRequirement;
 import org.apache.nifi.annotation.behavior.InputRequirement.Requirement;
-import org.apache.nifi.annotation.behavior.Restricted;
-import org.apache.nifi.annotation.behavior.Restriction;
 import org.apache.nifi.annotation.documentation.CapabilityDescription;
 import org.apache.nifi.annotation.documentation.MultiProcessorUseCase;
 import org.apache.nifi.annotation.documentation.ProcessorConfiguration;
@@ -29,12 +27,12 @@ import org.apache.nifi.annotation.documentation.SeeAlso;
 import org.apache.nifi.annotation.documentation.Tags;
 import org.apache.nifi.components.AllowableValue;
 import org.apache.nifi.components.PropertyDescriptor;
-import org.apache.nifi.components.RequiredPermission;
 import org.apache.nifi.components.ValidationContext;
 import org.apache.nifi.components.ValidationResult;
 import org.apache.nifi.expression.ExpressionLanguageScope;
 import org.apache.nifi.flowfile.FlowFile;
 import org.apache.nifi.logging.LogLevel;
+import org.apache.nifi.migration.PropertyConfiguration;
 import org.apache.nifi.processor.AbstractProcessor;
 import org.apache.nifi.processor.ProcessContext;
 import org.apache.nifi.processor.ProcessSession;
@@ -64,16 +62,7 @@ import java.util.concurrent.TimeUnit;
 @CapabilityDescription("Reads the contents of a file from disk and streams it into the contents of an incoming FlowFile. Once this is done, the file is optionally moved elsewhere or deleted "
     + "to help keep the file system organized.")
 @SeeAlso({GetFile.class, PutFile.class, ListFile.class})
-@Restricted(
-        restrictions = {
-                @Restriction(
-                        requiredPermission = RequiredPermission.READ_FILESYSTEM,
-                        explanation = "Provides operator the ability to read from any file that NiFi has access to."),
-                @Restriction(
-                        requiredPermission = RequiredPermission.WRITE_FILESYSTEM,
-                        explanation = "Provides operator the ability to delete any file that NiFi has access to.")
-        }
-)
+
 @MultiProcessorUseCase(
     description = "Ingest all files from a directory into NiFi",
     keywords = {"local", "files", "filesystem", "ingest", "ingress", "get", "source", "input", "fetch"},
@@ -163,14 +152,14 @@ public class FetchFile extends AbstractProcessor {
         .required(true)
         .build();
     static final PropertyDescriptor FILE_NOT_FOUND_LOG_LEVEL = new PropertyDescriptor.Builder()
-        .name("Log level when file not found")
+        .name("File not Found Log Level")
         .description("Log level to use in case the file does not exist when the processor is triggered")
         .allowableValues(LogLevel.values())
         .defaultValue(LogLevel.ERROR.toString())
         .required(true)
         .build();
     static final PropertyDescriptor PERM_DENIED_LOG_LEVEL = new PropertyDescriptor.Builder()
-        .name("Log level when permission denied")
+        .name("Permission Denied Log Level")
         .description("Log level to use if the current application user does not have sufficient permissions to read the file")
         .allowableValues(LogLevel.values())
         .defaultValue(LogLevel.ERROR.toString())
@@ -333,6 +322,12 @@ public class FetchFile extends AbstractProcessor {
         session.commitAsync(() -> {
             performCompletionAction(completionStrategy, file, targetDirectoryName, fetched, context);
         });
+    }
+
+    @Override
+    public void migrateProperties(PropertyConfiguration config) {
+        config.renameProperty("Log level when file not found", FILE_NOT_FOUND_LOG_LEVEL.getName());
+        config.renameProperty("Log level when permission denied", PERM_DENIED_LOG_LEVEL.getName());
     }
 
     private void performCompletionAction(final String completionStrategy, final File file, final String targetDirectoryName, final FlowFile flowFile, final ProcessContext context) {

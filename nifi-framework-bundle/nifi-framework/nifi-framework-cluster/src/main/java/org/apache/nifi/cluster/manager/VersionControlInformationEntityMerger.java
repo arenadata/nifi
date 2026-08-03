@@ -17,12 +17,12 @@
 
 package org.apache.nifi.cluster.manager;
 
-import java.util.Map;
-
 import org.apache.nifi.cluster.protocol.NodeIdentifier;
 import org.apache.nifi.registry.flow.VersionedFlowState;
 import org.apache.nifi.web.api.dto.VersionControlInformationDTO;
 import org.apache.nifi.web.api.entity.VersionControlInformationEntity;
+
+import java.util.Map;
 
 public class VersionControlInformationEntityMerger {
 
@@ -41,7 +41,6 @@ public class VersionControlInformationEntityMerger {
                 updateFlowState(clientDto, dto);
             });
     }
-
 
     private static boolean isCurrent(final VersionedFlowState state) {
         return state == VersionedFlowState.UP_TO_DATE || state == VersionedFlowState.LOCALLY_MODIFIED;

@@ -18,6 +18,7 @@
 import { createReducer, on } from '@ngrx/store';
 import { ManagementControllerServicesState } from './index';
 import {
+    clearControllerServiceBulletinsSuccess,
     configureControllerService,
     configureControllerServiceSuccess,
     createControllerService,
@@ -27,6 +28,7 @@ import {
     inlineCreateControllerServiceSuccess,
     loadManagementControllerServices,
     loadManagementControllerServicesSuccess,
+    loadManagementControllerServicesError,
     managementControllerServicesBannerApiError,
     managementControllerServicesSnackbarApiError,
     resetManagementControllerServicesState
@@ -54,6 +56,10 @@ export const managementControllerServicesReducer = createReducer(
         controllerServices: response.controllerServices,
         loadedTimestamp: response.loadedTimestamp,
         status: 'success' as const
+    })),
+    on(loadManagementControllerServicesError, (state, { status }) => ({
+        ...state,
+        status
     })),
     on(managementControllerServicesBannerApiError, managementControllerServicesSnackbarApiError, (state) => ({
         ...state,
@@ -92,6 +98,18 @@ export const managementControllerServicesReducer = createReducer(
                 draftState.controllerServices.splice(componentIndex, 1);
             }
             draftState.saving = false;
+        });
+    }),
+    on(clearControllerServiceBulletinsSuccess, (state, { response }) => {
+        return produce(state, (draftState) => {
+            const componentIndex: number = draftState.controllerServices.findIndex(
+                (service: any) => service.id === response.componentId
+            );
+            if (componentIndex > -1) {
+                const service = draftState.controllerServices[componentIndex];
+                // Replace bulletins with the current bulletins from the server
+                service.bulletins = response.bulletins || [];
+            }
         });
     })
 );

@@ -36,7 +36,7 @@ import org.apache.nifi.box.controllerservices.BoxClientService;
 import org.apache.nifi.components.PropertyDescriptor;
 import org.apache.nifi.expression.ExpressionLanguageScope;
 import org.apache.nifi.flowfile.FlowFile;
-import org.apache.nifi.processor.AbstractProcessor;
+import org.apache.nifi.migration.PropertyConfiguration;
 import org.apache.nifi.processor.DataUnit;
 import org.apache.nifi.processor.ProcessContext;
 import org.apache.nifi.processor.ProcessSession;
@@ -77,7 +77,6 @@ import static org.apache.nifi.processors.box.BoxFileUtils.BOX_URL;
 import static org.apache.nifi.processors.conflict.resolution.ConflictResolutionStrategy.IGNORE;
 import static org.apache.nifi.processors.conflict.resolution.ConflictResolutionStrategy.REPLACE;
 
-
 @SeeAlso({ListBoxFile.class, FetchBoxFile.class})
 @InputRequirement(Requirement.INPUT_REQUIRED)
 @Tags({"box", "storage", "put"})
@@ -91,7 +90,7 @@ import static org.apache.nifi.processors.conflict.resolution.ConflictResolutionS
         @WritesAttribute(attribute = TIMESTAMP, description = TIMESTAMP_DESC),
         @WritesAttribute(attribute = ERROR_CODE, description = ERROR_CODE_DESC),
         @WritesAttribute(attribute = ERROR_MESSAGE, description = ERROR_MESSAGE_DESC)})
-public class PutBoxFile extends AbstractProcessor {
+public class PutBoxFile extends AbstractBoxProcessor {
     public static final int CHUNKED_UPLOAD_LOWER_LIMIT_IN_BYTES = 20 * 1024 * 1024;
     public static final int CHUNKED_UPLOAD_UPPER_LIMIT_IN_BYTES = 50 * 1024 * 1024;
 
@@ -99,8 +98,7 @@ public class PutBoxFile extends AbstractProcessor {
     public static final int WAIT_TIME_MS = 1000;
 
     public static final PropertyDescriptor FOLDER_ID = new PropertyDescriptor.Builder()
-            .name("box-folder-id")
-            .displayName("Folder ID")
+            .name("Folder ID")
             .description("The ID of the folder where the file is uploaded." +
             " Please see Additional Details to obtain Folder ID.")
             .addValidator(StandardValidators.NON_EMPTY_VALIDATOR)
@@ -109,8 +107,7 @@ public class PutBoxFile extends AbstractProcessor {
             .build();
 
     public static final PropertyDescriptor FILE_NAME = new PropertyDescriptor.Builder()
-            .name("file-name")
-            .displayName("Filename")
+            .name("Filename")
             .description("The name of the file to upload to the specified Box folder.")
             .required(true)
             .defaultValue("${filename}")
@@ -119,8 +116,7 @@ public class PutBoxFile extends AbstractProcessor {
             .build();
 
     public static final PropertyDescriptor SUBFOLDER_NAME = new PropertyDescriptor.Builder()
-            .name("subfolder-name")
-            .displayName("Subfolder Name")
+            .name("Subfolder Name")
             .description("The name (path) of the subfolder where files are uploaded. The subfolder name is relative to the folder specified by 'Folder ID'."
                     + " Example: subFolder, subFolder1/subfolder2")
             .addValidator(createRegexMatchingValidator(Pattern.compile("^(?!/).+(?<!/)$"), false,
@@ -130,8 +126,7 @@ public class PutBoxFile extends AbstractProcessor {
             .build();
 
     public static final PropertyDescriptor CREATE_SUBFOLDER = new PropertyDescriptor.Builder()
-            .name("create-folder")
-            .displayName("Create Subfolder")
+            .name("Create Subfolder")
             .expressionLanguageSupported(ExpressionLanguageScope.NONE)
             .required(true)
             .addValidator(StandardValidators.BOOLEAN_VALIDATOR)
@@ -143,8 +138,7 @@ public class PutBoxFile extends AbstractProcessor {
             .build();
 
     public static final PropertyDescriptor CONFLICT_RESOLUTION = new PropertyDescriptor.Builder()
-            .name("conflict-resolution-strategy")
-            .displayName("Conflict Resolution Strategy")
+            .name("Conflict Resolution Strategy")
             .description("Indicates what should happen when a file with the same name already exists in the specified Box folder.")
             .required(true)
             .defaultValue(ConflictResolutionStrategy.FAIL.getValue())
@@ -152,8 +146,7 @@ public class PutBoxFile extends AbstractProcessor {
             .build();
 
     public static final PropertyDescriptor CHUNKED_UPLOAD_THRESHOLD = new PropertyDescriptor.Builder()
-            .name("chunked-upload-threshold")
-            .displayName("Chunked Upload Threshold")
+            .name("Chunked Upload Threshold")
             .description("The maximum size of the content which is uploaded at once. FlowFiles larger than this threshold are uploaded in chunks."
                     + " Chunked upload is allowed for files larger than 20 MB. It is recommended to use chunked upload for files exceeding 50 MB.")
             .defaultValue("20 MB")
@@ -162,7 +155,7 @@ public class PutBoxFile extends AbstractProcessor {
             .build();
 
     public static final List<PropertyDescriptor> PROPERTY_DESCRIPTORS = List.of(
-            BoxClientService.BOX_CLIENT_SERVICE,
+            BOX_CLIENT_SERVICE,
             FOLDER_ID,
             SUBFOLDER_NAME,
             CREATE_SUBFOLDER,
@@ -205,7 +198,7 @@ public class PutBoxFile extends AbstractProcessor {
 
     @OnScheduled
     public void onScheduled(final ProcessContext context) {
-        final BoxClientService boxClientService = context.getProperty(BoxClientService.BOX_CLIENT_SERVICE).asControllerService(BoxClientService.class);
+        final BoxClientService boxClientService = context.getProperty(BOX_CLIENT_SERVICE).asControllerService(BoxClientService.class);
 
         boxAPIConnection = boxClientService.getBoxApiConnection();
     }
@@ -239,7 +232,7 @@ public class PutBoxFile extends AbstractProcessor {
                 }
 
                 if (uploadedFileInfo == null) {
-                   uploadedFileInfo = createBoxFile(parentFolder, filename, rawIn, size, chunkUploadThreshold);
+                    uploadedFileInfo = createBoxFile(parentFolder, filename, rawIn, size, chunkUploadThreshold);
                 }
             } catch (BoxAPIResponseException e) {
                 if (e.getResponseCode() == CONFLICT_RESPONSE_CODE) {
@@ -267,11 +260,22 @@ public class PutBoxFile extends AbstractProcessor {
         }
     }
 
+    @Override
+    public void migrateProperties(PropertyConfiguration config) {
+        super.migrateProperties(config);
+        config.renameProperty("box-folder-id", FOLDER_ID.getName());
+        config.renameProperty("file-name", FILE_NAME.getName());
+        config.renameProperty("subfolder-name", SUBFOLDER_NAME.getName());
+        config.renameProperty("create-folder", CREATE_SUBFOLDER.getName());
+        config.renameProperty("conflict-resolution-strategy", CONFLICT_RESOLUTION.getName());
+        config.renameProperty("chunked-upload-threshold", CHUNKED_UPLOAD_THRESHOLD.getName());
+    }
+
     BoxFolder getFolder(String folderId) {
         return new BoxFolder(boxAPIConnection, folderId);
     }
 
-    private BoxFolder getOrCreateDirectParentFolder(ProcessContext context, FlowFile flowFile ) {
+    private BoxFolder getOrCreateDirectParentFolder(ProcessContext context, FlowFile flowFile) {
         final String subfolderPath = context.getProperty(SUBFOLDER_NAME).evaluateAttributeExpressions(flowFile).getValue();
         final String folderId = context.getProperty(FOLDER_ID).evaluateAttributeExpressions(flowFile).getValue();
         BoxFolder parentFolder = getFolderById(folderId);
@@ -320,7 +324,7 @@ public class PutBoxFile extends AbstractProcessor {
         final BoxFolder newParentFolder = getOrCreateFolder(subFolderNames.poll(), parentFolder, createFolder);
 
         if (!subFolderNames.isEmpty()) {
-           return getOrCreateSubfolders(subFolderNames, newParentFolder, createFolder);
+            return getOrCreateSubfolders(subFolderNames, newParentFolder, createFolder);
         } else {
             return newParentFolder;
         }
@@ -334,8 +338,8 @@ public class PutBoxFile extends AbstractProcessor {
         }
 
         if (!createFolder) {
-           throw new ProcessException(format("The specified subfolder [%s] does not exist and [%s] is false.",
-                   folderName, CREATE_SUBFOLDER.getDisplayName()));
+            throw new ProcessException(format("The specified subfolder [%s] does not exist and [%s] is false.",
+                    folderName, CREATE_SUBFOLDER.getDisplayName()));
         }
 
         return createFolder(folderName, parentFolder);
@@ -345,7 +349,7 @@ public class PutBoxFile extends AbstractProcessor {
         getLogger().info("Creating Folder [{}], Parent [{}]", folderName, parentFolder.getID());
 
         try {
-           return parentFolder.createFolder(folderName).getResource();
+            return parentFolder.createFolder(folderName).getResource();
         } catch (BoxAPIResponseException e) {
             if (e.getResponseCode() != CONFLICT_RESPONSE_CODE) {
                 throw e;

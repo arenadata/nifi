@@ -16,23 +16,21 @@
  */
 package org.apache.nifi.fileresource.service;
 
-import org.apache.nifi.annotation.behavior.Restricted;
-import org.apache.nifi.annotation.behavior.Restriction;
 import org.apache.nifi.annotation.documentation.CapabilityDescription;
 import org.apache.nifi.annotation.documentation.Tags;
 import org.apache.nifi.annotation.lifecycle.OnDisabled;
 import org.apache.nifi.annotation.lifecycle.OnEnabled;
 import org.apache.nifi.components.PropertyDescriptor;
-import org.apache.nifi.components.RequiredPermission;
 import org.apache.nifi.components.resource.ResourceCardinality;
 import org.apache.nifi.components.resource.ResourceReference;
 import org.apache.nifi.components.resource.ResourceType;
 import org.apache.nifi.context.PropertyContext;
+import org.apache.nifi.controller.AbstractControllerService;
 import org.apache.nifi.controller.ConfigurationContext;
 import org.apache.nifi.expression.ExpressionLanguageScope;
 import org.apache.nifi.fileresource.service.api.FileResource;
 import org.apache.nifi.fileresource.service.api.FileResourceService;
-import org.apache.nifi.controller.AbstractControllerService;
+import org.apache.nifi.migration.PropertyConfiguration;
 import org.apache.nifi.processor.exception.ProcessException;
 import org.apache.nifi.processor.util.StandardValidators;
 
@@ -45,18 +43,11 @@ import java.util.Map;
 @Tags({"file", "resource"})
 @CapabilityDescription("Provides a file resource for other components. The file needs to be available locally by Nifi (e.g. local disk or mounted storage). " +
         "NiFi needs to have read permission to the file.")
-@Restricted(
-        restrictions = {
-                @Restriction(
-                        requiredPermission = RequiredPermission.READ_FILESYSTEM,
-                        explanation = "Provides operator the ability to read from any file that NiFi has access to.")
-        }
-)
+
 public class StandardFileResourceService extends AbstractControllerService implements FileResourceService {
 
     public static final PropertyDescriptor FILE_PATH = new PropertyDescriptor.Builder()
-            .name("file-path")
-            .displayName("File Path")
+            .name("File Path")
             .description("Path to a file that can be accessed locally.")
             .identifiesExternalResource(ResourceCardinality.SINGLE, ResourceType.FILE)
             .expressionLanguageSupported(ExpressionLanguageScope.FLOWFILE_ATTRIBUTES)
@@ -108,5 +99,10 @@ public class StandardFileResourceService extends AbstractControllerService imple
         } catch (IOException e) {
             throw new ProcessException("File cannot be read: " + file.getAbsolutePath(), e);
         }
+    }
+
+    @Override
+    public void migrateProperties(PropertyConfiguration config) {
+        config.renameProperty("file-path", FILE_PATH.getName());
     }
 }

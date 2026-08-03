@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-import { Injectable } from '@angular/core';
+import { Injectable, inject } from '@angular/core';
 import * as d3 from 'd3';
 import { Store } from '@ngrx/store';
 import { CanvasState } from '../../state';
@@ -26,7 +26,7 @@ import { SelectedComponent } from '../../state/flow';
     providedIn: 'root'
 })
 export class SelectableBehavior {
-    constructor(private store: Store<CanvasState>) {}
+    private store = inject<Store<CanvasState>>(Store);
 
     public select(event: MouseEvent, g: any): void {
         const components: SelectedComponent[] = g.data().map(function (d: any) {
@@ -70,10 +70,8 @@ export class SelectableBehavior {
     }
 
     public activate(components: any): void {
-        const self = this;
-
-        components.on('mousedown.selection', function (this: any, event: MouseEvent) {
-            self.select(event, d3.select(this));
+        components.on('mousedown.selection', (event: MouseEvent) => {
+            this.select(event, d3.select(event.currentTarget as Element));
         });
     }
 }

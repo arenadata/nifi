@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-import { Component, DestroyRef, EventEmitter, inject, Inject, Input, Output } from '@angular/core';
+import { Component, DestroyRef, EventEmitter, inject, Input, Output } from '@angular/core';
 import { MAT_DIALOG_DATA, MatDialogModule } from '@angular/material/dialog';
 import { AccessPolicy } from '../../../state/shared';
 import { MatButtonModule } from '@angular/material/button';
@@ -30,8 +30,7 @@ import { MatListModule } from '@angular/material/list';
 import { TenantEntity, UserEntity, UserGroupEntity } from '../../../../../state/shared';
 import { AddTenantsToPolicyRequest, AddTenantToPolicyDialogRequest } from '../../../state/access-policy';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { NifiSpinnerDirective } from '../../../../../ui/common/spinner/nifi-spinner.directive';
-import { CloseOnEscapeDialog } from '@nifi/shared';
+import { CloseOnEscapeDialog, NifiSpinnerDirective } from '@nifi/shared';
 
 @Component({
     selector: 'add-tenant-to-policy-dialog',
@@ -52,6 +51,9 @@ import { CloseOnEscapeDialog } from '@nifi/shared';
     styleUrls: ['./add-tenant-to-policy-dialog.component.scss']
 })
 export class AddTenantToPolicyDialog extends CloseOnEscapeDialog {
+    private request = inject<AddTenantToPolicyDialogRequest>(MAT_DIALOG_DATA);
+    private formBuilder = inject(FormBuilder);
+
     @Input() set users$(users$: Observable<UserEntity[]>) {
         users$.pipe(takeUntilDestroyed(this.destroyRef)).subscribe((users: UserEntity[]) => {
             const policy: AccessPolicy = this.request.accessPolicy.component;
@@ -103,10 +105,7 @@ export class AddTenantToPolicyDialog extends CloseOnEscapeDialog {
     userLookup: Map<string, UserEntity> = new Map<string, UserEntity>();
     userGroupLookup: Map<string, UserGroupEntity> = new Map<string, UserGroupEntity>();
 
-    constructor(
-        @Inject(MAT_DIALOG_DATA) private request: AddTenantToPolicyDialogRequest,
-        private formBuilder: FormBuilder
-    ) {
+    constructor() {
         super();
         this.addTenantsForm = this.formBuilder.group({
             users: new FormControl([]),

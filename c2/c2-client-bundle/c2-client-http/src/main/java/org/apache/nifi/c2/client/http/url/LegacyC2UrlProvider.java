@@ -17,10 +17,11 @@
 
 package org.apache.nifi.c2.client.http.url;
 
-import java.util.Optional;
 import org.apache.commons.lang3.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import java.util.Optional;
 
 public class LegacyC2UrlProvider implements C2UrlProvider {
 
@@ -48,9 +49,9 @@ public class LegacyC2UrlProvider implements C2UrlProvider {
     public String getCallbackUrl(String absoluteUrl, String relativeUrl) {
         return Optional.ofNullable(absoluteUrl)
                    .filter(StringUtils::isNotBlank)
-                   .orElseThrow( () -> {
-                      LOG.error("Provided absolute url was empty or null. Relative urls are not supported with this configuration");
-                      throw new IllegalArgumentException("Provided absolute url was empty or null. Relative C2 urls are not supported with this configuration");
+                   .orElseThrow(() -> {
+                       LOG.error("Provided absolute url was empty or null. Relative urls are not supported with this configuration");
+                       throw new IllegalArgumentException("Provided absolute url was empty or null. Relative C2 urls are not supported with this configuration");
                    });
     }
 }

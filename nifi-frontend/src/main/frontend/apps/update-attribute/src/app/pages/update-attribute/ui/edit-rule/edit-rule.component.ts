@@ -17,8 +17,7 @@
  * under the License.
  */
 
-import { AfterViewInit, Component, EventEmitter, Input, Output } from '@angular/core';
-import { CommonModule } from '@angular/common';
+import { AfterViewInit, Component, EventEmitter, Input, Output, inject } from '@angular/core';
 import { MatSlideToggleModule } from '@angular/material/slide-toggle';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import {
@@ -44,7 +43,6 @@ import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 @Component({
     selector: 'edit-rule',
     imports: [
-        CommonModule,
         MatSlideToggleModule,
         MatFormFieldModule,
         FormsModule,
@@ -59,6 +57,8 @@ import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
     styleUrl: './edit-rule.component.scss'
 })
 export class EditRule implements AfterViewInit {
+    private formBuilder = inject(FormBuilder);
+
     @Input() id?: string;
     @Input() set name(name: string) {
         this.currentName = name;
@@ -90,7 +90,7 @@ export class EditRule implements AfterViewInit {
             this.editRuleForm.get('actions')?.disable();
         }
     }
-    @Input() saving: boolean = false;
+    @Input() saving = false;
     @Input() set ruleUpdate(ruleUpdate: Rule) {
         if (ruleUpdate && this.ruleSaved) {
             this.editRuleForm.markAsPristine();
@@ -104,7 +104,7 @@ export class EditRule implements AfterViewInit {
     @Output() exit: EventEmitter<void> = new EventEmitter<void>();
 
     editRuleForm: FormGroup;
-    isEditable: boolean = true;
+    isEditable = true;
 
     currentName: string | null = null;
     currentComments: string | null = null;
@@ -115,9 +115,9 @@ export class EditRule implements AfterViewInit {
     conditionControl: FormControl;
     actionControl: FormControl;
 
-    private ruleSaved: boolean = false;
+    private ruleSaved = false;
 
-    constructor(private formBuilder: FormBuilder) {
+    constructor() {
         this.nameControl = new FormControl('', Validators.required);
         this.conditionControl = new FormControl({ value: [], disabled: !this.isEditable }, [
             this.conditionsValidator()

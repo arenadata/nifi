@@ -17,13 +17,6 @@
 
 package org.apache.nifi.processors.parquet;
 
-import java.io.IOException;
-import java.io.InputStream;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Map;
-import java.util.Optional;
-import java.util.Set;
 import org.apache.nifi.annotation.behavior.InputRequirement;
 import org.apache.nifi.annotation.behavior.ReadsAttribute;
 import org.apache.nifi.annotation.behavior.ReadsAttributes;
@@ -35,7 +28,7 @@ import org.apache.nifi.annotation.documentation.Tags;
 import org.apache.nifi.components.PropertyDescriptor;
 import org.apache.nifi.expression.ExpressionLanguageScope;
 import org.apache.nifi.flowfile.FlowFile;
-import org.apache.nifi.parquet.stream.NifiParquetInputFile;
+import org.apache.nifi.parquet.shared.NifiParquetInputFile;
 import org.apache.nifi.parquet.utils.ParquetAttribute;
 import org.apache.nifi.processor.AbstractProcessor;
 import org.apache.nifi.processor.ProcessContext;
@@ -46,10 +39,18 @@ import org.apache.nifi.processor.util.StandardValidators;
 import org.apache.parquet.ParquetReadOptions;
 import org.apache.parquet.hadoop.ParquetFileReader;
 
+import java.io.IOException;
+import java.io.InputStream;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
+
 @Tags({"parquet", "split", "partition", "break apart", "efficient processing", "load balance", "cluster"})
 @InputRequirement(InputRequirement.Requirement.INPUT_REQUIRED)
 @CapabilityDescription(
-        "The processor generates N flow files from the input, and adds attributes with the offsets required to read "
+        "The processor generates N FlowFiles from the input, and adds attributes with the offsets required to read "
                 + "the group of rows in the FlowFile's content. Can be used to increase the overall efficiency of "
                 + "processing extremely large Parquet files."
 )

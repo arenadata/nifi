@@ -20,11 +20,11 @@ import { MatSidenavModule } from '@angular/material/sidenav';
 import { NoopAnimationsModule } from '@angular/platform-browser/animations';
 import { Canvas } from './canvas.component';
 import { provideMockStore } from '@ngrx/store/testing';
-import { initialState } from '../../state/flow/flow.reducer';
+import { initialState as flowInitialState } from '../../state/flow/flow.reducer';
 import { ContextMenu } from '../../../../ui/common/context-menu/context-menu.component';
 import { CdkContextMenuTrigger } from '@angular/cdk/menu';
 import { selectBreadcrumbs } from '../../state/flow/flow.selectors';
-import { BreadcrumbEntity } from '../../state/shared';
+import { BreadcrumbEntity } from '../../../../state/shared';
 import { MockComponent } from 'ng-mocks';
 import { GraphControls } from './graph-controls/graph-controls.component';
 import { HeaderComponent } from './header/header.component';
@@ -34,7 +34,23 @@ import { flowFeatureKey } from '../../state/flow';
 import { FlowAnalysisDrawerComponent } from './header/flow-analysis-drawer/flow-analysis-drawer.component';
 import { CanvasActionsService } from '../../service/canvas-actions.service';
 import { HttpClientTestingModule } from '@angular/common/http/testing';
+import { OverlappingConnectionsBannerComponent } from '../../../../ui/common/overlapping-connections-banner/overlapping-connections-banner.component';
 import { CopyResponseEntity } from '../../../../state/copy';
+import { initialState as initialErrorState } from '../../../../state/error/error.reducer';
+import { errorFeatureKey } from '../../../../state/error';
+import { initialState as initialCurrentUserState } from '../../../../state/current-user/current-user.reducer';
+import { currentUserFeatureKey } from '../../../../state/current-user';
+import { flowConfigurationFeatureKey } from '../../../../state/flow-configuration';
+import { initialState as initialFlowConfigurationState } from '../../../../state/flow-configuration/flow-configuration.reducer';
+import { transformFeatureKey } from '../../state/transform';
+import { initialState as initialTransformState } from '../../state/transform/transform.reducer';
+import { controllerServicesFeatureKey } from '../../state/controller-services';
+import { initialState as initialControllerServicesState } from '../../state/controller-services/controller-services.reducer';
+import { parameterFeatureKey } from '../../state/parameter';
+import { initialState as initialParameterState } from '../../state/parameter/parameter.reducer';
+import { flowAnalysisFeatureKey } from '../../state/flow-analysis';
+import { initialState as initialFlowAnalysisState } from '../../state/flow-analysis/flow-analysis.reducer';
+import { selectUrl } from '@nifi/shared';
 
 describe('Canvas', () => {
     let component: Canvas;
@@ -66,19 +82,31 @@ describe('Canvas', () => {
                 MockComponent(GraphControls),
                 MockComponent(HeaderComponent),
                 MockComponent(FooterComponent),
+                MockComponent(OverlappingConnectionsBannerComponent),
                 FlowAnalysisDrawerComponent
             ],
             providers: [
                 provideMockStore({
                     initialState: {
+                        [errorFeatureKey]: initialErrorState,
+                        [currentUserFeatureKey]: initialCurrentUserState,
+                        [flowConfigurationFeatureKey]: initialFlowConfigurationState,
                         [canvasFeatureKey]: {
-                            [flowFeatureKey]: initialState
+                            [flowFeatureKey]: flowInitialState,
+                            [transformFeatureKey]: initialTransformState,
+                            [controllerServicesFeatureKey]: initialControllerServicesState,
+                            [parameterFeatureKey]: initialParameterState,
+                            [flowAnalysisFeatureKey]: initialFlowAnalysisState
                         }
                     },
                     selectors: [
                         {
                             selector: selectBreadcrumbs,
                             value: breadcrumbEntity
+                        },
+                        {
+                            selector: selectUrl,
+                            value: '/'
                         }
                     ]
                 }),

@@ -46,6 +46,9 @@ import { MatButton } from '@angular/material/button';
     styleUrls: ['./counter-table.component.scss']
 })
 export class CounterTable implements AfterViewInit {
+    private formBuilder = inject(FormBuilder);
+    private nifiCommon = inject(NiFiCommon);
+
     private _canModifyCounters = false;
     private destroyRef: DestroyRef = inject(DestroyRef);
     filterTerm = '';
@@ -104,10 +107,7 @@ export class CounterTable implements AfterViewInit {
     @Output() resetCounter: EventEmitter<CounterEntity> = new EventEmitter<CounterEntity>();
     @Output() resetAllCounters: EventEmitter<number> = new EventEmitter<number>();
 
-    constructor(
-        private formBuilder: FormBuilder,
-        private nifiCommon: NiFiCommon
-    ) {
+    constructor() {
         this.filterForm = this.formBuilder.group({ filterTerm: '', filterColumn: 'name' });
     }
 
@@ -166,7 +166,7 @@ export class CounterTable implements AfterViewInit {
         }
         return data.slice().sort((a, b) => {
             const isAsc = sort.direction === 'asc';
-            let retVal = 0;
+            let retVal: number;
             switch (sort.active) {
                 case 'name':
                     retVal = this.nifiCommon.compareString(this.formatName(a), this.formatName(b));

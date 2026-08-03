@@ -15,13 +15,14 @@
  * limitations under the License.
  */
 
-import { Component, EventEmitter, Inject, Input, Output } from '@angular/core';
+import { Component, EventEmitter, Input, Output, inject } from '@angular/core';
 import { MAT_DIALOG_DATA, MatDialogModule } from '@angular/material/dialog';
 import { AbstractControl, FormBuilder, FormControl, FormGroup, ReactiveFormsModule, Validators } from '@angular/forms';
 import { Client } from '../../../../service/client.service';
 import {
     ControllerServiceEntity,
     ControllerServiceReferencingComponent,
+    ConvertToParameterResponse,
     EditControllerServiceDialogRequest,
     InlineServiceCreationRequest,
     InlineServiceCreationResponse,
@@ -34,23 +35,28 @@ import { MatCheckboxModule } from '@angular/material/checkbox';
 import { MatButtonModule } from '@angular/material/button';
 import { AsyncPipe } from '@angular/common';
 import { MatTabsModule } from '@angular/material/tabs';
-import { NiFiCommon, TextTip, NifiTooltipDirective, CopyDirective } from '@nifi/shared';
+import {
+    NiFiCommon,
+    TextTip,
+    NifiTooltipDirective,
+    CopyDirective,
+    ComponentType,
+    NifiSpinnerDirective
+} from '@nifi/shared';
 import { MatOptionModule } from '@angular/material/core';
 import { MatSelectModule } from '@angular/material/select';
 import { PropertyTable } from '../../property-table/property-table.component';
 import { ControllerServiceApi } from '../controller-service-api/controller-service-api.component';
 import { Observable, of } from 'rxjs';
 import { ControllerServiceReferences } from '../controller-service-references/controller-service-references.component';
-import { NifiSpinnerDirective } from '../../spinner/nifi-spinner.directive';
 import { ClusterConnectionService } from '../../../../service/cluster-connection.service';
-import { ConvertToParameterResponse } from '../../../../pages/flow-designer/service/parameter-helper.service';
 import { PropertyVerification } from '../../property-verification/property-verification.component';
 import {
     ConfigVerificationResult,
     ModifiedProperties,
     VerifyPropertiesRequestContext
 } from '../../../../state/property-verification';
-import { TabbedDialog } from '../../tabbed-dialog/tabbed-dialog.component';
+import { TabbedDialog, TABBED_DIALOG_ID } from '../../tabbed-dialog/tabbed-dialog.component';
 import { ErrorContextKey } from '../../../../state/error';
 import { ContextErrorBanner } from '../../context-error-banner/context-error-banner.component';
 
@@ -76,13 +82,25 @@ import { ContextErrorBanner } from '../../context-error-banner/context-error-ban
         ContextErrorBanner,
         CopyDirective
     ],
-    styleUrls: ['./edit-controller-service.component.scss']
+    styleUrls: ['./edit-controller-service.component.scss'],
+    providers: [
+        {
+            provide: TABBED_DIALOG_ID,
+            useValue: 'edit-controller-service-selected-index'
+        }
+    ]
 })
 export class EditControllerService extends TabbedDialog {
+    request = inject<EditControllerServiceDialogRequest>(MAT_DIALOG_DATA);
+    private formBuilder = inject(FormBuilder);
+    private client = inject(Client);
+    private nifiCommon = inject(NiFiCommon);
+    private clusterConnectionService = inject(ClusterConnectionService);
+
     @Input() createNewProperty!: (existingProperties: string[], allowsSensitive: boolean) => Observable<Property>;
     @Input() createNewService!: (request: InlineServiceCreationRequest) => Observable<InlineServiceCreationResponse>;
     @Input() parameterContext: ParameterContextEntity | undefined;
-    @Input() goToParameter!: (parameter: string) => void;
+    @Input() goToParameter?: (parameter: string) => void;
     @Input() convertToParameter!: (
         name: string,
         sensitive: boolean,
@@ -91,7 +109,7 @@ export class EditControllerService extends TabbedDialog {
     @Input() goToService!: (serviceId: string) => void;
     @Input() goToReferencingComponent!: (component: ControllerServiceReferencingComponent) => void;
     @Input() saving$!: Observable<boolean>;
-    @Input() supportsParameters: boolean = true;
+    @Input() supportsParameters = true;
     @Input() propertyVerificationResults$!: Observable<ConfigVerificationResult[]>;
     @Input() propertyVerificationStatus$: Observable<'pending' | 'loading' | 'success'> = of('pending');
 
@@ -125,16 +143,12 @@ export class EditControllerService extends TabbedDialog {
         }
     ];
 
-    constructor(
-        @Inject(MAT_DIALOG_DATA) public request: EditControllerServiceDialogRequest,
-        private formBuilder: FormBuilder,
-        private client: Client,
-        private nifiCommon: NiFiCommon,
-        private clusterConnectionService: ClusterConnectionService
-    ) {
-        super('edit-controller-service-selected-index');
+    constructor() {
+        super();
+        const request = this.request;
 
         this.readonly =
+            request.readonly === true ||
             !request.controllerService.permissions.canWrite ||
             request.controllerService.status.runStatus !== 'DISABLED';
 
@@ -213,7 +227,8 @@ export class EditControllerService extends TabbedDialog {
     verifyClicked(entity: ControllerServiceEntity): void {
         this.verify.next({
             entity,
-            properties: this.getModifiedProperties()
+            properties: this.getModifiedProperties(),
+            componentType: ComponentType.ControllerService
         });
     }
 

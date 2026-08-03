@@ -16,16 +16,16 @@
  */
 package org.apache.nifi.processors.standard;
 
-import com.fasterxml.jackson.core.JsonParser;
+import com.fasterxml.jackson.core.StreamReadConstraints;
+import com.fasterxml.jackson.core.json.JsonReadFeature;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.networknt.schema.JsonSchemaFactory;
-import com.networknt.schema.SpecVersion;
-import com.networknt.schema.ValidationMessage;
+import com.networknt.schema.Error;
+import com.networknt.schema.Schema;
+import com.networknt.schema.SchemaRegistry;
+import com.networknt.schema.SpecificationVersion;
 import org.apache.nifi.annotation.behavior.InputRequirement;
 import org.apache.nifi.annotation.behavior.InputRequirement.Requirement;
-import org.apache.nifi.annotation.behavior.Restricted;
-import org.apache.nifi.annotation.behavior.Restriction;
 import org.apache.nifi.annotation.behavior.SideEffectFree;
 import org.apache.nifi.annotation.behavior.SupportsBatching;
 import org.apache.nifi.annotation.behavior.SystemResource;
@@ -37,7 +37,6 @@ import org.apache.nifi.annotation.documentation.Tags;
 import org.apache.nifi.annotation.lifecycle.OnScheduled;
 import org.apache.nifi.components.DescribedValue;
 import org.apache.nifi.components.PropertyDescriptor;
-import org.apache.nifi.components.RequiredPermission;
 import org.apache.nifi.components.ValidationContext;
 import org.apache.nifi.components.ValidationResult;
 import org.apache.nifi.components.resource.ResourceCardinality;
@@ -45,22 +44,24 @@ import org.apache.nifi.components.resource.ResourceType;
 import org.apache.nifi.context.PropertyContext;
 import org.apache.nifi.expression.ExpressionLanguageScope;
 import org.apache.nifi.flowfile.FlowFile;
+import org.apache.nifi.json.schema.JsonSchema;
+import org.apache.nifi.json.schema.SchemaVersion;
 import org.apache.nifi.migration.PropertyConfiguration;
 import org.apache.nifi.processor.AbstractProcessor;
+import org.apache.nifi.processor.DataUnit;
 import org.apache.nifi.processor.ProcessContext;
 import org.apache.nifi.processor.ProcessSession;
 import org.apache.nifi.processor.Relationship;
 import org.apache.nifi.processor.exception.ProcessException;
 import org.apache.nifi.processor.util.StandardValidators;
-import org.apache.nifi.json.schema.JsonSchema;
 import org.apache.nifi.schema.access.JsonSchemaRegistryComponent;
-import org.apache.nifi.json.schema.SchemaVersion;
 import org.apache.nifi.schemaregistry.services.JsonSchemaRegistry;
-import org.apache.nifi.processor.DataUnit;
-import com.fasterxml.jackson.core.StreamReadConstraints;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.io.LineNumberReader;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
@@ -78,19 +79,13 @@ import java.util.stream.Collectors;
     @WritesAttribute(attribute = ValidateJson.ERROR_ATTRIBUTE_KEY, description = "If the flow file is routed to the invalid relationship "
             + ", this attribute will contain the error message resulting from the validation failure.")
 })
-@CapabilityDescription("Validates the contents of FlowFiles against a configurable JSON Schema. See json-schema.org for specification standards. " +
-        "This Processor does not support input containing multiple JSON objects, such as newline-delimited JSON. If the input FlowFile contains " +
-        "newline-delimited JSON, only the first line will be validated."
+@CapabilityDescription("""
+        Validates the contents of FlowFiles against a configurable JSON Schema. See json-schema.org for specification standards.
+        This Processor supports input containing multiple JSON objects using newline-delimited JSON based on configuration properties,
+        otherwise if the input FlowFile contains newline-delimited JSON, only the first line will be validated."""
 )
 @SystemResourceConsideration(resource = SystemResource.MEMORY, description = "Validating JSON requires reading FlowFile content into memory")
-@Restricted(
-        restrictions = {
-                @Restriction(
-                        requiredPermission = RequiredPermission.REFERENCE_REMOTE_RESOURCES,
-                        explanation = "Schema configuration can reference resources over HTTP"
-                )
-        }
-)
+
 public class ValidateJson extends AbstractProcessor {
     public enum JsonSchemaStrategy implements DescribedValue {
         SCHEMA_NAME_PROPERTY(SCHEMA_NAME_PROPERTY_NAME + " Property",
@@ -124,7 +119,35 @@ public class ValidateJson extends AbstractProcessor {
         }
     }
 
-    protected static final String ERROR_ATTRIBUTE_KEY = "json.validation.errors";
+    enum InputFormat implements DescribedValue {
+        FLOW_FILE("FlowFile", "Validation applied to FlowFile content containing JSON"),
+        JSON_LINES("JSON Lines", "Validation applied to FlowFile content containing JSON Lines or NDJSON");
+
+        private final String displayName;
+        private final String description;
+
+        InputFormat(final String displayName, final String description) {
+            this.displayName = displayName;
+            this.description = description;
+        }
+
+        @Override
+        public String getValue() {
+            return name();
+        }
+
+        @Override
+        public String getDisplayName() {
+            return displayName;
+        }
+
+        @Override
+        public String getDescription() {
+            return description;
+        }
+    }
+
+    static final String ERROR_ATTRIBUTE_KEY = "json.validation.errors";
     private static final String SCHEMA_NAME_PROPERTY_NAME = "Schema Name";
     private static final String SCHEMA_CONTENT_PROPERTY_NAME = "JSON Schema";
     private static final String DEFAULT_MAX_STRING_LENGTH = "20 MB";
@@ -164,6 +187,13 @@ public class ValidateJson extends AbstractProcessor {
             .dependsOn(SCHEMA_ACCESS_STRATEGY, JsonSchemaStrategy.SCHEMA_CONTENT_PROPERTY)
             .build();
 
+    public static final PropertyDescriptor INPUT_FORMAT = new PropertyDescriptor.Builder()
+            .name("Input Format")
+            .description("Specifies the expected format of FlowFile content containing one or more JSON elements")
+            .allowableValues(InputFormat.class)
+            .defaultValue(InputFormat.FLOW_FILE)
+            .required(true)
+            .build();
 
     public static final PropertyDescriptor MAX_STRING_LENGTH = new PropertyDescriptor.Builder()
             .name("Max String Length")
@@ -184,6 +214,7 @@ public class ValidateJson extends AbstractProcessor {
             SCHEMA_REGISTRY,
             SCHEMA_CONTENT,
             SCHEMA_VERSION,
+            INPUT_FORMAT,
             MAX_STRING_LENGTH
     );
 
@@ -210,14 +241,15 @@ public class ValidateJson extends AbstractProcessor {
 
     private ObjectMapper mapper;
 
-    private final ConcurrentMap<SchemaVersion, JsonSchemaFactory> schemaFactories =  Arrays.stream(SchemaVersion.values())
+    private final ConcurrentMap<SchemaVersion, SchemaRegistry> schemaRegistries = Arrays.stream(SchemaVersion.values())
             .collect(
                     Collectors.toConcurrentMap(
                             Function.identity(),
-                            schemaDraftVersion -> JsonSchemaFactory.getInstance(SpecVersion.VersionFlag.fromId(schemaDraftVersion.getUri()).get())
+                            schemaDraftVersion -> SchemaRegistry.withDefaultDialect(mapToSpecification(schemaDraftVersion))
                     )
             );
-    private volatile com.networknt.schema.JsonSchema schema;
+
+    private volatile Schema schema;
     private volatile JsonSchemaRegistry jsonSchemaRegistry;
 
     @Override
@@ -261,18 +293,19 @@ public class ValidateJson extends AbstractProcessor {
     public void onScheduled(final ProcessContext context) throws IOException {
         switch (getSchemaAccessStrategy(context)) {
             case SCHEMA_NAME_PROPERTY ->
-                    jsonSchemaRegistry = context.getProperty(SCHEMA_REGISTRY).asControllerService(JsonSchemaRegistry.class);
+                jsonSchemaRegistry = context.getProperty(SCHEMA_REGISTRY).asControllerService(JsonSchemaRegistry.class);
             case SCHEMA_CONTENT_PROPERTY -> {
                 try (final InputStream inputStream = context.getProperty(SCHEMA_CONTENT).asResource().read()) {
                     final SchemaVersion schemaVersion = SchemaVersion.valueOf(context.getProperty(SCHEMA_VERSION).getValue());
-                    final JsonSchemaFactory factory = schemaFactories.get(schemaVersion);
-                    schema = factory.getSchema(inputStream);
+                    final SchemaRegistry registry = schemaRegistries.get(schemaVersion);
+                    schema = registry.getSchema(inputStream);
                 }
             }
         }
+
         final int maxStringLength = context.getProperty(MAX_STRING_LENGTH).asDataSize(DataUnit.B).intValue();
         final StreamReadConstraints streamReadConstraints = StreamReadConstraints.builder().maxStringLength(maxStringLength).build();
-        mapper = new ObjectMapper().configure(JsonParser.Feature.ALLOW_COMMENTS, true);
+        mapper = new ObjectMapper().configure(JsonReadFeature.ALLOW_JAVA_COMMENTS.mappedFeature(), true);
         mapper.getFactory().setStreamReadConstraints(streamReadConstraints);
     }
 
@@ -288,8 +321,8 @@ public class ValidateJson extends AbstractProcessor {
             try {
                 final String schemaName = context.getProperty(SCHEMA_NAME).evaluateAttributeExpressions(flowFile).getValue();
                 final JsonSchema jsonSchema = jsonSchemaRegistry.retrieveSchema(schemaName);
-                final JsonSchemaFactory factory = schemaFactories.get(jsonSchema.getSchemaVersion());
-                schema = factory.getSchema(jsonSchema.getSchemaText());
+                final SchemaRegistry registry = schemaRegistries.get(jsonSchema.getSchemaVersion());
+                schema = registry.getSchema(jsonSchema.getSchemaText());
             } catch (Exception e) {
                 getLogger().error("Could not retrieve JSON schema for {}", flowFile, e);
                 session.getProvenanceReporter().route(flowFile, REL_FAILURE);
@@ -298,9 +331,20 @@ public class ValidateJson extends AbstractProcessor {
             }
         }
 
+        final InputFormat inputFormat = context.getProperty(INPUT_FORMAT).asAllowableValue(InputFormat.class);
+        if (inputFormat == InputFormat.FLOW_FILE) {
+            validateFlowFile(session, flowFile);
+        } else {
+            validateJsonLines(session, flowFile);
+        }
+    }
+
+    private void validateFlowFile(final ProcessSession session, final FlowFile flowFile) {
+        final Schema currentSchema = schema;
+
         try (final InputStream in = session.read(flowFile)) {
             final JsonNode node = mapper.readTree(in);
-            final Set<ValidationMessage> errors = schema.validate(node);
+            final List<Error> errors = currentSchema.validate(node);
 
             if (errors.isEmpty()) {
                 getLogger().debug("JSON {} valid", flowFile);
@@ -308,10 +352,10 @@ public class ValidateJson extends AbstractProcessor {
                 session.transfer(flowFile, REL_VALID);
             } else {
                 final String validationMessages = errors.toString();
-                flowFile = session.putAttribute(flowFile, ERROR_ATTRIBUTE_KEY, validationMessages);
+                final FlowFile invalidJsonFlowFile = session.putAttribute(flowFile, ERROR_ATTRIBUTE_KEY, validationMessages);
                 getLogger().warn("JSON {} invalid: Validation Errors {}", flowFile, validationMessages);
-                session.getProvenanceReporter().route(flowFile, REL_INVALID);
-                session.transfer(flowFile, REL_INVALID);
+                session.getProvenanceReporter().route(invalidJsonFlowFile, REL_INVALID);
+                session.transfer(invalidJsonFlowFile, REL_INVALID);
             }
         } catch (final Exception e) {
             getLogger().error("JSON processing failed {}", flowFile, e);
@@ -320,8 +364,57 @@ public class ValidateJson extends AbstractProcessor {
         }
     }
 
+    private void validateJsonLines(final ProcessSession session, final FlowFile flowFile) {
+        final Schema currentSchema = schema;
+
+        try (final InputStream in = session.read(flowFile);
+             final LineNumberReader reader = new LineNumberReader(new InputStreamReader(in, StandardCharsets.UTF_8))) {
+
+            String line;
+
+            while ((line = reader.readLine()) != null) {
+                if (line.isBlank()) {
+                    continue;
+                }
+
+                final JsonNode node = mapper.readTree(line);
+                final List<Error> errors = currentSchema.validate(node);
+
+                if (!errors.isEmpty()) {
+                    reader.close(); // NOTE: Must call close otherwise get IllegalStateException indicating FlowFile already in use
+                    // by an active callback or InputStream created by ProcessSession.read(FlowFile) has not been closed
+                    final String validationMessages = errors.toString();
+                    final String validationErrMsg = "JSON at line %s is invalid: %s".formatted(reader.getLineNumber(), validationMessages);
+                    final FlowFile invalidJsonFlowFile = session.putAttribute(flowFile, ERROR_ATTRIBUTE_KEY, validationErrMsg);
+                    getLogger().warn("JSON at line {} in {} is invalid: Validation Errors {}", reader.getLineNumber(), flowFile, validationMessages);
+                    session.getProvenanceReporter().route(invalidJsonFlowFile, REL_INVALID);
+                    session.transfer(invalidJsonFlowFile, REL_INVALID);
+                    return;
+                }
+            }
+
+            session.getProvenanceReporter().route(flowFile, REL_VALID);
+            session.transfer(flowFile, REL_VALID);
+
+        } catch (final Exception e) {
+            getLogger().error("{} processing failed {}", InputFormat.JSON_LINES.getDisplayName(), flowFile, e);
+            session.getProvenanceReporter().route(flowFile, REL_FAILURE);
+            session.transfer(flowFile, REL_FAILURE);
+        }
+    }
+
     private String getPropertyValidateMessage(JsonSchemaStrategy schemaAccessStrategy, PropertyDescriptor property) {
         return "The '" + schemaAccessStrategy.getValue() + "' Schema Access Strategy requires that the " + property.getDisplayName() + " property be set.";
+    }
+
+    private SpecificationVersion mapToSpecification(final SchemaVersion schemaVersion) {
+        return switch (schemaVersion) {
+            case DRAFT_4 -> SpecificationVersion.DRAFT_4;
+            case DRAFT_6 -> SpecificationVersion.DRAFT_6;
+            case DRAFT_7 -> SpecificationVersion.DRAFT_7;
+            case DRAFT_2019_09 -> SpecificationVersion.DRAFT_2019_09;
+            case DRAFT_2020_12 -> SpecificationVersion.DRAFT_2020_12;
+        };
     }
 
     private JsonSchemaStrategy getSchemaAccessStrategy(PropertyContext context) {

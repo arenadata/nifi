@@ -142,7 +142,6 @@ public class RegistryClientIT extends NiFiSystemIT {
         assertEquals("Updated", thirdFlowFileContents);
     }
 
-
     @Test
     public void testChangeConnectionDestinationRemoveOldAndMoveGroup() throws NiFiClientException, IOException, InterruptedException {
         final FlowRegistryClientEntity clientEntity = registerClient();
@@ -192,7 +191,6 @@ public class RegistryClientIT extends NiFiSystemIT {
         util.changeFlowVersion(parent.getId(), "1");
         util.changeFlowVersion(parent.getId(), "2");
     }
-
 
     @Test
     public void testControllerServiceUpdateWhileRunning() throws NiFiClientException, IOException, InterruptedException {
@@ -251,7 +249,6 @@ public class RegistryClientIT extends NiFiSystemIT {
         assertEquals("1", thirdFlowFileAttributes.get("count"));
     }
 
-
     @Test
     public void testChangeVersionWithPortMoveBetweenGroups() throws NiFiClientException, IOException, InterruptedException {
         final FlowRegistryClientEntity clientEntity = registerClient(new File("src/test/resources/versioned-flows"));
@@ -298,7 +295,6 @@ public class RegistryClientIT extends NiFiSystemIT {
         assertTrue(v1Contents.getInputPorts().isEmpty());
     }
 
-
     @Test
     public void testRollbackOnFailure() throws NiFiClientException, IOException, InterruptedException {
         final FlowRegistryClientEntity clientEntity = registerClient(new File("src/test/resources/versioned-flows"));
@@ -318,7 +314,6 @@ public class RegistryClientIT extends NiFiSystemIT {
         final FlowDTO contents = getNifiClient().getFlowClient().getProcessGroup(imported.getId()).getProcessGroupFlow().getFlow();
         assertEquals(1, contents.getProcessors().size());
     }
-
 
     @Test
     public void testStartVersionControlThenImport() throws NiFiClientException, IOException {
@@ -341,7 +336,6 @@ public class RegistryClientIT extends NiFiSystemIT {
         assertEquals(terminate.getComponent().getName(), importedProcessor.getName());
         assertNotEquals(terminate.getComponent().getId(), importedProcessor.getId());
     }
-
 
     @Test
     public void testStartVersionControlThenModifyAndRevert() throws NiFiClientException, IOException, InterruptedException {
@@ -368,6 +362,237 @@ public class RegistryClientIT extends NiFiSystemIT {
 
         versionedFlowState = getClientUtil().getVersionedFlowState(group.getId(), "root");
         assertEquals("UP_TO_DATE", versionedFlowState);
+    }
+
+    /**
+     * Tests that when upgrading an active versioned process group, newly added components are
+     * automatically started/enabled.
+     *
+     * A standalone "Heartbeat" GenerateFlowFile processor with auto-terminated relationships is used as a sentinel
+     * that remains running throughout the upgrade. Because it has no connection changes, property changes, or service
+     * references, it is not in the "affected" set and the REST layer does not stop it. This guarantees the process
+     * group still has an active component when the synchronizer inspects the group, triggering auto-start of new
+     * components.
+     *
+     * v1: GenerateFlowFile -> CountFlowFiles (uses CountService) -> TerminateFlowFile, plus a standalone Heartbeat.
+     *
+     * v2: Same as v1 plus:
+     *     - A new StandardCountService ("NewCountService") chained to the existing service
+     *     - A new SetAttribute processor connected to TerminateFlowFile
+     *     - A new CountFlowFiles processor referencing NewCountService connected to TerminateFlowFile
+     *     - GenerateFlowFile text property changed to trigger restart
+     */
+    @Test
+    public void testNewComponentsStartedDuringVersionChange() throws NiFiClientException, IOException, InterruptedException {
+        final FlowRegistryClientEntity clientEntity = registerClient();
+        final NiFiClientUtil util = getClientUtil();
+
+        final ProcessGroupEntity group = util.createProcessGroup("Parent", "root");
+        final ControllerServiceEntity countService = util.createControllerService("StandardCountService", group.getId());
+
+        final ProcessorEntity generate = util.createProcessor("GenerateFlowFile", group.getId());
+        final ProcessorEntity countProcessor = util.createProcessor("CountFlowFiles", group.getId());
+        util.updateProcessorProperties(countProcessor, Collections.singletonMap("Count Service", countService.getComponent().getId()));
+
+        final ProcessorEntity terminate = util.createProcessor("TerminateFlowFile", group.getId());
+        final ConnectionEntity connectionToTerminate = util.createConnection(countProcessor, terminate, "success");
+        util.setFifoPrioritizer(connectionToTerminate);
+        util.createConnection(generate, countProcessor, "success");
+
+        // Standalone "Heartbeat" processor: present and unchanged in both v1 and v2, stays running during upgrade
+        final ProcessorEntity heartbeat = util.createProcessor("GenerateFlowFile", group.getId());
+        util.setAutoTerminatedRelationships(heartbeat, "success");
+
+        // Save as v1
+        final VersionControlInformationEntity vci = util.startVersionControl(group, clientEntity, TEST_FLOWS_BUCKET, "Parent");
+
+        // Build v2 additions
+
+        // New service chained to the existing service via "Dependent Service"
+        final ControllerServiceEntity newCountService = util.createControllerService("StandardCountService", group.getId());
+        util.updateControllerServiceProperties(countService, Collections.singletonMap("Dependent Service", newCountService.getComponent().getId()));
+
+        // New processor with no service dependency, connected to TerminateFlowFile
+        final ProcessorEntity setAttribute = util.createProcessor("SetAttribute", group.getId());
+        util.updateProcessorProperties(setAttribute, Collections.singletonMap("marker", "v2"));
+        util.createConnection(setAttribute, terminate, "success");
+        util.createConnection(generate, setAttribute, "success");
+
+        // New processor referencing the new service, connected to TerminateFlowFile
+        final ProcessorEntity newCountProcessor = util.createProcessor("CountFlowFiles", group.getId());
+        util.updateProcessorProperties(newCountProcessor, Collections.singletonMap("Count Service", newCountService.getComponent().getId()));
+        final ConnectionEntity newCountToTerminate = util.createConnection(newCountProcessor, terminate, "success");
+        util.setFifoPrioritizer(newCountToTerminate);
+        util.createConnection(generate, newCountProcessor, "success");
+
+        // Change GenerateFlowFile property so it gets restarted during the version change
+        util.updateProcessorProperties(generate, Collections.singletonMap("Text", "Hello World"));
+
+        // Save as v2
+        util.saveFlowVersion(group, clientEntity, vci);
+
+        // Switch back to v1 and start the flow
+        util.changeFlowVersion(group.getId(), "1");
+        util.assertFlowStaleAndUnmodified(group.getId());
+
+        util.enableControllerService(countService);
+        util.waitForValidProcessor(generate.getId());
+        util.startProcessor(generate);
+        util.waitForValidProcessor(countProcessor.getId());
+        util.startProcessor(countProcessor);
+        util.waitForValidProcessor(heartbeat.getId());
+        util.startProcessor(heartbeat);
+
+        // Verify v1 flow works
+        waitForQueueCount(connectionToTerminate.getId(), getNumberOfNodes());
+        final Map<String, String> v1Attributes = util.getQueueFlowFile(connectionToTerminate.getId(), 0).getFlowFile().getAttributes();
+        assertEquals("1", v1Attributes.get("count"));
+
+        // Upgrade to v2 while the flow is running.
+        // Heartbeat processor stays running (not affected), so the process group is still "active".
+        util.changeFlowVersion(group.getId(), "2");
+        util.assertFlowUpToDate(group.getId());
+
+        // Verify existing CountFlowFiles still processes with the chained service after upgrade.
+        // The exact count depends on timing (GenerateFlowFile may have produced extra flow files before the upgrade stopped it),
+        // but the count must be greater than 1 to prove the chained service (newCountService + countService) is working.
+        waitForQueueCount(connectionToTerminate.getId(), 2 * getNumberOfNodes());
+        final Map<String, String> v2CountAttributes = util.getQueueFlowFile(connectionToTerminate.getId(), getNumberOfNodes()).getFlowFile().getAttributes();
+        final int count = Integer.parseInt(v2CountAttributes.get("count"));
+        assertTrue(count > 1, "Expected count > 1 with chained service but was " + count);
+
+        // Query the current flow to find connections by their source processor names
+        final FlowDTO v2Flow = getNifiClient().getFlowClient().getProcessGroup(group.getId()).getProcessGroupFlow().getFlow();
+        final Set<ConnectionEntity> v2Connections = v2Flow.getConnections();
+
+        // Verify new SetAttribute processor is running and processing flow files
+        final String setAttrConnectionId = v2Connections.stream()
+            .filter(c -> "SetAttribute".equals(c.getComponent().getSource().getName()))
+            .map(ConnectionEntity::getId)
+            .findFirst().orElseThrow();
+        waitForQueueCount(setAttrConnectionId, getNumberOfNodes());
+        final Map<String, String> v2SetAttrAttributes = util.getQueueFlowFile(setAttrConnectionId, 0).getFlowFile().getAttributes();
+        assertEquals("v2", v2SetAttrAttributes.get("marker"));
+
+        // Verify new CountFlowFiles processor referencing new service is running
+        final String newCountConnectionId = v2Connections.stream()
+            .filter(c -> "CountFlowFiles".equals(c.getComponent().getSource().getName()))
+            .filter(c -> !c.getId().equals(connectionToTerminate.getId()))
+            .filter(c -> c.getComponent().getDestination().getName().equals("TerminateFlowFile"))
+            .map(ConnectionEntity::getId)
+            .findFirst().orElseThrow();
+        waitForQueueCount(newCountConnectionId, getNumberOfNodes());
+        final Map<String, String> v2NewCountAttributes = util.getQueueFlowFile(newCountConnectionId, 0).getFlowFile().getAttributes();
+        assertNotNull(v2NewCountAttributes.get("count"));
+    }
+
+    /**
+     * Tests that when upgrading a fully stopped versioned process group, newly added components
+     * are NOT automatically started or enabled.
+     *
+     * Uses the same v1/v2 flow structure as the positive test but does not start any components
+     * before the upgrade.
+     */
+    @Test
+    public void testNewComponentsNotStartedWhenGroupStopped() throws NiFiClientException, IOException, InterruptedException {
+        final FlowRegistryClientEntity clientEntity = registerClient();
+        final NiFiClientUtil util = getClientUtil();
+
+        final ProcessGroupEntity group = util.createProcessGroup("Parent", "root");
+        final ControllerServiceEntity countService = util.createControllerService("StandardCountService", group.getId());
+
+        final ProcessorEntity generate = util.createProcessor("GenerateFlowFile", group.getId());
+        final ProcessorEntity countProcessor = util.createProcessor("CountFlowFiles", group.getId());
+        util.updateProcessorProperties(countProcessor, Collections.singletonMap("Count Service", countService.getComponent().getId()));
+
+        final ProcessorEntity terminate = util.createProcessor("TerminateFlowFile", group.getId());
+        util.createConnection(countProcessor, terminate, "success");
+        util.createConnection(generate, countProcessor, "success");
+
+        // Save as v1
+        final VersionControlInformationEntity vci = util.startVersionControl(group, clientEntity, TEST_FLOWS_BUCKET, "StoppedFlow");
+
+        // Build v2: add new service, new processor, modify GenerateFlowFile
+        final ControllerServiceEntity newCountService = util.createControllerService("StandardCountService", group.getId());
+        util.updateControllerServiceProperties(countService, Collections.singletonMap("Dependent Service", newCountService.getComponent().getId()));
+
+        final ProcessorEntity setAttribute = util.createProcessor("SetAttribute", group.getId());
+        util.updateProcessorProperties(setAttribute, Collections.singletonMap("marker", "v2"));
+        util.createConnection(setAttribute, terminate, "success");
+        util.createConnection(generate, setAttribute, "success");
+
+        util.updateProcessorProperties(generate, Collections.singletonMap("Text", "Hello World"));
+
+        // Save as v2
+        util.saveFlowVersion(group, clientEntity, vci);
+
+        // Switch to v1 -- do NOT start anything
+        util.changeFlowVersion(group.getId(), "1");
+        util.assertFlowStaleAndUnmodified(group.getId());
+
+        // Upgrade to v2 while the flow is fully stopped
+        util.changeFlowVersion(group.getId(), "2");
+        util.assertFlowUpToDate(group.getId());
+
+        // Verify all processors are STOPPED after upgrade
+        final FlowDTO v2Flow = getNifiClient().getFlowClient().getProcessGroup(group.getId()).getProcessGroupFlow().getFlow();
+        for (final ProcessorEntity processor : v2Flow.getProcessors()) {
+            assertEquals("STOPPED", processor.getComponent().getState(),
+                "Processor " + processor.getComponent().getName() + " should be STOPPED when group was not active before upgrade");
+        }
+
+        // Verify all controller services are DISABLED after upgrade
+        final Set<ControllerServiceEntity> v2Services = getNifiClient().getFlowClient()
+            .getControllerServices(group.getId()).getControllerServices();
+        for (final ControllerServiceEntity service : v2Services) {
+            assertEquals("DISABLED", service.getComponent().getState(),
+                "Service " + service.getComponent().getName() + " should be DISABLED when group was not active before upgrade");
+        }
+    }
+
+    /**
+     * Test that a parent Process Group can be committed to a Flow Registry even when a child Process Group
+     * that is separately under Version Control has local modifications. The parent's snapshot only stores
+     * version coordinate references for child versioned PGs, so uncommitted changes in the child are
+     * irrelevant to the parent's save operation.
+     *
+     * Scenario:
+     * 1. Create parent PG with a processor and child PG with a processor
+     * 2. Commit child PG (v1), then commit parent PG (v1)
+     * 3. Modify a processor in the child PG so the child becomes LOCALLY_MODIFIED
+     * 4. Commit the parent PG as v2 -- this should succeed
+     */
+    @Test
+    public void testSaveParentFlowVersionWithLocallyModifiedChild() throws NiFiClientException, IOException, InterruptedException {
+        final FlowRegistryClientEntity clientEntity = registerClient();
+        final NiFiClientUtil util = getClientUtil();
+
+        final ProcessGroupEntity parent = util.createProcessGroup("Parent", "root");
+        final ProcessorEntity parentProcessor = util.createProcessor("GenerateFlowFile", parent.getId());
+
+        final ProcessGroupEntity child = util.createProcessGroup("Child", parent.getId());
+        final ProcessorEntity childProcessor = util.createProcessor("TerminateFlowFile", child.getId());
+
+        final VersionControlInformationEntity childVci = util.startVersionControl(child, clientEntity, TEST_FLOWS_BUCKET, "Child");
+        assertEquals("1", childVci.getVersionControlInformation().getVersion());
+
+        final VersionControlInformationEntity parentVci = util.startVersionControl(parent, clientEntity, TEST_FLOWS_BUCKET, "Parent");
+        assertEquals("1", parentVci.getVersionControlInformation().getVersion());
+
+        util.assertFlowUpToDate(parent.getId());
+        util.assertFlowUpToDate(child.getId());
+
+        util.updateProcessorSchedulingPeriod(childProcessor, "2 min");
+        waitFor(() -> VersionControlInformationDTO.LOCALLY_MODIFIED.equals(util.getVersionControlState(child.getId())));
+
+        util.updateProcessorProperties(parentProcessor, Collections.singletonMap("Text", "Modified"));
+
+        final VersionControlInformationEntity parentV2 = util.saveFlowVersion(parent, clientEntity, parentVci);
+        assertEquals("2", parentV2.getVersionControlInformation().getVersion());
+
+        util.assertFlowUpToDate(parent.getId());
+
+        assertEquals(VersionControlInformationDTO.LOCALLY_MODIFIED, util.getVersionControlState(child.getId()));
     }
 
     @Test

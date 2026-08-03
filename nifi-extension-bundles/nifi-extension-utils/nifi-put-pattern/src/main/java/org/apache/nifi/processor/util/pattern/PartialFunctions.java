@@ -84,7 +84,7 @@ public class PartialFunctions {
     public static <FCT> PartialFunctions.TransferFlowFiles<FCT> transferRoutedFlowFiles() {
         return (context, session, functionContext, result)
                 -> result.getRoutedFlowFiles().forEach(((relationship, routedFlowFiles)
-                -> session.transfer(routedFlowFiles, relationship)));
+                    -> session.transfer(routedFlowFiles, relationship)));
     }
 
     @FunctionalInterface
@@ -101,7 +101,6 @@ public class PartialFunctions {
     public interface AdjustFailed {
         boolean apply(ProcessContext context, RoutingResult result);
     }
-
 
     /**
      * <p>This method is identical to what {@link org.apache.nifi.processor.AbstractProcessor#onTrigger(ProcessContext, ProcessSession)} does.</p>

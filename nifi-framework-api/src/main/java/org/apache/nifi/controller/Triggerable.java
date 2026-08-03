@@ -16,12 +16,12 @@
  */
 package org.apache.nifi.controller;
 
-import java.util.concurrent.TimeUnit;
-
 import org.apache.nifi.processor.ProcessContext;
 import org.apache.nifi.processor.ProcessSession;
 import org.apache.nifi.processor.ProcessSessionFactory;
 import org.apache.nifi.processor.exception.ProcessException;
+
+import java.util.concurrent.TimeUnit;
 
 public interface Triggerable {
 
@@ -46,7 +46,7 @@ public interface Triggerable {
      *
      * @param context in which the component is triggered
      * @param sessionFactory used to generate {@link ProcessSession}s to use for
-     * operating on flow files within the repository
+     * operating on FlowFiles within the repository
      *
      * @throws ProcessException if processing did not complete normally though
      * indicates the problem is an understood potential outcome of processing.

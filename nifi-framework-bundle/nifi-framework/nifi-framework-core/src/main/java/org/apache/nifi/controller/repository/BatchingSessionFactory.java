@@ -16,16 +16,6 @@
  */
 package org.apache.nifi.controller.repository;
 
-import java.io.IOException;
-import java.io.InputStream;
-import java.io.OutputStream;
-import java.nio.file.Path;
-import java.util.Collection;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
-import java.util.function.Consumer;
-import java.util.regex.Pattern;
 import org.apache.nifi.components.state.Scope;
 import org.apache.nifi.components.state.StateMap;
 import org.apache.nifi.controller.queue.QueueSize;
@@ -37,9 +27,21 @@ import org.apache.nifi.processor.Relationship;
 import org.apache.nifi.processor.io.InputStreamCallback;
 import org.apache.nifi.processor.io.OutputStreamCallback;
 import org.apache.nifi.processor.io.StreamCallback;
+import org.apache.nifi.processor.metrics.CommitTiming;
 import org.apache.nifi.provenance.ProvenanceReporter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.nio.file.Path;
+import java.util.Collection;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.function.Consumer;
+import java.util.regex.Pattern;
 
 public class BatchingSessionFactory implements ProcessSessionFactory {
     private static final Logger logger = LoggerFactory.getLogger(BatchingSessionFactory.class);
@@ -54,7 +56,6 @@ public class BatchingSessionFactory implements ProcessSessionFactory {
     public ProcessSession createSession() {
         return highThroughputSession;
     }
-
 
     private static class HighThroughputSession implements ProcessSession {
         private final StandardProcessSession session;
@@ -113,6 +114,11 @@ public class BatchingSessionFactory implements ProcessSessionFactory {
         @Override
         public void adjustCounter(String name, long delta, boolean immediate) {
             session.adjustCounter(name, delta, immediate);
+        }
+
+        @Override
+        public void recordGauge(final String name, final double value, final CommitTiming commitTiming) {
+            session.recordGauge(name, value, commitTiming);
         }
 
         @Override

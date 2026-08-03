@@ -18,6 +18,7 @@ package org.apache.nifi.registry.link;
 
 import jakarta.ws.rs.core.Link;
 import jakarta.xml.bind.annotation.adapters.XmlAdapter;
+
 import java.util.Map;
 
 /**
@@ -59,7 +60,7 @@ public class LinkAdapter extends XmlAdapter<JaxbLink, Link> {
     @Override
     public JaxbLink marshal(Link v) {
         if (v == null) {
-           return null;
+            return null;
         }
 
         final JaxbLink jl = new JaxbLink(v.getUri());

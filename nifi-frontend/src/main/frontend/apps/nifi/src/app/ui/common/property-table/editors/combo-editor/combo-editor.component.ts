@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-import { Component, EventEmitter, Input, Output } from '@angular/core';
+import { Component, EventEmitter, Input, Output, inject } from '@angular/core';
 import { PropertyItem } from '../../property-item';
 import { CdkDrag } from '@angular/cdk/drag-drop';
 import { AbstractControl, FormBuilder, FormControl, FormGroup, ReactiveFormsModule, Validators } from '@angular/forms';
@@ -23,7 +23,6 @@ import { MatDialogModule } from '@angular/material/dialog';
 import { MatInputModule } from '@angular/material/input';
 import { MatButtonModule } from '@angular/material/button';
 import { MatCheckboxModule } from '@angular/material/checkbox';
-import { NgForOf, NgIf } from '@angular/common';
 import { AllowableValue, ParameterConfig, PropertyDescriptor } from '../../../../../state/shared';
 import { MatOptionModule } from '@angular/material/core';
 import { MatSelectModule } from '@angular/material/select';
@@ -49,14 +48,15 @@ export interface AllowableValueItem extends AllowableValue {
         NifiTooltipDirective,
         MatOptionModule,
         MatSelectModule,
-        NgForOf,
-        NgIf,
         A11yModule,
         NgxSkeletonLoaderModule
     ],
     styleUrls: ['./combo-editor.component.scss']
 })
 export class ComboEditor {
+    private formBuilder = inject(FormBuilder);
+    private nifiCommon = inject(NiFiCommon);
+
     @Input() set item(item: PropertyItem) {
         if (item.value != null) {
             this.configuredValue = item.value;
@@ -81,7 +81,7 @@ export class ComboEditor {
         this.initializeComponent();
     }
     @Input() width!: number;
-    @Input() readonly: boolean = false;
+    @Input() readonly = false;
 
     @Output() ok: EventEmitter<any> = new EventEmitter<any>();
     @Output() exit: EventEmitter<void> = new EventEmitter<void>();
@@ -109,10 +109,7 @@ export class ComboEditor {
     savedValue: string | null = null;
     parameters: Parameter[] | null = null;
 
-    constructor(
-        private formBuilder: FormBuilder,
-        private nifiCommon: NiFiCommon
-    ) {
+    constructor() {
         this.comboEditorForm = this.formBuilder.group({
             value: new FormControl(null, Validators.required)
         });

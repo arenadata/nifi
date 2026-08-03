@@ -17,14 +17,18 @@
 
 package org.apache.nifi.cluster.coordination.http.replication;
 
-import org.apache.commons.lang3.StringUtils;
+import jakarta.ws.rs.HttpMethod;
+import jakarta.ws.rs.core.Response;
+import jakarta.ws.rs.core.Response.Status;
 import org.apache.nifi.authorization.AccessDeniedException;
 import org.apache.nifi.authorization.user.NiFiUser;
 import org.apache.nifi.authorization.user.NiFiUserUtils;
 import org.apache.nifi.cluster.coordination.ClusterCoordinator;
 import org.apache.nifi.cluster.coordination.http.HttpResponseMapper;
+import org.apache.nifi.cluster.coordination.http.ReplicationHeader;
 import org.apache.nifi.cluster.coordination.http.StandardHttpResponseMapper;
 import org.apache.nifi.cluster.coordination.http.endpoints.ConnectionEndpointMerger;
+import org.apache.nifi.cluster.coordination.http.endpoints.ConnectorEndpointMerger;
 import org.apache.nifi.cluster.coordination.http.endpoints.ControllerServiceEndpointMerger;
 import org.apache.nifi.cluster.coordination.http.endpoints.FlowRegistryClientEndpointMerger;
 import org.apache.nifi.cluster.coordination.http.endpoints.FunnelEndpointMerger;
@@ -49,15 +53,8 @@ import org.apache.nifi.events.EventReporter;
 import org.apache.nifi.reporting.Severity;
 import org.apache.nifi.util.ComponentIdGenerator;
 import org.apache.nifi.util.NiFiProperties;
-import org.apache.nifi.web.security.ProxiedEntitiesUtils;
-import org.apache.nifi.web.security.http.SecurityCookieName;
-import org.apache.nifi.web.security.http.SecurityHeader;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
-import jakarta.ws.rs.HttpMethod;
-import jakarta.ws.rs.core.Response;
-import jakarta.ws.rs.core.Response.Status;
 
 import java.io.Closeable;
 import java.io.IOException;
@@ -72,7 +69,6 @@ import java.util.List;
 import java.util.LongSummaryStatistics;
 import java.util.Map;
 import java.util.Objects;
-import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
@@ -90,15 +86,12 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.function.Function;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
-import java.util.stream.Stream;
 
 public class ThreadPoolRequestReplicator implements RequestReplicator, Closeable {
 
     private static final Logger logger = LoggerFactory.getLogger(ThreadPoolRequestReplicator.class);
     private static final Pattern SNIPPET_URI_PATTERN = Pattern.compile("/nifi-api/snippets/[a-f0-9\\-]{36}");
 
-    private static final String COOKIE_HEADER = "Cookie";
-    private static final String HOST_HEADER = "Host";
     private static final String NODE_CONTINUE = "202-Accepted";
 
     private final int maxConcurrentRequests; // maximum number of concurrent requests
@@ -118,7 +111,6 @@ public class ThreadPoolRequestReplicator implements RequestReplicator, Closeable
     private final Lock writeLock = rwLock.writeLock();
 
     private final HttpReplicationClient httpClient;
-
 
     /**
      * Creates an instance.
@@ -177,7 +169,6 @@ public class ThreadPoolRequestReplicator implements RequestReplicator, Closeable
         executorService.shutdown();
         maintenanceExecutor.shutdown();
     }
-
 
     @Override
     public AsyncClusterResponse replicate(String method, URI uri, Object entity, Map<String, String> headers) {
@@ -239,29 +230,18 @@ public class ThreadPoolRequestReplicator implements RequestReplicator, Closeable
         return nonConnectedNodes;
     }
 
+    /**
+     * Prepares headers for a replicated request. When a non-null user is provided, the {@code X-ProxiedEntitiesChain}
+     * and {@code X-ProxiedEntityGroups} headers are set so the receiving node knows the request is on behalf of that
+     * user. When user is {@code null}, these headers are omitted, indicating the request is made directly by the
+     * cluster node itself (e.g., for background connector state polling). The receiving node can use the absence of
+     * {@code X-ProxiedEntitiesChain} combined with TLS certificate verification to identify direct node requests.
+     *
+     * @param headers mutable map of HTTP headers to update
+     * @param user the user on whose behalf the request is being made, or {@code null} for direct node requests
+     */
     void updateRequestHeaders(final Map<String, String> headers, final NiFiUser user) {
-        if (user == null) {
-            throw new AccessDeniedException("Unknown user");
-        }
-
-        // Add the user as a proxied entity so that when the receiving NiFi receives the request,
-        // it knows that we are acting as a proxy on behalf of the current user.
-        final String proxiedEntitiesChain = ProxiedEntitiesUtils.buildProxiedEntitiesChainString(user);
-        headers.put(ProxiedEntitiesUtils.PROXY_ENTITIES_CHAIN, proxiedEntitiesChain);
-
-        // Add the header containing the group information for the end user in the proxied entity chain, these groups would
-        // only be populated if the end user authenticated against an external identity provider like SAML or OIDC
-        final String proxiedEntityGroups = ProxiedEntitiesUtils.buildProxiedEntityGroupsString(user.getIdentityProviderGroups());
-        headers.put(ProxiedEntitiesUtils.PROXY_ENTITY_GROUPS, proxiedEntityGroups);
-
-        // remove the access token if present, since the user is already authenticated... authorization
-        // will happen when the request is replicated using the proxy chain above
-        removeHeader(headers, SecurityHeader.AUTHORIZATION.getHeader());
-        removeCookie(headers, SecurityCookieName.AUTHORIZATION_BEARER.getName());
-        removeCookie(headers, SecurityCookieName.REQUEST_TOKEN.getName());
-
-        // remove the host header
-        removeHeader(headers, HOST_HEADER);
+        ReplicationHeaderUtils.applyUserProxyAndStripCredentials(headers, user);
     }
 
     @Override
@@ -276,12 +256,16 @@ public class ThreadPoolRequestReplicator implements RequestReplicator, Closeable
                                           final boolean indicateReplicated, final boolean performVerification) {
         final Map<String, String> updatedHeaders = new HashMap<>(headers);
 
+        // Strip any inbound replication marker headers so a client cannot spoof them; the framework sets the
+        // appropriate marker explicitly below
+        ReplicationHeaderUtils.stripReplicationMarkerHeaders(updatedHeaders);
+
         updatedHeaders.put(RequestReplicationHeader.CLUSTER_ID_GENERATION_SEED.getHeader(), ComponentIdGenerator.generateId().toString());
         if (indicateReplicated) {
-            updatedHeaders.put(RequestReplicationHeader.REQUEST_REPLICATED.getHeader(), Boolean.TRUE.toString());
+            updatedHeaders.put(ReplicationHeader.REQUEST_REPLICATED.getHeader(), Boolean.TRUE.toString());
         }
 
-        // include the proxied entities header
+        // include the proxied entities header and strip untrusted headers
         updateRequestHeaders(updatedHeaders, user);
 
         if (indicateReplicated) {
@@ -318,7 +302,6 @@ public class ThreadPoolRequestReplicator implements RequestReplicator, Closeable
         }
     }
 
-
     @Override
     public AsyncClusterResponse forwardToCoordinator(final NodeIdentifier coordinatorNodeId, final String method, final URI uri, final Object entity, final Map<String, String> headers) {
         return forwardToCoordinator(coordinatorNodeId, NiFiUserUtils.getNiFiUser(), method, uri, entity, headers);
@@ -328,6 +311,14 @@ public class ThreadPoolRequestReplicator implements RequestReplicator, Closeable
     public AsyncClusterResponse forwardToCoordinator(final NodeIdentifier coordinatorNodeId, final NiFiUser user, final String method,
                 final URI uri, final Object entity, final Map<String, String> headers) {
         final Map<String, String> updatedHeaders = new HashMap<>(headers);
+
+        // Strip any inbound replication marker headers so a client cannot spoof them; the forwarded marker is set
+        // explicitly below
+        ReplicationHeaderUtils.stripReplicationMarkerHeaders(updatedHeaders);
+
+        // Indicate to the Cluster Coordinator that this request was forwarded by a node over mutual TLS, so the
+        // Coordinator can trust the proxy host headers without re-validating them against its own allowed proxy hosts
+        updatedHeaders.put(ReplicationHeader.REQUEST_FORWARDED_TO_COORDINATOR.getHeader(), Boolean.TRUE.toString());
 
         // include the proxied entities header
         updateRequestHeaders(updatedHeaders, user);
@@ -625,7 +616,6 @@ public class ThreadPoolRequestReplicator implements RequestReplicator, Closeable
         submitAsyncRequest(nodeIds, requestFactory);
     }
 
-
     @Override
     public AsyncClusterResponse getClusterResponse(final String identifier) {
         return responseMap.get(identifier);
@@ -675,6 +665,7 @@ public class ThreadPoolRequestReplicator implements RequestReplicator, Closeable
         // Processors, which is done by issuing a request to DELETE /processors/<id>/threads
         return ConnectionEndpointMerger.CONNECTION_URI_PATTERN.matcher(uriPath).matches()
             || ProcessorEndpointMerger.PROCESSOR_URI_PATTERN.matcher(uriPath).matches()
+            || ConnectorEndpointMerger.CONNECTOR_URI_PATTERN.matcher(uriPath).matches()
             || FunnelEndpointMerger.FUNNEL_URI_PATTERN.matcher(uriPath).matches()
             || PortEndpointMerger.INPUT_PORT_URI_PATTERN.matcher(uriPath).matches()
             || PortEndpointMerger.OUTPUT_PORT_URI_PATTERN.matcher(uriPath).matches()
@@ -794,7 +785,6 @@ public class ThreadPoolRequestReplicator implements RequestReplicator, Closeable
         logger.debug("{}", sb);
     }
 
-
     private void submitAsyncRequest(final Set<NodeIdentifier> nodeIds, final Function<NodeIdentifier, NodeHttpRequest> callableFactory) {
 
         if (nodeIds.isEmpty()) {
@@ -808,7 +798,6 @@ public class ThreadPoolRequestReplicator implements RequestReplicator, Closeable
         }
     }
 
-
     private URI createURI(final URI exampleUri, final NodeIdentifier nodeId) {
         return createURI(exampleUri.getScheme(), nodeId.getApiAddress(), nodeId.getApiPort(), exampleUri.getPath(), exampleUri.getQuery());
     }
@@ -820,7 +809,6 @@ public class ThreadPoolRequestReplicator implements RequestReplicator, Closeable
             throw new UriConstructionException(e);
         }
     }
-
 
     /**
      * A Callable for making an HTTP request to a single node and returning its response.
@@ -843,7 +831,6 @@ public class ThreadPoolRequestReplicator implements RequestReplicator, Closeable
             this.callback = callback;
             this.clusterResponse = clusterResponse;
         }
-
 
         @Override
         public void run() {
@@ -885,49 +872,4 @@ public class ThreadPoolRequestReplicator implements RequestReplicator, Closeable
         return responseMap.size();
     }
 
-    private void removeCookie(final Map<String, String> headers, final String cookieName) {
-        final Optional<String> cookieHeaderNameFound = findHeaderName(headers, COOKIE_HEADER);
-
-        if (cookieHeaderNameFound.isPresent()) {
-            final String cookieHeaderName = cookieHeaderNameFound.get();
-
-            final String rawCookies = headers.get(cookieHeaderName);
-            final String[] rawCookieParts = rawCookies.split(";");
-            final Set<String> filteredCookieParts = Stream.of(rawCookieParts).map(String::trim).filter(cookie -> !cookie.startsWith(cookieName + "=")).collect(Collectors.toSet());
-
-            if (filteredCookieParts.isEmpty()) {
-                headers.remove(cookieHeaderName);
-            } else {
-                final String filteredCookies = StringUtils.join(filteredCookieParts, "; ");
-                headers.put(cookieHeaderName, filteredCookies);
-            }
-        }
-    }
-
-    private void removeHeader(final Map<String, String> headers, final String headerNameSearch) {
-        final Optional<String> headerNameFound = findHeaderName(headers, headerNameSearch);
-        headerNameFound.ifPresent(headers::remove);
-    }
-
-    /**
-     * Find HTTP Header name in map regardless of case since HTTP/1.1 capitalizes headers but HTTP/2 returns lowercased headers
-     *
-     * @param headers Map of header name to value
-     * @param headerName Header name to be found
-     * @return Optional match with header name from map of headers
-     */
-    private Optional<String> findHeaderName(final Map<String, String> headers, final String headerName) {
-        final Optional<String> headerNameFound;
-
-        if (headerName == null || headerName.isBlank()) {
-            headerNameFound = Optional.empty();
-        } else {
-            headerNameFound = headers.keySet()
-                    .stream()
-                    .filter(headerName::equalsIgnoreCase)
-                    .findFirst();
-        }
-
-        return headerNameFound;
-    }
 }

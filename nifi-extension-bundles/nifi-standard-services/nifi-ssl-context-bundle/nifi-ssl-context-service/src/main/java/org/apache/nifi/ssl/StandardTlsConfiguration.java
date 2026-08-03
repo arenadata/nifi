@@ -269,7 +269,6 @@ class StandardTlsConfiguration implements TlsConfiguration {
         return new String[]{getTruststorePath(), getTruststorePasswordForLogging(), getKeystoreType() != null ? getTruststoreType().getType() : NULL_LOG};
     }
 
-
     /**
      * Get Enabled TLS Protocols translates SSL to legacy protocols and TLS to current protocols or returns configured protocol
      *
@@ -305,8 +304,12 @@ class StandardTlsConfiguration implements TlsConfiguration {
 
     @Override
     public boolean equals(Object o) {
-        if (this == o) return true;
-        if (o == null || getClass() != o.getClass()) return false;
+        if (this == o) {
+            return true;
+        }
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
         org.apache.nifi.security.util.TlsConfiguration that = (org.apache.nifi.security.util.TlsConfiguration) o;
         return Objects.equals(keystorePath, that.getKeystorePath())
                 && Objects.equals(keystorePassword, that.getKeystorePassword())

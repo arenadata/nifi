@@ -17,6 +17,7 @@
 package org.apache.nifi.web.api.dto.util;
 
 import jakarta.xml.bind.annotation.adapters.XmlAdapter;
+
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
@@ -43,7 +44,6 @@ public class TimeAdapter extends XmlAdapter<String, Date> {
         return formatter.format(localDateTime);
     }
 
-
     private final ParseDefaultingDateTimeFormatter formatter = new ParseDefaultingDateTimeFormatter(
         timestamp -> String.format("%s%s%s", timestamp.getYear(), timestamp.getMonthValue(), timestamp.getDayOfMonth()),
         timestamp -> new DateTimeFormatterBuilder().appendPattern(DEFAULT_TIME_FORMAT)
@@ -52,7 +52,6 @@ public class TimeAdapter extends XmlAdapter<String, Date> {
             .parseDefaulting(ChronoField.DAY_OF_MONTH, timestamp.getDayOfMonth())
             .parseDefaulting(ChronoField.MILLI_OF_SECOND, 0)
             .toFormatter(Locale.US));
-
 
     @Override
     public Date unmarshal(String date) {

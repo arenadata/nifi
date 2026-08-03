@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-import { Component, EventEmitter, Inject, Input, Output } from '@angular/core';
+import { Component, EventEmitter, Input, Output, inject } from '@angular/core';
 import { MAT_DIALOG_DATA, MatDialogModule } from '@angular/material/dialog';
 import { EditParameterRequest, EditParameterResponse } from '../../../state/shared';
 import { MatButtonModule } from '@angular/material/button';
@@ -34,10 +34,9 @@ import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatInputModule } from '@angular/material/input';
 import { MatRadioModule } from '@angular/material/radio';
 import { MatCheckboxModule } from '@angular/material/checkbox';
-import { NifiSpinnerDirective } from '../spinner/nifi-spinner.directive';
 import { AsyncPipe } from '@angular/common';
 import { Observable } from 'rxjs';
-import { NifiTooltipDirective, TextTip, CloseOnEscapeDialog, Parameter } from '@nifi/shared';
+import { NifiTooltipDirective, TextTip, CloseOnEscapeDialog, Parameter, NifiSpinnerDirective } from '@nifi/shared';
 
 @Component({
     selector: 'edit-parameter-dialog',
@@ -58,6 +57,9 @@ import { NifiTooltipDirective, TextTip, CloseOnEscapeDialog, Parameter } from '@
     styleUrls: ['./edit-parameter-dialog.component.scss']
 })
 export class EditParameterDialog extends CloseOnEscapeDialog {
+    request = inject<EditParameterRequest>(MAT_DIALOG_DATA);
+    private formBuilder = inject(FormBuilder);
+
     @Input() saving$!: Observable<boolean>;
     @Output() editParameter: EventEmitter<EditParameterResponse> = new EventEmitter<EditParameterResponse>();
     @Output() exit: EventEmitter<void> = new EventEmitter<void>();
@@ -66,16 +68,15 @@ export class EditParameterDialog extends CloseOnEscapeDialog {
     sensitive: FormControl;
     editParameterForm: FormGroup;
     isNew: boolean;
-    showSensitiveHelperText: boolean = false;
-    valueInputTriggered: boolean = false;
+    showSensitiveHelperText = false;
+    valueInputTriggered = false;
 
     private originalParameter: Parameter | undefined = undefined;
 
-    constructor(
-        @Inject(MAT_DIALOG_DATA) public request: EditParameterRequest,
-        private formBuilder: FormBuilder
-    ) {
+    constructor() {
         super();
+        const request = this.request;
+
         // get the optional parameter. when existingParameters are specified this parameter is used to
         // seed the form for the new parameter. when existingParameters are not specified, this is the
         // existing parameter that populates the form

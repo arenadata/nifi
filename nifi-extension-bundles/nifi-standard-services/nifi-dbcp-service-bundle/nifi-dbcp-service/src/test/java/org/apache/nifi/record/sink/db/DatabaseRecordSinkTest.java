@@ -39,22 +39,19 @@ import org.apache.nifi.serialization.record.RecordSchema;
 import org.apache.nifi.serialization.record.RecordSet;
 import org.apache.nifi.state.MockStateManager;
 import org.apache.nifi.util.MockControllerServiceInitializationContext;
+import org.apache.nifi.util.MockPropertyConfiguration;
 import org.apache.nifi.util.MockPropertyValue;
 import org.apache.nifi.util.NoOpProcessor;
+import org.apache.nifi.util.PropertyMigrationResult;
 import org.apache.nifi.util.TestRunner;
 import org.apache.nifi.util.TestRunners;
-import org.apache.nifi.util.file.FileUtils;
-import org.junit.jupiter.api.AfterAll;
-import org.junit.jupiter.api.AfterEach;
-import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
-import java.io.File;
 import java.io.IOException;
-import java.nio.file.Paths;
+import java.nio.file.Path;
 import java.sql.Connection;
-import java.sql.DriverManager;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
@@ -92,68 +89,40 @@ import static org.mockito.Mockito.when;
 public class DatabaseRecordSinkTest {
 
     private static final String SERVICE_ID = DBCPConnectionPool.class.getName();
-    private static final String DERBY_LOG_PROPERTY = "derby.stream.error.file";
-    private static final String DERBY_SHUTDOWN_STATE = "XJ015";
-    private static final String DB_LOCATION = "target/db";
 
-    private TestRunner runner;
+    private static final String DRIVER_CLASS = "org.hsqldb.jdbc.JDBCDriver";
+    private static final String CONNECTION_URL_FORMAT = "jdbc:hsqldb:file:%s";
+
+    private String connectionUrl;
     private DBCPConnectionPool dbcpService;
-    private File databaseDirectory;
-
-    @BeforeAll
-    public static void setDerbyLog() {
-        final File derbyLog = new File(getSystemTemporaryDirectory(), "derby.log");
-        derbyLog.deleteOnExit();
-        System.setProperty(DERBY_LOG_PROPERTY, derbyLog.getAbsolutePath());
-    }
-
-    @AfterAll
-    public static void clearDerbyLog() {
-        System.clearProperty(DERBY_LOG_PROPERTY);
-    }
 
     @BeforeEach
-    public void setService() throws InitializationException {
-        databaseDirectory = getEmptyDirectory();
-
+    public void setService(@TempDir final Path tempDir) throws InitializationException {
         dbcpService = new DBCPConnectionPool();
-        runner = TestRunners.newTestRunner(NoOpProcessor.class);
+        TestRunner runner = TestRunners.newTestRunner(NoOpProcessor.class);
         runner.addControllerService(SERVICE_ID, dbcpService);
 
-        final String url = String.format("jdbc:derby:%s;create=true", databaseDirectory);
-        runner.setProperty(dbcpService, DBCPProperties.DATABASE_URL, url);
+        connectionUrl = CONNECTION_URL_FORMAT.formatted(tempDir);
+        runner.setProperty(dbcpService, DBCPProperties.DATABASE_URL, connectionUrl);
         runner.setProperty(dbcpService, DBCPProperties.DB_USER, String.class.getSimpleName());
         runner.setProperty(dbcpService, DBCPProperties.DB_PASSWORD, String.class.getName());
-        runner.setProperty(dbcpService, DBCPProperties.DB_DRIVERNAME, "org.apache.derby.jdbc.EmbeddedDriver");
+        runner.setProperty(dbcpService, DBCPProperties.DB_DRIVERNAME, DRIVER_CLASS);
     }
-
-    @AfterEach
-    public void shutdown() throws IOException {
-        if (databaseDirectory.exists()) {
-            final SQLException exception = assertThrows(SQLException.class, () -> DriverManager.getConnection("jdbc:derby:;shutdown=true"));
-            assertEquals(DERBY_SHUTDOWN_STATE, exception.getSQLState());
-            FileUtils.deleteFile(databaseDirectory, true);
-        }
-    }
-
-    private ConfigurationContext context;
 
     @Test
     void testRecordFormat() throws IOException, InitializationException, SQLException {
         final DatabaseRecordSink task = initTask("TESTTABLE");
 
         // Create the table
-        final Connection con = DriverManager.getConnection(String.format("jdbc:derby:%s;create=true", DB_LOCATION));
+        final Connection con = dbcpService.getConnection();
         final Statement stmt = con.createStatement();
-        try {
-            stmt.execute("drop table TESTTABLE");
-        } catch (final SQLException ignored) {
-            // Ignore, usually due to Derby not having DROP TABLE IF EXISTS
-        }
-        try {
+        try (stmt) {
+            try {
+                stmt.execute("drop table TESTTABLE");
+            } catch (final SQLException ignored) {
+                // Ignore, usually due to Derby not having DROP TABLE IF EXISTS
+            }
             stmt.executeUpdate("CREATE TABLE testTable (field1 integer, field2 varchar(20))");
-        } finally {
-            stmt.close();
         }
 
         final List<RecordField> recordFields = Arrays.asList(
@@ -231,20 +200,18 @@ public class DatabaseRecordSinkTest {
         final DatabaseRecordSink task = initTask("TESTTABLE");
 
         // Create the table
-        final Connection con = DriverManager.getConnection(String.format("jdbc:derby:%s;create=true", DB_LOCATION));
+        final Connection con = dbcpService.getConnection();
         final Statement stmt = con.createStatement();
-        try {
-            stmt.execute("drop table TESTTABLE");
-        } catch (final SQLException ignored) {
-            // Ignore, usually due to Derby not having DROP TABLE IF EXISTS
-        }
-        try {
+        try (stmt) {
+            try {
+                stmt.execute("drop table TESTTABLE");
+            } catch (final SQLException ignored) {
+                // Ignore, usually due to Derby not having DROP TABLE IF EXISTS
+            }
             stmt.executeUpdate("CREATE TABLE testTable (field1 integer, field2 varchar(20) not null)");
-        } finally {
-            stmt.close();
         }
 
-        final List<RecordField> recordFields = Arrays.asList(
+        final List<RecordField> recordFields = List.of(
                 new RecordField("field1", RecordFieldType.INT.getDataType())
         );
         final RecordSchema recordSchema = new SimpleRecordSchema(recordFields);
@@ -265,17 +232,15 @@ public class DatabaseRecordSinkTest {
         final DatabaseRecordSink task = initTask("TESTTABLE");
 
         // Create the table
-        final Connection con = DriverManager.getConnection(String.format("jdbc:derby:%s;create=true", DB_LOCATION));
+        final Connection con = dbcpService.getConnection();
         final Statement stmt = con.createStatement();
-        try {
-            stmt.execute("drop table TESTTABLE");
-        } catch (final SQLException ignored) {
-            // Ignore, usually due to Derby not having DROP TABLE IF EXISTS
-        }
-        try {
+        try (stmt) {
+            try {
+                stmt.execute("drop table TESTTABLE");
+            } catch (final SQLException ignored) {
+                // Ignore, usually due to Derby not having DROP TABLE IF EXISTS
+            }
             stmt.executeUpdate("CREATE TABLE testTable (field1 integer, field2 varchar(20))");
-        } finally {
-            stmt.close();
         }
 
         final List<RecordField> recordFields = Arrays.asList(
@@ -293,10 +258,37 @@ public class DatabaseRecordSinkTest {
                 "Should have generated an exception for field not present");
     }
 
+    @Test
+    void testMigrateProperties() {
+        final Map<String, String> expectedRenamed = Map.ofEntries(
+                Map.entry("db-record-sink-dcbp-service", DatabaseRecordSink.DBCP_SERVICE.getName()),
+                Map.entry("db-record-sink-catalog-name", DatabaseRecordSink.CATALOG_NAME.getName()),
+                Map.entry("db-record-sink-schema-name", DatabaseRecordSink.SCHEMA_NAME.getName()),
+                Map.entry("db-record-sink-table-name", DatabaseRecordSink.TABLE_NAME.getName()),
+                Map.entry("db-record-sink-translate-field-names", DatabaseRecordSink.TRANSLATE_FIELD_NAMES.getName()),
+                Map.entry("db-record-sink-unmatched-field-behavior", DatabaseRecordSink.UNMATCHED_FIELD_BEHAVIOR.getName()),
+                Map.entry("db-record-sink-unmatched-column-behavior", DatabaseRecordSink.UNMATCHED_COLUMN_BEHAVIOR.getName()),
+                Map.entry("db-record-sink-quoted-identifiers", DatabaseRecordSink.QUOTED_IDENTIFIERS.getName()),
+                Map.entry("db-record-sink-quoted-table-identifiers", DatabaseRecordSink.QUOTED_TABLE_IDENTIFIER.getName()),
+                Map.entry("db-record-sink-query-timeout", DatabaseRecordSink.QUERY_TIMEOUT.getName()),
+                Map.entry("record-sink-record-writer", RecordSinkService.RECORD_WRITER_FACTORY.getName())
+        );
+
+        final Map<String, String> propertyValues = Map.of();
+        final MockPropertyConfiguration configuration = new MockPropertyConfiguration(propertyValues);
+        final DatabaseRecordSink databaseRecordSink = new DatabaseRecordSink();
+        databaseRecordSink.migrateProperties(configuration);
+
+        final PropertyMigrationResult result = configuration.toPropertyMigrationResult();
+        final Map<String, String> propertiesRenamed = result.getPropertiesRenamed();
+
+        assertEquals(expectedRenamed, propertiesRenamed);
+    }
+
     private DatabaseRecordSink initTask(String tableName) throws InitializationException {
         final ComponentLog logger = mock(ComponentLog.class);
         final DatabaseRecordSink task = new DatabaseRecordSink();
-        context = mock(ConfigurationContext.class);
+        final ConfigurationContext context = mock(ConfigurationContext.class);
         final StateManager stateManager = new MockStateManager(task);
 
         final PropertyValue pValue = mock(StandardPropertyValue.class);
@@ -313,19 +305,18 @@ public class DatabaseRecordSinkTest {
         when(context.getProperty(DatabaseRecordSink.UNMATCHED_FIELD_BEHAVIOR)).thenReturn(new MockPropertyValue(DatabaseRecordSink.FAIL_UNMATCHED_FIELD.getValue()));
         when(context.getProperty(DatabaseRecordSink.UNMATCHED_COLUMN_BEHAVIOR)).thenReturn(new MockPropertyValue(DatabaseRecordSink.FAIL_UNMATCHED_COLUMN.getValue()));
 
-        // Set up the DBCPService to connect to a temp H2 database
         when(pValue.asControllerService(DBCPService.class)).thenReturn(dbcpService);
         when(context.getProperty(DatabaseRecordSink.DBCP_SERVICE)).thenReturn(pValue);
 
         final ConfigurationContext dbContext = mock(ConfigurationContext.class);
         final StateManager dbStateManager = new MockStateManager(dbcpService);
 
-        when(dbContext.getProperty(DATABASE_URL)).thenReturn(new MockPropertyValue(String.format("jdbc:derby:%s", DB_LOCATION)));
+        when(dbContext.getProperty(DATABASE_URL)).thenReturn(new MockPropertyValue(connectionUrl));
         when(dbContext.getProperty(DB_USER)).thenReturn(new MockPropertyValue(null));
         when(dbContext.getProperty(DB_PASSWORD)).thenReturn(new MockPropertyValue(null));
-        when(dbContext.getProperty(DB_DRIVERNAME)).thenReturn(new MockPropertyValue("org.apache.derby.jdbc.EmbeddedDriver"));
+        when(dbContext.getProperty(DB_DRIVERNAME)).thenReturn(new MockPropertyValue(DRIVER_CLASS));
         when(dbContext.getProperty(DB_DRIVER_LOCATION)).thenReturn(new MockPropertyValue(""));
-        when(dbContext.getProperty(MAX_TOTAL_CONNECTIONS)).thenReturn(new MockPropertyValue("1"));
+        when(dbContext.getProperty(MAX_TOTAL_CONNECTIONS)).thenReturn(new MockPropertyValue("2"));
         when(dbContext.getProperty(VALIDATION_QUERY)).thenReturn(new MockPropertyValue(""));
         when(dbContext.getProperty(MAX_WAIT_TIME)).thenReturn(new MockPropertyValue("5 sec"));
         when(dbContext.getProperty(MIN_IDLE)).thenReturn(new MockPropertyValue("0"));
@@ -345,14 +336,5 @@ public class DatabaseRecordSinkTest {
         task.onEnabled(context);
 
         return task;
-    }
-
-    private File getEmptyDirectory() {
-        final String randomDirectory = String.format("%s-%s", getClass().getSimpleName(), UUID.randomUUID());
-        return Paths.get(getSystemTemporaryDirectory(), randomDirectory).toFile();
-    }
-
-    private static String getSystemTemporaryDirectory() {
-        return System.getProperty("java.io.tmpdir");
     }
 }

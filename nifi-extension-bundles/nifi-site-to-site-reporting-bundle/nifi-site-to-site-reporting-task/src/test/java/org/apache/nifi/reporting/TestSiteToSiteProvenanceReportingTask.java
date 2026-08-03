@@ -19,6 +19,10 @@ package org.apache.nifi.reporting;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import jakarta.json.Json;
+import jakarta.json.JsonObject;
+import jakarta.json.JsonReader;
+import jakarta.json.JsonValue;
 import org.apache.nifi.components.PropertyDescriptor;
 import org.apache.nifi.components.PropertyValue;
 import org.apache.nifi.components.state.Scope;
@@ -45,10 +49,6 @@ import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 import org.mockito.stubbing.Answer;
 
-import javax.json.Json;
-import javax.json.JsonObject;
-import javax.json.JsonReader;
-import javax.json.JsonValue;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -248,7 +248,6 @@ public class TestSiteToSiteProvenanceReportingTask {
 
         assertEquals(3, task.dataSent.size());
     }
-
 
     @Test
     public void testFilterComponentIdNoResult() throws IOException, InitializationException {
@@ -505,7 +504,6 @@ public class TestSiteToSiteProvenanceReportingTask {
         properties.put(SiteToSiteUtils.BATCH_SIZE, "1000");
         properties.put(SiteToSiteProvenanceReportingTask.FILTER_COMPONENT_ID, "pgB2");
 
-
         // B201 belongs to ProcessGroup B2, so it should be picked.
         ProvenanceEventRecord event = createProvenanceEventRecord("B201", "dummy");
         MockSiteToSiteProvenanceReportingTask task = setup(event, properties, 1);
@@ -517,7 +515,6 @@ public class TestSiteToSiteProvenanceReportingTask {
         JsonNode reportedEvent = new ObjectMapper().readTree(task.dataSent.get(0)).get(0);
         assertEquals("B201", reportedEvent.get("componentId").asText());
         assertEquals("Processor in PGB2", reportedEvent.get("componentName").asText());
-
 
         // B301 belongs to PG B3, whose parent is PGB2, so it should be picked, too.
         event = createProvenanceEventRecord("B301", "dummy");
@@ -550,7 +547,6 @@ public class TestSiteToSiteProvenanceReportingTask {
         properties.put(SiteToSiteUtils.BATCH_SIZE, "1000");
         properties.put(SiteToSiteProvenanceReportingTask.FILTER_COMPONENT_ID, "riB2,roB3");
 
-
         // riB2 is a Remote Input Port in Process Group B2.
         ProvenanceEventRecord event = createProvenanceEventRecord("riB2", "Remote Input Port");
         MockSiteToSiteProvenanceReportingTask task = setup(event, properties, 1);
@@ -563,7 +559,6 @@ public class TestSiteToSiteProvenanceReportingTask {
         assertEquals("riB2", reportedEvent.get("componentId").asText());
         assertEquals("Remote Input Port name", reportedEvent.get("componentName").asText());
         assertEquals("pgB2", reportedEvent.get("processGroupId").asText());
-
 
         // roB3 is a Remote Output Port in Process Group B3.
         event = createProvenanceEventRecord("roB3", "Remote Output Port");
@@ -649,7 +644,6 @@ public class TestSiteToSiteProvenanceReportingTask {
     private static final class MockSiteToSiteProvenanceReportingTask extends SiteToSiteProvenanceReportingTask {
 
         public MockSiteToSiteProvenanceReportingTask() throws IOException {
-            super();
         }
 
         final List<byte[]> dataSent = new ArrayList<>();
@@ -661,15 +655,15 @@ public class TestSiteToSiteProvenanceReportingTask {
                 final Transaction transaction = Mockito.mock(Transaction.class);
 
                 assertDoesNotThrow(() -> {
-                            Mockito.doAnswer((Answer<Object>) invocation -> {
-                                final byte[] data = invocation.getArgument(0, byte[].class);
-                                dataSent.add(data);
-                                return null;
-                            }).when(transaction).send(Mockito.any(byte[].class), Mockito.any(Map.class));
+                    Mockito.doAnswer((Answer<Object>) invocation -> {
+                        final byte[] data = invocation.getArgument(0, byte[].class);
+                        dataSent.add(data);
+                        return null;
+                    }).when(transaction).send(Mockito.any(byte[].class), Mockito.any(Map.class));
 
-                            when(client.createTransaction(Mockito.any(TransferDirection.class))).thenReturn(transaction);
+                    when(client.createTransaction(Mockito.any(TransferDirection.class))).thenReturn(transaction);
 
-                        });
+                });
                 siteToSiteClient = client;
             }
         }

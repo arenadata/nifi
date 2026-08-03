@@ -53,7 +53,7 @@ public class WaitNotifyProtocol {
     private static final ObjectMapper objectMapper = new ObjectMapper();
 
     private static final Serializer<String> stringSerializer = (value, output) -> {
-        if (value != null ) {
+        if (value != null) {
             output.write(value.getBytes(StandardCharsets.UTF_8));
         }
     };
@@ -66,8 +66,8 @@ public class WaitNotifyProtocol {
          * Getter and Setter methods are needed to (de)serialize JSON even if it's not used from app code.
          */
 
-        transient private String identifier;
-        transient private AtomicCacheEntry<String, String, Object> cachedEntry;
+        private transient String identifier;
+        private transient AtomicCacheEntry<String, String, Object> cachedEntry;
         private Map<String, Long> counts = new HashMap<>();
         private Map<String, String> attributes = new HashMap<>();
         private long releasableCount = 0;
@@ -216,7 +216,6 @@ public class WaitNotifyProtocol {
         final String msg = String.format("Failed to update signal [%s] counter [%s] after retrying %d times.", signalId, deltas, MAX_REPLACE_RETRY_COUNT);
         throw new ConcurrentModificationException(msg);
     }
-
 
     /**
      * Notify a signal to increase a counter.

@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-import { Component, ElementRef, Inject, Input, ViewChild } from '@angular/core';
+import { Component, ElementRef, Input, ViewChild, inject } from '@angular/core';
 import { MAT_DIALOG_DATA, MatDialogModule } from '@angular/material/dialog';
 import { CreateProcessGroupDialogRequest } from '../../../../../state/flow';
 import { Store } from '@ngrx/store';
@@ -28,7 +28,6 @@ import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatInputModule } from '@angular/material/input';
 import { MatOptionModule } from '@angular/material/core';
 import { MatSelectModule } from '@angular/material/select';
-import { NifiSpinnerDirective } from '../../../../../../../ui/common/spinner/nifi-spinner.directive';
 import { FormBuilder, FormControl, FormGroup, ReactiveFormsModule, Validators } from '@angular/forms';
 import { MatIconModule } from '@angular/material/icon';
 import { ErrorContextKey } from '../../../../../../../state/error';
@@ -40,7 +39,8 @@ import {
     NifiTooltipDirective,
     SelectOption,
     SortObjectByPropertyPipe,
-    TextTip
+    TextTip,
+    NifiSpinnerDirective
 } from '@nifi/shared';
 import { ParameterContextEntity } from '../../../../../../../state/shared';
 import { selectCurrentUser } from '../../../../../../../state/current-user/current-user.selectors';
@@ -66,10 +66,15 @@ import { selectCurrentUser } from '../../../../../../../state/current-user/curre
     styleUrls: ['./create-process-group.component.scss']
 })
 export class CreateProcessGroup extends CloseOnEscapeDialog {
+    private dialogRequest = inject<CreateProcessGroupDialogRequest>(MAT_DIALOG_DATA);
+    private formBuilder = inject(FormBuilder);
+    private store = inject<Store<CanvasState>>(Store);
+    private nifiCommon = inject(NiFiCommon);
+
     @Input() set parameterContexts(parameterContexts: ParameterContextEntity[]) {
         this.parameterContextsOptions = [];
         this._parameterContexts = parameterContexts;
-        let currentParameterContextIdEnabled: boolean = false;
+        let currentParameterContextIdEnabled = false;
 
         if (parameterContexts.length === 0) {
             this.parameterContextsOptions = [];
@@ -120,12 +125,7 @@ export class CreateProcessGroup extends CloseOnEscapeDialog {
     flowDefinition: File | null = null;
     currentUser$ = this.store.select(selectCurrentUser);
 
-    constructor(
-        @Inject(MAT_DIALOG_DATA) private dialogRequest: CreateProcessGroupDialogRequest,
-        private formBuilder: FormBuilder,
-        private store: Store<CanvasState>,
-        private nifiCommon: NiFiCommon
-    ) {
+    constructor() {
         super();
 
         this.createProcessGroupForm = this.formBuilder.group({

@@ -317,7 +317,21 @@ public class CuratorLeaderElectionManager extends TrackedLeaderElectionManager {
 
             try {
                 final Participant leader = selector.getLeader();
-                return leader == null ? Optional.empty() : Optional.of(leader.getId());
+
+                final String leaderId;
+                if (leader == null) {
+                    leaderId = null;
+                } else {
+                    final String participantId = leader.getId();
+                    if (participantId == null || participantId.isEmpty()) {
+                        logger.info("Leader ID for Role [{}] not found with external lookup", roleName);
+                        leaderId = null;
+                    } else {
+                        leaderId = participantId;
+                    }
+                }
+
+                return Optional.ofNullable(leaderId);
             } catch (final KeeperException.NoNodeException nne) {
                 // If there is no ZNode, then there is no elected leader.
                 return Optional.empty();
@@ -353,7 +367,6 @@ public class CuratorLeaderElectionManager extends TrackedLeaderElectionManager {
         client.start();
         return client;
     }
-
 
     private static class LeaderRole {
 
@@ -412,7 +425,7 @@ public class CuratorLeaderElectionManager extends TrackedLeaderElectionManager {
         private volatile boolean leader;
         private volatile Thread leaderThread;
         private long leaderUpdateTimestamp = 0L;
-        private final long MAX_CACHE_MILLIS = TimeUnit.SECONDS.toMillis(5L);
+        private static final long MAX_CACHE_MILLIS = TimeUnit.SECONDS.toMillis(5L);
 
         public ElectionListener(final String roleName, final LeaderElectionStateChangeListener listener, final String participantId) {
             this.roleName = roleName;

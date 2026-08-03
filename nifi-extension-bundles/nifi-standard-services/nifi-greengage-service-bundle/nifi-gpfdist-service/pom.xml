@@ -23,12 +23,11 @@
     <parent>
         <groupId>org.apache.nifi</groupId>
         <artifactId>nifi-greengage-service-bundle</artifactId>
-        <version>2.5.0</version>
+        <version>2.10.0.1</version>
     </parent>
 
     <properties>
-        <nifi.version>2.5.0</nifi.version>
-        <jetty-server.version>9.4.54.v20240208</jetty-server.version>
+        <nifi.version>2.10.0.1</nifi.version>
     </properties>
 
     <dependencies>
@@ -88,8 +87,8 @@
             <version>1.10.0</version>
         </dependency>
         <dependency>
-            <groupId>org.eclipse.jetty.ee10</groupId>
-            <artifactId>jetty-ee10-servlet</artifactId>
+            <groupId>org.eclipse.jetty.ee11</groupId>
+            <artifactId>jetty-ee11-servlet</artifactId>
         </dependency>
         <dependency>
             <groupId>org.postgresql</groupId>

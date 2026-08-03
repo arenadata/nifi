@@ -34,6 +34,7 @@ import org.apache.nifi.annotation.documentation.UseCase;
 import org.apache.nifi.components.PropertyDescriptor;
 import org.apache.nifi.components.state.Scope;
 import org.apache.nifi.expression.ExpressionLanguageScope;
+import org.apache.nifi.migration.PropertyConfiguration;
 import org.apache.nifi.processor.ProcessContext;
 import org.apache.nifi.processor.ProcessSession;
 import org.apache.nifi.processor.Relationship;
@@ -42,6 +43,7 @@ import org.apache.nifi.processors.standard.sql.SqlWriter;
 import org.apache.nifi.scheduling.SchedulingStrategy;
 import org.apache.nifi.serialization.RecordSetWriterFactory;
 import org.apache.nifi.util.db.JdbcCommon;
+import org.apache.nifi.util.db.JdbcProperties;
 
 import java.util.Collections;
 import java.util.List;
@@ -51,7 +53,6 @@ import static org.apache.nifi.util.db.JdbcProperties.USE_AVRO_LOGICAL_TYPES;
 import static org.apache.nifi.util.db.JdbcProperties.VARIABLE_REGISTRY_ONLY_DEFAULT_PRECISION;
 import static org.apache.nifi.util.db.JdbcProperties.VARIABLE_REGISTRY_ONLY_DEFAULT_SCALE;
 
-
 @TriggerSerially
 @InputRequirement(Requirement.INPUT_FORBIDDEN)
 @Tags({"sql", "select", "jdbc", "query", "database", "record"})
@@ -60,7 +61,7 @@ import static org.apache.nifi.util.db.JdbcProperties.VARIABLE_REGISTRY_ONLY_DEFA
         + "Maximum Value column(s) are larger than the "
         + "previously-seen maxima. Query result will be converted to the format specified by the record writer. Expression Language is supported for several properties, but no incoming "
         + "connections are permitted. The Environment/System properties may be used to provide values for any property containing Expression Language. If it is desired to "
-        + "leverage flow file attributes to perform these queries, the GenerateTableFetch and/or ExecuteSQL processors can be used for this purpose. "
+        + "leverage FlowFile attributes to perform these queries, the GenerateTableFetch and/or ExecuteSQL processors can be used for this purpose. "
         + "Streaming is used so arbitrarily large result sets are supported. This processor can be scheduled to run on "
         + "a timer or cron expression, using the standard scheduling methods. This processor is intended to be run on the Primary Node only. FlowFile attribute "
         + "'querydbtable.row.count' indicates how many rows were selected.")
@@ -72,13 +73,13 @@ import static org.apache.nifi.util.db.JdbcProperties.VARIABLE_REGISTRY_ONLY_DEFA
 @WritesAttributes({
         @WritesAttribute(attribute = "tablename", description = "Name of the table being queried"),
         @WritesAttribute(attribute = "querydbtable.row.count", description = "The number of rows selected by the query"),
-        @WritesAttribute(attribute = "fragment.identifier", description = "If 'Max Rows Per Flow File' is set then all FlowFiles from the same query result set "
+        @WritesAttribute(attribute = "fragment.identifier", description = "If 'Max Rows Per FlowFile' is set then all FlowFiles from the same query result set "
                 + "will have the same value for the fragment.identifier attribute. This can then be used to correlate the results."),
-        @WritesAttribute(attribute = "fragment.count", description = "If 'Max Rows Per Flow File' is set then this is the total number of  "
+        @WritesAttribute(attribute = "fragment.count", description = "If 'Max Rows Per FlowFile' is set then this is the total number of  "
                 + "FlowFiles produced by a single ResultSet. This can be used in conjunction with the "
                 + "fragment.identifier attribute in order to know how many FlowFiles belonged to the same incoming ResultSet. If Output Batch Size is set, then this "
                 + "attribute will not be populated."),
-        @WritesAttribute(attribute = "fragment.index", description = "If 'Max Rows Per Flow File' is set then the position of this FlowFile in the list of "
+        @WritesAttribute(attribute = "fragment.index", description = "If 'Max Rows Per FlowFile' is set then the position of this FlowFile in the list of "
                 + "outgoing FlowFiles that were all derived from the same result set FlowFile. This can be "
                 + "used in conjunction with the fragment.identifier attribute to know which FlowFiles originated from the same query result set and in what order  "
                 + "FlowFiles were produced"),
@@ -104,7 +105,7 @@ import static org.apache.nifi.util.db.JdbcProperties.VARIABLE_REGISTRY_ONLY_DEFA
             an `id` column that is a one-up number, or a `last_modified` column that is a timestamp of when the row was last modified.
         Set the "Initial Load Strategy" property to "Start at Beginning".
         Set the "Fetch Size" to a number that avoids loading too much data into memory on the NiFi side. For example, a value of `1000` will load up to 1,000 rows of data.
-        Set the "Max Rows Per Flow File" to a value that allows efficient processing, such as `1000` or `10000`.
+        Set the "Max Rows Per FlowFile" to a value that allows efficient processing, such as `1000` or `10000`.
         Set the "Output Batch Size" property to a value greater than `0`. A smaller value, such as `1` or even `20` will result in lower latency but also slightly lower throughput.
             A larger value such as `1000` will result in higher throughput but also higher latency. It is not recommended to set the value larger than `1000` as it can cause significant
             memory utilization.
@@ -122,7 +123,7 @@ import static org.apache.nifi.util.db.JdbcProperties.VARIABLE_REGISTRY_ONLY_DEFA
             an `id` column that is a one-up number, or a `last_modified` column that is a timestamp of when the row was last modified.
         Set the "Initial Load Strategy" property to "Start at Current Maximum Values".
         Set the "Fetch Size" to a number that avoids loading too much data into memory on the NiFi side. For example, a value of `1000` will load up to 1,000 rows of data.
-        Set the "Max Rows Per Flow File" to a value that allows efficient processing, such as `1000` or `10000`.
+        Set the "Max Rows Per FlowFile" to a value that allows efficient processing, such as `1000` or `10000`.
         Set the "Output Batch Size" property to a value greater than `0`. A smaller value, such as `1` or even `20` will result in lower latency but also slightly lower throughput.
             A larger value such as `1000` will result in higher throughput but also higher latency. It is not recommended to set the value larger than `1000` as it can cause significant
             memory utilization.
@@ -158,7 +159,7 @@ import static org.apache.nifi.util.db.JdbcProperties.VARIABLE_REGISTRY_ONLY_DEFA
                     an `id` column that is a one-up number, or a `last_modified` column that is a timestamp of when the row was last modified.
                 Set the "Initial Load Strategy" property to "Start at Current Maximum Values".
                 Set the "Fetch Size" to a number that avoids loading too much data into memory on the NiFi side. For example, a value of `1000` will load up to 1,000 rows of data.
-                Set the "Max Rows Per Flow File" to a value that allows efficient processing, such as `1000` or `10000`.
+                Set the "Max Rows Per FlowFile" to a value that allows efficient processing, such as `1000` or `10000`.
                 Set the "Output Batch Size" property to a value greater than `0`. A smaller value, such as `1` or even `20` will result in lower latency but also slightly lower throughput.
                     A larger value such as `1000` will result in higher throughput but also higher latency. It is not recommended to set the value larger than `1000` as it can cause significant
                     memory utilization.
@@ -174,8 +175,7 @@ public class QueryDatabaseTableRecord extends AbstractQueryDatabaseTable {
             .build();
 
     public static final PropertyDescriptor RECORD_WRITER_FACTORY = new PropertyDescriptor.Builder()
-            .name("qdbtr-record-writer")
-            .displayName("Record Writer")
+            .name("Record Writer")
             .description("Specifies the Controller Service to use for writing results to a FlowFile. The Record Writer may use Inherit Schema to emulate the inferred schema behavior, i.e. "
                     + "an explicit schema need not be defined in the writer, and will be supplied by the same logic used to infer the schema from the column types.")
             .identifiesControllerService(RecordSetWriterFactory.class)
@@ -183,8 +183,7 @@ public class QueryDatabaseTableRecord extends AbstractQueryDatabaseTable {
             .build();
 
     public static final PropertyDescriptor NORMALIZE_NAMES = new PropertyDescriptor.Builder()
-            .name("qdbtr-normalize")
-            .displayName("Normalize Table/Column Names")
+            .name("Normalize Table/Column Names")
             .description("Whether to change characters in column names when creating the output schema. For example, colons and periods will be changed to underscores.")
             .allowableValues("true", "false")
             .defaultValue("false")
@@ -221,6 +220,16 @@ public class QueryDatabaseTableRecord extends AbstractQueryDatabaseTable {
     public QueryDatabaseTableRecord() {
         relationships = RELATIONSHIPS;
         propDescriptors = PROPERTY_DESCRIPTORS;
+    }
+
+    @Override
+    public void migrateProperties(PropertyConfiguration config) {
+        super.migrateProperties(config);
+        config.renameProperty("qdbtr-record-writer", RECORD_WRITER_FACTORY.getName());
+        config.renameProperty("qdbtr-normalize", NORMALIZE_NAMES.getName());
+        config.renameProperty(JdbcProperties.OLD_USE_AVRO_LOGICAL_TYPES_PROPERTY_NAME, USE_AVRO_LOGICAL_TYPES.getName());
+        config.renameProperty(JdbcProperties.OLD_DEFAULT_SCALE_PROPERTY_NAME, VARIABLE_REGISTRY_ONLY_DEFAULT_SCALE.getName());
+        config.renameProperty(JdbcProperties.OLD_DEFAULT_PRECISION_PROPERTY_NAME, VARIABLE_REGISTRY_ONLY_DEFAULT_PRECISION.getName());
     }
 
     @Override

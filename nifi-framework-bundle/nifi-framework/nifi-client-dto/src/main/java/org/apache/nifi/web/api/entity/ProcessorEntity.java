@@ -17,11 +17,10 @@
 package org.apache.nifi.web.api.entity;
 
 import io.swagger.v3.oas.annotations.media.Schema;
+import jakarta.xml.bind.annotation.XmlRootElement;
 import org.apache.nifi.web.api.dto.PermissionsDTO;
 import org.apache.nifi.web.api.dto.ProcessorDTO;
 import org.apache.nifi.web.api.dto.status.ProcessorStatusDTO;
-
-import jakarta.xml.bind.annotation.XmlRootElement;
 
 /**
  * A serialized representation of this class can be placed in the entity body of a request or response to or from the API. This particular entity holds a reference to a ProcessorDTO.
@@ -31,6 +30,7 @@ public class ProcessorEntity extends ComponentEntity implements Permissible<Proc
 
     private ProcessorDTO component;
     private String inputRequirement;
+    private String physicalState;
     private ProcessorStatusDTO status;
     private PermissionsDTO operatePermissions;
 
@@ -73,6 +73,19 @@ public class ProcessorEntity extends ComponentEntity implements Permissible<Proc
 
     public void setInputRequirement(String inputRequirement) {
         this.inputRequirement = inputRequirement;
+    }
+
+    /**
+     * @return the physical state of this processor
+     */
+    @Schema(description = "The physical state of the processor, including transition states",
+            allowableValues = {"RUNNING", "STOPPED", "DISABLED", "STARTING", "STOPPING", "RUN_ONCE"})
+    public String getPhysicalState() {
+        return physicalState;
+    }
+
+    public void setPhysicalState(String physicalState) {
+        this.physicalState = physicalState;
     }
 
     /**

@@ -21,12 +21,19 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
+import org.springframework.vault.core.VaultKeyValueOperations;
+import org.springframework.vault.core.VaultKeyValueOperationsSupport.KeyValueBackend;
+import org.springframework.vault.core.VaultTemplate;
 
 import java.io.File;
 import java.io.IOException;
+import java.lang.reflect.Field;
 import java.nio.file.Files;
+import java.util.Arrays;
+import java.util.List;
 import java.util.Optional;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.Mockito.when;
 
 public class TestStandardHashiCorpVaultCommunicationService {
@@ -51,25 +58,53 @@ public class TestStandardHashiCorpVaultCommunicationService {
         Files.deleteIfExists(authProps.toPath());
     }
 
-    private HashiCorpVaultCommunicationService configureService() {
+    private StandardHashiCorpVaultCommunicationService configureService() {
         return new StandardHashiCorpVaultCommunicationService(properties);
     }
 
     @Test
     public void testBasicConfiguration() {
-        this.configureService();
+        try (StandardHashiCorpVaultCommunicationService ignored = this.configureService()) {
+            // Once to check if the URI is https, and once to resolve the Vault endpoint shared by the client
+            Mockito.verify(properties, Mockito.times(2)).getUri();
 
-        // Once to check if the URI is https, once by VaultTemplate, and once to validate
-        Mockito.verify(properties, Mockito.times(3)).getUri();
-
-        // Once to check if the property is set, and once to retrieve the value
-        Mockito.verify(properties, Mockito.times(2)).getAuthPropertiesFilename();
+            // Once to check if the property is set, and once to retrieve the value
+            Mockito.verify(properties, Mockito.times(2)).getAuthPropertiesFilename();
+        }
     }
 
     @Test
     public void testTimeouts() {
         when(properties.getConnectionTimeout()).thenReturn(Optional.of("20 secs"));
         when(properties.getReadTimeout()).thenReturn(Optional.of("40 secs"));
-        this.configureService();
+        try (StandardHashiCorpVaultCommunicationService ignored = this.configureService()) {
+            // Intentionally empty
+        }
+    }
+
+    @Test
+    public void testListKeyValueSecretsRecursesNestedPaths() throws Exception {
+        when(properties.getKvVersion()).thenReturn(2);
+
+        try (StandardHashiCorpVaultCommunicationService service = this.configureService()) {
+
+            final VaultTemplate vaultTemplate = Mockito.mock(VaultTemplate.class);
+            final VaultKeyValueOperations keyValueOperations = Mockito.mock(VaultKeyValueOperations.class);
+
+            final Field vaultTemplateField = StandardHashiCorpVaultCommunicationService.class.getDeclaredField("vaultTemplate");
+            vaultTemplateField.setAccessible(true);
+            vaultTemplateField.set(service, vaultTemplate);
+
+            final Field keyValueBackendField = StandardHashiCorpVaultCommunicationService.class.getDeclaredField("keyValueBackend");
+            keyValueBackendField.setAccessible(true);
+            final KeyValueBackend keyValueBackend = (KeyValueBackend) keyValueBackendField.get(service);
+
+            when(vaultTemplate.opsForKeyValue("kv", keyValueBackend)).thenReturn(keyValueOperations);
+            when(keyValueOperations.list("/")).thenReturn(Arrays.asList("test", "nested/"));
+            when(keyValueOperations.list("nested/")).thenReturn(List.of("nifi"));
+
+            final List<String> secrets = service.listKeyValueSecrets("kv", keyValueBackend.name());
+            assertEquals(Arrays.asList("test", "nested/nifi"), secrets);
+        }
     }
 }

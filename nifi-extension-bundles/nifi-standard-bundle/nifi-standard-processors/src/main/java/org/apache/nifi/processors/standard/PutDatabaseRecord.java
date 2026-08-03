@@ -43,6 +43,7 @@ import org.apache.nifi.database.dialect.service.api.TableDefinition;
 import org.apache.nifi.dbcp.DBCPService;
 import org.apache.nifi.flowfile.FlowFile;
 import org.apache.nifi.logging.ComponentLog;
+import org.apache.nifi.migration.PropertyConfiguration;
 import org.apache.nifi.processor.AbstractProcessor;
 import org.apache.nifi.processor.ProcessContext;
 import org.apache.nifi.processor.ProcessSession;
@@ -110,17 +111,17 @@ import static org.apache.nifi.expression.ExpressionLanguageScope.NONE;
 
 @InputRequirement(Requirement.INPUT_REQUIRED)
 @Tags({"sql", "record", "jdbc", "put", "database", "update", "insert", "delete"})
-@CapabilityDescription("The PutDatabaseRecord processor uses a specified RecordReader to input (possibly multiple) records from an incoming flow file. These records are translated to SQL "
-        + "statements and executed as a single transaction. If any errors occur, the flow file is routed to failure or retry, and if the records are transmitted successfully, "
-        + "the incoming flow file is "
+@CapabilityDescription("The PutDatabaseRecord processor uses a specified RecordReader to input (possibly multiple) records from an incoming FlowFile. These records are translated to SQL "
+        + "statements and executed as a single transaction. If any errors occur, the FlowFile is routed to failure or retry, and if the records are transmitted successfully, "
+        + "the incoming FlowFile is "
         + "routed to success.  The type of statement executed by the processor is specified via the Statement Type property, which accepts some hard-coded values such as INSERT, UPDATE, and DELETE, "
-        + "as well as 'Use statement.type Attribute', which causes the processor to get the statement type from a flow file attribute.  IMPORTANT: If the Statement Type is UPDATE, then the incoming "
+        + "as well as 'Use statement.type Attribute', which causes the processor to get the statement type from a FlowFile attribute.  IMPORTANT: If the Statement Type is UPDATE, then the incoming "
         + "records must not alter the value(s) of the primary keys (or user-specified Update Keys). If such records are encountered, the UPDATE statement issued to the database may do nothing "
         + "(if no existing records with the new primary key values are found), or could inadvertently corrupt the existing data (by changing records for which the new values of the primary keys "
         + "exist).")
 @ReadsAttribute(attribute = PutDatabaseRecord.STATEMENT_TYPE_ATTRIBUTE, description = "If 'Use statement.type Attribute' is selected for the Statement Type property, the value of this attribute "
         + "will be used to determine the type of statement (INSERT, UPDATE, DELETE, SQL, etc.) to generate and execute.")
-@WritesAttribute(attribute = PutDatabaseRecord.PUT_DATABASE_RECORD_ERROR, description = "If an error occurs during processing, the flow file will be routed to failure or retry, and this attribute "
+@WritesAttribute(attribute = PutDatabaseRecord.PUT_DATABASE_RECORD_ERROR, description = "If an error occurs during processing, the FlowFile will be routed to failure or retry, and this attribute "
         + "will be populated with the cause of the error.")
 @UseCase(description = "Insert records into a database")
 public class PutDatabaseRecord extends AbstractProcessor {
@@ -176,16 +177,14 @@ public class PutDatabaseRecord extends AbstractProcessor {
 
     // Properties
     static final PropertyDescriptor RECORD_READER_FACTORY = new Builder()
-            .name("put-db-record-record-reader")
-            .displayName("Record Reader")
+            .name("Record Reader")
             .description("Specifies the Controller Service to use for parsing incoming data and determining the data's schema.")
             .identifiesControllerService(RecordReaderFactory.class)
             .required(true)
             .build();
 
     static final PropertyDescriptor STATEMENT_TYPE = new Builder()
-            .name("put-db-record-statement-type")
-            .displayName("Statement Type")
+            .name("Statement Type")
             .description("Specifies the type of SQL Statement to generate. "
                     + "Please refer to the database documentation for a description of the behavior of each operation. "
                     + "Please note that some Database Types may not support certain Statement Types. "
@@ -216,17 +215,39 @@ public class PutDatabaseRecord extends AbstractProcessor {
             .expressionLanguageSupported(NONE)
             .build();
 
+    static final PropertyDescriptor PRE_PROCESSING_SQL = new Builder()
+            .name("Pre-Processing SQL")
+            .description("""
+                    One or more SQL statements, separated by semicolons, executed on the current database connection,
+                    before processing records for each FlowFile. Literal semicolons can be included in SQL statements
+                    by prefixing the semicolon with a backslash character.
+                    """)
+            .required(false)
+            .expressionLanguageSupported(FLOWFILE_ATTRIBUTES)
+            .addValidator(StandardValidators.NON_EMPTY_VALIDATOR)
+            .build();
+
+    static final PropertyDescriptor POST_PROCESSING_SQL = new Builder()
+            .name("Post-Processing SQL")
+            .description("""
+                    One or more SQL statements, separated by semicolons, executed on the current database connection,
+                    after processing records for each FlowFile. Literal semicolons can be included in SQL statements
+                    by prefixing the semicolon with a backslash.
+                    """)
+            .required(false)
+            .expressionLanguageSupported(FLOWFILE_ATTRIBUTES)
+            .addValidator(StandardValidators.NON_EMPTY_VALIDATOR)
+            .build();
+
     static final PropertyDescriptor DBCP_SERVICE = new Builder()
-            .name("put-db-record-dcbp-service")
-            .displayName("Database Connection Pooling Service")
+            .name("Database Connection Pooling Service")
             .description("The Controller Service that is used to obtain a connection to the database for sending records.")
             .required(true)
             .identifiesControllerService(DBCPService.class)
             .build();
 
     static final PropertyDescriptor CATALOG_NAME = new Builder()
-            .name("put-db-record-catalog-name")
-            .displayName("Database Name")
+            .name("Database Name")
             .description("""
                     The name of the database (or the name of the catalog, depending on the destination system) that the statement should update. This may not apply
                     for the database that you are updating. In this case, leave the field empty. Note that if the  property is set and the database is case-sensitive,
@@ -238,8 +259,7 @@ public class PutDatabaseRecord extends AbstractProcessor {
             .build();
 
     static final PropertyDescriptor SCHEMA_NAME = new Builder()
-            .name("put-db-record-schema-name")
-            .displayName("Schema Name")
+            .name("Schema Name")
             .description("The name of the schema that the table belongs to. This may not apply for the database that you are updating. In this case, leave the field empty. Note that if the "
                     + "property is set and the database is case-sensitive, the schema name must match the database's schema name exactly.")
             .required(false)
@@ -248,8 +268,7 @@ public class PutDatabaseRecord extends AbstractProcessor {
             .build();
 
     static final PropertyDescriptor TABLE_NAME = new Builder()
-            .name("put-db-record-table-name")
-            .displayName("Table Name")
+            .name("Table Name")
             .description("The name of the table that the statement should affect. Note that if the database is case-sensitive, the table name must match the database's table name exactly.")
             .required(true)
             .expressionLanguageSupported(FLOWFILE_ATTRIBUTES)
@@ -275,8 +294,7 @@ public class PutDatabaseRecord extends AbstractProcessor {
     );
 
     static final PropertyDescriptor BINARY_STRING_FORMAT = new Builder()
-            .name("put-db-record-binary-format")
-            .displayName("Binary String Format")
+            .name("Binary String Format")
             .description("The format to be applied when decoding string values to binary.")
             .required(true)
             .expressionLanguageSupported(FLOWFILE_ATTRIBUTES)
@@ -285,8 +303,7 @@ public class PutDatabaseRecord extends AbstractProcessor {
             .build();
 
     static final PropertyDescriptor TRANSLATE_FIELD_NAMES = new Builder()
-            .name("put-db-record-translate-field-names")
-            .displayName("Translate Field Names")
+            .name("Translate Field Names")
             .description("If true, the Processor will attempt to translate field names into the appropriate column names for the table specified. "
                     + "If false, the field names must match the column names exactly, or the column will not be updated")
             .allowableValues("true", "false")
@@ -312,24 +329,21 @@ public class PutDatabaseRecord extends AbstractProcessor {
             .build();
 
     static final PropertyDescriptor UNMATCHED_FIELD_BEHAVIOR = new Builder()
-            .name("put-db-record-unmatched-field-behavior")
-            .displayName("Unmatched Field Behavior")
+            .name("Unmatched Field Behavior")
             .description("If an incoming record has a field that does not map to any of the database table's columns, this property specifies how to handle the situation")
             .allowableValues(IGNORE_UNMATCHED_FIELD, FAIL_UNMATCHED_FIELD)
             .defaultValue(IGNORE_UNMATCHED_FIELD)
             .build();
 
     static final PropertyDescriptor UNMATCHED_COLUMN_BEHAVIOR = new Builder()
-            .name("put-db-record-unmatched-column-behavior")
-            .displayName("Unmatched Column Behavior")
+            .name("Unmatched Column Behavior")
             .description("If an incoming record does not have a field mapping for all of the database table's columns, this property specifies how to handle the situation")
             .allowableValues(IGNORE_UNMATCHED_COLUMN, WARNING_UNMATCHED_COLUMN, FAIL_UNMATCHED_COLUMN)
             .defaultValue(FAIL_UNMATCHED_COLUMN)
             .build();
 
     static final PropertyDescriptor UPDATE_KEYS = new Builder()
-            .name("put-db-record-update-keys")
-            .displayName("Update Keys")
+            .name("Update Keys")
             .description("A comma-separated list of column names that uniquely identifies a row in the database for UPDATE statements. "
                     + "If the Statement Type is UPDATE and this property is not set, the table's Primary Keys are used. "
                     + "In this case, if no Primary Key exists, the conversion to SQL will fail if Unmatched Column Behaviour is set to FAIL. "
@@ -352,8 +366,7 @@ public class PutDatabaseRecord extends AbstractProcessor {
             .build();
 
     static final PropertyDescriptor FIELD_CONTAINING_SQL = new Builder()
-            .name("put-db-record-field-containing-sql")
-            .displayName("Field Containing SQL")
+            .name("Field Containing SQL")
             .description("If the Statement Type is 'SQL' (as set in the statement.type attribute), this field indicates which field in the record(s) contains the SQL statement to execute. The value "
                     + "of the field must be a single SQL statement. If the Statement Type is not 'SQL', this field is ignored.")
             .addValidator(StandardValidators.NON_EMPTY_VALIDATOR)
@@ -363,8 +376,7 @@ public class PutDatabaseRecord extends AbstractProcessor {
             .build();
 
     static final PropertyDescriptor ALLOW_MULTIPLE_STATEMENTS = new Builder()
-            .name("put-db-record-allow-multiple-statements")
-            .displayName("Allow Multiple SQL Statements")
+            .name("Allow Multiple SQL Statements")
             .description("If the Statement Type is 'SQL' (as set in the statement.type attribute), this field indicates whether to split the field value by a semicolon and execute each statement "
                     + "separately. If any statement causes an error, the entire set of statements will be rolled back. If the Statement Type is not 'SQL', this field is ignored.")
             .addValidator(StandardValidators.BOOLEAN_VALIDATOR)
@@ -375,24 +387,21 @@ public class PutDatabaseRecord extends AbstractProcessor {
             .build();
 
     static final PropertyDescriptor QUOTE_IDENTIFIERS = new Builder()
-            .name("put-db-record-quoted-identifiers")
-            .displayName("Quote Column Identifiers")
+            .name("Quote Column Identifiers")
             .description("Enabling this option will cause all column names to be quoted, allowing you to use reserved words as column names in your tables.")
             .allowableValues("true", "false")
             .defaultValue("false")
             .build();
 
     static final PropertyDescriptor QUOTE_TABLE_IDENTIFIER = new Builder()
-            .name("put-db-record-quoted-table-identifiers")
-            .displayName("Quote Table Identifiers")
+            .name("Quote Table Identifiers")
             .description("Enabling this option will cause the table name to be quoted to support the use of special characters in the table name.")
             .allowableValues("true", "false")
             .defaultValue("false")
             .build();
 
     static final PropertyDescriptor QUERY_TIMEOUT = new Builder()
-            .name("put-db-record-query-timeout")
-            .displayName("Max Wait Time")
+            .name("Max Wait Time")
             .description("The maximum amount of time allowed for a running SQL statement "
                     + ", zero means there is no limit. Max time less than 1 second will be equal to zero.")
             .defaultValue("0 seconds")
@@ -402,8 +411,7 @@ public class PutDatabaseRecord extends AbstractProcessor {
             .build();
 
     static final PropertyDescriptor TABLE_SCHEMA_CACHE_SIZE = new Builder()
-            .name("table-schema-cache-size")
-            .displayName("Table Schema Cache Size")
+            .name("Table Schema Cache Size")
             .description("Specifies how many Table Schemas should be cached")
             .addValidator(StandardValidators.NON_NEGATIVE_INTEGER_VALIDATOR)
             .defaultValue("100")
@@ -411,8 +419,7 @@ public class PutDatabaseRecord extends AbstractProcessor {
             .build();
 
     static final PropertyDescriptor MAX_BATCH_SIZE = new Builder()
-            .name("put-db-record-max-batch-size")
-            .displayName("Maximum Batch Size")
+            .name("Maximum Batch Size")
             .description("Specifies maximum number of sql statements to be included in each batch sent to the database. Zero means the batch size is not limited, "
                     + "and all statements are put into a single batch which can cause high memory usage issues for a very large number of statements.")
             .defaultValue("1000")
@@ -422,8 +429,7 @@ public class PutDatabaseRecord extends AbstractProcessor {
             .build();
 
     static final PropertyDescriptor AUTO_COMMIT = new PropertyDescriptor.Builder()
-            .name("database-session-autocommit")
-            .displayName("Database Session AutoCommit")
+            .name("Database Session AutoCommit")
             .description("The autocommit mode to set on the database connection being used. If set to false, the operation(s) will be explicitly committed or rolled back "
                     + "(based on success or failure respectively). If set to true, the driver/database automatically handles the commit/rollback.")
             .allowableValues("true", "false")
@@ -431,8 +437,12 @@ public class PutDatabaseRecord extends AbstractProcessor {
             .required(false)
             .build();
 
-    static final PropertyDescriptor DB_TYPE = DatabaseAdapterDescriptor.getDatabaseTypeDescriptor("db-type");
+    static final PropertyDescriptor DB_TYPE = DatabaseAdapterDescriptor.getDatabaseTypeDescriptor();
     static final PropertyDescriptor DATABASE_DIALECT_SERVICE = DatabaseAdapterDescriptor.getDatabaseDialectServiceDescriptor(DB_TYPE);
+
+    static final Pattern UNESCAPED_SEMICOLON_PATTERN = Pattern.compile("(?<!\\\\);");
+    static final String ESCAPED_SEMICOLON = "\\\\;";
+    static final String SEMICOLON = ";";
 
     protected static final List<PropertyDescriptor> properties = List.of(
             RECORD_READER_FACTORY,
@@ -441,6 +451,8 @@ public class PutDatabaseRecord extends AbstractProcessor {
             STATEMENT_TYPE,
             STATEMENT_TYPE_RECORD_PATH,
             DATA_RECORD_PATH,
+            PRE_PROCESSING_SQL,
+            POST_PROCESSING_SQL,
             DBCP_SERVICE,
             CATALOG_NAME,
             SCHEMA_NAME,
@@ -607,6 +619,31 @@ public class PutDatabaseRecord extends AbstractProcessor {
         }
     }
 
+    @Override
+    public void migrateProperties(PropertyConfiguration config) {
+        config.renameProperty("put-db-record-record-reader", RECORD_READER_FACTORY.getName());
+        config.renameProperty("db-type", DB_TYPE.getName());
+        config.renameProperty("put-db-record-statement-type", STATEMENT_TYPE.getName());
+        config.renameProperty("put-db-record-dcbp-service", DBCP_SERVICE.getName());
+        config.renameProperty("put-db-record-catalog-name", CATALOG_NAME.getName());
+        config.renameProperty("put-db-record-schema-name", SCHEMA_NAME.getName());
+        config.renameProperty("put-db-record-table-name", TABLE_NAME.getName());
+        config.renameProperty("put-db-record-binary-format", BINARY_STRING_FORMAT.getName());
+        config.renameProperty("put-db-record-translate-field-names", TRANSLATE_FIELD_NAMES.getName());
+        config.renameProperty("put-db-record-unmatched-field-behavior", UNMATCHED_FIELD_BEHAVIOR.getName());
+        config.renameProperty("put-db-record-unmatched-column-behavior", UNMATCHED_COLUMN_BEHAVIOR.getName());
+        config.renameProperty("put-db-record-update-keys", UPDATE_KEYS.getName());
+        config.renameProperty("put-db-record-field-containing-sql", FIELD_CONTAINING_SQL.getName());
+        config.renameProperty("put-db-record-allow-multiple-statements", ALLOW_MULTIPLE_STATEMENTS.getName());
+        config.renameProperty("put-db-record-quoted-identifiers", QUOTE_IDENTIFIERS.getName());
+        config.renameProperty("put-db-record-quoted-table-identifiers", QUOTE_TABLE_IDENTIFIER.getName());
+        config.renameProperty("put-db-record-query-timeout", QUERY_TIMEOUT.getName());
+        config.renameProperty("table-schema-cache-size", TABLE_SCHEMA_CACHE_SIZE.getName());
+        config.renameProperty("put-db-record-max-batch-size", MAX_BATCH_SIZE.getName());
+        config.renameProperty("database-session-autocommit", AUTO_COMMIT.getName());
+        config.renameProperty(RollbackOnFailure.OLD_ROLLBACK_ON_FAILURE_PROPERTY_NAME, RollbackOnFailure.ROLLBACK_ON_FAILURE.getName());
+    }
+
     private void routeOnException(final ProcessContext context, final ProcessSession session,
                                   Connection connection, Exception e, FlowFile flowFile) {
         // When an Exception is thrown, we want to route to 'retry' if we expect that attempting the same request again
@@ -760,7 +797,6 @@ public class PutDatabaseRecord extends AbstractProcessor {
         }
     }
 
-
     private void executeDML(final ProcessContext context, final ProcessSession session, final FlowFile flowFile,
                             final Connection con, final RecordReader recordReader, final String explicitStatementType, final DMLSettings settings)
             throws IllegalArgumentException, MalformedRecordException, IOException, SQLException {
@@ -773,12 +809,12 @@ public class PutDatabaseRecord extends AbstractProcessor {
         final String tableName = context.getProperty(TABLE_NAME).evaluateAttributeExpressions(flowFile).getValue();
         final String updateKeys = switch (configuredStatementType) {
             case UPDATE_TYPE, UPSERT_TYPE, SQL_TYPE, USE_ATTR_TYPE, USE_RECORD_PATH ->
-                    context.getProperty(UPDATE_KEYS).evaluateAttributeExpressions(flowFile).getValue();
+                context.getProperty(UPDATE_KEYS).evaluateAttributeExpressions(flowFile).getValue();
             default -> null;
         };
         final String deleteKeys = switch (configuredStatementType) {
             case DELETE_TYPE, SQL_TYPE, USE_ATTR_TYPE, USE_RECORD_PATH ->
-                    context.getProperty(DELETE_KEYS).evaluateAttributeExpressions(flowFile).getValue();
+                context.getProperty(DELETE_KEYS).evaluateAttributeExpressions(flowFile).getValue();
             default -> null;
         };
         final int maxBatchSize = context.getProperty(MAX_BATCH_SIZE).evaluateAttributeExpressions(flowFile).asInteger();
@@ -934,9 +970,8 @@ public class PutDatabaseRecord extends AbstractProcessor {
                                 }
                                 if (targetDataType != null) {
                                     if (sqlType == Types.BLOB || sqlType == Types.BINARY || sqlType == Types.VARBINARY || sqlType == Types.LONGVARBINARY) {
-                                        if (currentValue instanceof Object[]) {
+                                        if (currentValue instanceof Object[] src) {
                                             // Convert Object[Byte] arrays to byte[]
-                                            Object[] src = (Object[]) currentValue;
                                             if (src.length > 0) {
                                                 if (!(src[0] instanceof Byte)) {
                                                     throw new IllegalTypeConversionException("Cannot convert value " + currentValue + " to BLOB/BINARY/VARBINARY/LONGVARBINARY");
@@ -1058,7 +1093,7 @@ public class PutDatabaseRecord extends AbstractProcessor {
                     throw new IOException("Unable to parse data as CLOB/String " + value, e);
                 }
             }
-        } else if (sqlType == Types.VARBINARY || sqlType == Types.LONGVARBINARY) {
+        } else if (sqlType == Types.BINARY || sqlType == Types.VARBINARY || sqlType == Types.LONGVARBINARY) {
             if (fieldSqlType == Types.ARRAY || fieldSqlType == Types.VARCHAR) {
                 if (!(value instanceof byte[])) {
                     if (value == null) {
@@ -1069,7 +1104,7 @@ public class PutDatabaseRecord extends AbstractProcessor {
                             throw new IOException("Unable to setNull() on prepared statement", e);
                         }
                     } else {
-                        throw new IOException("Expected VARBINARY/LONGVARBINARY to be of type byte[] but is instead " + value.getClass().getName());
+                        throw new IOException("Expected BINARY/VARBINARY/LONGVARBINARY to be of type byte[] but is instead " + value.getClass().getName());
                     }
                 }
                 byte[] byteArray = (byte[]) value;
@@ -1177,6 +1212,9 @@ public class PutDatabaseRecord extends AbstractProcessor {
     private void putToDatabase(final ProcessContext context, final ProcessSession session, final FlowFile flowFile, final Connection connection) throws Exception {
         final String statementType = getStatementType(context, flowFile);
 
+        final List<String> preProcessingSqlStatements = getSqlStatements(context, flowFile, PRE_PROCESSING_SQL);
+        executeSqlStatements(connection, preProcessingSqlStatements, PRE_PROCESSING_SQL);
+
         try (final InputStream in = session.read(flowFile)) {
             final RecordReaderFactory recordReaderFactory = context.getProperty(RECORD_READER_FACTORY).asControllerService(RecordReaderFactory.class);
             final RecordReader recordReader = recordReaderFactory.createRecordReader(flowFile, in, getLogger());
@@ -1186,6 +1224,41 @@ public class PutDatabaseRecord extends AbstractProcessor {
             } else {
                 final DMLSettings settings = new DMLSettings(context);
                 executeDML(context, session, flowFile, connection, recordReader, statementType, settings);
+            }
+        }
+
+        final List<String> postProcessingSqlStatements = getSqlStatements(context, flowFile, POST_PROCESSING_SQL);
+        executeSqlStatements(connection, postProcessingSqlStatements, POST_PROCESSING_SQL);
+    }
+
+    private List<String> getSqlStatements(final ProcessContext context, final FlowFile flowFile, final PropertyDescriptor propertyDescriptor) {
+        final List<String> sqlStatements;
+
+        final String propertyValue = context.getProperty(propertyDescriptor).evaluateAttributeExpressions(flowFile).getValue();
+        if (propertyValue == null || propertyValue.isBlank()) {
+            sqlStatements = List.of();
+        } else {
+            final String[] statements = UNESCAPED_SEMICOLON_PATTERN.split(propertyValue);
+            sqlStatements = new ArrayList<>(statements.length);
+            for (String statement : statements) {
+                final String sqlStatement = statement.replaceAll(ESCAPED_SEMICOLON, SEMICOLON).trim();
+                if (sqlStatement.isEmpty()) {
+                    continue;
+                }
+                sqlStatements.add(sqlStatement);
+            }
+        }
+
+        return sqlStatements;
+    }
+
+    private void executeSqlStatements(final Connection connection, final List<String> sqlStatements, final PropertyDescriptor propertyDescriptor) {
+        for (final String sql : sqlStatements) {
+            try (Statement statement = connection.createStatement()) {
+                statement.execute(sql);
+            } catch (final SQLException e) {
+                final String message = "Failed to execute %s Statement [%s]".formatted(propertyDescriptor.getName(), sql);
+                throw new ProcessException(message, e);
             }
         }
     }
@@ -1662,14 +1735,21 @@ public class PutDatabaseRecord extends AbstractProcessor {
 
         @Override
         public boolean equals(Object o) {
-            if (this == o) return true;
-            if (o == null || getClass() != o.getClass()) return false;
+            if (this == o) {
+                return true;
+            }
+            if (o == null || getClass() != o.getClass()) {
+                return false;
+            }
 
             SchemaKey schemaKey = (SchemaKey) o;
 
-            if (catalog != null ? !catalog.equals(schemaKey.catalog) : schemaKey.catalog != null) return false;
-            if (schemaName != null ? !schemaName.equals(schemaKey.schemaName) : schemaKey.schemaName != null)
+            if (catalog != null ? !catalog.equals(schemaKey.catalog) : schemaKey.catalog != null) {
                 return false;
+            }
+            if (schemaName != null ? !schemaName.equals(schemaKey.schemaName) : schemaKey.schemaName != null) {
+                return false;
+            }
             return tableName.equals(schemaKey.tableName);
         }
     }

@@ -84,7 +84,7 @@ public class TestStandardParameterContextDAO {
         final NiFiUserDetails userDetail = new NiFiUserDetails(user);
         when(authentication.getPrincipal()).thenReturn(userDetail);
 
-        final ParameterReferenceManager parameterReferenceManager = new StandardParameterReferenceManager(flowController.getFlowManager());
+        final ParameterReferenceManager parameterReferenceManager = new StandardParameterReferenceManager(() -> flowController.getFlowManager().getRootGroup());
 
         final FlowManager flowManager = flowController.getFlowManager();
         final StandardParameterContextManager parameterContextLookup = new StandardParameterContextManager();
@@ -147,7 +147,6 @@ public class TestStandardParameterContextDAO {
         ref.getComponent().setName("Inherited");
         refs.add(ref);
         dto.setInheritedParameterContexts(refs);
-
 
         // Updating a provided parameter that is not inherited should fail
         assertThrows(IllegalArgumentException.class, () -> dao.verifyUpdate(dto, true));

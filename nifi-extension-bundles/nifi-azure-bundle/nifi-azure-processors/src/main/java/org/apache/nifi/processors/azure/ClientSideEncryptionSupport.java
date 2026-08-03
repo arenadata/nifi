@@ -36,11 +36,11 @@ import org.apache.nifi.processor.util.StandardValidators;
 import org.apache.nifi.processors.azure.storage.utils.ClientSideEncryptionMethod;
 import org.apache.nifi.util.StringUtils;
 
-import javax.crypto.spec.SecretKeySpec;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
+import javax.crypto.spec.SecretKeySpec;
 
 public interface ClientSideEncryptionSupport {
     List<KeyOperation> KEY_OPERATIONS = List.of(KeyOperation.WRAP_KEY, KeyOperation.UNWRAP_KEY);
@@ -144,7 +144,7 @@ public interface ClientSideEncryptionSupport {
             case keySize192 -> Optional.of(KeyWrapAlgorithm.A192KW.toString());
             case keySize256, keySize384, keySize512 ->
                 // Default to the longest allowed key length for wrap
-                    Optional.of(KeyWrapAlgorithm.A256KW.toString());
+                Optional.of(KeyWrapAlgorithm.A256KW.toString());
             default -> Optional.empty();
         };
     }

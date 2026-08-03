@@ -30,6 +30,7 @@ import org.apache.nifi.security.ssl.StandardSslContextBuilder;
 import org.apache.nifi.security.util.ClientAuth;
 import org.apache.nifi.ssl.SSLContextProvider;
 import org.apache.nifi.util.MockFlowFile;
+import org.apache.nifi.util.PropertyMigrationResult;
 import org.apache.nifi.util.TestRunner;
 import org.apache.nifi.util.TestRunners;
 import org.junit.jupiter.api.BeforeAll;
@@ -37,8 +38,6 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
-import javax.net.ssl.SSLContext;
-import javax.security.auth.x500.X500Principal;
 import java.nio.charset.StandardCharsets;
 import java.security.KeyPair;
 import java.security.KeyPairGenerator;
@@ -48,6 +47,12 @@ import java.security.cert.X509Certificate;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import javax.net.ssl.SSLContext;
+import javax.security.auth.x500.X500Principal;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
 
 public class TestListenTCP {
     private static final String CLIENT_CERTIFICATE_SUBJECT_DN_ATTRIBUTE = "client.certificate.subject.dn";
@@ -90,7 +95,7 @@ public class TestListenTCP {
 
     @Test
     public void testCustomValidate() throws Exception {
-        runner.setProperty(ListenerProperties.PORT, "1");
+        runner.setProperty(ListenTCP.PORT, "1");
         runner.assertValid();
 
         enableSslContextService(keyStoreSslContext);
@@ -188,8 +193,24 @@ public class TestListenTCP {
         }
     }
 
+    @Test
+    void testMigrateProperties() {
+        final Map<String, String> expectedRenamed = Map.ofEntries(
+                Map.entry("pool-receive-buffers", ListenTCP.POOL_RECV_BUFFERS.getName()),
+                Map.entry("idle-timeout", ListenTCP.IDLE_CONNECTION_TIMEOUT.getName()),
+                Map.entry(ListenerProperties.OLD_WORKER_THREADS_PROPERTY_NAME, ListenerProperties.WORKER_THREADS.getName()),
+                Map.entry(ListenerProperties.OLD_MESSAGE_DELIMITER_PROPERTY_NAME, ListenerProperties.MESSAGE_DELIMITER.getName())
+        );
+
+        final PropertyMigrationResult propertyMigrationResult = runner.migrateProperties();
+        assertEquals(expectedRenamed, propertyMigrationResult.getPropertiesRenamed());
+
+        final Set<String> expectedRemoved = Set.of("max-receiving-threads");
+        assertEquals(expectedRemoved, propertyMigrationResult.getPropertiesRemoved());
+    }
+
     private void run(final List<String> messages, final int flowFiles, final SSLContext sslContext) throws Exception {
-        runner.setProperty(ListenerProperties.PORT, "0");
+        runner.setProperty(ListenTCP.PORT, "0");
         final String message = StringUtils.join(messages, null);
         final byte[] bytes = message.getBytes(StandardCharsets.UTF_8);
         runner.run(1, false, true);

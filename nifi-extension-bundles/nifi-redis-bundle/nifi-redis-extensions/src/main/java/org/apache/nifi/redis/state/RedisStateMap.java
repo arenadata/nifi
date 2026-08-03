@@ -16,12 +16,13 @@
  */
 package org.apache.nifi.redis.state;
 
+import org.apache.nifi.components.state.StateMap;
+
 import java.util.Collections;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.TreeMap;
-import org.apache.nifi.components.state.StateMap;
 
 /**
  * A StateMap implementation for RedisStateProvider.
@@ -43,7 +44,6 @@ public class RedisStateMap implements StateMap {
         Objects.requireNonNull(encodingVersion, "Encoding Version must be non-null");
         Objects.requireNonNull(stateValues, "State Values must be non-null");
     }
-
 
     @Override
     public Optional<String> getStateVersion() {

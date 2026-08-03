@@ -55,6 +55,11 @@ public class LiveSerializedRepositoryRecord implements SerializedRepositoryRecor
     }
 
     @Override
+    public String getOriginalSwapLocation() {
+        return record.getOriginalSwapLocation();
+    }
+
+    @Override
     public FlowFileRecord getFlowFileRecord() {
         return record.getCurrent();
     }
@@ -74,6 +79,5 @@ public class LiveSerializedRepositoryRecord implements SerializedRepositoryRecor
         return "LiveSerializedRepositoryRecord[recordType=" + record.getType() + ", queueId=" + (record.getDestination() == null ? null : record.getDestination().getIdentifier())
             + ", flowFileUuid=" + record.getCurrent().getAttribute(CoreAttributes.UUID.key()) + ", attributesChanged=" + isAttributesChanged() + "]";
     }
-
 
 }

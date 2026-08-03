@@ -16,6 +16,7 @@
  */
 package org.apache.nifi.web.dao.impl;
 
+import jakarta.ws.rs.WebApplicationException;
 import org.apache.nifi.authorization.user.NiFiUser;
 import org.apache.nifi.authorization.user.NiFiUserUtils;
 import org.apache.nifi.connectable.Connectable;
@@ -43,7 +44,7 @@ import org.apache.nifi.registry.flow.RegisteredFlowSnapshot;
 import org.apache.nifi.registry.flow.StandardVersionControlInformation;
 import org.apache.nifi.registry.flow.VersionControlInformation;
 import org.apache.nifi.registry.flow.mapping.InstantiatedVersionedProcessGroup;
-import org.apache.nifi.registry.flow.mapping.NiFiRegistryFlowMapper;
+import org.apache.nifi.registry.flow.mapping.VersionedComponentFlowMapper;
 import org.apache.nifi.remote.RemoteGroupPort;
 import org.apache.nifi.web.ResourceNotFoundException;
 import org.apache.nifi.web.api.dto.ProcessGroupDTO;
@@ -53,8 +54,6 @@ import org.apache.nifi.web.api.entity.ProcessGroupRecursivity;
 import org.apache.nifi.web.dao.ProcessGroupDAO;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
-import jakarta.ws.rs.WebApplicationException;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Repository;
 
@@ -121,7 +120,7 @@ public class StandardProcessGroupDAO extends ComponentDAO implements ProcessGrou
 
     @Override
     public boolean hasProcessGroup(String groupId) {
-        return flowController.getFlowManager().getGroup(groupId) != null;
+        return flowController.getFlowManager().getGroup(groupId, null) != null;
     }
 
     @Override
@@ -303,7 +302,7 @@ public class StandardProcessGroupDAO extends ComponentDAO implements ProcessGrou
 
     @Override
     public void scheduleComponents(final String groupId, final ScheduledState state, final Set<String> componentIds) {
-        final ProcessGroup group = locateProcessGroup(flowController, groupId);
+        final ProcessGroup group = locateProcessGroup(flowController, groupId, true);
 
         final Set<ProcessGroup> validGroups = new HashSet<>();
         validGroups.add(group);
@@ -368,7 +367,7 @@ public class StandardProcessGroupDAO extends ComponentDAO implements ProcessGrou
 
     @Override
     public void enableComponents(final String groupId, final ScheduledState state, final Set<String> componentIds) {
-        final ProcessGroup group = locateProcessGroup(flowController, groupId);
+        final ProcessGroup group = locateProcessGroup(flowController, groupId, true);
 
         final Set<ProcessGroup> validGroups = new HashSet<>();
         validGroups.add(group);
@@ -412,10 +411,7 @@ public class StandardProcessGroupDAO extends ComponentDAO implements ProcessGrou
             .map(flowManager::getControllerServiceNode)
             .collect(Collectors.toList());
 
-        final ProcessGroup group = flowManager.getGroup(groupId);
-        if (group == null) {
-            throw new IllegalArgumentException("Cannot activate Controller Services with IDs " + serviceIds + " because the associated Process Group (id=" + groupId + ") could not be found");
-        }
+        final ProcessGroup group = locateProcessGroup(flowController, groupId, true);
 
         final ExecutionEngine executionEngine = group.resolveExecutionEngine();
         if (executionEngine == ExecutionEngine.STATELESS) {
@@ -525,7 +521,7 @@ public class StandardProcessGroupDAO extends ComponentDAO implements ProcessGrou
         final String groupId = versionControlInformation.getGroupId();
         final ProcessGroup group = locateProcessGroup(flowController, groupId);
 
-        final NiFiRegistryFlowMapper mapper = new NiFiRegistryFlowMapper(flowController.getExtensionManager());
+        final VersionedComponentFlowMapper mapper = new VersionedComponentFlowMapper(flowController.getExtensionManager());
         final InstantiatedVersionedProcessGroup flowSnapshot = mapper.mapProcessGroup(group, flowController.getControllerServiceProvider(), flowController.getFlowManager(), false);
 
         updateVersionControlInformation(group, flowSnapshot, versionControlInformation, versionedComponentMapping);
@@ -617,7 +613,7 @@ public class StandardProcessGroupDAO extends ComponentDAO implements ProcessGrou
 
     @Override
     public DropFlowFileStatus createDropAllFlowFilesRequest(String processGroupId, String dropRequestId) {
-        ProcessGroup processGroup = locateProcessGroup(flowController, processGroupId);
+        ProcessGroup processGroup = locateProcessGroup(flowController, processGroupId, true);
 
         final NiFiUser user = NiFiUserUtils.getNiFiUser();
         if (user == null) {
@@ -629,14 +625,14 @@ public class StandardProcessGroupDAO extends ComponentDAO implements ProcessGrou
 
     @Override
     public DropFlowFileStatus getDropAllFlowFilesRequest(String processGroupId, String dropRequestId) {
-        ProcessGroup processGroup = locateProcessGroup(flowController, processGroupId);
+        ProcessGroup processGroup = locateProcessGroup(flowController, processGroupId, true);
 
         return processGroup.getDropAllFlowFilesStatus(dropRequestId);
     }
 
     @Override
     public DropFlowFileStatus deleteDropAllFlowFilesRequest(String processGroupId, String dropRequestId) {
-        ProcessGroup processGroup = locateProcessGroup(flowController, processGroupId);
+        ProcessGroup processGroup = locateProcessGroup(flowController, processGroupId, true);
 
         return processGroup.cancelDropAllFlowFiles(dropRequestId);
     }

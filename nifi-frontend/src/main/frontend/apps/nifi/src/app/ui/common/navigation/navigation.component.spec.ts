@@ -32,7 +32,15 @@ import { selectLoginConfiguration } from '../../../state/login-configuration/log
 import * as fromLoginConfiguration from '../../../state/login-configuration/login-configuration.reducer';
 import { currentUserFeatureKey } from '../../../state/current-user';
 import { navigationFeatureKey } from '../../../state/navigation';
+import { initialState as initialErrorState } from '../../../state/error/error.reducer';
+import { errorFeatureKey } from '../../../state/error';
+import { initialState as initialAboutState } from '../../../state/about/about.reducer';
+import { aboutFeatureKey } from '../../../state/about';
 import { popBackNavigation } from '../../../state/navigation/navigation.actions';
+import { MatMenuTrigger } from '@angular/material/menu';
+import { OverlayContainer } from '@angular/cdk/overlay';
+import { NoopAnimationsModule } from '@angular/platform-browser/animations';
+import { By } from '@angular/platform-browser';
 
 describe('Navigation', () => {
     let component: Navigation;
@@ -41,10 +49,12 @@ describe('Navigation', () => {
 
     beforeEach(() => {
         TestBed.configureTestingModule({
-            imports: [Navigation, HttpClientTestingModule, RouterTestingModule],
+            imports: [Navigation, HttpClientTestingModule, RouterTestingModule, NoopAnimationsModule],
             providers: [
                 provideMockStore({
                     initialState: {
+                        [errorFeatureKey]: initialErrorState,
+                        [aboutFeatureKey]: initialAboutState,
                         [currentUserFeatureKey]: fromUser.initialState,
                         [navigationFeatureKey]: fromNavigation.initialState
                     },
@@ -81,10 +91,23 @@ describe('Navigation', () => {
     });
 
     it('should pop back navigation', () => {
-        const dispatchSpy = jest.spyOn(store, 'dispatch');
+        const dispatchSpy = vi.spyOn(store, 'dispatch');
 
         component.popBackNavigation();
 
         expect(dispatchSpy).toHaveBeenCalledWith(popBackNavigation());
+    });
+
+    it('should always render the Connectors menu item in the global menu', () => {
+        const trigger = fixture.debugElement.query(By.directive(MatMenuTrigger)).injector.get(MatMenuTrigger);
+        trigger.openMenu();
+        fixture.detectChanges();
+
+        const overlayElement = TestBed.inject(OverlayContainer).getContainerElement();
+        const connectorsButton = overlayElement.querySelector('[data-qa="global-menu-item-connectors"]');
+        expect(connectorsButton).toBeTruthy();
+
+        trigger.closeMenu();
+        fixture.detectChanges();
     });
 });

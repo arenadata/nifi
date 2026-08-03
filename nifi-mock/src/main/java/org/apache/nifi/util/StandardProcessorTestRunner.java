@@ -129,7 +129,6 @@ public class StandardProcessorTestRunner implements TestRunner {
         this(processor, processorName, logger, null);
     }
 
-
     StandardProcessorTestRunner(final Processor processor, String processorName, MockComponentLog logger, KerberosContext kerberosContext) {
         this.processor = processor;
         this.idGenerator = new AtomicLong(0L);
@@ -511,7 +510,6 @@ public class StandardProcessorTestRunner implements TestRunner {
         return enqueue(data.getBytes(StandardCharsets.UTF_8), attributes);
     }
 
-
     @Override
     public MockFlowFile enqueue(final InputStream data) {
         return enqueue(data, new HashMap<>());
@@ -578,6 +576,11 @@ public class StandardProcessorTestRunner implements TestRunner {
     @Override
     public Long getCounterValue(final String name) {
         return sharedState.getCounterValue(name);
+    }
+
+    @Override
+    public List<Double> getGaugeValues(final String name) {
+        return sharedState.getGaugeValues(name);
     }
 
     @Override
@@ -692,6 +695,7 @@ public class StandardProcessorTestRunner implements TestRunner {
         final MockControllerServiceInitializationContext initContext = new MockControllerServiceInitializationContext(
                 Objects.requireNonNull(service), Objects.requireNonNull(identifier), mockComponentLog, serviceStateManager, kerberosContext);
         controllerServiceStateManagers.put(identifier, serviceStateManager);
+        initContext.setConfiguredForClustering(context.isConfiguredForClustering());
         initContext.addControllerServices(context);
         service.initialize(initContext);
 
@@ -1114,7 +1118,6 @@ public class StandardProcessorTestRunner implements TestRunner {
             }
         }
     }
-
 
     /**
      * Set the Run Schedule parameter (in milliseconds). If set, this will be the duration

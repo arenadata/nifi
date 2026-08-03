@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-import { Injectable } from '@angular/core';
+import { Injectable, inject } from '@angular/core';
 import * as d3 from 'd3';
 import { CanvasUtils } from '../canvas-utils.service';
 import { Store } from '@ngrx/store';
@@ -24,41 +24,39 @@ import { openNewConnectionDialog, selectComponents } from '../../state/flow/flow
 import { ConnectionManager } from '../manager/connection-manager.service';
 import { Position } from '../../state/shared';
 import { CreateConnectionRequest } from '../../state/flow';
-import { NiFiCommon } from '@nifi/shared';
 
 @Injectable({
     providedIn: 'root'
 })
 export class ConnectableBehavior {
+    private store = inject<Store<CanvasState>>(Store);
+    private canvasUtils = inject(CanvasUtils);
+
     private readonly connect: any;
     private origin: any;
 
-    constructor(
-        private store: Store<CanvasState>,
-        private canvasUtils: CanvasUtils,
-        private nifiCommon: NiFiCommon
-    ) {
-        const self: ConnectableBehavior = this;
-
+    constructor() {
         // dragging behavior for the connector
         this.connect = d3
             .drag()
-            .subject(function (event) {
-                self.origin = d3.pointer(event, d3.select('#canvas'));
+            .subject(function (this: Element, event: any) {
+                const origin = d3.pointer(event, d3.select('#canvas'));
                 return {
-                    x: self.origin[0],
-                    y: self.origin[1]
+                    x: origin[0],
+                    y: origin[1],
+                    element: this,
+                    origin
                 };
             })
-            .on('start', function (this: any, event) {
+            .on('start', (event) => {
                 // stop further propagation
                 event.sourceEvent.stopPropagation();
 
-                const source: any = d3.select(this.parentNode);
+                const source: any = d3.select((event.subject.element as Element).parentNode as Element);
                 const sourceData: any = source.datum();
 
                 // mark the source component has selected and unselect the previous components
-                self.store.dispatch(
+                this.store.dispatch(
                     selectComponents({
                         request: {
                             components: [
@@ -72,7 +70,7 @@ export class ConnectableBehavior {
                 );
 
                 // mark this component as dragging and selected
-                d3.select(this).classed('dragging', true);
+                d3.select(event.subject.element as Element).classed('dragging', true);
 
                 const canvas: any = d3.select('#canvas');
                 const position = d3.pointer(event, canvas.node());
@@ -87,27 +85,34 @@ export class ConnectableBehavior {
                         y: sourceData.position.y + sourceData.dimensions.height / 2
                     })
                     .attr('class', 'connector')
-                    .attr('d', function (pathDatum: any) {
-                        return 'M' + pathDatum.x + ' ' + pathDatum.y + 'L' + pathDatum.x + ' ' + pathDatum.y;
-                    });
+                    .attr(
+                        'd',
+                        (pathDatum: any) =>
+                            'M' + pathDatum.x + ' ' + pathDatum.y + 'L' + pathDatum.x + ' ' + pathDatum.y
+                    );
 
                 // updates the location of the connection img
-                d3.select(this).attr('transform', function () {
-                    return 'translate(' + position[0] + ', ' + (position[1] + 20) + ')';
-                });
+                d3.select(event.subject.element as Element).attr(
+                    'transform',
+                    () => 'translate(' + position[0] + ', ' + (position[1] + 20) + ')'
+                );
 
                 // re-append the image to keep it on top
-                canvas.node().appendChild(this);
+                canvas.node().appendChild(event.subject.element);
             })
-            .on('drag', function (event) {
+            .on('drag', (event) => {
                 const position = d3.pointer(event, d3.select('#canvas').node());
+                const origin = event.subject.origin;
+                const canvasUtils = this.canvasUtils;
 
                 // updates the location of the connection img
-                d3.select(this).attr('transform', function () {
-                    return 'translate(' + position[0] + ', ' + (position[1] + 50) + ')';
-                });
+                d3.select(event.subject.element as Element).attr(
+                    'transform',
+                    () => 'translate(' + position[0] + ', ' + (position[1] + 50) + ')'
+                );
 
                 // mark node's connectable if supported
+                // Uses function() so D3 binds 'this' to the DOM element for isValidConnectionDestination check
                 const destination: any = d3.select('g.hover').classed('connectable-destination', function () {
                     // ensure the mouse has moved at least 10px in any direction, it seems that
                     // when the drag event is trigger is not consistent between browsers. as a result
@@ -116,14 +121,14 @@ export class ConnectableBehavior {
                     // component to itself. requiring the mouse to have actually moved before
                     // checking the eligibility of the destination addresses the issue
                     return (
-                        (Math.abs(self.origin[0] - position[0]) > 10 || Math.abs(self.origin[1] - position[1]) > 10) &&
-                        self.canvasUtils.isValidConnectionDestination(d3.select(this))
+                        (Math.abs(origin[0] - position[0]) > 10 || Math.abs(origin[1] - position[1]) > 10) &&
+                        canvasUtils.isValidConnectionDestination(d3.select(this))
                     );
                 });
 
                 // update the drag line
                 d3.select('path.connector')
-                    .classed('connectable', function () {
+                    .classed('connectable', () => {
                         if (destination.empty()) {
                             return false;
                         }
@@ -131,7 +136,7 @@ export class ConnectableBehavior {
                         // if there is a potential destination, see if its connectable
                         return destination.classed('connectable-destination');
                     })
-                    .attr('d', function (pathDatum: any) {
+                    .attr('d', (pathDatum: any) => {
                         if (!destination.empty() && destination.classed('connectable-destination')) {
                             const destinationData: any = destination.datum();
 
@@ -160,7 +165,7 @@ export class ConnectableBehavior {
                                 );
                             } else {
                                 // get the position on the destination perimeter
-                                const end: Position = self.canvasUtils.getPerimeterPoint(pathDatum, {
+                                const end: Position = this.canvasUtils.getPerimeterPoint(pathDatum, {
                                     x: destinationData.position.x,
                                     y: destinationData.position.y,
                                     width: destinationData.dimensions.width,
@@ -175,12 +180,15 @@ export class ConnectableBehavior {
                         }
                     });
             })
-            .on('end', function (this: any, event, d: any) {
+            .on('end', (event) => {
                 // stop further propagation
                 event.sourceEvent.stopPropagation();
 
+                const subject = event.subject;
+                const addConnectElement = subject.element as Element;
+
                 // get the add connect img
-                const addConnect: any = d3.select(this);
+                const addConnect: any = d3.select(addConnectElement);
 
                 // get the connector, if the current point is not over a new destination
                 // the connector will be removed. otherwise it will be removed after the
@@ -210,10 +218,14 @@ export class ConnectableBehavior {
                         addConnect.remove();
                     } else {
                         // reset the add connect img by restoring the position and place in the DOM
-                        addConnect.classed('dragging', false).attr('transform', function () {
-                            return 'translate(' + d.origX + ', ' + d.origY + ')';
-                        });
-                        source.node().appendChild(this);
+                        const addConnectDatum = addConnect.datum() as { origX: number; origY: number };
+                        addConnect
+                            .classed('dragging', false)
+                            .attr(
+                                'transform',
+                                () => 'translate(' + addConnectDatum.origX + ', ' + addConnectDatum.origY + ')'
+                            );
+                        source.node().appendChild(addConnectElement);
                     }
 
                     // remove the connector
@@ -240,12 +252,12 @@ export class ConnectableBehavior {
                     };
 
                     // add initial bend points if necessary
-                    const bends: Position[] = self.calculateInitialBendPoints(sourceData, destinationData);
+                    const bends: Position[] = this.calculateInitialBendPoints(sourceData, destinationData);
                     if (bends) {
                         request.bends = bends;
                     }
 
-                    self.store.dispatch(
+                    this.store.dispatch(
                         openNewConnectionDialog({
                             request
                         })
@@ -254,143 +266,8 @@ export class ConnectableBehavior {
             });
     }
 
-    /**
-     * Calculate bend points for a new Connection if necessary.
-     *
-     * @param sourceData
-     * @param destinationData
-     */
     private calculateInitialBendPoints(sourceData: any, destinationData: any): Position[] {
-        const bends: Position[] = [];
-
-        if (sourceData.id == destinationData.id) {
-            const rightCenter: Position = {
-                x: sourceData.position.x + sourceData.dimensions.width,
-                y: sourceData.position.y + sourceData.dimensions.height / 2
-            };
-
-            const xOffset = ConnectionManager.SELF_LOOP_X_OFFSET;
-            const yOffset = ConnectionManager.SELF_LOOP_Y_OFFSET;
-            bends.push({
-                x: rightCenter.x + xOffset,
-                y: rightCenter.y - yOffset
-            });
-            bends.push({
-                x: rightCenter.x + xOffset,
-                y: rightCenter.y + yOffset
-            });
-        } else {
-            const existingConnections: any[] = [];
-
-            // get all connections for the source component
-            const connectionsForSourceComponent: any[] = this.canvasUtils.getComponentConnections(sourceData.id);
-            connectionsForSourceComponent.forEach((connectionForSourceComponent) => {
-                // get the id for the source/destination component
-                const connectionSourceComponentId =
-                    this.canvasUtils.getConnectionSourceComponentId(connectionForSourceComponent);
-                const connectionDestinationComponentId =
-                    this.canvasUtils.getConnectionDestinationComponentId(connectionForSourceComponent);
-
-                // if the connection is between these same components, consider it for collisions
-                if (
-                    (connectionSourceComponentId === sourceData.id &&
-                        connectionDestinationComponentId === destinationData.id) ||
-                    (connectionDestinationComponentId === sourceData.id &&
-                        connectionSourceComponentId === destinationData.id)
-                ) {
-                    // record all connections between these two components in question
-                    existingConnections.push(connectionForSourceComponent);
-                }
-            });
-
-            // if there are existing connections between these components, ensure the new connection won't collide
-            if (existingConnections) {
-                const avoidCollision = existingConnections.some((existingConnection) => {
-                    // only consider multiple connections with no bend points a collision, the existence of
-                    // bend points suggests that the user has placed the connection into a desired location
-                    return this.nifiCommon.isEmpty(existingConnection.bends);
-                });
-
-                // if we need to avoid a collision
-                if (avoidCollision) {
-                    // determine the middle of the source/destination components
-                    const sourceMiddle: Position = {
-                        x: sourceData.position.x + sourceData.dimensions.width / 2,
-                        y: sourceData.position.y + sourceData.dimensions.height / 2
-                    };
-                    const destinationMiddle: Position = {
-                        x: destinationData.position.x + destinationData.dimensions.width / 2,
-                        y: destinationData.position.y + destinationData.dimensions.height / 2
-                    };
-
-                    // detect if the line is more horizontal or vertical
-                    const slope = (sourceMiddle.y - destinationMiddle.y) / (sourceMiddle.x - destinationMiddle.x);
-                    const isMoreHorizontal = slope <= 1 && slope >= -1;
-
-                    // find the midpoint on the connection
-                    const xCandidate = (sourceMiddle.x + destinationMiddle.x) / 2;
-                    const yCandidate = (sourceMiddle.y + destinationMiddle.y) / 2;
-
-                    // attempt to position this connection so it doesn't collide
-                    let xStep = isMoreHorizontal ? 0 : ConnectionManager.CONNECTION_OFFSET_X_INCREMENT;
-                    let yStep = isMoreHorizontal ? ConnectionManager.CONNECTION_OFFSET_Y_INCREMENT : 0;
-
-                    let positioned = false;
-                    while (!positioned) {
-                        // consider above and below, then increment and try again (if necessary)
-                        if (!this.collides(existingConnections, xCandidate - xStep, yCandidate - yStep)) {
-                            bends.push({
-                                x: xCandidate - xStep,
-                                y: yCandidate - yStep
-                            });
-                            positioned = true;
-                        } else if (!this.collides(existingConnections, xCandidate + xStep, yCandidate + yStep)) {
-                            bends.push({
-                                x: xCandidate + xStep,
-                                y: yCandidate + yStep
-                            });
-                            positioned = true;
-                        }
-
-                        if (isMoreHorizontal) {
-                            yStep += ConnectionManager.CONNECTION_OFFSET_Y_INCREMENT;
-                        } else {
-                            xStep += ConnectionManager.CONNECTION_OFFSET_X_INCREMENT;
-                        }
-                    }
-                }
-            }
-        }
-
-        return bends;
-    }
-
-    /**
-     * Determines if the specified coordinate collides with another connection.
-     *
-     * @param existingConnections
-     * @param x
-     * @param y
-     */
-    private collides(existingConnections: any[], x: number, y: number): boolean {
-        return existingConnections.some((existingConnection) => {
-            if (!this.nifiCommon.isEmpty(existingConnection.bends)) {
-                let labelIndex = existingConnection.labelIndex;
-                if (labelIndex >= existingConnection.bends.length) {
-                    labelIndex = 0;
-                }
-
-                // determine collision based on y space or x space depending on whether the connection is more horizontal
-                return (
-                    existingConnection.bends[labelIndex].y - 25 < y &&
-                    existingConnection.bends[labelIndex].y + 25 > y &&
-                    existingConnection.bends[labelIndex].x - 100 < x &&
-                    existingConnection.bends[labelIndex].x + 100 > x
-                );
-            }
-
-            return false;
-        });
+        return this.canvasUtils.calculateBendPointsForCollisionAvoidance(sourceData, destinationData);
     }
 
     /**
@@ -411,16 +288,14 @@ export class ConnectableBehavior {
     }
 
     public activate(components: any): void {
-        const self: ConnectableBehavior = this;
-
         components
             .classed('connectable', true)
-            .on('mouseenter.connectable', function (this: any, event: MouseEvent, d: any) {
-                if (self.allowConnection(event)) {
-                    const selection: any = d3.select(this);
+            .on('mouseenter.connectable', (event: MouseEvent, d: any) => {
+                if (this.allowConnection(event)) {
+                    const selection: any = d3.select(event.currentTarget as Element);
 
                     // ensure the current component supports connection source
-                    if (self.canvasUtils.isValidConnectionSource(selection)) {
+                    if (this.canvasUtils.isValidConnectionSource(selection)) {
                         // see if there's already a connector rendered
                         const addConnect: any = d3.select('text.add-connect');
                         if (addConnect.empty()) {
@@ -436,28 +311,26 @@ export class ConnectableBehavior {
                                     origX: x,
                                     origY: y
                                 })
-                                .call(self.connect);
+                                .call(this.connect);
                         }
                     }
                 }
             })
-            .on('mouseleave.connectable', function (this: any) {
+            .on('mouseleave.connectable', (event: MouseEvent) => {
                 // conditionally remove the connector
-                const addConnect = d3.select(this).select('text.add-connect');
+                const addConnect = d3.select(event.currentTarget as Element).select('text.add-connect');
                 if (!addConnect.empty() && !addConnect.classed('dragging')) {
                     addConnect.remove();
                 }
             })
             // Using mouseover/out to workaround chrome issue #122746
-            .on('mouseover.connectable', function (this: any, event: MouseEvent) {
+            .on('mouseover.connectable', (event: MouseEvent) => {
                 // mark that we are hovering when appropriate
-                d3.select(this).classed('hover', function () {
-                    return self.allowConnection(event);
-                });
+                d3.select(event.currentTarget as Element).classed('hover', () => this.allowConnection(event));
             })
-            .on('mouseout.connection', function (this: any) {
+            .on('mouseout.connection', (event: MouseEvent) => {
                 // remove all hover related classes
-                d3.select(this).classed('hover connectable-destination', false);
+                d3.select(event.currentTarget as Element).classed('hover connectable-destination', false);
             });
     }
 

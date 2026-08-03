@@ -43,7 +43,7 @@ import org.apache.nifi.remote.exception.UnknownPortException;
 import org.apache.nifi.remote.exception.UnreachableClusterException;
 import org.apache.nifi.remote.protocol.DataPacket;
 import org.apache.nifi.remote.protocol.http.HttpProxy;
-import org.apache.nifi.remote.util.SiteToSiteRestApiClient;
+import org.apache.nifi.remote.util.ClusterUrlParser;
 import org.apache.nifi.remote.util.StandardDataPacket;
 import org.apache.nifi.reporting.Severity;
 import org.apache.nifi.scheduling.SchedulingStrategy;
@@ -53,7 +53,6 @@ import org.apache.nifi.util.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import javax.net.ssl.SSLContext;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -65,6 +64,7 @@ import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
+import javax.net.ssl.SSLContext;
 
 public class StandardRemoteGroupPort extends RemoteGroupPort {
 
@@ -159,12 +159,14 @@ public class StandardRemoteGroupPort extends RemoteGroupPort {
 
         final long penalizationMillis = FormatUtils.getTimeDuration(remoteGroup.getYieldDuration(), TimeUnit.MILLISECONDS);
 
+        final SiteToSiteEventReporter eventReporter = (severity, category, message) -> remoteGroup.getEventReporter().reportEvent(severity, category, message);
+
         final SiteToSiteClient.Builder clientBuilder = new SiteToSiteClient.Builder()
-                .urls(SiteToSiteRestApiClient.parseClusterUrls(remoteGroup.getTargetUris()))
+                .urls(ClusterUrlParser.parseClusterUrls(remoteGroup.getTargetUris()))
                 .portIdentifier(getTargetIdentifier())
                 .sslContext(sslContext)
                 .useCompression(isUseCompression())
-                .eventReporter(remoteGroup.getEventReporter())
+                .eventReporter(eventReporter)
                 .stateManager(remoteGroup.getStateManager())
                 .nodePenalizationPeriod(penalizationMillis, TimeUnit.MILLISECONDS)
                 .timeout(remoteGroup.getCommunicationsTimeout(TimeUnit.MILLISECONDS), TimeUnit.MILLISECONDS)
@@ -308,7 +310,6 @@ public class StandardRemoteGroupPort extends RemoteGroupPort {
             final int maxBatchCount = siteToSiteClientConfig.getPreferredBatchCount();
             final long preferredBatchDuration = siteToSiteClientConfig.getPreferredBatchDuration(TimeUnit.NANOSECONDS);
             final long maxBatchDuration = preferredBatchDuration > 0 ? preferredBatchDuration : BATCH_SEND_NANOS;
-
 
             final Set<FlowFile> flowFilesSent = new HashSet<>();
             boolean continueTransaction = true;

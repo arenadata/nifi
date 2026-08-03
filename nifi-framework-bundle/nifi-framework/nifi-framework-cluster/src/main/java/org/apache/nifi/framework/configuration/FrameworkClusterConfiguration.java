@@ -35,9 +35,9 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
+import java.io.IOException;
 import javax.net.ssl.SSLContext;
 import javax.net.ssl.X509TrustManager;
-import java.io.IOException;
 
 /**
  * Framework Cluster Configuration with components supporting request replication and cluster details
@@ -47,8 +47,6 @@ public class FrameworkClusterConfiguration {
     private NiFiProperties properties;
 
     private EventReporter eventReporter;
-
-    private FlowController flowController;
 
     private ClusterCoordinator clusterCoordinator;
 
@@ -60,16 +58,11 @@ public class FrameworkClusterConfiguration {
     }
 
     @Autowired
-    public void setFlowController(final FlowController flowController) {
-        this.flowController = flowController;
-    }
-
-    @Autowired
     public void setEventReporter(final EventReporter eventReporter) {
         this.eventReporter = eventReporter;
     }
 
-    @Autowired
+    @Autowired(required = false)
     public void setClusterCoordinator(final ClusterCoordinator clusterCoordinator) {
         this.clusterCoordinator = clusterCoordinator;
     }
@@ -106,7 +99,7 @@ public class FrameworkClusterConfiguration {
     }
 
     @Bean
-    public ClusterDecommissionTask decommissionTask() {
+    public ClusterDecommissionTask decommissionTask(final FlowController flowController) {
         return new ClusterDecommissionTask(clusterCoordinator, flowController);
     }
 

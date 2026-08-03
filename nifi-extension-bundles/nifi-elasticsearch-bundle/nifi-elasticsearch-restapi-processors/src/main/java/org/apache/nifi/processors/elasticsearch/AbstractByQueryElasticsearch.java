@@ -27,6 +27,7 @@ import org.apache.nifi.elasticsearch.ElasticsearchRequestOptions;
 import org.apache.nifi.elasticsearch.OperationResponse;
 import org.apache.nifi.expression.ExpressionLanguageScope;
 import org.apache.nifi.flowfile.FlowFile;
+import org.apache.nifi.migration.PropertyConfiguration;
 import org.apache.nifi.processor.AbstractProcessor;
 import org.apache.nifi.processor.ProcessContext;
 import org.apache.nifi.processor.ProcessSession;
@@ -42,11 +43,11 @@ import java.util.concurrent.atomic.AtomicReference;
 
 public abstract class AbstractByQueryElasticsearch extends AbstractProcessor implements ElasticsearchRestProcessor {
     public static final Relationship REL_FAILURE = new Relationship.Builder().name("failure")
-            .description("If the \"by query\" operation fails, and a flowfile was read, it will be sent to this relationship.")
+            .description("If the \"by query\" operation fails, and a FlowFile was read, it will be sent to this relationship.")
             .build();
 
     public static final Relationship REL_SUCCESS = new Relationship.Builder().name("success")
-            .description("If the \"by query\" operation succeeds, and a flowfile was read, it will be sent to this relationship.")
+            .description("If the \"by query\" operation succeeds, and a FlowFile was read, it will be sent to this relationship.")
             .build();
 
     private static final Set<Relationship> relationships = Set.of(REL_SUCCESS, REL_FAILURE, REL_RETRY);
@@ -165,5 +166,10 @@ public abstract class AbstractByQueryElasticsearch extends AbstractProcessor imp
             }
             context.yield();
         }
+    }
+
+    @Override
+    public void migrateProperties(PropertyConfiguration config) {
+        ElasticsearchRestProcessor.super.migrateProperties(config);
     }
 }

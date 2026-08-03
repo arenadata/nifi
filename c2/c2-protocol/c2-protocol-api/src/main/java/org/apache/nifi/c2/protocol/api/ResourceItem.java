@@ -18,6 +18,7 @@
 package org.apache.nifi.c2.protocol.api;
 
 import io.swagger.v3.oas.annotations.media.Schema;
+
 import java.io.Serializable;
 import java.util.Objects;
 
@@ -95,7 +96,6 @@ public class ResourceItem implements Serializable {
     public void setUrl(String url) {
         this.url = url;
     }
-
 
     @Override
     public boolean equals(Object o) {

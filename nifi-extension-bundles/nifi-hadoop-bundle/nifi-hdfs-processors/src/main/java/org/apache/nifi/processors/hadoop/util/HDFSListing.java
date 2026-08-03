@@ -16,10 +16,10 @@
  */
 package org.apache.nifi.processors.hadoop.util;
 
-import org.apache.hadoop.fs.Path;
-
 import jakarta.xml.bind.annotation.XmlTransient;
 import jakarta.xml.bind.annotation.XmlType;
+import org.apache.hadoop.fs.Path;
+
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Date;
@@ -72,7 +72,7 @@ public class HDFSListing {
      */
     public Set<Path> toPaths() {
         final Set<Path> paths = new HashSet<>(matchingPaths.size());
-        for ( final String pathname : matchingPaths ) {
+        for (final String pathname : matchingPaths) {
             paths.add(new Path(pathname));
         }
         return paths;

@@ -18,13 +18,23 @@ package org.apache.nifi.web.api;
 
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
+import jakarta.ws.rs.core.CacheControl;
+import jakarta.ws.rs.core.Context;
+import jakarta.ws.rs.core.MediaType;
+import jakarta.ws.rs.core.MultivaluedHashMap;
+import jakarta.ws.rs.core.MultivaluedMap;
+import jakarta.ws.rs.core.Response;
+import jakarta.ws.rs.core.Response.ResponseBuilder;
+import jakarta.ws.rs.core.UriBuilder;
+import jakarta.ws.rs.core.UriInfo;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.nifi.authorization.AuthorizableLookup;
 import org.apache.nifi.authorization.AuthorizeAccess;
 import org.apache.nifi.authorization.AuthorizeControllerServiceReference;
 import org.apache.nifi.authorization.AuthorizeParameterReference;
 import org.apache.nifi.authorization.Authorizer;
-import org.apache.nifi.authorization.ComponentAuthorizable;
 import org.apache.nifi.authorization.ProcessGroupAuthorizable;
 import org.apache.nifi.authorization.RequestAction;
 import org.apache.nifi.authorization.SnippetAuthorizable;
@@ -32,6 +42,7 @@ import org.apache.nifi.authorization.resource.Authorizable;
 import org.apache.nifi.authorization.user.NiFiUser;
 import org.apache.nifi.authorization.user.NiFiUserUtils;
 import org.apache.nifi.cluster.coordination.ClusterCoordinator;
+import org.apache.nifi.cluster.coordination.http.ReplicationHeader;
 import org.apache.nifi.cluster.coordination.http.replication.RequestReplicationHeader;
 import org.apache.nifi.cluster.coordination.http.replication.RequestReplicator;
 import org.apache.nifi.cluster.coordination.node.NodeConnectionState;
@@ -55,9 +66,6 @@ import org.apache.nifi.util.ComponentIdGenerator;
 import org.apache.nifi.util.NiFiProperties;
 import org.apache.nifi.web.NiFiServiceFacade;
 import org.apache.nifi.web.Revision;
-import org.apache.nifi.web.security.cookie.ApplicationCookieName;
-import org.apache.nifi.web.security.cookie.ApplicationCookieService;
-import org.apache.nifi.web.security.cookie.StandardApplicationCookieService;
 import org.apache.nifi.web.api.dto.ControllerServiceDTO;
 import org.apache.nifi.web.api.dto.ControllerServiceReferencingComponentDTO;
 import org.apache.nifi.web.api.dto.RevisionDTO;
@@ -67,27 +75,20 @@ import org.apache.nifi.web.api.entity.ControllerServiceReferencingComponentEntit
 import org.apache.nifi.web.api.entity.Entity;
 import org.apache.nifi.web.api.entity.TransactionResultEntity;
 import org.apache.nifi.web.security.ProxiedEntitiesUtils;
+import org.apache.nifi.web.security.cookie.ApplicationCookieName;
+import org.apache.nifi.web.security.cookie.ApplicationCookieService;
+import org.apache.nifi.web.security.cookie.StandardApplicationCookieService;
 import org.apache.nifi.web.security.util.CacheKey;
 import org.apache.nifi.web.servlet.shared.ProxyHeader;
 import org.apache.nifi.web.servlet.shared.RequestUriBuilder;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
-import jakarta.servlet.http.HttpServletRequest;
-import jakarta.servlet.http.HttpServletResponse;
-import jakarta.ws.rs.core.CacheControl;
-import jakarta.ws.rs.core.Context;
-import jakarta.ws.rs.core.MediaType;
-import jakarta.ws.rs.core.MultivaluedHashMap;
-import jakarta.ws.rs.core.MultivaluedMap;
-import jakarta.ws.rs.core.Response;
-import jakarta.ws.rs.core.Response.ResponseBuilder;
-import jakarta.ws.rs.core.UriBuilder;
-import jakarta.ws.rs.core.UriInfo;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.core.context.SecurityContextHolder;
 
-import javax.net.ssl.SSLPeerUnverifiedException;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
@@ -105,6 +106,7 @@ import java.util.function.BiFunction;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.stream.Collectors;
+import javax.net.ssl.SSLPeerUnverifiedException;
 
 import static jakarta.ws.rs.core.Response.Status.NOT_FOUND;
 import static org.apache.commons.lang3.StringUtils.isEmpty;
@@ -134,7 +136,7 @@ public abstract class ApplicationResource {
     @Context
     protected UriInfo uriInfo;
 
-    protected final PeerIdentityProvider peerIdentityProvider = new StandardPeerIdentityProvider();
+    protected PeerIdentityProvider peerIdentityProvider = new StandardPeerIdentityProvider();
     protected final ApplicationCookieService applicationCookieService = new StandardApplicationCookieService();
     protected NiFiProperties properties;
     private RequestReplicator requestReplicator;
@@ -390,7 +392,7 @@ public abstract class ApplicationResource {
 
         // Check if the replicated header is set. If so, the request has already been replicated,
         // so we need to service the request locally. If not, then replicate the request to the entire cluster.
-        final String header = httpServletRequest.getHeader(RequestReplicationHeader.REQUEST_REPLICATED.getHeader());
+        final String header = httpServletRequest.getHeader(ReplicationHeader.REQUEST_REPLICATED.getHeader());
         return header == null;
     }
 
@@ -413,16 +415,6 @@ public abstract class ApplicationResource {
      */
     protected Revision getRevision(final ComponentEntity entity, final String componentId) {
         return getRevision(entity.getRevision(), componentId);
-    }
-
-    /**
-     * Authorize any restrictions for the specified ComponentAuthorizable.
-     *
-     * @param authorizer authorizer
-     * @param authorizable component authorizable
-     */
-    protected void authorizeRestrictions(final Authorizer authorizer, final ComponentAuthorizable authorizable) {
-        authorizable.getRestrictedAuthorizables().forEach(restrictionAuthorizable -> restrictionAuthorizable.authorize(authorizer, RequestAction.WRITE, NiFiUserUtils.getNiFiUser()));
     }
 
     /**
@@ -562,6 +554,8 @@ public abstract class ApplicationResource {
         final NiFiUser user = NiFiUserUtils.getNiFiUser();
 
         if (isTwoPhaseRequest(httpServletRequest)) {
+            drainRequestBody();
+
             if (isValidationPhase(httpServletRequest)) {
                 // authorize access
                 serviceFacade.authorizeAccess(authorizer);
@@ -616,6 +610,8 @@ public abstract class ApplicationResource {
         final NiFiUser user = NiFiUserUtils.getNiFiUser();
 
         if (isTwoPhaseRequest(httpServletRequest)) {
+            drainRequestBody();
+
             if (isValidationPhase(httpServletRequest)) {
                 // authorize access
                 serviceFacade.authorizeAccess(authorizer);
@@ -667,6 +663,8 @@ public abstract class ApplicationResource {
                                                         final Runnable verifier, final Function<T, Response> action) {
 
         if (isTwoPhaseRequest(httpServletRequest)) {
+            drainRequestBody();
+
             if (isValidationPhase(httpServletRequest)) {
                 // authorize access
                 serviceFacade.authorizeAccess(authorizer);
@@ -701,6 +699,25 @@ public abstract class ApplicationResource {
 
             // run the action
             return action.apply(entity);
+        }
+    }
+
+    /**
+     * Fully consumes the request body for a request received as part of a two-phase commit replication.
+     *
+     * Several resource methods do not declare a request entity parameter, so the JAX-RS layer never reads the
+     * request body even though the replicating node always sends one. When a node returns the validation,
+     * execution, or cancellation response without first consuming that body, an HTTP/2 server resets the stream
+     * with CANCEL, which surfaces on the replicating node as an "RST_STREAM received Stream cancelled" failure.
+     * Reading the body to end-of-stream before responding allows the replicating node to complete its upload
+     * cleanly. When the body has already been consumed (for example by entity deserialization) this is a no-op.
+     */
+    private void drainRequestBody() {
+        try {
+            final InputStream requestInputStream = httpServletRequest.getInputStream();
+            requestInputStream.transferTo(OutputStream.nullOutputStream());
+        } catch (final IOException e) {
+            logger.debug("Failed to drain request body before returning early cluster replication response", e);
         }
     }
 
@@ -912,7 +929,6 @@ public abstract class ApplicationResource {
         return clusterCoordinator.isActiveClusterCoordinator() ? ReplicationTarget.CLUSTER_NODES : ReplicationTarget.CLUSTER_COORDINATOR;
     }
 
-
     protected Response replicate(final String method, final NodeIdentifier targetNode) {
         return replicate(method, targetNode, getRequestParameters());
     }
@@ -1001,7 +1017,6 @@ public abstract class ApplicationResource {
             return Response.status(Response.Status.INTERNAL_SERVER_ERROR).entity("Request to " + method + " " + getAbsolutePath() + " was interrupted").type("text/plain").build();
         }
     }
-
 
     protected NodeResponse replicateNodeResponse(final String method, final Object entity, final Map<String, String> headersToOverride) throws InterruptedException {
         final URI path = getAbsolutePath();
@@ -1313,7 +1328,18 @@ public abstract class ApplicationResource {
     }
 
     /**
-     * @return true if the credentials of the current request contain a certificate that matches an identity of a known cluster node, false otherwise
+     * Determines if the current request was made directly by a cluster node (not proxied on behalf of a user).
+     * Returns true only when all of the following hold:
+     * <ol>
+     *   <li>Clustering is configured</li>
+     *   <li>The request was authenticated via mTLS (X.509 client certificate)</li>
+     *   <li>No {@code X-ProxiedEntitiesChain} header is present (its presence indicates the request
+     *       is being made on behalf of another entity, e.g. a user request replicated through a node)</li>
+     *   <li>A DNS SAN from the client certificate matches a known cluster node API address, either
+     *       exactly or via RFC 6125 wildcard matching (e.g. {@code *.foo.bar} matches {@code baz.foo.bar})</li>
+     * </ol>
+     *
+     * @return true if the request is a direct cluster node request, false otherwise
      */
     protected boolean isRequestFromClusterNode() {
         final ClusterCoordinator clusterCoordinator = getClusterCoordinator();
@@ -1328,6 +1354,12 @@ public abstract class ApplicationResource {
             return false;
         }
 
+        final String proxiedEntitiesChain = httpServletRequest.getHeader(ProxiedEntitiesUtils.PROXY_ENTITIES_CHAIN);
+        if (proxiedEntitiesChain != null && !proxiedEntitiesChain.isBlank()) {
+            logger.debug("Request has proxied entities chain, not a direct cluster node request");
+            return false;
+        }
+
         final Set<String> clientIdentities;
         try {
             clientIdentities = peerIdentityProvider.getIdentities(certificates);
@@ -1335,20 +1367,31 @@ public abstract class ApplicationResource {
             throw new RuntimeException("Unable to get identities from client certificates", e);
         }
 
-        final Set<String> nodeIds = getClusterCoordinator().getNodeIdentifiers().stream()
+        final Set<String> nodeApiAddresses = getClusterCoordinator().getNodeIdentifiers().stream()
                 .map(NodeIdentifier::getApiAddress)
                 .collect(Collectors.toSet());
 
-        logger.debug("Checking client identities [{}] against cluster node identities [{}]", clientIdentities, nodeIds);
+        logger.debug("Checking client identities {} against cluster node API addresses {}", clientIdentities, nodeApiAddresses);
 
         for (final String clientIdentity : clientIdentities) {
-            if (nodeIds.contains(clientIdentity)) {
+            if (nodeApiAddresses.contains(clientIdentity)) {
                 logger.debug("Client identity [{}] is in the list of cluster nodes", clientIdentity);
                 return true;
             }
+            if (clientIdentity.startsWith("*.")) {
+                final String wildcardSuffix = clientIdentity.substring(1);
+                for (final String nodeAddress : nodeApiAddresses) {
+                    // RFC-6125 wildcard matching (e.g. {@code *.foo.bar} matches {@code baz.foo.bar}, but does not match {@code baz.baz.foo.bar})
+                    final int firstDot = nodeAddress.indexOf('.');
+                    if (firstDot > 0 && nodeAddress.substring(firstDot).equals(wildcardSuffix)) {
+                        logger.debug("Client wildcard identity [{}] matches cluster node [{}]", clientIdentity, nodeAddress);
+                        return true;
+                    }
+                }
+            }
         }
 
-        logger.debug("None of the client identities [{}] are in the list of cluster nodes", clientIdentities);
+        logger.debug("None of the client identities {} match cluster node API addresses {}", clientIdentities, nodeApiAddresses);
         return false;
     }
 

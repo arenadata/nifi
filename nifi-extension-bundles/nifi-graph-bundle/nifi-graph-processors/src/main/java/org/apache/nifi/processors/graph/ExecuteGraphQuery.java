@@ -25,9 +25,10 @@ import org.apache.nifi.annotation.documentation.CapabilityDescription;
 import org.apache.nifi.annotation.documentation.Tags;
 import org.apache.nifi.annotation.lifecycle.OnScheduled;
 import org.apache.nifi.components.PropertyDescriptor;
+import org.apache.nifi.flowfile.FlowFile;
 import org.apache.nifi.flowfile.attributes.CoreAttributes;
 import org.apache.nifi.graph.GraphClientService;
-import org.apache.nifi.flowfile.FlowFile;
+import org.apache.nifi.migration.PropertyConfiguration;
 import org.apache.nifi.processor.ProcessContext;
 import org.apache.nifi.processor.ProcessSession;
 import org.apache.nifi.processor.Relationship;
@@ -144,6 +145,12 @@ public class ExecuteGraphQuery extends AbstractGraphExecutor {
         }
     }
 
+    @Override
+    public void migrateProperties(PropertyConfiguration config) {
+        config.renameProperty("graph-client-service", CLIENT_SERVICE.getName());
+        config.renameProperty("graph-query", QUERY.getName());
+    }
+
     protected String getQuery(ProcessContext context, ProcessSession session, FlowFile input) {
         String query = context.getProperty(QUERY).evaluateAttributeExpressions(input).getValue();
         if (StringUtils.isEmpty(query) && input != null) {
@@ -162,7 +169,6 @@ public class ExecuteGraphQuery extends AbstractGraphExecutor {
                 ByteArrayOutputStream out = new ByteArrayOutputStream();
                 session.exportTo(input, out);
                 out.close();
-
 
                 query = new String(out.toByteArray());
             } catch (Exception ex) {

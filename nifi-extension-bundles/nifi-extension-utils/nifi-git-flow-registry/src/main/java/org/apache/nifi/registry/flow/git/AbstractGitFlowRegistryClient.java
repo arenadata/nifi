@@ -17,6 +17,8 @@
 
 package org.apache.nifi.registry.flow.git;
 
+import org.apache.nifi.components.ConfigVerificationResult;
+import org.apache.nifi.components.ConfigVerificationResult.Outcome;
 import org.apache.nifi.components.DescribedValue;
 import org.apache.nifi.components.PropertyDescriptor;
 import org.apache.nifi.components.ValidationContext;
@@ -29,6 +31,7 @@ import org.apache.nifi.flow.VersionedFlowCoordinates;
 import org.apache.nifi.flow.VersionedParameter;
 import org.apache.nifi.flow.VersionedParameterContext;
 import org.apache.nifi.flow.VersionedProcessGroup;
+import org.apache.nifi.logging.ComponentLog;
 import org.apache.nifi.processor.util.StandardValidators;
 import org.apache.nifi.registry.flow.AbstractFlowRegistryClient;
 import org.apache.nifi.registry.flow.AuthorizationException;
@@ -37,6 +40,7 @@ import org.apache.nifi.registry.flow.FlowAlreadyExistsException;
 import org.apache.nifi.registry.flow.FlowLocation;
 import org.apache.nifi.registry.flow.FlowRegistryBranch;
 import org.apache.nifi.registry.flow.FlowRegistryBucket;
+import org.apache.nifi.registry.flow.FlowRegistryClient;
 import org.apache.nifi.registry.flow.FlowRegistryClientConfigurationContext;
 import org.apache.nifi.registry.flow.FlowRegistryClientInitializationContext;
 import org.apache.nifi.registry.flow.FlowRegistryException;
@@ -46,11 +50,13 @@ import org.apache.nifi.registry.flow.RegisterAction;
 import org.apache.nifi.registry.flow.RegisteredFlow;
 import org.apache.nifi.registry.flow.RegisteredFlowSnapshot;
 import org.apache.nifi.registry.flow.RegisteredFlowSnapshotMetadata;
+import org.apache.nifi.registry.flow.VerifiableFlowRegistryClient;
 import org.apache.nifi.registry.flow.git.client.GitCommit;
 import org.apache.nifi.registry.flow.git.client.GitCreateContentRequest;
 import org.apache.nifi.registry.flow.git.client.GitRepositoryClient;
 import org.apache.nifi.registry.flow.git.serialize.FlowSnapshotSerializer;
 import org.apache.nifi.registry.flow.git.serialize.JacksonFlowSnapshotSerializer;
+import org.apache.nifi.ssl.SSLContextProvider;
 import org.apache.nifi.util.StringUtils;
 
 import java.io.IOException;
@@ -71,7 +77,7 @@ import java.util.stream.Collectors;
 /**
  * Base class for git-based flow registry clients.
  */
-public abstract class AbstractGitFlowRegistryClient extends AbstractFlowRegistryClient {
+public abstract class AbstractGitFlowRegistryClient extends AbstractFlowRegistryClient implements VerifiableFlowRegistryClient {
 
     public static final PropertyDescriptor REPOSITORY_BRANCH = new PropertyDescriptor.Builder()
             .name("Default Branch")
@@ -106,6 +112,25 @@ public abstract class AbstractGitFlowRegistryClient extends AbstractFlowRegistry
             .required(true)
             .build();
 
+    public static final PropertyDescriptor SSL_CONTEXT_SERVICE = new PropertyDescriptor.Builder()
+            .name("SSL Context Service")
+            .description("SSL Context Service provides trusted certificates and client certificates for TLS communication.")
+            .required(false)
+            .identifiesControllerService(SSLContextProvider.class)
+            .build();
+
+    public static final PropertyDescriptor COMMIT_AUTHOR_SOURCE = new PropertyDescriptor.Builder()
+            .name("Commit Author Source")
+            .description("""
+                    Specifies how the commit author is determined for Git commits. \
+                    When set to Service User, the authenticated service account is used as the commit author. \
+                    When set to Application User, the identity of the NiFi user performing the action is used as \
+                    both the author name and author email, while the service account remains the committer.""")
+            .allowableValues(CommitAuthorSource.class)
+            .defaultValue(CommitAuthorSource.SERVICE_USER)
+            .required(true)
+            .build();
+
     static final String DEFAULT_BUCKET_NAME = "default";
     static final String DEFAULT_BUCKET_KEEP_FILE_PATH = DEFAULT_BUCKET_NAME + "/.keep";
     static final String DEFAULT_BUCKET_KEEP_FILE_CONTENT = "Do Not Delete";
@@ -135,6 +160,8 @@ public abstract class AbstractGitFlowRegistryClient extends AbstractFlowRegistry
         combinedPropertyDescriptors.add(REPOSITORY_PATH);
         combinedPropertyDescriptors.add(DIRECTORY_FILTER_EXCLUDE);
         combinedPropertyDescriptors.add(PARAMETER_CONTEXT_VALUES);
+        combinedPropertyDescriptors.add(COMMIT_AUTHOR_SOURCE);
+        combinedPropertyDescriptors.add(SSL_CONTEXT_SERVICE);
         propertyDescriptors = Collections.unmodifiableList(combinedPropertyDescriptors);
 
         flowSnapshotSerializer = createFlowSnapshotSerializer();
@@ -195,6 +222,42 @@ public abstract class AbstractGitFlowRegistryClient extends AbstractFlowRegistry
     }
 
     @Override
+    public void createBranch(final FlowRegistryClientConfigurationContext context, final FlowVersionLocation sourceLocation, final String newBranchName)
+            throws FlowRegistryException, IOException {
+        if (StringUtils.isBlank(newBranchName)) {
+            throw new IllegalArgumentException("Branch name must be specified when creating a new branch");
+        }
+
+        final GitRepositoryClient repositoryClient = getRepositoryClient(context);
+        verifyWritePermissions(repositoryClient);
+
+        final String sourceBranch = resolveSourceBranch(context, sourceLocation);
+        if (StringUtils.isBlank(sourceBranch)) {
+            throw new FlowRegistryException("Unable to determine source branch for new branch creation");
+        }
+
+        final Optional<String> sourceCommitSha = sourceLocation == null ? Optional.empty() : Optional.ofNullable(sourceLocation.getVersion());
+        final String trimmedBranchName = newBranchName.trim();
+        final String trimmedSourceBranch = sourceBranch.trim();
+
+        getLogger().info("Creating branch [{}] from branch [{}]", trimmedBranchName, trimmedSourceBranch);
+
+        try {
+            repositoryClient.createBranch(trimmedBranchName, trimmedSourceBranch, sourceCommitSha);
+        } catch (final UnsupportedOperationException e) {
+            throw new FlowRegistryException("Configured repository client does not support branch creation", e);
+        }
+    }
+
+    private String resolveSourceBranch(final FlowRegistryClientConfigurationContext context, final FlowVersionLocation sourceLocation) {
+        if (sourceLocation != null && StringUtils.isNotBlank(sourceLocation.getBranch())) {
+            return sourceLocation.getBranch();
+        }
+        final String defaultBranch = context.getProperty(REPOSITORY_BRANCH).getValue();
+        return StringUtils.isBlank(defaultBranch) ? null : defaultBranch;
+    }
+
+    @Override
     public Set<FlowRegistryBucket> getBuckets(final FlowRegistryClientConfigurationContext context, final String branch) throws IOException, FlowRegistryException {
         final GitRepositoryClient repositoryClient = getRepositoryClient(context);
         verifyReadPermissions(repositoryClient);
@@ -224,6 +287,7 @@ public abstract class AbstractGitFlowRegistryClient extends AbstractFlowRegistry
         final FlowLocation flowLocation = new FlowLocation(branch, flow.getBucketIdentifier(), flow.getIdentifier());
         final String filePath = getSnapshotFilePath(flowLocation);
         final String commitMessage = REGISTER_FLOW_MESSAGE_FORMAT.formatted(flow.getIdentifier());
+        final String userIdentity = resolveAuthorIdentity(context);
 
         final Optional<String> existingFileSha = repositoryClient.getContentSha(filePath, branch);
         if (existingFileSha.isPresent()) {
@@ -244,6 +308,8 @@ public abstract class AbstractGitFlowRegistryClient extends AbstractFlowRegistry
                 .path(filePath)
                 .content(flowSnapshotSerializer.serialize(flowSnapshot))
                 .message(commitMessage)
+                .authorName(userIdentity)
+                .authorEmail(userIdentity)
                 .build();
 
         repositoryClient.createContent(request);
@@ -264,7 +330,8 @@ public abstract class AbstractGitFlowRegistryClient extends AbstractFlowRegistry
         final String branch = flowLocation.getBranch();
         final String filePath = getSnapshotFilePath(flowLocation);
         final String commitMessage = DEREGISTER_FLOW_MESSAGE_FORMAT.formatted(flowLocation.getFlowId());
-        try (final InputStream deletedSnapshotContent = repositoryClient.deleteContent(filePath, commitMessage, branch)) {
+        final String userIdentity = resolveAuthorIdentity(context);
+        try (final InputStream deletedSnapshotContent = repositoryClient.deleteContent(filePath, commitMessage, branch, userIdentity, userIdentity)) {
             final RegisteredFlowSnapshot deletedSnapshot = getSnapshot(deletedSnapshotContent);
             populateFlowAndSnapshotMetadata(deletedSnapshot, flowLocation);
             updateBucketReferences(repositoryClient, deletedSnapshot, flowLocation.getBucketId());
@@ -341,7 +408,34 @@ public abstract class AbstractGitFlowRegistryClient extends AbstractFlowRegistry
         final String branch = snapshotMetadata.getBranch();
         final FlowLocation flowLocation = new FlowLocation(snapshotMetadata.getBranch(), snapshotMetadata.getBucketIdentifier(), snapshotMetadata.getFlowIdentifier());
         final String filePath = getSnapshotFilePath(flowLocation);
-        final String previousSha = repositoryClient.getContentSha(filePath, branch).orElse(null);
+
+        // Capture the expected version before any modifications - this is the commit SHA the user believes they are committing on top of
+        final String expectedVersion = snapshotMetadata.getVersion();
+
+        // Get the current version (latest commit SHA) from the repository
+        final List<GitCommit> commits = repositoryClient.getCommits(filePath, branch);
+        final String currentVersion = commits.isEmpty() ? null : commits.getFirst().id();
+
+        // Check for version conflict: if the user expects a specific version but it doesn't match the current version in the repository,
+        // another user may have committed changes in the meantime. Reject the commit unless FORCE_COMMIT is specified.
+        if (expectedVersion != null && currentVersion != null && !expectedVersion.equals(currentVersion) && action != RegisterAction.FORCE_COMMIT) {
+            throw new FlowRegistryException("""
+                    Version conflict detected for flow [%s] in bucket [%s] on branch [%s].
+                    Expected version [%s] but the current version in the repository is [%s].
+                    Another user may have committed changes. Please check for a newer version and try again."""
+                    .formatted(flowLocation.getFlowId(), flowLocation.getBucketId(), branch, expectedVersion, currentVersion));
+        }
+
+        // For atomic commit operations, we need:
+        // - existingContentSha: the blob SHA at the expected version (for GitHub which uses blob SHAs)
+        // - expectedCommitSha: the commit SHA the user expects (for GitLab, Bitbucket, Azure DevOps which use commit SHAs)
+        // If expectedVersion is provided, use the blob SHA at that commit; otherwise use the current blob SHA
+        final String existingBlobSha;
+        if (expectedVersion != null) {
+            existingBlobSha = repositoryClient.getContentShaAtCommit(filePath, expectedVersion).orElse(null);
+        } else {
+            existingBlobSha = repositoryClient.getContentSha(filePath, branch).orElse(null);
+        }
 
         final String snapshotComments = snapshotMetadata.getComments();
         final String commitMessage = StringUtils.isBlank(snapshotComments) ? DEFAULT_FLOW_SNAPSHOT_MESSAGE_FORMAT.formatted(flowLocation.getFlowId()) : snapshotComments;
@@ -396,15 +490,25 @@ public abstract class AbstractGitFlowRegistryClient extends AbstractFlowRegistry
         final String originalFlowContentsGroupId = replaceGroupId(flowSnapshot.getFlowContents(), FLOW_CONTENTS_GROUP_ID);
         final Position originalFlowContentsPosition = replacePosition(flowSnapshot.getFlowContents(), new Position(0, 0));
 
+        final String userIdentity = resolveAuthorIdentity(context);
+
         final GitCreateContentRequest createContentRequest = GitCreateContentRequest.builder()
                 .branch(branch)
                 .path(filePath)
                 .content(flowSnapshotSerializer.serialize(flowSnapshot))
                 .message(commitMessage)
-                .existingContentSha(previousSha)
+                .existingContentSha(existingBlobSha)
+                .expectedCommitSha(expectedVersion)
+                .authorName(userIdentity)
+                .authorEmail(userIdentity)
                 .build();
 
         final String createContentCommitSha = repositoryClient.createContent(createContentRequest);
+        if (createContentCommitSha == null) {
+            throw new FlowRegistryException("Created Content Commit SHA is null");
+        } else if (createContentCommitSha.isEmpty() || createContentCommitSha.isBlank()) {
+            throw new FlowRegistryException("Created Content Commit SHA is empty");
+        }
 
         final VersionedFlowCoordinates versionedFlowCoordinates = new VersionedFlowCoordinates();
         versionedFlowCoordinates.setRegistryId(getIdentifier());
@@ -614,6 +718,11 @@ public abstract class AbstractGitFlowRegistryClient extends AbstractFlowRegistry
         }
     }
 
+    private String resolveAuthorIdentity(final FlowRegistryClientConfigurationContext context) {
+        final CommitAuthorSource source = context.getProperty(COMMIT_AUTHOR_SOURCE).asAllowableValue(CommitAuthorSource.class);
+        return CommitAuthorSource.APPLICATION_USER.equals(source) ? context.getNiFiUserIdentity().orElse(null) : null;
+    }
+
     private void verifyReadPermissions(final GitRepositoryClient repositoryClient) throws AuthorizationException {
         if (!repositoryClient.hasReadPermission()) {
             throw new AuthorizationException("Client does not have read access to the repository");
@@ -671,6 +780,102 @@ public abstract class AbstractGitFlowRegistryClient extends AbstractFlowRegistry
         );
     }
 
+    @Override
+    public List<ConfigVerificationResult> verify(final FlowRegistryClientConfigurationContext context, final ComponentLog verificationLogger,
+            final Map<String, String> variables) {
+        final List<ConfigVerificationResult> results = new ArrayList<>();
+        GitRepositoryClient verificationClient = null;
+        String storageLocation = null;
+
+        try {
+            try {
+                verificationClient = createRepositoryClient(context);
+                storageLocation = getStorageLocation(verificationClient);
+
+                final String repositoryDescription = storageLocation == null ? "configured repository" : storageLocation;
+                results.add(new ConfigVerificationResult.Builder()
+                        .outcome(Outcome.SUCCESSFUL)
+                        .verificationStepName("Authenticate with Repository")
+                        .explanation("Successfully authenticated with repository [" + repositoryDescription + "]")
+                        .build());
+            } catch (final Exception e) {
+                final String message = "Failed to authenticate with the configured repository: " + e.getMessage();
+                verificationLogger.error(message, e);
+                results.add(new ConfigVerificationResult.Builder()
+                        .outcome(Outcome.FAILED)
+                        .verificationStepName("Authenticate with Repository")
+                        .explanation(message)
+                        .build());
+                return results;
+            }
+
+            final String repositoryDescription = storageLocation == null ? "configured repository" : storageLocation;
+
+            final boolean canRead = verificationClient.hasReadPermission();
+            final ConfigVerificationResult.Builder readVerification = new ConfigVerificationResult.Builder()
+                    .verificationStepName("Verify Read Access");
+            if (canRead) {
+                readVerification.outcome(Outcome.SUCCESSFUL)
+                        .explanation("Confirmed read access to repository [" + repositoryDescription + "]");
+            } else {
+                readVerification.outcome(Outcome.FAILED)
+                        .explanation("Configured credentials do not have read access to repository [" + repositoryDescription + "]");
+            }
+            results.add(readVerification.build());
+
+            final ConfigVerificationResult.Builder bucketVerification = new ConfigVerificationResult.Builder()
+                    .verificationStepName("List Buckets");
+            if (canRead) {
+                try {
+                    String branch = context.getProperty(REPOSITORY_BRANCH).getValue();
+                    if (StringUtils.isBlank(branch)) {
+                        branch = FlowRegistryClient.DEFAULT_BRANCH_NAME;
+                    }
+
+                    final String exclusionPatternValue = context.getProperty(DIRECTORY_FILTER_EXCLUDE).getValue();
+                    final Pattern exclusionPattern = Pattern.compile(exclusionPatternValue);
+                    final Set<String> bucketDirectoryNames = verificationClient.getTopLevelDirectoryNames(branch);
+                    final long visibleBucketCount = bucketDirectoryNames.stream()
+                            .filter(bucketName -> !exclusionPattern.matcher(bucketName).matches())
+                            .count();
+                    final String explanation = String.format("Found %d visible bucket%s on branch [%s] in repository [%s]",
+                            visibleBucketCount, visibleBucketCount == 1 ? "" : "s", branch, repositoryDescription);
+                    bucketVerification.outcome(Outcome.SUCCESSFUL).explanation(explanation);
+                } catch (final Exception e) {
+                    final String message = "Failed to list buckets: " + e.getMessage();
+                    verificationLogger.error(message, e);
+                    bucketVerification.outcome(Outcome.FAILED).explanation(message);
+                }
+            } else {
+                bucketVerification.outcome(Outcome.SKIPPED)
+                        .explanation("Skipped listing buckets because the configured credentials do not have read access to the repository");
+            }
+            results.add(bucketVerification.build());
+
+            final boolean canWrite = verificationClient.hasWritePermission();
+            final ConfigVerificationResult.Builder writeVerification = new ConfigVerificationResult.Builder()
+                    .verificationStepName("Verify Write Access");
+            if (canWrite) {
+                writeVerification.outcome(Outcome.SUCCESSFUL)
+                        .explanation("Configured credentials have write access to repository [" + repositoryDescription + "]");
+            } else {
+                writeVerification.outcome(Outcome.FAILED)
+                        .explanation("Configured credentials do not have write access to repository [" + repositoryDescription + "]");
+            }
+            results.add(writeVerification.build());
+
+            return results;
+        } finally {
+            if (verificationClient != null) {
+                try {
+                    verificationClient.close();
+                } catch (final Exception e) {
+                    verificationLogger.warn("Failed to close repository client after verification", e);
+                }
+            }
+        }
+    }
+
     /**
      * Create the property descriptors for this client.
      *
@@ -699,6 +904,34 @@ public abstract class AbstractGitFlowRegistryClient extends AbstractFlowRegistry
     // protected to allow for overriding from tests
     protected FlowSnapshotSerializer createFlowSnapshotSerializer() {
         return new JacksonFlowSnapshotSerializer();
+    }
+
+    enum CommitAuthorSource implements DescribedValue {
+        SERVICE_USER("Service User", "The commit author is the authenticated service account configured on this registry client"),
+        APPLICATION_USER("Application User", "The commit author is the NiFi user performing the action, using the identity as both author name and author email");
+
+        private final String displayName;
+        private final String description;
+
+        CommitAuthorSource(final String displayName, final String description) {
+            this.displayName = displayName;
+            this.description = description;
+        }
+
+        @Override
+        public String getValue() {
+            return name();
+        }
+
+        @Override
+        public String getDisplayName() {
+            return displayName;
+        }
+
+        @Override
+        public String getDescription() {
+            return description;
+        }
     }
 
     enum ParameterContextValuesStrategy implements DescribedValue {

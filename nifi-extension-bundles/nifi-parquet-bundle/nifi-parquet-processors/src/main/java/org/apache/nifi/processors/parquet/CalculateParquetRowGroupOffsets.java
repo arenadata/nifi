@@ -17,12 +17,6 @@
 
 package org.apache.nifi.processors.parquet;
 
-import java.io.IOException;
-import java.io.InputStream;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
 import org.apache.nifi.annotation.behavior.InputRequirement;
 import org.apache.nifi.annotation.behavior.SideEffectFree;
 import org.apache.nifi.annotation.behavior.WritesAttribute;
@@ -31,7 +25,7 @@ import org.apache.nifi.annotation.documentation.CapabilityDescription;
 import org.apache.nifi.annotation.documentation.Tags;
 import org.apache.nifi.components.PropertyDescriptor;
 import org.apache.nifi.flowfile.FlowFile;
-import org.apache.nifi.parquet.stream.NifiParquetInputFile;
+import org.apache.nifi.parquet.shared.NifiParquetInputFile;
 import org.apache.nifi.parquet.utils.ParquetAttribute;
 import org.apache.nifi.processor.AbstractProcessor;
 import org.apache.nifi.processor.ProcessContext;
@@ -42,6 +36,13 @@ import org.apache.parquet.ParquetReadOptions;
 import org.apache.parquet.hadoop.ParquetFileReader;
 import org.apache.parquet.hadoop.metadata.BlockMetaData;
 import org.apache.parquet.hadoop.metadata.ParquetMetadata;
+
+import java.io.IOException;
+import java.io.InputStream;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 @Tags({"parquet", "split", "partition", "break apart", "efficient processing", "load balance", "cluster"})
 @InputRequirement(InputRequirement.Requirement.INPUT_REQUIRED)

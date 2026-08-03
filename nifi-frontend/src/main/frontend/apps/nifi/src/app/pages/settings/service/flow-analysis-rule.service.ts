@@ -15,11 +15,10 @@
  * limitations under the License.
  */
 
-import { Injectable } from '@angular/core';
+import { Injectable, inject } from '@angular/core';
 import { Observable } from 'rxjs';
 import { HttpClient, HttpParams } from '@angular/common/http';
 import { Client } from '../../../service/client.service';
-import { NiFiCommon } from '@nifi/shared';
 import {
     ConfigureFlowAnalysisRuleRequest,
     CreateFlowAnalysisRuleRequest,
@@ -32,14 +31,11 @@ import { ClusterConnectionService } from '../../../service/cluster-connection.se
 
 @Injectable({ providedIn: 'root' })
 export class FlowAnalysisRuleService implements PropertyDescriptorRetriever {
-    private static readonly API: string = '../nifi-api';
+    private httpClient = inject(HttpClient);
+    private client = inject(Client);
+    private clusterConnectionService = inject(ClusterConnectionService);
 
-    constructor(
-        private httpClient: HttpClient,
-        private client: Client,
-        private nifiCommon: NiFiCommon,
-        private clusterConnectionService: ClusterConnectionService
-    ) {}
+    private static readonly API: string = '../nifi-api';
 
     getFlowAnalysisRule(): Observable<any> {
         return this.httpClient.get(`${FlowAnalysisRuleService.API}/controller/flow-analysis-rules`);
@@ -64,7 +60,9 @@ export class FlowAnalysisRuleService implements PropertyDescriptorRetriever {
                 disconnectedNodeAcknowledged: this.clusterConnectionService.isDisconnectionAcknowledged()
             }
         });
-        return this.httpClient.delete(this.nifiCommon.stripProtocol(entity.uri), { params });
+        return this.httpClient.delete(`${FlowAnalysisRuleService.API}/controller/flow-analysis-rules/${entity.id}`, {
+            params
+        });
     }
 
     getPropertyDescriptor(id: string, propertyName: string, sensitive: boolean): Observable<any> {
@@ -79,18 +77,31 @@ export class FlowAnalysisRuleService implements PropertyDescriptorRetriever {
 
     updateFlowAnalysisRule(configureFlowAnalysisRule: ConfigureFlowAnalysisRuleRequest): Observable<any> {
         return this.httpClient.put(
-            this.nifiCommon.stripProtocol(configureFlowAnalysisRule.uri),
+            `${FlowAnalysisRuleService.API}/controller/flow-analysis-rules/${configureFlowAnalysisRule.id}`,
             configureFlowAnalysisRule.payload
+        );
+    }
+
+    clearBulletins(request: { id: string; fromTimestamp: string }): Observable<any> {
+        const payload = {
+            fromTimestamp: request.fromTimestamp
+        };
+        return this.httpClient.post(
+            `${FlowAnalysisRuleService.API}/controller/flow-analysis-rules/${request.id}/bulletins/clear-requests`,
+            payload
         );
     }
 
     setEnable(flowAnalysisRule: EnableFlowAnalysisRuleRequest, enabled: boolean): Observable<any> {
         const entity: FlowAnalysisRuleEntity = flowAnalysisRule.flowAnalysisRule;
-        return this.httpClient.put(`${this.nifiCommon.stripProtocol(entity.uri)}/run-status`, {
-            revision: this.client.getRevision(entity),
-            disconnectedNodeAcknowledged: this.clusterConnectionService.isDisconnectionAcknowledged(),
-            state: enabled ? 'ENABLED' : 'DISABLED',
-            uiOnly: true
-        });
+        return this.httpClient.put(
+            `${FlowAnalysisRuleService.API}/controller/flow-analysis-rules/${entity.id}/run-status`,
+            {
+                revision: this.client.getRevision(entity),
+                disconnectedNodeAcknowledged: this.clusterConnectionService.isDisconnectionAcknowledged(),
+                state: enabled ? 'ENABLED' : 'DISABLED',
+                uiOnly: true
+            }
+        );
     }
 }

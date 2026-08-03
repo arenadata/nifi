@@ -16,14 +16,19 @@
  */
 package org.apache.nifi.registry.flow;
 
+import org.apache.nifi.components.ConfigVerificationResult;
 import org.apache.nifi.controller.ComponentNode;
 import org.apache.nifi.controller.LoggableComponent;
 import org.apache.nifi.flow.ExternalControllerServiceReference;
 import org.apache.nifi.flow.ParameterProviderReference;
 import org.apache.nifi.flow.VersionedParameterContext;
 import org.apache.nifi.flow.VersionedProcessGroup;
+import org.apache.nifi.logging.ComponentLog;
+import org.apache.nifi.migration.ControllerServiceFactory;
+import org.apache.nifi.nar.ExtensionManager;
 
 import java.io.IOException;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -48,6 +53,7 @@ public interface FlowRegistryClientNode extends ComponentNode {
 
     RegisteredFlow getFlow(FlowRegistryClientUserContext context, FlowLocation flowLocation) throws FlowRegistryException, IOException;
     Set<RegisteredFlow> getFlows(FlowRegistryClientUserContext context, BucketLocation bucketLocation) throws FlowRegistryException, IOException;
+    void createBranch(FlowRegistryClientUserContext context, FlowVersionLocation sourceLocation, String newBranchName) throws FlowRegistryException, IOException;
 
     FlowSnapshotContainer getFlowContents(FlowRegistryClientUserContext context, FlowVersionLocation flowVersionLocation, boolean fetchRemoteFlows) throws FlowRegistryException, IOException;
     RegisteredFlowSnapshot registerFlowSnapshot(
@@ -66,4 +72,24 @@ public interface FlowRegistryClientNode extends ComponentNode {
     String generateFlowId(String flowName) throws IOException, FlowRegistryException;
 
     void setComponent(LoggableComponent<FlowRegistryClient> component);
+
+    /**
+     * Verifies that the given configuration is valid for the Flow Registry Client
+     *
+     * @param properties the proposed property values keyed by property name
+     * @param variables a map of variable names to values for resolving expression language
+     * @param logger a logger that can be used during verification
+     * @param extensionManager extension manager used for obtaining appropriate NAR ClassLoaders
+     * @return a list of verification results describing the verification outcome
+     */
+    List<ConfigVerificationResult> verifyConfiguration(Map<String, String> properties, Map<String, String> variables,
+                                                       ComponentLog logger, ExtensionManager extensionManager);
+
+    /**
+     * Migrates the configuration of the Flow Registry Client, allowing properties to be renamed, removed, or reconfigured.
+     *
+     * @param originalPropertyValues the original property values prior to migration
+     * @param controllerServiceFactory factory for creating controller services during migration
+     */
+    void migrateConfiguration(Map<String, String> originalPropertyValues, ControllerServiceFactory controllerServiceFactory);
 }

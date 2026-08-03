@@ -25,8 +25,11 @@ import com.maxmind.geoip2.model.ConnectionTypeResponse;
 import com.maxmind.geoip2.model.ConnectionTypeResponse.ConnectionType;
 import com.maxmind.geoip2.model.DomainResponse;
 import com.maxmind.geoip2.model.IspResponse;
+import com.maxmind.geoip2.record.City;
+import com.maxmind.geoip2.record.Continent;
 import com.maxmind.geoip2.record.Country;
 import com.maxmind.geoip2.record.Location;
+import com.maxmind.geoip2.record.Postal;
 import com.maxmind.geoip2.record.Subdivision;
 import org.apache.commons.codec.digest.DigestUtils;
 import org.apache.nifi.annotation.documentation.CapabilityDescription;
@@ -41,6 +44,7 @@ import org.apache.nifi.controller.ConfigurationContext;
 import org.apache.nifi.expression.ExpressionLanguageScope;
 import org.apache.nifi.lookup.LookupFailureException;
 import org.apache.nifi.lookup.RecordLookupService;
+import org.apache.nifi.migration.PropertyConfiguration;
 import org.apache.nifi.serialization.record.MapRecord;
 import org.apache.nifi.serialization.record.Record;
 import org.apache.nifi.util.StopWatch;
@@ -60,7 +64,6 @@ import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
-
 
 @Tags({"lookup", "enrich", "ip", "geo", "ipgeo", "maxmind", "isp", "domain", "cellular", "anonymous", "tor"})
 @CapabilityDescription("A lookup service that provides several types of enrichment information for IP addresses. The service is configured by providing a MaxMind "
@@ -83,16 +86,14 @@ public class IPLookupService extends AbstractControllerService implements Record
     static final long REFRESH_THRESHOLD_MS = 5 * 60 * 1000;
 
     static final PropertyDescriptor GEO_DATABASE_FILE = new PropertyDescriptor.Builder()
-        .name("database-file")
-        .displayName("MaxMind Database File")
+        .name("MaxMind Database File")
         .description("Path to Maxmind IP Enrichment Database File")
         .required(true)
         .identifiesExternalResource(ResourceCardinality.SINGLE, ResourceType.FILE)
         .expressionLanguageSupported(ExpressionLanguageScope.ENVIRONMENT)
         .build();
     static final PropertyDescriptor LOOKUP_CITY = new PropertyDescriptor.Builder()
-        .name("lookup-city")
-        .displayName("Lookup Geo Enrichment")
+        .name("Lookup Geo Enrichment")
         .description("Specifies whether or not information about the geographic information, such as cities, corresponding to the IP address should be returned")
         .allowableValues("true", "false")
         .defaultValue("true")
@@ -100,8 +101,7 @@ public class IPLookupService extends AbstractControllerService implements Record
         .required(true)
         .build();
     static final PropertyDescriptor LOOKUP_ISP = new PropertyDescriptor.Builder()
-        .name("lookup-isp")
-        .displayName("Lookup ISP")
+        .name("Lookup ISP")
         .description("Specifies whether or not information about the Information Service Provider corresponding to the IP address should be returned")
         .expressionLanguageSupported(ExpressionLanguageScope.NONE)
         .allowableValues("true", "false")
@@ -109,8 +109,7 @@ public class IPLookupService extends AbstractControllerService implements Record
         .required(true)
         .build();
     static final PropertyDescriptor LOOKUP_DOMAIN = new PropertyDescriptor.Builder()
-        .name("lookup-domain")
-        .displayName("Lookup Domain Name")
+        .name("Lookup Domain Name")
         .description("Specifies whether or not information about the Domain Name corresponding to the IP address should be returned. "
             + "If true, the lookup will contain second-level domain information, such as foo.com but will not contain bar.foo.com")
         .expressionLanguageSupported(ExpressionLanguageScope.NONE)
@@ -119,8 +118,7 @@ public class IPLookupService extends AbstractControllerService implements Record
         .required(true)
         .build();
     static final PropertyDescriptor LOOKUP_CONNECTION_TYPE = new PropertyDescriptor.Builder()
-        .name("lookup-connection-type")
-        .displayName("Lookup Connection Type")
+        .name("Lookup Connection Type")
         .description("Specifies whether or not information about the Connection Type corresponding to the IP address should be returned. "
             + "If true, the lookup will contain a 'connectionType' field that (if populated) will contain a value of 'Dialup', 'Cable/DSL', 'Corporate', or 'Cellular'")
         .expressionLanguageSupported(ExpressionLanguageScope.NONE)
@@ -129,8 +127,7 @@ public class IPLookupService extends AbstractControllerService implements Record
         .required(true)
         .build();
     static final PropertyDescriptor LOOKUP_ANONYMOUS_IP_INFO = new PropertyDescriptor.Builder()
-        .name("lookup-anonymous-ip")
-        .displayName("Lookup Anonymous IP Information")
+        .name("Lookup Anonymous IP Information")
         .description("Specifies whether or not information about whether or not the IP address belongs to an anonymous network should be returned.")
         .expressionLanguageSupported(ExpressionLanguageScope.NONE)
         .allowableValues("true", "false")
@@ -240,6 +237,16 @@ public class IPLookupService extends AbstractControllerService implements Record
         }
     }
 
+    @Override
+    public void migrateProperties(PropertyConfiguration config) {
+        config.renameProperty("database-file", GEO_DATABASE_FILE.getName());
+        config.renameProperty("lookup-city", LOOKUP_CITY.getName());
+        config.renameProperty("lookup-isp", LOOKUP_ISP.getName());
+        config.renameProperty("lookup-domain", LOOKUP_DOMAIN.getName());
+        config.renameProperty("lookup-connection-type", LOOKUP_CONNECTION_TYPE.getName());
+        config.renameProperty("lookup-anonymous-ip", LOOKUP_ANONYMOUS_IP_INFO.getName());
+    }
+
     private Optional<Record> doLookup(final DatabaseReader databaseReader, final Map<String, Object> coordinates) throws LookupFailureException, InvalidDatabaseException {
         if (coordinates.get(IP_KEY) == null) {
             return Optional.empty();
@@ -300,7 +307,7 @@ public class IPLookupService extends AbstractControllerService implements Record
                 throw new LookupFailureException("Failed to lookup Domain information for IP Address " + inetAddress, e);
             }
 
-            domainName = domainResponse == null ? null : domainResponse.getDomain();
+            domainName = domainResponse == null ? null : domainResponse.domain();
         } else {
             domainName = null;
         }
@@ -319,7 +326,7 @@ public class IPLookupService extends AbstractControllerService implements Record
             if (connectionTypeResponse == null) {
                 connectionType = null;
             } else {
-                final ConnectionType type = connectionTypeResponse.getConnectionType();
+                final ConnectionType type = connectionTypeResponse.connectionType();
                 connectionType = type == null ? null : type.name();
             }
         } else {
@@ -397,21 +404,29 @@ public class IPLookupService extends AbstractControllerService implements Record
         }
 
         final Map<String, Object> values = new HashMap<>();
-        values.put(CitySchema.CITY.getFieldName(), city.getCity().getName());
+        final City cityRecord = city.city();
+        values.put(CitySchema.CITY.getFieldName(), cityRecord == null ? null : cityRecord.name());
 
-        final Location location = city.getLocation();
-        values.put(CitySchema.ACCURACY.getFieldName(), location.getAccuracyRadius());
-        values.put(CitySchema.TIMEZONE.getFieldName(), location.getTimeZone());
-        values.put(CitySchema.LATITUDE.getFieldName(), location.getLatitude());
-        values.put(CitySchema.LONGITUDE.getFieldName(), location.getLongitude());
-        values.put(CitySchema.CONTINENT.getFieldName(), city.getContinent().getName());
-        values.put(CitySchema.POSTALCODE.getFieldName(), city.getPostal().getCode());
-        values.put(CitySchema.COUNTRY.getFieldName(), createRecord(city.getCountry()));
+        final Location location = city.location();
+        values.put(CitySchema.ACCURACY.getFieldName(), location == null ? null : location.accuracyRadius());
+        values.put(CitySchema.TIMEZONE.getFieldName(), location == null ? null : location.timeZone());
+        values.put(CitySchema.LATITUDE.getFieldName(), location == null ? null : location.latitude());
+        values.put(CitySchema.LONGITUDE.getFieldName(), location == null ? null : location.longitude());
 
-        final Object[] subdivisions = new Object[city.getSubdivisions().size()];
+        final Continent continent = city.continent();
+        values.put(CitySchema.CONTINENT.getFieldName(), continent == null ? null : continent.name());
+
+        final Postal postal = city.postal();
+        values.put(CitySchema.POSTALCODE.getFieldName(), postal == null ? null : postal.code());
+        values.put(CitySchema.COUNTRY.getFieldName(), createRecord(city.country()));
+
+        final List<Subdivision> subdivisionList = city.subdivisions();
+        final Object[] subdivisions = subdivisionList == null ? new Object[0] : new Object[subdivisionList.size()];
         int i = 0;
-        for (final Subdivision subdivision : city.getSubdivisions()) {
-            subdivisions[i++] = createRecord(subdivision);
+        if (subdivisionList != null) {
+            for (final Subdivision subdivision : subdivisionList) {
+                subdivisions[i++] = createRecord(subdivision);
+            }
         }
         values.put(CitySchema.SUBDIVISIONS.getFieldName(), subdivisions);
 
@@ -424,8 +439,8 @@ public class IPLookupService extends AbstractControllerService implements Record
         }
 
         final Map<String, Object> values = new HashMap<>(2);
-        values.put(CitySchema.SUBDIVISION_NAME.getFieldName(), subdivision.getName());
-        values.put(CitySchema.SUBDIVISION_ISO.getFieldName(), subdivision.getIsoCode());
+        values.put(CitySchema.SUBDIVISION_NAME.getFieldName(), subdivision.name());
+        values.put(CitySchema.SUBDIVISION_ISO.getFieldName(), subdivision.isoCode());
         return new MapRecord(CitySchema.SUBDIVISION_SCHEMA, values);
     }
 
@@ -435,8 +450,8 @@ public class IPLookupService extends AbstractControllerService implements Record
         }
 
         final Map<String, Object> values = new HashMap<>(2);
-        values.put(CitySchema.COUNTRY_NAME.getFieldName(), country.getName());
-        values.put(CitySchema.COUNTRY_ISO.getFieldName(), country.getIsoCode());
+        values.put(CitySchema.COUNTRY_NAME.getFieldName(), country.name());
+        values.put(CitySchema.COUNTRY_ISO.getFieldName(), country.isoCode());
         return new MapRecord(CitySchema.COUNTRY_SCHEMA, values);
     }
 
@@ -446,10 +461,10 @@ public class IPLookupService extends AbstractControllerService implements Record
         }
 
         final Map<String, Object> values = new HashMap<>(4);
-        values.put(IspSchema.ASN.getFieldName(), isp.getAutonomousSystemNumber());
-        values.put(IspSchema.ASN_ORG.getFieldName(), isp.getAutonomousSystemOrganization());
-        values.put(IspSchema.NAME.getFieldName(), isp.getIsp());
-        values.put(IspSchema.ORG.getFieldName(), isp.getOrganization());
+        values.put(IspSchema.ASN.getFieldName(), isp.autonomousSystemNumber());
+        values.put(IspSchema.ASN_ORG.getFieldName(), isp.autonomousSystemOrganization());
+        values.put(IspSchema.NAME.getFieldName(), isp.isp());
+        values.put(IspSchema.ORG.getFieldName(), isp.organization());
 
         return new MapRecord(IspSchema.ISP_SCHEMA, values);
     }

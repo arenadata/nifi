@@ -115,6 +115,23 @@ public interface GitRepositoryClient {
     Optional<String> getContentSha(String path, String branch) throws IOException, FlowRegistryException;
 
     /**
+     * Retrieves the blob SHA of the file at the given path from a specific commit.
+     * This is used for atomic commit operations where we need the blob SHA at the
+     * user's expected version, not the current version.
+     *
+     * @param path the path of the file
+     * @param commitSha the commit SHA to get the blob SHA from
+     * @return the blob SHA of the content at the specified commit, or empty if not found
+     * @throws IOException if an I/O error occurs
+     * @throws FlowRegistryException if a non-I/O error occurs
+     */
+    default Optional<String> getContentShaAtCommit(String path, String commitSha) throws IOException, FlowRegistryException {
+        // Default implementation returns empty to maintain backward compatibility.
+        // Implementations should override this to support atomic commit operations.
+        return Optional.empty();
+    }
+
+    /**
      * Creates a file in the repository based on the given request.
      *
      * @param request the request
@@ -137,6 +154,40 @@ public interface GitRepositoryClient {
      * @throws FlowRegistryException if a non-I/O error occurs
      */
     InputStream deleteContent(String filePath, String commitMessage, String branch) throws FlowRegistryException, IOException;
+
+    /**
+     * Deletes the file at the given path on the given branch, attributing the commit to the specified author.
+     *
+     * The caller of this method is responsible for closing the returned InputStream.
+     *
+     * @param filePath the path of the file
+     * @param commitMessage the commit message
+     * @param branch the branch
+     * @param authorName the name of the commit author, or null to use the authenticated user
+     * @param authorEmail the email of the commit author, or null to use the authenticated user
+     * @return the input stream to the deleted content
+     * @throws IOException if an I/O error occurs
+     * @throws FlowRegistryException if a non-I/O error occurs
+     */
+    default InputStream deleteContent(final String filePath, final String commitMessage, final String branch,
+                                      final String authorName, final String authorEmail) throws FlowRegistryException, IOException {
+        return deleteContent(filePath, commitMessage, branch);
+    }
+
+    /**
+     * Creates a new branch in the repository.
+     *
+     * @param newBranchName the name of the branch to create
+     * @param sourceBranch the name of the source branch
+     * @param sourceCommitSha optional commit SHA to use as the starting point for the new branch. If empty, the head commit of the source branch should be used.
+     * @throws IOException if an I/O error occurs
+     * @throws FlowRegistryException if a non-I/O error occurs
+     * @throws UnsupportedOperationException if the repository implementation does not support branch creation
+     */
+    default void createBranch(final String newBranchName, final String sourceBranch, final Optional<String> sourceCommitSha)
+            throws IOException, FlowRegistryException {
+        throw new UnsupportedOperationException("Branch creation is not supported");
+    }
 
     /**
      * Closes any resources held by the client.

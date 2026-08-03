@@ -26,9 +26,9 @@ import org.apache.nifi.components.ValidationResult;
 import org.apache.nifi.components.state.Scope;
 import org.apache.nifi.components.state.StateMap;
 import org.apache.nifi.database.dialect.service.api.ColumnDefinition;
-import org.apache.nifi.database.dialect.service.api.StandardColumnDefinition;
 import org.apache.nifi.database.dialect.service.api.DatabaseDialectService;
 import org.apache.nifi.database.dialect.service.api.QueryStatementRequest;
+import org.apache.nifi.database.dialect.service.api.StandardColumnDefinition;
 import org.apache.nifi.database.dialect.service.api.StandardQueryStatementRequest;
 import org.apache.nifi.database.dialect.service.api.StatementResponse;
 import org.apache.nifi.database.dialect.service.api.StatementType;
@@ -38,6 +38,7 @@ import org.apache.nifi.expression.AttributeExpression;
 import org.apache.nifi.expression.ExpressionLanguageScope;
 import org.apache.nifi.flowfile.FlowFile;
 import org.apache.nifi.logging.ComponentLog;
+import org.apache.nifi.migration.PropertyConfiguration;
 import org.apache.nifi.processor.ProcessContext;
 import org.apache.nifi.processor.ProcessSession;
 import org.apache.nifi.processor.ProcessSessionFactory;
@@ -74,6 +75,11 @@ public abstract class AbstractQueryDatabaseTable extends AbstractDatabaseFetchPr
 
     public static final String RESULT_TABLENAME = "tablename";
     public static final String RESULT_ROW_COUNT = "querydbtable.row.count";
+
+    static final List<String> OBSOLETE_MAX_ROWS_PER_FLOW_FILE = List.of(
+            "qdbt-max-rows",
+            "Max Rows Per Flow File"
+    );
 
     private static final AllowableValue TRANSACTION_READ_COMMITTED = new AllowableValue(
             String.valueOf(Connection.TRANSACTION_READ_COMMITTED),
@@ -125,8 +131,7 @@ public abstract class AbstractQueryDatabaseTable extends AbstractDatabaseFetchPr
             .build();
 
     public static final PropertyDescriptor MAX_ROWS_PER_FLOW_FILE = new PropertyDescriptor.Builder()
-            .name("qdbt-max-rows")
-            .displayName("Max Rows Per Flow File")
+            .name("Max Rows Per FlowFile")
             .description("The maximum number of result rows that will be included in a single FlowFile. This will allow you to break up very large "
                     + "result sets into multiple FlowFiles. If the value specified is zero, then all rows are returned in a single FlowFile.")
             .defaultValue("0")
@@ -136,8 +141,7 @@ public abstract class AbstractQueryDatabaseTable extends AbstractDatabaseFetchPr
             .build();
 
     public static final PropertyDescriptor OUTPUT_BATCH_SIZE = new PropertyDescriptor.Builder()
-            .name("qdbt-output-batch-size")
-            .displayName("Output Batch Size")
+            .name("Output Batch Size")
             .description("The number of output FlowFiles to queue before committing the process session. When set to zero, the session will be committed when all result set rows "
                     + "have been processed and the output FlowFiles are ready for transfer to the downstream relationship. For large result sets, this can cause a large burst of FlowFiles "
                     + "to be transferred at the end of processor execution. If this property is set, then when the specified number of FlowFiles are ready for transfer, then the session will "
@@ -150,8 +154,7 @@ public abstract class AbstractQueryDatabaseTable extends AbstractDatabaseFetchPr
             .build();
 
     public static final PropertyDescriptor MAX_FRAGMENTS = new PropertyDescriptor.Builder()
-            .name("qdbt-max-frags")
-            .displayName("Maximum Number of Fragments")
+            .name("Maximum Number of Fragments")
             .description("The maximum number of fragments. If the value specified is zero, then all fragments are returned. " +
                     "This prevents OutOfMemoryError when this processor ingests huge table. NOTE: Setting this property can result in data loss, as the incoming results are "
                     + "not ordered, and fragments may end at arbitrary boundaries where rows are not included in the result set.")
@@ -162,8 +165,7 @@ public abstract class AbstractQueryDatabaseTable extends AbstractDatabaseFetchPr
             .build();
 
     public static final PropertyDescriptor TRANS_ISOLATION_LEVEL = new PropertyDescriptor.Builder()
-            .name("transaction-isolation-level")
-            .displayName("Transaction Isolation Level")
+            .name("Transaction Isolation Level")
             .description("This setting will set the transaction isolation level for the database connection for drivers that support this setting")
             .required(false)
             .allowableValues(TRANSACTION_NONE, TRANSACTION_READ_COMMITTED, TRANSACTION_READ_UNCOMMITTED, TRANSACTION_REPEATABLE_READ, TRANSACTION_SERIALIZABLE)
@@ -174,8 +176,7 @@ public abstract class AbstractQueryDatabaseTable extends AbstractDatabaseFetchPr
             "inserted or updated rows based on the maximum value(s) of the column(s) configured in the '" + MAX_VALUE_COLUMN_NAMES.getDisplayName() + "' property.");
 
     public static final PropertyDescriptor INITIAL_LOAD_STRATEGY = new PropertyDescriptor.Builder()
-            .name("initial-load-strategy")
-            .displayName("Initial Load Strategy")
+            .name("Initial Load Strategy")
             .description("How to handle existing rows in the database table when the processor is started for the first time (or its state has been cleared). The property will be ignored, " +
                     "if any '" + INITIAL_MAX_VALUE_PROP_START + "*' dynamic property has also been configured.")
             .required(true)
@@ -437,7 +438,7 @@ public abstract class AbstractQueryDatabaseTable extends AbstractDatabaseFetchPr
 
                         session.getProvenanceReporter().receive(fileToProcess, jdbcURL, stopWatch.getElapsed(TimeUnit.MILLISECONDS));
                         resultSetFlowFiles.add(fileToProcess);
-                        // If we've reached the batch size, send out the flow files
+                        // If we've reached the batch size, send out the FlowFiles
                         if (outputBatchSize > 0 && resultSetFlowFiles.size() >= outputBatchSize) {
                             session.transfer(resultSetFlowFiles, REL_SUCCESS);
                             session.commitAsync();
@@ -458,12 +459,12 @@ public abstract class AbstractQueryDatabaseTable extends AbstractDatabaseFetchPr
                         break;
                     }
 
-                    // If we aren't splitting up the data into flow files or fragments, then the result set has been entirely fetched so don't loop back around
+                    // If we aren't splitting up the data into FlowFiles or fragments, then the result set has been entirely fetched so don't loop back around
                     if (maxFragments == 0 && maxRowsPerFlowFile == 0) {
                         break;
                     }
 
-                    // If we are splitting up the data into flow files, don't loop back around if we've gotten all results
+                    // If we are splitting up the data into FlowFiles, don't loop back around if we've gotten all results
                     if (maxRowsPerFlowFile > 0 && nrOfRows.get() < maxRowsPerFlowFile) {
                         break;
                     }
@@ -525,6 +526,16 @@ public abstract class AbstractQueryDatabaseTable extends AbstractDatabaseFetchPr
 
             session.commitAsync();
         }
+    }
+
+    @Override
+    public void migrateProperties(PropertyConfiguration config) {
+        super.migrateProperties(config);
+        OBSOLETE_MAX_ROWS_PER_FLOW_FILE.forEach(obsoleteName -> config.renameProperty(obsoleteName, MAX_ROWS_PER_FLOW_FILE.getName()));
+        config.renameProperty("qdbt-output-batch-size", OUTPUT_BATCH_SIZE.getName());
+        config.renameProperty("qdbt-max-frags", MAX_FRAGMENTS.getName());
+        config.renameProperty("transaction-isolation-level", TRANS_ISOLATION_LEVEL.getName());
+        config.renameProperty("initial-load-strategy", INITIAL_LOAD_STRATEGY.getName());
     }
 
     private String getQuery(

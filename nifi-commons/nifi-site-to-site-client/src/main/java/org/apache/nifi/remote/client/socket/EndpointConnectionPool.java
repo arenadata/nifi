@@ -16,8 +16,30 @@
  */
 package org.apache.nifi.remote.client.socket;
 
-import static org.apache.nifi.remote.util.EventReportUtil.error;
-import static org.apache.nifi.remote.util.EventReportUtil.warn;
+import org.apache.nifi.remote.Peer;
+import org.apache.nifi.remote.PeerDescription;
+import org.apache.nifi.remote.PeerStatus;
+import org.apache.nifi.remote.RemoteResourceInitiator;
+import org.apache.nifi.remote.SiteToSiteDestination;
+import org.apache.nifi.remote.SiteToSiteEventReporter;
+import org.apache.nifi.remote.TransferDirection;
+import org.apache.nifi.remote.client.PeerPersistence;
+import org.apache.nifi.remote.client.PeerSelector;
+import org.apache.nifi.remote.client.PeerStatusProvider;
+import org.apache.nifi.remote.client.SiteInfoProvider;
+import org.apache.nifi.remote.client.SiteToSiteClientConfig;
+import org.apache.nifi.remote.codec.FlowFileCodec;
+import org.apache.nifi.remote.exception.HandshakeException;
+import org.apache.nifi.remote.exception.PortNotRunningException;
+import org.apache.nifi.remote.exception.TransmissionDisabledException;
+import org.apache.nifi.remote.exception.UnknownPortException;
+import org.apache.nifi.remote.exception.UnreachableClusterException;
+import org.apache.nifi.remote.io.socket.SocketCommunicationsSession;
+import org.apache.nifi.remote.protocol.CommunicationsSession;
+import org.apache.nifi.remote.protocol.SiteToSiteTransportProtocol;
+import org.apache.nifi.remote.protocol.socket.SocketClientProtocol;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
@@ -42,30 +64,9 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
 import javax.net.ssl.SSLContext;
-import org.apache.nifi.events.EventReporter;
-import org.apache.nifi.remote.Peer;
-import org.apache.nifi.remote.PeerDescription;
-import org.apache.nifi.remote.PeerStatus;
-import org.apache.nifi.remote.RemoteDestination;
-import org.apache.nifi.remote.RemoteResourceInitiator;
-import org.apache.nifi.remote.TransferDirection;
-import org.apache.nifi.remote.client.PeerPersistence;
-import org.apache.nifi.remote.client.PeerSelector;
-import org.apache.nifi.remote.client.PeerStatusProvider;
-import org.apache.nifi.remote.client.SiteInfoProvider;
-import org.apache.nifi.remote.client.SiteToSiteClientConfig;
-import org.apache.nifi.remote.codec.FlowFileCodec;
-import org.apache.nifi.remote.exception.HandshakeException;
-import org.apache.nifi.remote.exception.PortNotRunningException;
-import org.apache.nifi.remote.exception.TransmissionDisabledException;
-import org.apache.nifi.remote.exception.UnknownPortException;
-import org.apache.nifi.remote.exception.UnreachableClusterException;
-import org.apache.nifi.remote.io.socket.SocketCommunicationsSession;
-import org.apache.nifi.remote.protocol.CommunicationsSession;
-import org.apache.nifi.remote.protocol.SiteToSiteTransportProtocol;
-import org.apache.nifi.remote.protocol.socket.SocketClientProtocol;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+
+import static org.apache.nifi.remote.util.EventReportUtil.error;
+import static org.apache.nifi.remote.util.EventReportUtil.warn;
 
 public class EndpointConnectionPool implements PeerStatusProvider {
 
@@ -77,11 +78,11 @@ public class EndpointConnectionPool implements PeerStatusProvider {
 
     private final Set<EndpointConnection> activeConnections = Collections.synchronizedSet(new HashSet<>());
 
-    private final EventReporter eventReporter;
+    private final SiteToSiteEventReporter eventReporter;
     private final SSLContext sslContext;
     private final ScheduledExecutorService taskExecutor;
     private final int idleExpirationMillis;
-    private final RemoteDestination remoteDestination;
+    private final SiteToSiteDestination remoteDestination;
 
     private volatile int commsTimeout;
     private volatile boolean shutdown = false;
@@ -90,8 +91,8 @@ public class EndpointConnectionPool implements PeerStatusProvider {
     private final PeerSelector peerSelector;
     private final InetAddress localAddress;
 
-    public EndpointConnectionPool(final RemoteDestination remoteDestination, final int commsTimeoutMillis, final int idleExpirationMillis,
-                                  final SSLContext sslContext, final EventReporter eventReporter,
+    public EndpointConnectionPool(final SiteToSiteDestination remoteDestination, final int commsTimeoutMillis, final int idleExpirationMillis,
+                                  final SSLContext sslContext, final SiteToSiteEventReporter eventReporter,
                                   final PeerPersistence peerPersistence, final SiteInfoProvider siteInfoProvider,
                                   final InetAddress localAddress) {
         Objects.requireNonNull(remoteDestination, "Remote Destination/Port Identifier cannot be null");
@@ -196,7 +197,7 @@ public class EndpointConnectionPool implements PeerStatusProvider {
                 if (connection == null) {
                     logger.debug("{} No Connection available for Port {}; creating new Connection", this, portId);
                     protocol = new SocketClientProtocol();
-                    protocol.setDestination(new IdEnrichedRemoteDestination(remoteDestination, portId));
+                    protocol.setDestination(new IdEnrichedSiteToSiteDestination(remoteDestination, portId));
                     protocol.setEventReporter(eventReporter);
 
                     final long penalizationMillis = remoteDestination.getYieldPeriod(TimeUnit.MILLISECONDS);
@@ -531,12 +532,12 @@ public class EndpointConnectionPool implements PeerStatusProvider {
         return "EndpointConnectionPool[Cluster URL=" + siteInfoProvider.getClusterUrls() + " LocalAddress=" + localAddress + "]";
     }
 
-    private class IdEnrichedRemoteDestination implements RemoteDestination {
+    private static class IdEnrichedSiteToSiteDestination implements SiteToSiteDestination {
 
-        private final RemoteDestination original;
+        private final SiteToSiteDestination original;
         private final String identifier;
 
-        public IdEnrichedRemoteDestination(final RemoteDestination original, final String identifier) {
+        public IdEnrichedSiteToSiteDestination(final SiteToSiteDestination original, final String identifier) {
             this.original = original;
             this.identifier = identifier;
         }

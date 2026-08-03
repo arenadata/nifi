@@ -17,7 +17,6 @@
 
 package org.apache.nifi.processors.standard;
 
-
 import org.apache.avro.Schema;
 import org.apache.avro.Schema.Parser;
 import org.apache.nifi.annotation.behavior.InputRequirement;
@@ -43,6 +42,7 @@ import org.apache.nifi.processor.ProcessSession;
 import org.apache.nifi.processor.Relationship;
 import org.apache.nifi.processor.exception.ProcessException;
 import org.apache.nifi.processor.util.StandardValidators;
+import org.apache.nifi.schema.access.SchemaAccessUtils;
 import org.apache.nifi.schema.access.SchemaField;
 import org.apache.nifi.schema.access.SchemaNotFoundException;
 import org.apache.nifi.schema.validation.SchemaValidationContext;
@@ -101,15 +101,13 @@ public class ValidateRecord extends AbstractProcessor {
         "The schema to validate the data against is determined by asking the configured Record Reader for its schema");
 
     static final PropertyDescriptor RECORD_READER = new PropertyDescriptor.Builder()
-        .name("record-reader")
-        .displayName("Record Reader")
+        .name("Record Reader")
         .description("Specifies the Controller Service to use for reading incoming data")
         .identifiesControllerService(RecordReaderFactory.class)
         .required(true)
         .build();
     static final PropertyDescriptor RECORD_WRITER = new PropertyDescriptor.Builder()
-        .name("record-writer")
-        .displayName("Record Writer")
+        .name("Record Writer")
         .description("Specifies the Controller Service to use for writing out the records. "
             + "Regardless of the Controller Service schema access configuration, "
             + "the schema that is used to validate record is used to write the valid results.")
@@ -117,8 +115,7 @@ public class ValidateRecord extends AbstractProcessor {
         .required(true)
         .build();
     static final PropertyDescriptor INVALID_RECORD_WRITER = new PropertyDescriptor.Builder()
-        .name("invalid-record-writer")
-        .displayName("Record Writer for Invalid Records")
+        .name("Record Writer for Invalid Records")
         .description("If specified, this Controller Service will be used to write out any records that are invalid. "
             + "If not specified, the writer specified by the \"Record Writer\" property will be used with the schema used to read the input records. "
             + "This is useful, for example, when the configured "
@@ -128,16 +125,14 @@ public class ValidateRecord extends AbstractProcessor {
         .required(false)
         .build();
     static final PropertyDescriptor SCHEMA_ACCESS_STRATEGY = new PropertyDescriptor.Builder()
-        .name("schema-access-strategy")
-        .displayName("Schema Access Strategy")
+        .name(SchemaAccessUtils.SCHEMA_ACCESS_STRATEGY.getName())
         .description("Specifies how to obtain the schema that should be used to validate records")
         .allowableValues(READER_SCHEMA, SCHEMA_NAME_PROPERTY, SCHEMA_TEXT_PROPERTY)
         .defaultValue(READER_SCHEMA.getValue())
         .required(true)
         .build();
     static final PropertyDescriptor ALLOW_EXTRA_FIELDS = new PropertyDescriptor.Builder()
-        .name("allow-extra-fields")
-        .displayName("Allow Extra Fields")
+        .name("Allow Extra Fields")
         .description("If the incoming data has fields that are not present in the schema, this property determines whether or not the Record is valid. "
             + "If true, the Record is still valid. If false, the Record will be invalid due to the extra fields.")
         .expressionLanguageSupported(ExpressionLanguageScope.NONE)
@@ -146,8 +141,7 @@ public class ValidateRecord extends AbstractProcessor {
         .required(true)
         .build();
     static final PropertyDescriptor STRICT_TYPE_CHECKING = new PropertyDescriptor.Builder()
-        .name("strict-type-checking")
-        .displayName("Strict Type Checking")
+        .name("Strict Type Checking")
         .description("If the incoming data has a Record where a field is not of the correct type, this property determines how to handle the Record. "
             + "If true, the Record will be considered invalid. If false, the Record will be considered valid and the field will be coerced into the "
             + "correct type (if possible, according to the type coercion supported by the Record Writer). "
@@ -158,8 +152,7 @@ public class ValidateRecord extends AbstractProcessor {
         .required(true)
         .build();
     static final PropertyDescriptor COERCE_TYPES = new PropertyDescriptor.Builder()
-            .name("coerce-types")
-            .displayName("Force Types From Reader's Schema")
+            .name("Force Types From Reader Schema")
             .description("If enabled, the processor will coerce every field to the type specified in the Reader's schema. "
                 + "If the value of a field cannot be coerced to the type, the field will be skipped (will not be read from the input data), "
                 + "thus will not appear in the output. "
@@ -172,8 +165,7 @@ public class ValidateRecord extends AbstractProcessor {
             .required(true)
             .build();
     static final PropertyDescriptor VALIDATION_DETAILS_ATTRIBUTE_NAME = new PropertyDescriptor.Builder()
-        .name("validation-details-attribute-name")
-        .displayName("Validation Details Attribute Name")
+        .name("Validation Details Attribute Name")
         .description("If specified, when a validation error occurs, this attribute name will be used to leave the details. The number of characters will be limited "
             + "by the property 'Maximum Validation Details Length'.")
         .required(false)
@@ -181,8 +173,7 @@ public class ValidateRecord extends AbstractProcessor {
         .addValidator(StandardValidators.ATTRIBUTE_KEY_VALIDATOR)
         .build();
     static final PropertyDescriptor MAX_VALIDATION_DETAILS_LENGTH = new PropertyDescriptor.Builder()
-        .name("maximum-validation-details-length")
-        .displayName("Maximum Validation Details Length")
+        .name("Maximum Validation Details Length")
         .description("Specifies the maximum number of characters that validation details value can have. Any characters beyond the max will be truncated. "
             + "This property is only used if 'Validation Details Attribute Name' is set")
         .required(false)
@@ -246,6 +237,21 @@ public class ValidateRecord extends AbstractProcessor {
                 }
             });
         }
+
+        config.renameProperty("record-reader", RECORD_READER.getName());
+        config.renameProperty("record-writer", RECORD_WRITER.getName());
+        config.renameProperty("invalid-record-writer", INVALID_RECORD_WRITER.getName());
+        config.renameProperty("allow-extra-fields", ALLOW_EXTRA_FIELDS.getName());
+        config.renameProperty("strict-type-checking", STRICT_TYPE_CHECKING.getName());
+        config.renameProperty("coerce-types", COERCE_TYPES.getName());
+        config.renameProperty("validation-details-attribute-name", VALIDATION_DETAILS_ATTRIBUTE_NAME.getName());
+        config.renameProperty("maximum-validation-details-length", MAX_VALIDATION_DETAILS_LENGTH.getName());
+        config.renameProperty(SchemaAccessUtils.OLD_SCHEMA_REGISTRY_PROPERTY_NAME, SCHEMA_REGISTRY.getName());
+        config.renameProperty(SchemaAccessUtils.OLD_SCHEMA_NAME_PROPERTY_NAME, SCHEMA_NAME.getName());
+        config.renameProperty(SchemaAccessUtils.OLD_SCHEMA_BRANCH_NAME_PROPERTY_NAME, SCHEMA_BRANCH_NAME.getName());
+        config.renameProperty(SchemaAccessUtils.OLD_SCHEMA_VERSION_PROPERTY_NAME, SCHEMA_VERSION.getName());
+        config.renameProperty(SchemaAccessUtils.OLD_SCHEMA_TEXT_PROPERTY_NAME, SCHEMA_TEXT.getName());
+        config.renameProperty(SchemaAccessUtils.OLD_SCHEMA_ACCESS_STRATEGY_PROPERTY_NAME, SCHEMA_ACCESS_STRATEGY.getName());
     }
 
     @Override
@@ -272,7 +278,6 @@ public class ValidateRecord extends AbstractProcessor {
 
         return Collections.emptyList();
     }
-
 
     @Override
     public void onTrigger(final ProcessContext context, final ProcessSession session) throws ProcessException {
@@ -332,7 +337,7 @@ public class ValidateRecord extends AbstractProcessor {
                         logValidationErrors(flowFile, recordCount, result);
 
                         if (!context.isAutoTerminated(REL_INVALID)) {
-                            // If REL_INVALID is not autoTerminated, then create a flow file and calculate the invalid details.
+                            // If REL_INVALID is not autoTerminated, then create a FlowFile and calculate the invalid details.
                             // If it is autoTerminated, then skip doing work which will just be discarded.
                             if (invalidFlowFile == null) {
                                 invalidFlowFile = session.create(flowFile);

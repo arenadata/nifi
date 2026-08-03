@@ -16,9 +16,11 @@
  */
 package org.apache.nifi.processors.geohash;
 
+import ch.hsr.geohash.GeoHash;
+import ch.hsr.geohash.WGS84Point;
+import org.apache.nifi.annotation.behavior.InputRequirement;
 import org.apache.nifi.annotation.behavior.SideEffectFree;
 import org.apache.nifi.annotation.behavior.SupportsBatching;
-import org.apache.nifi.annotation.behavior.InputRequirement;
 import org.apache.nifi.annotation.behavior.WritesAttribute;
 import org.apache.nifi.annotation.behavior.WritesAttributes;
 import org.apache.nifi.annotation.documentation.CapabilityDescription;
@@ -29,6 +31,7 @@ import org.apache.nifi.components.PropertyDescriptor;
 import org.apache.nifi.expression.ExpressionLanguageScope;
 import org.apache.nifi.flowfile.FlowFile;
 import org.apache.nifi.flowfile.attributes.CoreAttributes;
+import org.apache.nifi.migration.PropertyConfiguration;
 import org.apache.nifi.processor.AbstractProcessor;
 import org.apache.nifi.processor.ProcessContext;
 import org.apache.nifi.processor.ProcessSession;
@@ -39,28 +42,23 @@ import org.apache.nifi.record.path.RecordPath;
 import org.apache.nifi.record.path.RecordPathResult;
 import org.apache.nifi.record.path.util.RecordPathCache;
 import org.apache.nifi.record.path.validation.RecordPathValidator;
-
 import org.apache.nifi.schema.access.SchemaNotFoundException;
 import org.apache.nifi.serialization.MalformedRecordException;
 import org.apache.nifi.serialization.RecordReader;
 import org.apache.nifi.serialization.RecordReaderFactory;
 import org.apache.nifi.serialization.RecordSetWriter;
 import org.apache.nifi.serialization.RecordSetWriterFactory;
-import org.apache.nifi.serialization.record.Record;
 import org.apache.nifi.serialization.WriteResult;
-
-import ch.hsr.geohash.GeoHash;
-import ch.hsr.geohash.WGS84Point;
+import org.apache.nifi.serialization.record.Record;
 
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
-
-import java.util.List;
-import java.util.Set;
-import java.util.Map;
 import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 @DeprecationNotice(reason = "NIFI-14846: Minimal usage and maintenance since initial implementation")
 @SideEffectFree
@@ -89,8 +87,7 @@ public class GeohashRecord extends AbstractProcessor {
     }
 
     public static final PropertyDescriptor MODE = new PropertyDescriptor.Builder()
-            .name("mode")
-            .displayName("Mode")
+            .name("Mode")
             .description("Specifies whether to encode latitude/longitude to geohash or decode geohash to latitude/longitude")
             .required(true)
             .allowableValues(ProcessingMode.values())
@@ -98,40 +95,36 @@ public class GeohashRecord extends AbstractProcessor {
             .build();
 
     public static final PropertyDescriptor ROUTING_STRATEGY = new PropertyDescriptor.Builder()
-            .name("routing-strategy")
-            .displayName("Routing Strategy")
-            .description("Specifies how to route flowfiles after encoding or decoding being performed. "
+            .name("Routing Strategy")
+            .description("Specifies how to route FlowFiles after encoding or decoding being performed. "
                     + "SKIP will enrich those records that can be enriched and skip the rest. "
-                    + "The SKIP strategy will route a flowfile to failure only if unable to parse the data. "
-                    + "Otherwise, it will route the enriched flowfile to success, and the original input to original. "
+                    + "The SKIP strategy will route a FlowFile to failure only if unable to parse the data. "
+                    + "Otherwise, it will route the enriched FlowFile to success, and the original input to original. "
                     + "SPLIT will separate the records that have been enriched from those that have not and send them to matched, while unenriched records will be sent to unmatched; "
-                    + "the original input flowfile will be sent to original. The SPLIT strategy will route a flowfile to failure only if unable to parse the data. "
-                    + "REQUIRE will route a flowfile to success only if all of its records are enriched, and the original input will be sent to original. "
-                    + "The REQUIRE strategy will route the original input flowfile to failure if any of its records cannot be enriched or unable to be parsed")
+                    + "the original input FlowFile will be sent to original. The SPLIT strategy will route a FlowFile to failure only if unable to parse the data. "
+                    + "REQUIRE will route a FlowFile to success only if all of its records are enriched, and the original input will be sent to original. "
+                    + "The REQUIRE strategy will route the original input FlowFile to failure if any of its records cannot be enriched or unable to be parsed")
             .required(true)
             .allowableValues(RoutingStrategy.values())
             .defaultValue(RoutingStrategy.SKIP.name())
             .build();
 
     public static final PropertyDescriptor RECORD_READER = new PropertyDescriptor.Builder()
-            .name("record-reader")
-            .displayName("Record Reader")
+            .name("Record Reader")
             .description("Specifies the record reader service to use for reading incoming data")
             .required(true)
             .identifiesControllerService(RecordReaderFactory.class)
             .build();
 
     public static final PropertyDescriptor RECORD_WRITER = new PropertyDescriptor.Builder()
-            .name("record-writer")
-            .displayName("Record Writer")
+            .name("Record Writer")
             .description("Specifies the record writer service to use for writing data")
             .required(true)
             .identifiesControllerService(RecordSetWriterFactory.class)
             .build();
 
     public static final PropertyDescriptor LATITUDE_RECORD_PATH = new PropertyDescriptor.Builder()
-            .name("latitude-record-path")
-            .displayName("Latitude Record Path")
+            .name("Latitude Record Path")
             .description("In the ENCODE mode, this property specifies the record path to retrieve the latitude values. "
                     + "Latitude values should be in the range of [-90, 90]; invalid values will be logged at warn level. "
                     + "In the DECODE mode, this property specifies the record path to put the latitude value")
@@ -141,8 +134,7 @@ public class GeohashRecord extends AbstractProcessor {
             .build();
 
     public static final PropertyDescriptor LONGITUDE_RECORD_PATH = new PropertyDescriptor.Builder()
-            .name("longitude-record-path")
-            .displayName("Longitude Record Path")
+            .name("Longitude Record Path")
             .description("In the ENCODE mode, this property specifies the record path to retrieve the longitude values; "
                     + "Longitude values should be in the range of [-180, 180]; invalid values will be logged at warn level. "
                     + "In the DECODE mode, this property specifies the record path to put the longitude value")
@@ -152,8 +144,7 @@ public class GeohashRecord extends AbstractProcessor {
             .build();
 
     public static final PropertyDescriptor GEOHASH_RECORD_PATH = new PropertyDescriptor.Builder()
-            .name("geohash-record-path")
-            .displayName("Geohash Record Path")
+            .name("Geohash Record Path")
             .description("In the ENCODE mode, this property specifies the record path to put the geohash value; "
                     + "in the DECODE mode, this property specifies the record path to retrieve the geohash value")
             .required(true)
@@ -162,8 +153,7 @@ public class GeohashRecord extends AbstractProcessor {
             .build();
 
     public static final PropertyDescriptor GEOHASH_FORMAT = new PropertyDescriptor.Builder()
-            .name("geohash-format")
-            .displayName("Geohash Format")
+            .name("Geohash Format")
             .description("In the ENCODE mode, this property specifies the desired format for encoding geohash; "
                     + "in the DECODE mode, this property specifies the format of geohash provided")
             .required(true)
@@ -172,8 +162,7 @@ public class GeohashRecord extends AbstractProcessor {
             .build();
 
     public static final PropertyDescriptor GEOHASH_LEVEL = new PropertyDescriptor.Builder()
-            .name("geohash-level")
-            .displayName("Geohash Level")
+            .name("Geohash Level")
             .description("The integer precision level(1-12) desired for encoding geohash")
             .required(true)
             .addValidator(StandardValidators.createLongValidator(1, 12, true))
@@ -183,12 +172,12 @@ public class GeohashRecord extends AbstractProcessor {
 
     public static final Relationship REL_NOT_MATCHED = new Relationship.Builder()
             .name("not matched")
-            .description("Using the SPLIT strategy, flowfiles that cannot be encoded or decoded due to the lack of lat/lon or geohashes will be routed to not matched")
+            .description("Using the SPLIT strategy, FlowFiles that cannot be encoded or decoded due to the lack of lat/lon or geohashes will be routed to not matched")
             .build();
 
     public static final Relationship REL_MATCHED = new Relationship.Builder()
             .name("matched")
-            .description("Using the SPLIT strategy, flowfiles with lat/lon or geohashes provided that are successfully encoded or decoded will be routed to matched")
+            .description("Using the SPLIT strategy, FlowFiles with lat/lon or geohashes provided that are successfully encoded or decoded will be routed to matched")
             .build();
 
     public static final Relationship REL_FAILURE = new Relationship.Builder()
@@ -203,7 +192,7 @@ public class GeohashRecord extends AbstractProcessor {
 
     public static final Relationship REL_ORIGINAL = new Relationship.Builder()
             .name("original")
-            .description("The original input flowfile will be sent to this relationship")
+            .description("The original input FlowFile will be sent to this relationship")
             .build();
 
     private static final List<PropertyDescriptor> RECORD_PATH_PROPERTIES = List.of(
@@ -239,7 +228,8 @@ public class GeohashRecord extends AbstractProcessor {
 
     private RoutingStrategyExecutor routingStrategyExecutor;
     private static boolean isSplit;
-    private static Integer enrichedCount, unenrichedCount;
+    private static Integer enrichedCount;
+    private static Integer unenrichedCount;
 
     private final RecordPathCache cache = new RecordPathCache(100);
 
@@ -376,6 +366,19 @@ public class GeohashRecord extends AbstractProcessor {
         routingStrategyExecutor.transferFlowFiles(session, input, output, notMatched);
     }
 
+    @Override
+    public void migrateProperties(PropertyConfiguration config) {
+        config.renameProperty("mode", MODE.getName());
+        config.renameProperty("routing-strategy", ROUTING_STRATEGY.getName());
+        config.renameProperty("record-reader", RECORD_READER.getName());
+        config.renameProperty("record-writer", RECORD_WRITER.getName());
+        config.renameProperty("latitude-record-path", LATITUDE_RECORD_PATH.getName());
+        config.renameProperty("longitude-record-path", LONGITUDE_RECORD_PATH.getName());
+        config.renameProperty("geohash-record-path", GEOHASH_RECORD_PATH.getName());
+        config.renameProperty("geohash-format", GEOHASH_FORMAT.getName());
+        config.renameProperty("geohash-level", GEOHASH_LEVEL.getName());
+    }
+
     private interface RoutingStrategyExecutor {
         void writeFlowFiles(Record record, RecordSetWriter writer, RecordSetWriter notMatchedWriter, boolean updated) throws IOException;
 
@@ -437,7 +440,7 @@ public class GeohashRecord extends AbstractProcessor {
         public void transferFlowFiles(final ProcessSession session, FlowFile input, FlowFile output, FlowFile notMatched) {
             if (unenrichedCount > 0) {
                 session.remove(output);
-                getLogger().error("There exists some records that cannot be enriched or parsed. The original input flowfile is routed to failure using the REQUIRE strategy");
+                getLogger().error("There exists some records that cannot be enriched or parsed. The original input FlowFile is routed to failure using the REQUIRE strategy");
                 session.transfer(input, REL_FAILURE);
             } else {
                 session.transfer(output, REL_SUCCESS);

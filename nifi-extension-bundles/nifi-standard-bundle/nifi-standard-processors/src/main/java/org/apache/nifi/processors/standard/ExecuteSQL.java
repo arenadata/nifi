@@ -31,13 +31,16 @@ import org.apache.nifi.components.PropertyDescriptor;
 import org.apache.nifi.expression.AttributeExpression;
 import org.apache.nifi.expression.ExpressionLanguageScope;
 import org.apache.nifi.flowfile.FlowFile;
+import org.apache.nifi.migration.PropertyConfiguration;
 import org.apache.nifi.processor.ProcessContext;
 import org.apache.nifi.processor.ProcessSession;
+import org.apache.nifi.processor.Relationship;
 import org.apache.nifi.processor.util.StandardValidators;
 import org.apache.nifi.processors.standard.sql.DefaultAvroSqlWriter;
 import org.apache.nifi.processors.standard.sql.SqlWriter;
 import org.apache.nifi.util.db.AvroUtil.CodecType;
 import org.apache.nifi.util.db.JdbcCommon;
+import org.apache.nifi.util.db.JdbcProperties;
 
 import java.util.List;
 import java.util.Set;
@@ -79,24 +82,24 @@ import static org.apache.nifi.util.db.JdbcProperties.USE_AVRO_LOGICAL_TYPES;
 })
 @WritesAttributes({
         @WritesAttribute(attribute = "executesql.row.count", description = "Contains the number of rows returned by the query. "
-                + "If 'Max Rows Per Flow File' is set, then this number will reflect the number of rows in the Flow File instead of the entire result set."),
+                + "If 'Max Rows Per FlowFile' is set, then this number will reflect the number of rows in the FlowFile instead of the entire result set."),
         @WritesAttribute(attribute = "executesql.query.duration", description = "Combined duration of the query execution time and fetch time in milliseconds. "
-                + "If 'Max Rows Per Flow File' is set, then this number will reflect only the fetch time for the rows in the Flow File instead of the entire result set."),
+                + "If 'Max Rows Per FlowFile' is set, then this number will reflect only the fetch time for the rows in the FlowFile instead of the entire result set."),
         @WritesAttribute(attribute = "executesql.query.executiontime", description = "Duration of the query execution time in milliseconds. "
-                + "This number will reflect the query execution time regardless of the 'Max Rows Per Flow File' setting."),
+                + "This number will reflect the query execution time regardless of the 'Max Rows Per FlowFile' setting."),
         @WritesAttribute(attribute = "executesql.query.fetchtime", description = "Duration of the result set fetch time in milliseconds. "
-                + "If 'Max Rows Per Flow File' is set, then this number will reflect only the fetch time for the rows in the Flow File instead of the entire result set."),
+                + "If 'Max Rows Per FlowFile' is set, then this number will reflect only the fetch time for the rows in the FlowFile instead of the entire result set."),
         @WritesAttribute(attribute = "executesql.resultset.index", description = "Assuming multiple result sets are returned, "
                 + "the zero based index of this result set."),
-        @WritesAttribute(attribute = "executesql.error.message", description = "If processing an incoming flow file causes "
-                + "an Exception, the Flow File is routed to failure and this attribute is set to the exception message."),
-        @WritesAttribute(attribute = "fragment.identifier", description = "If 'Max Rows Per Flow File' is set then all FlowFiles from the same query result set "
+        @WritesAttribute(attribute = "executesql.error.message", description = "If processing an incoming FlowFile causes "
+                + "an Exception, the FlowFile is routed to failure and this attribute is set to the exception message."),
+        @WritesAttribute(attribute = "fragment.identifier", description = "If 'Max Rows Per FlowFile' is set then all FlowFiles from the same query result set "
                 + "will have the same value for the fragment.identifier attribute. This can then be used to correlate the results."),
-        @WritesAttribute(attribute = "fragment.count", description = "If 'Max Rows Per Flow File' is set then this is the total number of  "
+        @WritesAttribute(attribute = "fragment.count", description = "If 'Max Rows Per FlowFile' is set then this is the total number of  "
                 + "FlowFiles produced by a single ResultSet. This can be used in conjunction with the "
                 + "fragment.identifier attribute in order to know how many FlowFiles belonged to the same incoming ResultSet. If Output Batch Size is set, then this "
                 + "attribute will not be populated."),
-        @WritesAttribute(attribute = "fragment.index", description = "If 'Max Rows Per Flow File' is set then the position of this FlowFile in the list of "
+        @WritesAttribute(attribute = "fragment.index", description = "If 'Max Rows Per FlowFile' is set then the position of this FlowFile in the list of "
                 + "outgoing FlowFiles that were all derived from the same result set FlowFile. This can be "
                 + "used in conjunction with the fragment.identifier attribute to know which FlowFiles originated from the same query result set and in what order  "
                 + "FlowFiles were produced"),
@@ -133,8 +136,7 @@ import static org.apache.nifi.util.db.JdbcProperties.USE_AVRO_LOGICAL_TYPES;
 public class ExecuteSQL extends AbstractExecuteSQL {
 
     public static final PropertyDescriptor COMPRESSION_FORMAT = new PropertyDescriptor.Builder()
-            .name("compression-format")
-            .displayName("Compression Format")
+            .name("Compression Format")
             .description("Compression type to use when writing Avro files. Default is None.")
             .allowableValues(CodecType.values())
             .defaultValue(CodecType.NONE.toString())
@@ -142,28 +144,42 @@ public class ExecuteSQL extends AbstractExecuteSQL {
             .required(true)
             .build();
 
+    private static final List<PropertyDescriptor> PROPERTY_DESCRIPTORS = List.of(
+            DBCP_SERVICE,
+            SQL_PRE_QUERY,
+            SQL_QUERY,
+            SQL_POST_QUERY,
+            QUERY_TIMEOUT,
+            NORMALIZE_NAMES_FOR_AVRO,
+            USE_AVRO_LOGICAL_TYPES,
+            COMPRESSION_FORMAT,
+            DEFAULT_PRECISION,
+            DEFAULT_SCALE,
+            MAX_ROWS_PER_FLOW_FILE,
+            OUTPUT_BATCH_SIZE,
+            FETCH_SIZE,
+            AUTO_COMMIT,
+            CONTENT_OUTPUT_STRATEGY
+    );
+
+    private static final Set<Relationship> RELATIONSHIPS = Set.of(
+            REL_SUCCESS,
+            REL_FAILURE
+    );
+
     public ExecuteSQL() {
-        relationships = Set.of(
-                REL_SUCCESS,
-                REL_FAILURE
-        );
-        propDescriptors = List.of(
-                DBCP_SERVICE,
-                SQL_PRE_QUERY,
-                SQL_QUERY,
-                SQL_POST_QUERY,
-                QUERY_TIMEOUT,
-                NORMALIZE_NAMES_FOR_AVRO,
-                USE_AVRO_LOGICAL_TYPES,
-                COMPRESSION_FORMAT,
-                DEFAULT_PRECISION,
-                DEFAULT_SCALE,
-                MAX_ROWS_PER_FLOW_FILE,
-                OUTPUT_BATCH_SIZE,
-                FETCH_SIZE,
-                AUTO_COMMIT,
-                CONTENT_OUTPUT_STRATEGY
-        );
+        relationships = RELATIONSHIPS;
+        propDescriptors = PROPERTY_DESCRIPTORS;
+    }
+
+    @Override
+    public void migrateProperties(PropertyConfiguration config) {
+        super.migrateProperties(config);
+        config.renameProperty("compression-format", COMPRESSION_FORMAT.getName());
+        config.renameProperty(JdbcProperties.OLD_NORMALIZE_NAMES_FOR_AVRO_PROPERTY_NAME, NORMALIZE_NAMES_FOR_AVRO.getName());
+        config.renameProperty(JdbcProperties.OLD_USE_AVRO_LOGICAL_TYPES_PROPERTY_NAME, USE_AVRO_LOGICAL_TYPES.getName());
+        config.renameProperty(JdbcProperties.OLD_DEFAULT_PRECISION_PROPERTY_NAME, DEFAULT_PRECISION.getName());
+        config.renameProperty(JdbcProperties.OLD_DEFAULT_SCALE_PROPERTY_NAME, DEFAULT_SCALE.getName());
     }
 
     @Override

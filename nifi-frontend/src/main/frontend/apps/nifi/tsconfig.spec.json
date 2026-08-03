@@ -1,11 +1,13 @@
-/* To learn more about this file see: https://angular.io/config/tsconfig. */
 {
     "extends": "./tsconfig.json",
     "compilerOptions": {
         "outDir": "../../out-tsc/spec",
-        "types": ["jest"],
-        "module": "ES2022",
-        "esModuleInterop": true
+        "types": ["vitest/globals", "node"],
+        "module": "preserve",
+        "esModuleInterop": true,
+        "moduleResolution": "bundler",
+        "isolatedModules": true
     },
+    "files": ["src/test-setup.ts"],
     "include": ["src/**/*.spec.ts", "src/**/*.d.ts"]
 }

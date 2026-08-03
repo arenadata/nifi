@@ -1,4 +1,5 @@
 target
+bin
 .project
 .settings
 .classpath
@@ -22,7 +23,7 @@ allure-results
 .java-version
 /nifi-nar-bundles/nifi-py4j-bundle/nifi-python-extension-api/src/main/python/dist/
 __pycache__
-.cursor/
+.cursor/debug.log
 
 # Develocity
 .mvn/.develocity/

@@ -21,9 +21,6 @@ import com.google.cloud.Service;
 import com.google.cloud.ServiceOptions;
 import com.google.cloud.TransportOptions;
 import com.google.cloud.http.HttpTransportOptions;
-import java.util.Collections;
-import java.util.List;
-import java.util.Map;
 import org.apache.nifi.annotation.lifecycle.OnScheduled;
 import org.apache.nifi.components.ConfigVerificationResult;
 import org.apache.nifi.components.ConfigVerificationResult.Outcome;
@@ -37,6 +34,10 @@ import org.apache.nifi.processor.AbstractProcessor;
 import org.apache.nifi.processor.ProcessContext;
 import org.apache.nifi.processor.util.StandardValidators;
 import org.apache.nifi.proxy.ProxyConfiguration;
+
+import java.util.Collections;
+import java.util.List;
+import java.util.Map;
 
 /**
  * Abstract base class for gcp processors.
@@ -52,18 +53,16 @@ public abstract class AbstractGCPProcessor<
     private static final String OBSOLETE_PROXY_USERNAME = "gcp-proxy-user-name";
     private static final String OBSOLETE_PROXY_PASSWORD = "gcp-proxy-user-password";
 
-    public static final PropertyDescriptor PROJECT_ID = new PropertyDescriptor
-            .Builder().name("gcp-project-id")
-            .displayName("Project ID")
+    public static final PropertyDescriptor PROJECT_ID = new PropertyDescriptor.Builder()
+            .name("Project ID")
             .description("Google Cloud Project ID")
             .required(false)
             .expressionLanguageSupported(ExpressionLanguageScope.ENVIRONMENT)
             .addValidator(StandardValidators.NON_EMPTY_VALIDATOR)
             .build();
 
-    public static final PropertyDescriptor RETRY_COUNT = new PropertyDescriptor
-            .Builder().name("gcp-retry-count")
-            .displayName("Number of retries")
+    public static final PropertyDescriptor RETRY_COUNT = new PropertyDescriptor.Builder()
+            .name("Number of Retries")
             .description("How many retry attempts should be made before routing to the failure relationship.")
             .defaultValue("6")
             .required(true)
@@ -85,10 +84,11 @@ public abstract class AbstractGCPProcessor<
         return cloudService;
     }
 
-
     @Override
     public void migrateProperties(final PropertyConfiguration config) {
         ProxyServiceMigration.migrateProxyProperties(config, PROXY_CONFIGURATION_SERVICE, OBSOLETE_PROXY_HOST, OBSOLETE_PROXY_PORT, OBSOLETE_PROXY_USERNAME, OBSOLETE_PROXY_PASSWORD);
+        config.renameProperty("gcp-project-id", PROJECT_ID.getName());
+        config.renameProperty("gcp-retry-count", RETRY_COUNT.getName());
     }
 
     /**

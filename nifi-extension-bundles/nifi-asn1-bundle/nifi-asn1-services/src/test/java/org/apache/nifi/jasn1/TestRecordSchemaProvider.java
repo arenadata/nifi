@@ -32,7 +32,6 @@ import java.util.Optional;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-
 /**
  * Depends on generated test classes
  */
@@ -100,7 +99,6 @@ public class TestRecordSchemaProvider {
         assertEquals("org.apache.nifi.jasn1.example", childSchema.getSchemaNamespace().orElse(null));
 
     }
-
 
     @Test
     public void testRecursive() {

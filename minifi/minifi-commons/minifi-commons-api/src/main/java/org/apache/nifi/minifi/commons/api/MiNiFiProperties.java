@@ -17,6 +17,13 @@
 
 package org.apache.nifi.minifi.commons.api;
 
+import java.util.Arrays;
+import java.util.LinkedHashMap;
+import java.util.Map;
+import java.util.Set;
+import java.util.function.Function;
+import java.util.stream.Collectors;
+
 import static java.util.stream.Collectors.toSet;
 import static org.apache.nifi.minifi.commons.api.MiNiFiProperties.ValidatorNames.BOOLEAN_VALIDATOR;
 import static org.apache.nifi.minifi.commons.api.MiNiFiProperties.ValidatorNames.LONG_VALIDATOR;
@@ -24,13 +31,6 @@ import static org.apache.nifi.minifi.commons.api.MiNiFiProperties.ValidatorNames
 import static org.apache.nifi.minifi.commons.api.MiNiFiProperties.ValidatorNames.PORT_VALIDATOR;
 import static org.apache.nifi.minifi.commons.api.MiNiFiProperties.ValidatorNames.TIME_PERIOD_VALIDATOR;
 import static org.apache.nifi.minifi.commons.api.MiNiFiProperties.ValidatorNames.VALID;
-
-import java.util.Arrays;
-import java.util.LinkedHashMap;
-import java.util.Map;
-import java.util.Set;
-import java.util.function.Function;
-import java.util.stream.Collectors;
 
 public enum MiNiFiProperties {
     JAVA("java", "java", false, false, VALID),
@@ -94,7 +94,7 @@ public enum MiNiFiProperties {
     C2_SECURITY_KEYSTORE_TYPE("c2.security.keystore.type", "JKS", false, false, VALID),
     C2_REQUEST_COMPRESSION("c2.request.compression", "none", false, true, VALID),
     C2_BOOTSTRAP_ACKNOWLEDGE_TIMEOUT("c2.bootstrap.acknowledge.timeout", "15 sec", false, true, VALID),
-    C2_FLOW_INFO_PROCESSOR_BULLETIN_LIMIT("c2.flow.info.processor.bulletin.limit", "1000", false, true, NON_NEGATIVE_INTEGER_VALIDATOR ),
+    C2_FLOW_INFO_PROCESSOR_BULLETIN_LIMIT("c2.flow.info.processor.bulletin.limit", "1000", false, true, NON_NEGATIVE_INTEGER_VALIDATOR),
     C2_FLOW_INFO_PROCESSOR_STATUS_ENABLED("c2.flow.info.processor.status.enabled", "true", false, true, BOOLEAN_VALIDATOR),
     NIFI_MINIFI_NOTIFIER_INGESTORS("nifi.minifi.notifier.ingestors", null, false, true, VALID),
     NIFI_MINIFI_NOTIFIER_INGESTORS_FILE_CONFIG_PATH("nifi.minifi.notifier.ingestors.file.config.path", null, false, true, VALID),

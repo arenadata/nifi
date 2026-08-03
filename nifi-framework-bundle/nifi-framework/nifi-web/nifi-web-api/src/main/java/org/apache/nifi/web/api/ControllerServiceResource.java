@@ -39,8 +39,10 @@ import jakarta.ws.rs.core.Context;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
 import org.apache.commons.lang3.StringUtils;
+import org.apache.nifi.authorization.AuthorizeComponentAnalysis;
+import org.apache.nifi.authorization.AuthorizeComponentReference;
+import org.apache.nifi.authorization.AuthorizeConfigVerification;
 import org.apache.nifi.authorization.AuthorizeControllerServiceReference;
-import org.apache.nifi.authorization.AuthorizeParameterReference;
 import org.apache.nifi.authorization.Authorizer;
 import org.apache.nifi.authorization.ComponentAuthorizable;
 import org.apache.nifi.authorization.RequestAction;
@@ -70,6 +72,8 @@ import org.apache.nifi.web.api.dto.ControllerServiceDTO;
 import org.apache.nifi.web.api.dto.PropertyDescriptorDTO;
 import org.apache.nifi.web.api.dto.RevisionDTO;
 import org.apache.nifi.web.api.dto.VerifyConfigRequestDTO;
+import org.apache.nifi.web.api.entity.ClearBulletinsRequestEntity;
+import org.apache.nifi.web.api.entity.ClearBulletinsResultEntity;
 import org.apache.nifi.web.api.entity.ComponentStateEntity;
 import org.apache.nifi.web.api.entity.ConfigurationAnalysisEntity;
 import org.apache.nifi.web.api.entity.ControllerServiceEntity;
@@ -85,6 +89,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Controller;
 
+import java.time.Instant;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
@@ -217,7 +222,6 @@ public class ControllerServiceResource extends ApplicationResource {
 
         return generateOkResponse(entity).build();
     }
-
 
     /**
      * Returns the descriptor for the specified property.
@@ -375,7 +379,11 @@ public class ControllerServiceResource extends ApplicationResource {
             ) final ComponentStateEntity componentStateEntity) {
 
         if (isReplicateRequest()) {
-            return replicate(HttpMethod.POST, componentStateEntity);
+            if (componentStateEntity == null) {
+                return replicate(HttpMethod.POST);
+            } else {
+                return replicate(HttpMethod.POST, componentStateEntity);
+            }
         }
 
         final ControllerServiceEntity requestControllerServiceEntity = new ControllerServiceEntity();
@@ -399,6 +407,77 @@ public class ControllerServiceResource extends ApplicationResource {
                     entity.setComponentState(state);
 
                     // generate the response
+                    return generateOkResponse(entity).build();
+                }
+        );
+    }
+
+    /**
+     * Clears bulletins for a controller service.
+     *
+     * @param id The id of the controller service
+     * @param clearBulletinsRequestEntity The clear bulletin request
+     * @return a clearBulletinsResultEntity
+     */
+    @POST
+    @Consumes(MediaType.APPLICATION_JSON)
+    @Produces(MediaType.APPLICATION_JSON)
+    @Path("{id}/bulletins/clear-requests")
+    @Operation(
+            summary = "Clears bulletins for a controller service",
+            responses = {
+                    @ApiResponse(responseCode = "200", content = @Content(schema = @Schema(implementation = ClearBulletinsResultEntity.class))),
+                    @ApiResponse(responseCode = "400", description = "NiFi was unable to complete the request because it was invalid. The request should not be retried without modification."),
+                    @ApiResponse(responseCode = "401", description = "Client could not be authenticated."),
+                    @ApiResponse(responseCode = "403", description = "Client is not authorized to make this request."),
+                    @ApiResponse(responseCode = "404", description = "The specified resource could not be found."),
+                    @ApiResponse(responseCode = "409", description = "The request was valid but NiFi was not in the appropriate state to process it.")
+            },
+            security = {
+                    @SecurityRequirement(name = "Write - /controller-services/{uuid}")
+            }
+    )
+    public Response clearBulletins(
+            @Parameter(
+                    description = "The controller service id.",
+                    required = true
+            )
+            @PathParam("id") final String id,
+            @Parameter(
+                    description = "The clear bulletin request specifying the timestamp from which to clear bulletins.",
+                    required = true
+            ) final ClearBulletinsRequestEntity clearBulletinsRequestEntity) {
+
+        if (clearBulletinsRequestEntity == null) {
+            throw new IllegalArgumentException("Clear bulletin request must be specified.");
+        }
+
+        // Validate the request
+        if (clearBulletinsRequestEntity.getFromTimestamp() == null) {
+            throw new IllegalArgumentException("From timestamp must be specified in the clear bulletin request.");
+        }
+
+        if (isReplicateRequest()) {
+            return replicate(HttpMethod.POST, clearBulletinsRequestEntity);
+        }
+
+        final ControllerServiceEntity requestControllerServiceEntity = new ControllerServiceEntity();
+        requestControllerServiceEntity.setId(id);
+
+        return withWriteLock(
+                serviceFacade,
+                requestControllerServiceEntity,
+                lookup -> {
+                    final Authorizable controllerService = lookup.getControllerService(id).getAuthorizable();
+                    controllerService.authorize(authorizer, RequestAction.WRITE, NiFiUserUtils.getNiFiUser());
+                },
+                () -> { },
+                (controllerServiceEntity) -> {
+                    final Instant fromTimestamp = clearBulletinsRequestEntity.getFromTimestamp();
+
+                    // Clear bulletins for the controller service
+                    final ClearBulletinsResultEntity entity = serviceFacade.clearBulletinsForComponent(controllerServiceEntity.getId(), fromTimestamp);
+
                     return generateOkResponse(entity).build();
                 }
         );
@@ -652,10 +731,9 @@ public class ControllerServiceResource extends ApplicationResource {
                     final ComponentAuthorizable authorizable = lookup.getControllerService(id);
                     authorizable.getAuthorizable().authorize(authorizer, RequestAction.WRITE, NiFiUserUtils.getNiFiUser());
 
-                    // authorize any referenced services
-                    AuthorizeControllerServiceReference.authorizeControllerServiceReferences(requestControllerServiceDTO.getProperties(), authorizable, authorizer, lookup);
-                    AuthorizeParameterReference.authorizeParameterReferences(requestControllerServiceDTO.getProperties(), authorizer, authorizable.getParameterContext(),
-                            NiFiUserUtils.getNiFiUser());
+                    final Map<String, String> properties = requestControllerServiceDTO.getProperties();
+                    final Authorizable parameterContext = authorizable.getParameterContext();
+                    AuthorizeComponentReference.authorizeComponentConfiguration(authorizer, lookup, authorizable, properties, parameterContext);
                 },
                 () -> serviceFacade.verifyUpdateControllerService(requestControllerServiceDTO),
                 (revision, controllerServiceEntity) -> {
@@ -884,7 +962,8 @@ public class ControllerServiceResource extends ApplicationResource {
                 configurationAnalysis,
                 lookup -> {
                     final ComponentAuthorizable controllerService = lookup.getControllerService(controllerServiceId);
-                    controllerService.getAuthorizable().authorize(authorizer, RequestAction.READ, NiFiUserUtils.getNiFiUser());
+                    final Map<String, String> properties = configurationAnalysis.getConfigurationAnalysis().getProperties();
+                    AuthorizeComponentAnalysis.authorize(authorizer, lookup, controllerService, properties, controllerService.getParameterContext());
                 },
                 () -> {
                 },
@@ -917,7 +996,8 @@ public class ControllerServiceResource extends ApplicationResource {
                     "issuing a GET request to /controller-services/{serviceId}/verification-requests/{requestId}. Once the request is completed, the client is expected to issue a DELETE request to " +
                     "/controller-services/{serviceId}/verification-requests/{requestId}.",
             security = {
-                    @SecurityRequirement(name = "Read - /controller-services/{uuid}")
+                    @SecurityRequirement(name = "Write - /controller-services/{uuid}"),
+                    @SecurityRequirement(name = "Read - any referenced Controller Services - /controller-services/{uuid}")
             }
     )
     public Response submitConfigVerificationRequest(
@@ -951,13 +1031,8 @@ public class ControllerServiceResource extends ApplicationResource {
         return withWriteLock(
                 serviceFacade,
                 controllerServiceConfigRequest,
-                lookup -> {
-                    final ComponentAuthorizable controllerService = lookup.getControllerService(controllerServiceId);
-                    controllerService.getAuthorizable().authorize(authorizer, RequestAction.READ, NiFiUserUtils.getNiFiUser());
-                },
-                () -> {
-                    serviceFacade.verifyCanVerifyControllerServiceConfig(controllerServiceId);
-                },
+                lookup -> AuthorizeConfigVerification.authorize(authorizer, lookup, lookup.getControllerService(controllerServiceId), requestDto.getProperties()),
+                () -> serviceFacade.verifyCanVerifyControllerServiceConfig(controllerServiceId),
                 entity -> performAsyncConfigVerification(entity, user)
         );
     }
@@ -1000,7 +1075,6 @@ public class ControllerServiceResource extends ApplicationResource {
         final VerifyConfigRequestEntity updateRequestEntity = createVerifyControllerServiceConfigRequestEntity(asyncRequest, requestId);
         return generateOkResponse(updateRequestEntity).build();
     }
-
 
     @DELETE
     @Consumes(MediaType.WILDCARD)
@@ -1067,7 +1141,6 @@ public class ControllerServiceResource extends ApplicationResource {
         }
     }
 
-
     public Response performAsyncConfigVerification(final VerifyConfigRequestEntity configRequest, final NiFiUser user) {
         // Create an asynchronous request that will occur in the background, because this request may take an indeterminate amount of time.
         final String requestId = generateUuid();
@@ -1102,12 +1175,10 @@ public class ControllerServiceResource extends ApplicationResource {
             final AsynchronousWebRequest<VerifyConfigRequestEntity, List<ConfigVerificationResultDTO>> asyncRequest, final String requestId) {
 
         final VerifyConfigRequestDTO requestDto = asyncRequest.getRequest().getRequest();
-        final List<ConfigVerificationResultDTO> resultsList = asyncRequest.getResults();
 
         final VerifyConfigRequestDTO dto = new VerifyConfigRequestDTO();
         dto.setComponentId(requestDto.getComponentId());
         dto.setProperties(requestDto.getProperties());
-        dto.setResults(resultsList);
 
         dto.setComplete(asyncRequest.isComplete());
         dto.setFailureReason(asyncRequest.getFailureReason());
@@ -1116,6 +1187,7 @@ public class ControllerServiceResource extends ApplicationResource {
         dto.setRequestId(requestId);
         dto.setState(asyncRequest.getState());
         dto.setUri(generateResourceUri("controller-services", requestDto.getComponentId(), "config", "verification-requests", requestId));
+        dto.setResults(asyncRequest.getResults());
 
         final VerifyConfigRequestEntity entity = new VerifyConfigRequestEntity();
         entity.setRequest(dto);

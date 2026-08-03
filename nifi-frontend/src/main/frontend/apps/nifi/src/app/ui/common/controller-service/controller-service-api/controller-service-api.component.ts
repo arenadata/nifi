@@ -15,9 +15,8 @@
  * limitations under the License.
  */
 
-import { Component, Input } from '@angular/core';
-import { Bundle } from '../../../../state/shared';
-import { NiFiCommon } from '@nifi/shared';
+import { Component, Input, inject } from '@angular/core';
+import { Bundle, NiFiCommon } from '@nifi/shared';
 
 @Component({
     selector: 'controller-service-api',
@@ -26,10 +25,10 @@ import { NiFiCommon } from '@nifi/shared';
     styleUrls: ['./controller-service-api.component.scss']
 })
 export class ControllerServiceApi {
+    private nifiCommon = inject(NiFiCommon);
+
     @Input() type!: string;
     @Input() bundle!: Bundle;
-
-    constructor(private nifiCommon: NiFiCommon) {}
 
     formatControllerService(type: string, bundle: Bundle) {
         const formattedType: string = this.nifiCommon.formatType({ type, bundle });

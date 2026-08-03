@@ -849,10 +849,9 @@ public class DatabaseMetadataService implements MetadataService {
         return jdbcTemplate.query(sql, new BundleVersionDependencyEntityRowMapper(), extensionBundleVersionId);
     }
 
-
     //----------------- Extensions ---------------------------------
 
-    private static String BASE_EXTENSION_SQL =
+    private static final String BASE_EXTENSION_SQL =
             "SELECT " +
                 "e.id AS ID, " +
                 "e.bundle_version_id AS BUNDLE_VERSION_ID, " +

@@ -17,13 +17,14 @@
 package org.apache.nifi.registry.extension.bundle;
 
 import io.swagger.v3.oas.annotations.media.Schema;
-import java.util.Set;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotNull;
 import jakarta.xml.bind.annotation.XmlRootElement;
 import jakarta.xml.bind.annotation.XmlTransient;
 import org.apache.nifi.registry.bucket.Bucket;
 import org.apache.nifi.registry.link.LinkableEntity;
+
+import java.util.Set;
 
 @XmlRootElement
 public class BundleVersion extends LinkableEntity {
@@ -40,7 +41,6 @@ public class BundleVersion extends LinkableEntity {
 
     // read-only, only populated from retrieval of an individual bundle version
     private Bucket bucket;
-
 
     @Schema(description = "The metadata about this version of the extension bundle")
     public BundleVersionMetadata getVersionMetadata() {
@@ -86,7 +86,7 @@ public class BundleVersion extends LinkableEntity {
             case NIFI_NAR -> filename + ".nar";
             case MINIFI_CPP ->
                 // TODO should CPP get a special extension
-                    filename;
+                filename;
         };
     }
 

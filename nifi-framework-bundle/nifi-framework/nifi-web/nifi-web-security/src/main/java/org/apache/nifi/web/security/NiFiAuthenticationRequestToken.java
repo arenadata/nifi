@@ -18,6 +18,8 @@ package org.apache.nifi.web.security;
 
 import org.springframework.security.authentication.AbstractAuthenticationToken;
 
+import java.util.Collections;
+
 /**
  * Base class for authentication request tokens in NiFI.
  */
@@ -30,7 +32,7 @@ public abstract class NiFiAuthenticationRequestToken extends AbstractAuthenticat
      * @param authenticationDetails The authentication details of the client making the request
      */
     public NiFiAuthenticationRequestToken(final String clientAddress, final Object authenticationDetails) {
-        super(null);
+        super(Collections.emptyList());
         setAuthenticated(false);
         setDetails(authenticationDetails);
         this.clientAddress = clientAddress;

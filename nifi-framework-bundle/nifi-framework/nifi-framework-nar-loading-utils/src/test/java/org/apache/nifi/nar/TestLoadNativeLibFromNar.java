@@ -16,6 +16,12 @@
  */
 package org.apache.nifi.nar;
 
+import org.apache.nifi.bundle.Bundle;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.condition.DisabledIfSystemProperty;
+import org.junit.jupiter.api.condition.EnabledOnOs;
+import org.junit.jupiter.api.condition.OS;
+
 import java.io.File;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -26,11 +32,6 @@ import java.util.List;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
-import org.apache.nifi.bundle.Bundle;
-import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.condition.DisabledIfSystemProperty;
-import org.junit.jupiter.api.condition.EnabledOnOs;
-import org.junit.jupiter.api.condition.OS;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -70,11 +71,11 @@ public class TestLoadNativeLibFromNar extends AbstractTestNarLoader {
                 .collect(Collectors.toSet());
 
         for (NarClassLoader narClassLoader : narClassLoaders) {
-            Class<?> TestJNI = narClassLoader.loadClass("org.apache.nifi.nar.sharedlib.TestJNI");
+            Class<?> testJniClass = narClassLoader.loadClass("org.apache.nifi.nar.sharedlib.TestJNI");
 
-            Object actualJniMethodReturnValue = TestJNI
+            Object actualJniMethodReturnValue = testJniClass
                     .getMethod("testJniMethod")
-                .invoke(TestJNI.getDeclaredConstructor().newInstance());
+                .invoke(testJniClass.getDeclaredConstructor().newInstance());
 
             assertEquals("calledNativeTestJniMethod", actualJniMethodReturnValue);
         }
@@ -113,11 +114,11 @@ public class TestLoadNativeLibFromNar extends AbstractTestNarLoader {
         for (InstanceClassLoader instanceClassLoader : instanceClassLoaders) {
             String actualLibraryLocation = instanceClassLoader.findLibrary("testjni");
 
-            Class<?> TestJNI = instanceClassLoader.loadClass("org.apache.nifi.nar.sharedlib.TestJNI");
+            Class<?> testJniClass = instanceClassLoader.loadClass("org.apache.nifi.nar.sharedlib.TestJNI");
 
-            Object actualJniMethodReturnValue = TestJNI
+            Object actualJniMethodReturnValue = testJniClass
                     .getMethod("testJniMethod")
-                .invoke(TestJNI.getDeclaredConstructor().newInstance());
+                .invoke(testJniClass.getDeclaredConstructor().newInstance());
 
             assertTrue(actualLibraryLocation.contains(instanceClassLoader.getIdentifier()));
             assertEquals("calledNativeTestJniMethod", actualJniMethodReturnValue);

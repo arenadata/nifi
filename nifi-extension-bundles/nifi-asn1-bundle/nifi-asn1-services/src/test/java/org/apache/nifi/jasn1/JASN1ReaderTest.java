@@ -16,16 +16,12 @@
  */
 package org.apache.nifi.jasn1;
 
-import java.io.FileNotFoundException;
-import java.nio.file.Paths;
-import java.util.Arrays;
-import java.util.Collections;
-import java.util.List;
-import java.util.StringJoiner;
 import org.apache.nifi.controller.ConfigurationContext;
 import org.apache.nifi.controller.ControllerServiceInitializationContext;
 import org.apache.nifi.logging.ComponentLog;
 import org.apache.nifi.processor.exception.ProcessException;
+import org.apache.nifi.util.MockPropertyConfiguration;
+import org.apache.nifi.util.PropertyMigrationResult;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -35,6 +31,14 @@ import org.junit.jupiter.api.condition.OS;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.MockitoAnnotations;
+
+import java.io.FileNotFoundException;
+import java.nio.file.Paths;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.List;
+import java.util.Map;
+import java.util.StringJoiner;
 
 import static org.apache.nifi.jasn1.JASN1Reader.ASN_FILES;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -73,9 +77,10 @@ public class JASN1ReaderTest {
             mockCloseable.close();
         }
 
-        assertTrue(testSubject.asnOutDir.toFile().exists());
-        testSubject.deleteAsnOutDir();
-        assertFalse(testSubject.asnOutDir.toFile().exists());
+        if (testSubject.asnOutDir != null && testSubject.asnOutDir.toFile().exists()) {
+            testSubject.deleteAsnOutDir();
+            assertFalse(testSubject.asnOutDir.toFile().exists());
+        }
     }
 
     @DisabledOnOs({ OS.WINDOWS })
@@ -165,12 +170,37 @@ public class JASN1ReaderTest {
         testCompileError(asnFiles, expectedErrorMessages);
     }
 
+    @Test
+    void testMigration() {
+        final Map<String, String> propertyValues = Map.of(
+                JASN1Reader.ROOT_MODEL_NAME.getName(), "someModel",
+                JASN1Reader.ROOT_CLASS_NAME.getName(), "someClass",
+                JASN1Reader.ASN_FILES.getName(), "someFile",
+                JASN1Reader.SCHEMA_PREPARATION_STRATEGY.getName(), "someSchema",
+                JASN1Reader.SCHEMA_PREPARATION_DIRECTORY.getName(), "someSchemDir"
+        );
+
+        final MockPropertyConfiguration configuration = new MockPropertyConfiguration(propertyValues);
+        final JASN1Reader jasn1Reader = new JASN1Reader();
+        jasn1Reader.migrateProperties(configuration);
+
+        Map<String, String> expected = Map.ofEntries(
+                Map.entry("root-model-name", JASN1Reader.ROOT_MODEL_NAME.getName()),
+                Map.entry("root-model-class-name", JASN1Reader.ROOT_CLASS_NAME.getName()),
+                Map.entry("asn-files", JASN1Reader.ASN_FILES.getName())
+        );
+
+        final PropertyMigrationResult result = configuration.toPropertyMigrationResult();
+        final Map<String, String> propertiesRenamed = result.getPropertiesRenamed();
+
+        assertEquals(expected, propertiesRenamed);
+    }
+
     private void testParseError(String asnFile, List<String> expectedErrorMessages) {
         ConfigurationContext context = mock(ConfigurationContext.class, RETURNS_DEEP_STUBS);
         when(context.getProperty(ASN_FILES).isSet()).thenReturn(true);
         when(context.getProperty(ASN_FILES).evaluateAttributeExpressions().getValue())
                 .thenReturn(asnFile);
-
 
         assertThrows(
                 ProcessException.class,

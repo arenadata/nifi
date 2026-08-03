@@ -16,6 +16,9 @@
  */
 package org.apache.nifi.registry.service;
 
+import jakarta.validation.ConstraintViolation;
+import jakarta.validation.ConstraintViolationException;
+import jakarta.validation.Validator;
 import org.apache.commons.lang3.ObjectUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.nifi.flow.VersionedComponent;
@@ -57,9 +60,6 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
-import jakarta.validation.ConstraintViolation;
-import jakarta.validation.ConstraintViolationException;
-import jakarta.validation.Validator;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
@@ -925,7 +925,7 @@ public class RegistryService {
 
         // Compare the two versions of the flow
         final FlowComparator flowComparator = new StandardFlowComparator(comparableFlowA, comparableFlowB,
-                null, new ConciseEvolvingDifferenceDescriptor(), Function.identity(), VersionedComponent::getIdentifier, FlowComparatorVersionedStrategy.DEEP);
+                new ConciseEvolvingDifferenceDescriptor(), Function.identity(), VersionedComponent::getIdentifier, FlowComparatorVersionedStrategy.DEEP);
         final FlowComparison flowComparison = flowComparator.compare();
 
         final VersionedFlowDifference result = new VersionedFlowDifference();

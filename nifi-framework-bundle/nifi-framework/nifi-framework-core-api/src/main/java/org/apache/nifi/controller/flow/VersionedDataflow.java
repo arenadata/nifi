@@ -17,13 +17,14 @@
 
 package org.apache.nifi.controller.flow;
 
+import org.apache.nifi.flow.VersionedConnector;
 import org.apache.nifi.flow.VersionedControllerService;
 import org.apache.nifi.flow.VersionedFlowAnalysisRule;
 import org.apache.nifi.flow.VersionedFlowRegistryClient;
+import org.apache.nifi.flow.VersionedParameterContext;
 import org.apache.nifi.flow.VersionedParameterProvider;
 import org.apache.nifi.flow.VersionedProcessGroup;
 import org.apache.nifi.flow.VersionedReportingTask;
-import org.apache.nifi.flow.VersionedParameterContext;
 
 import java.util.List;
 
@@ -36,6 +37,7 @@ public class VersionedDataflow {
     private List<VersionedControllerService> controllerServices;
     private List<VersionedReportingTask> reportingTasks;
     private List<VersionedFlowAnalysisRule> flowAnalysisRules;
+    private List<VersionedConnector> connectors;
     private VersionedProcessGroup rootGroup;
 
     public VersionedFlowEncodingVersion getEncodingVersion() {
@@ -100,6 +102,14 @@ public class VersionedDataflow {
 
     public void setParameterProviders(final List<VersionedParameterProvider> parameterProviders) {
         this.parameterProviders = parameterProviders;
+    }
+
+    public List<VersionedConnector> getConnectors() {
+        return connectors;
+    }
+
+    public void setConnectors(final List<VersionedConnector> connectors) {
+        this.connectors = connectors;
     }
 
     public VersionedProcessGroup getRootGroup() {

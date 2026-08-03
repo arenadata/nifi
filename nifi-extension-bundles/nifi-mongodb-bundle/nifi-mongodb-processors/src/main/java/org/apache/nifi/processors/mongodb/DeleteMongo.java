@@ -30,6 +30,7 @@ import org.apache.nifi.components.AllowableValue;
 import org.apache.nifi.components.PropertyDescriptor;
 import org.apache.nifi.components.Validator;
 import org.apache.nifi.flowfile.FlowFile;
+import org.apache.nifi.migration.PropertyConfiguration;
 import org.apache.nifi.processor.ProcessContext;
 import org.apache.nifi.processor.ProcessSession;
 import org.apache.nifi.processor.Relationship;
@@ -46,12 +47,12 @@ import java.util.stream.Stream;
 @InputRequirement(InputRequirement.Requirement.INPUT_REQUIRED)
 @Tags({ "delete", "mongo", "mongodb" })
 @CapabilityDescription(
-    "Executes a delete query against a MongoDB collection. The query is provided in the body of the flowfile " +
+    "Executes a delete query against a MongoDB collection. The query is provided in the body of the FlowFile " +
     "and the user can select whether it will delete one or many documents that match it."
 )
 @ReadsAttribute(
     attribute = "mongodb.delete.mode",
-    description = "Configurable parameter for controlling delete mode on a per-flowfile basis. The process must be " +
+    description = "Configurable parameter for controlling delete mode on a per FlowFile basis. The process must be " +
             "configured to use this option. Acceptable values are 'one' and 'many.'"
 )
 public class DeleteMongo extends AbstractMongoProcessor {
@@ -65,8 +66,7 @@ public class DeleteMongo extends AbstractMongoProcessor {
     static final AllowableValue NO_FAIL  = new AllowableValue("false", "False", "Do not fail when nothing is deleted.");
 
     static final PropertyDescriptor DELETE_MODE = new PropertyDescriptor.Builder()
-            .name("delete-mongo-delete-mode")
-            .displayName("Delete Mode")
+            .name("Delete Mode")
             .description("Choose between deleting one document by query or many documents by query.")
             .allowableValues(DELETE_ONE, DELETE_MANY, DELETE_ATTR)
             .defaultValue("one")
@@ -74,9 +74,8 @@ public class DeleteMongo extends AbstractMongoProcessor {
             .build();
 
     static final PropertyDescriptor FAIL_ON_NO_DELETE = new PropertyDescriptor.Builder()
-            .name("delete-mongo-fail-on-no-delete")
-            .displayName("Fail When Nothing Is Deleted")
-            .description("Determines whether to send the flowfile to the success or failure relationship if nothing is successfully deleted.")
+            .name("Fail When Nothing Is Deleted")
+            .description("Determines whether to send the FlowFile to the success or failure relationship if nothing is successfully deleted.")
             .allowableValues(YES_FAIL, NO_FAIL)
             .defaultValue("true")
             .addValidator(Validator.VALID)
@@ -87,12 +86,12 @@ public class DeleteMongo extends AbstractMongoProcessor {
     static final Relationship REL_FAILURE = new Relationship.Builder().name("failure")
             .description("All FlowFiles that cannot be written to MongoDB are routed to this relationship").build();
 
-    private final static Set<Relationship> RELATIONSHIPS = Set.of(
+    private static final Set<Relationship> RELATIONSHIPS = Set.of(
             REL_SUCCESS,
             REL_FAILURE
     );
 
-    private final static List<PropertyDescriptor> PROPERTY_DESCRIPTORS = Stream.concat(
+    private static final List<PropertyDescriptor> PROPERTY_DESCRIPTORS = Stream.concat(
             getCommonPropertyDescriptors().stream(),
             Stream.of(
                     DELETE_MODE,
@@ -126,7 +125,7 @@ public class DeleteMongo extends AbstractMongoProcessor {
         final Boolean failMode  = context.getProperty(FAIL_ON_NO_DELETE).asBoolean();
 
         if (deleteMode.equals(DELETE_ATTR.getValue())
-                && (StringUtils.isEmpty(deleteAttr) || !ALLOWED_DELETE_VALUES.contains(deleteAttr.toLowerCase()) )) {
+                && (StringUtils.isEmpty(deleteAttr) || !ALLOWED_DELETE_VALUES.contains(deleteAttr.toLowerCase()))) {
             getLogger().error("{} is not an allowed value for mongodb.delete.mode", deleteAttr);
             session.transfer(flowFile, REL_FAILURE);
             return;
@@ -143,7 +142,7 @@ public class DeleteMongo extends AbstractMongoProcessor {
             DeleteResult result;
 
             if (deleteMode.equals(DELETE_ONE.getValue())
-                    || (deleteMode.equals(DELETE_ATTR.getValue()) && deleteAttr.toLowerCase().equals("one") )) {
+                    || (deleteMode.equals(DELETE_ATTR.getValue()) && deleteAttr.toLowerCase().equals("one"))) {
                 result = collection.deleteOne(query);
             } else {
                 result = collection.deleteMany(query);
@@ -159,5 +158,12 @@ public class DeleteMongo extends AbstractMongoProcessor {
             getLogger().error("Could not send a delete to MongoDB, failing...", ex);
             session.transfer(flowFile, REL_FAILURE);
         }
+    }
+
+    @Override
+    public void migrateProperties(PropertyConfiguration config) {
+        super.migrateProperties(config);
+        config.renameProperty("delete-mongo-delete-mode", DELETE_MODE.getName());
+        config.renameProperty("delete-mongo-fail-on-no-delete", FAIL_ON_NO_DELETE.getName());
     }
 }

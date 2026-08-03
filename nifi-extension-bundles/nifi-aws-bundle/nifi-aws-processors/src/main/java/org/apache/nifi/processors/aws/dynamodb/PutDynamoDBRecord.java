@@ -65,6 +65,9 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.function.Predicate;
 
+import static org.apache.nifi.processors.aws.region.RegionUtil.CUSTOM_REGION;
+import static org.apache.nifi.processors.aws.region.RegionUtil.REGION;
+
 @SeeAlso({DeleteDynamoDB.class, GetDynamoDB.class, PutDynamoDB.class})
 @InputRequirement(InputRequirement.Requirement.INPUT_REQUIRED)
 @Tags({"Amazon", "DynamoDB", "AWS", "Put", "Insert", "Record"})
@@ -166,6 +169,7 @@ public class PutDynamoDBRecord extends AbstractDynamoDBProcessor {
     private static final List<PropertyDescriptor> PROPERTY_DESCRIPTORS = List.of(
         TABLE,
         REGION,
+        CUSTOM_REGION,
         AWS_CREDENTIALS_PROVIDER_SERVICE,
         RECORD_READER,
         PARTITION_KEY_STRATEGY,
@@ -211,6 +215,8 @@ public class PutDynamoDBRecord extends AbstractDynamoDBProcessor {
         final FlowFile outgoingFlowFile = session.putAllAttributes(flowFile, attributes);
 
         if (result.isSuccess()) {
+            final String table = context.getProperty(TABLE).evaluateAttributeExpressions().getValue();
+            session.getProvenanceReporter().send(outgoingFlowFile, "dynamodb://%s".formatted(table));
             session.transfer(outgoingFlowFile, REL_SUCCESS);
         } else {
             handleError(context, session, result, outgoingFlowFile);
@@ -262,7 +268,6 @@ public class PutDynamoDBRecord extends AbstractDynamoDBProcessor {
                 "Uses the value of the Record field identified by the \"Sort Key Field\" property as sort key value."),
         BY_SEQUENCE("BySequence", "Generate Sequence",
                 "The processor will assign a number for every item based on the original record's position in the incoming FlowFile. This will be used as sort key value.");
-
 
         private final String value;
         private final String displayName;
@@ -386,7 +391,7 @@ public class PutDynamoDBRecord extends AbstractDynamoDBProcessor {
 
                 final String partitionKeyAttribute = context.getProperty(PARTITION_KEY_ATTRIBUTE).evaluateAttributeExpressions().getValue();
                 if (!flowFileAttributes.containsKey(partitionKeyAttribute)) {
-                    throw new ProcessException("Missing attribute \"" + partitionKeyAttribute + "\"" );
+                    throw new ProcessException("Missing attribute \"" + partitionKeyAttribute + "\"");
                 }
 
                 partitionKeyValue = flowFileAttributes.get(partitionKeyAttribute);

@@ -39,6 +39,7 @@ import org.apache.nifi.remote.RemoteGroupPort;
 
 import java.util.HashMap;
 import java.util.Map;
+
 public class RunningComponentSetFilter implements ComponentSetFilter {
     private final Map<String, VersionedControllerService> controllerServices = new HashMap<>();
     private final Map<String, VersionedProcessor> processors = new HashMap<>();
@@ -135,7 +136,7 @@ public class RunningComponentSetFilter implements ComponentSetFilter {
 
     @Override
     public boolean testFlowRegistryClient(final FlowRegistryClientNode flowRegistryClient) {
-       return false;
+        return false;
     }
 
     @Override

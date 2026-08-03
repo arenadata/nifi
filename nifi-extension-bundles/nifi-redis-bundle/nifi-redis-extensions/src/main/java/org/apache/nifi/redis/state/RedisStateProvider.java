@@ -33,7 +33,6 @@ import org.apache.nifi.redis.util.RedisUtils;
 import org.springframework.data.redis.connection.RedisConnection;
 import org.springframework.data.redis.connection.jedis.JedisConnectionFactory;
 
-import javax.net.ssl.SSLContext;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
@@ -46,6 +45,7 @@ import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
+import javax.net.ssl.SSLContext;
 
 /**
  * A StateProvider backed by Redis.
@@ -225,14 +225,21 @@ public class RedisStateProvider extends AbstractConfigurableComponent implements
 
             boolean replaced = false;
 
-            // start a watch on the key and retrieve the current value
+            // start a watch on the key so the transaction will abort if the value is modified concurrently
             final byte[] key = getComponentKey(componentId).getBytes(StandardCharsets.UTF_8);
             redisConnection.watch(key);
 
             final Optional<String> previousVersion = oldValue == null ? Optional.empty() : oldValue.getStateVersion();
 
-            final byte[] currValue = redisConnection.stringCommands().get(key);
-            final RedisStateMap currStateMap = serDe.deserialize(currValue);
+            // Once a key is being watched the connection is in queueing mode, so a read issued on the same connection
+            // is enqueued into the pending transaction and returns no value. The current value must therefore be read
+            // on a separate connection in order to execute immediately. The watch placed above still guarantees that
+            // the transaction below aborts if the value is modified after this read.
+            final RedisStateMap currStateMap;
+            try (final RedisConnection readConnection = getRedis()) {
+                final byte[] currValue = readConnection.stringCommands().get(key);
+                currStateMap = serDe.deserialize(currValue);
+            }
             final Optional<String> currentVersion = currStateMap == null ? Optional.empty() : currStateMap.getStateVersion();
 
             // start a transaction

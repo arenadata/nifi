@@ -17,13 +17,6 @@
 
 package org.apache.nifi.csv;
 
-import java.io.ByteArrayInputStream;
-import java.io.FileInputStream;
-import java.io.IOException;
-import java.io.InputStream;
-import java.nio.charset.StandardCharsets;
-import java.util.ArrayList;
-import java.util.List;
 import org.apache.commons.csv.CSVFormat;
 import org.apache.commons.csv.DuplicateHeaderMode;
 import org.apache.commons.text.StringEscapeUtils;
@@ -37,6 +30,14 @@ import org.apache.nifi.serialization.record.RecordFieldType;
 import org.apache.nifi.serialization.record.RecordSchema;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
+
+import java.io.ByteArrayInputStream;
+import java.io.FileInputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -71,7 +72,6 @@ public class TestJacksonCSVRecordReader {
         .setEscape('\\')
         .setDuplicateHeaderMode(DuplicateHeaderMode.DISALLOW)
         .get();
-
 
     private List<RecordField> getDefaultFields() {
         final List<RecordField> fields = new ArrayList<>();
@@ -400,7 +400,6 @@ public class TestJacksonCSVRecordReader {
             assertNull(reader.nextRecord(false, false));
         }
     }
-
 
     @Test
     public void testFieldInSchemaButNotHeader() throws IOException, MalformedRecordException {

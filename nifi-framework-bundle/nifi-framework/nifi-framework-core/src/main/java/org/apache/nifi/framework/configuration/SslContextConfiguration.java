@@ -31,11 +31,8 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler;
+import org.springframework.scheduling.TaskScheduler;
 
-import javax.net.ssl.SSLContext;
-import javax.net.ssl.X509ExtendedKeyManager;
-import javax.net.ssl.X509ExtendedTrustManager;
 import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.InputStream;
@@ -52,6 +49,9 @@ import java.time.Duration;
 import java.util.HashSet;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
+import javax.net.ssl.SSLContext;
+import javax.net.ssl.X509ExtendedKeyManager;
+import javax.net.ssl.X509ExtendedTrustManager;
 
 import static org.apache.nifi.util.NiFiProperties.SECURITY_AUTO_RELOAD_ENABLED;
 import static org.apache.nifi.util.NiFiProperties.SECURITY_AUTO_RELOAD_INTERVAL;
@@ -79,9 +79,16 @@ public class SslContextConfiguration {
 
     private NiFiProperties properties;
 
+    private TaskScheduler taskScheduler;
+
     @Autowired
     public void setProperties(final NiFiProperties properties) {
         this.properties = properties;
+    }
+
+    @Autowired
+    public void setTaskScheduler(final TaskScheduler taskScheduler) {
+        this.taskScheduler = taskScheduler;
     }
 
     @Bean
@@ -123,7 +130,7 @@ public class SslContextConfiguration {
                 final WatchService watchService = storeWatchService();
                 command = new WatchServiceMonitorCommand(watchService, changedPathListener);
 
-                watchServiceScheduler().scheduleAtFixedRate(command, reloadDuration);
+                taskScheduler.scheduleAtFixedRate(command, reloadDuration);
                 logger.info("Scheduled Security Store Monitor with Duration [{}]", reloadDuration);
             } else {
                 throw new IllegalStateException("Key Manager Listener or Trust Manager Listener not found");
@@ -132,20 +139,6 @@ public class SslContextConfiguration {
             command = null;
         }
         return command;
-    }
-
-    @Bean
-    public ThreadPoolTaskScheduler watchServiceScheduler() {
-        final ThreadPoolTaskScheduler scheduler;
-
-        if (isReloadEnabled()) {
-            scheduler = new ThreadPoolTaskScheduler();
-            scheduler.setThreadNamePrefix("Security Store Monitor ");
-        } else {
-            scheduler = null;
-        }
-
-        return scheduler;
     }
 
     @Bean
