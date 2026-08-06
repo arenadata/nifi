@@ -15,17 +15,38 @@
 -->
 <project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
     <parent>
-        <artifactId>nifi-registry</artifactId>
+        <artifactId>nifi-registry-extensions</artifactId>
         <groupId>org.apache.nifi.registry</groupId>
         <version>2.10.0.1</version>
     </parent>
     <modelVersion>4.0.0</modelVersion>
 
-    <artifactId>nifi-registry-extensions</artifactId>
+    <artifactId>nifi-registry-ranger</artifactId>
     <packaging>pom</packaging>
 
     <modules>
-        <module>nifi-registry-aws</module>
-        <module>nifi-registry-ranger</module>
+        <module>nifi-registry-ranger-assembly</module>
+        <module>nifi-registry-ranger-jersey-bundle</module>
+        <module>nifi-registry-ranger-plugin</module>
     </modules>
+
+    <dependencyManagement>
+        <dependencies>
+            <dependency>
+                <groupId>org.eclipse.jetty</groupId>
+                <artifactId>jetty-server</artifactId>
+                <version>${jetty.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.solr</groupId>
+                <artifactId>solr-solrj</artifactId>
+                <version>${ranger.solr.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.nimbusds</groupId>
+                <artifactId>nimbus-jose-jwt</artifactId>
+                <version>${nimbus-jose-jwt.version}</version>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
 </project>
