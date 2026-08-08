@@ -61,31 +61,31 @@ public class GetGreengageRecordIT extends NifiSystemContainerizedIT {
     private static final String CREATE_TABLE_TEMPLATE_SQL = "CREATE TABLE %s (%s)";
     private static final String ID_COLUMN = "id";
     private static final Map<String, String> TABLE_COLUMNS = new LinkedHashMap<>() {{
-        put(ID_COLUMN, "BIGSERIAL PRIMARY KEY");
-        put("f_int", "INT");
-        put("f_bigint", "BIGINT");
-        put("f_bit", "BIT");
-        put("f_bool", "BOOLEAN");
-        put("f_bytea", "BYTEA");
-        put("f_char", "CHAR(2)");
-        put("code", "VARCHAR(10)");
-        put("article", "VARCHAR");
-        put("f_date", "DATE");
-        put("f_float", "FLOAT8");
-        put("f_real", "FLOAT4");
-        put("f_jsonb", "JSONB");
-        put("f_numeric", "DECIMAL(10, 5)");
-        put("f_double", "DOUBLE PRECISION");
-        put("f_tinyint", "SMALLINT");
-        put("f_smallint", "SMALLINT");
-        put("f_time", "TIME");
-        put("f_timestampz", "TIMESTAMPTZ");
-        put("f_timestamp", "TIMESTAMP");
-        put("f_uuid", "UUID");
-        put("f_text_array", "TEXT[]");
-        put("f_hstore", "HSTORE");
-        put("f_enum", "DAY");
-    }};
+            put(ID_COLUMN, "BIGSERIAL PRIMARY KEY");
+            put("f_int", "INT");
+            put("f_bigint", "BIGINT");
+            put("f_bit", "BIT");
+            put("f_bool", "BOOLEAN");
+            put("f_bytea", "BYTEA");
+            put("f_char", "CHAR(2)");
+            put("code", "VARCHAR(10)");
+            put("article", "VARCHAR");
+            put("f_date", "DATE");
+            put("f_float", "FLOAT8");
+            put("f_real", "FLOAT4");
+            put("f_jsonb", "JSONB");
+            put("f_numeric", "DECIMAL(10, 5)");
+            put("f_double", "DOUBLE PRECISION");
+            put("f_tinyint", "SMALLINT");
+            put("f_smallint", "SMALLINT");
+            put("f_time", "TIME");
+            put("f_timestampz", "TIMESTAMPTZ");
+            put("f_timestamp", "TIMESTAMP");
+            put("f_uuid", "UUID");
+            put("f_text_array", "TEXT[]");
+            put("f_hstore", "HSTORE");
+            put("f_enum", "DAY");
+        }};
     /**
      * PG target columns derived from ADB.
      * Types that GetGreengageRecord converts are mapped to PG-compatible types:

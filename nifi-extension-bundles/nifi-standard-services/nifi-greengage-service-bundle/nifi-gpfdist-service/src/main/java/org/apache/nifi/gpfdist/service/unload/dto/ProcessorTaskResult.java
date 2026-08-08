@@ -79,7 +79,9 @@ public class ProcessorTaskResult {
 
     @Override
     public boolean equals(Object o) {
-        if (o == null || getClass() != o.getClass()) return false;
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
         ProcessorTaskResult that = (ProcessorTaskResult) o;
         return Objects.equals(processorTaskId, that.processorTaskId);
     }

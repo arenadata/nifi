@@ -47,7 +47,7 @@ public class RangerBasePluginWithPolicies extends RangerBasePlugin {
 
     private static final Logger logger = LoggerFactory.getLogger(RangerBasePluginWithPolicies.class);
 
-    private final static String WILDCARD_ASTERISK = "*";
+    private static final String WILDCARD_ASTERISK = "*";
 
     private UserGroupProvider userGroupProvider;
     private AtomicReference<PolicyLookup> policies = new AtomicReference<>(new PolicyLookup());

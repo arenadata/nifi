@@ -135,6 +135,15 @@ public class WriteContext implements Context {
     }
 
     @Override
+    public boolean equals(Object o) {
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
+        WriteContext that = (WriteContext) o;
+        return Objects.equals(contextId, that.contextId);
+    }
+
+    @Override
     public int hashCode() {
         return Objects.hashCode(contextId);
     }

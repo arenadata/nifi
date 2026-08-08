@@ -59,7 +59,9 @@ public class GreengageColumnDescription implements ColumnDescription {
 
     @Override
     public boolean equals(Object o) {
-        if (o == null || getClass() != o.getClass()) return false;
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
         GreengageColumnDescription that = (GreengageColumnDescription) o;
         return required == that.required && Objects.equals(columnName, that.columnName) && Objects.equals(dataType, that.dataType);
     }

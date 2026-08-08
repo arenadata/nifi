@@ -35,7 +35,9 @@ public class LoadingSegmentResult {
 
     @Override
     public boolean equals(Object o) {
-        if (o == null || getClass() != o.getClass()) return false;
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
         LoadingSegmentResult that = (LoadingSegmentResult) o;
         return segmentId == that.segmentId && loadedRecords == that.loadedRecords && loadedBytes == that.loadedBytes;
     }

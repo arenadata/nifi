@@ -34,7 +34,9 @@ public class GpfdistContextId implements ContextId {
 
     @Override
     public boolean equals(Object o) {
-        if (o == null || getClass() != o.getClass()) return false;
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
         GpfdistContextId contextId = (GpfdistContextId) o;
         return Objects.equals(id, contextId.id);
     }

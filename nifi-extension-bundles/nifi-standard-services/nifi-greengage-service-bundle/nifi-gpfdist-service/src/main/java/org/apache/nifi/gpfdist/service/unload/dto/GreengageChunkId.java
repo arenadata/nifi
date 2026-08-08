@@ -34,7 +34,9 @@ public class GreengageChunkId {
 
     @Override
     public boolean equals(Object o) {
-        if (o == null || getClass() != o.getClass()) return false;
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
         GreengageChunkId that = (GreengageChunkId) o;
         return segmentId == that.segmentId && Objects.equals(transactionId, that.transactionId);
     }

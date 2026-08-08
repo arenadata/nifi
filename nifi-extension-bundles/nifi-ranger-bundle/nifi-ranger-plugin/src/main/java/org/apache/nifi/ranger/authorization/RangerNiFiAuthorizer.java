@@ -113,7 +113,7 @@ public class RangerNiFiAuthorizer implements Authorizer, AuthorizationAuditor {
                 addRequiredResource(RANGER_AUDIT_PATH_PROP, auditConfigValue, pluginConfig);
 
                 final String rangerKerberosEnabledValue = getConfigValue(configurationContext, RANGER_KERBEROS_ENABLED_PROP, Boolean.FALSE.toString());
-                rangerKerberosEnabled = rangerKerberosEnabledValue.equals(Boolean.TRUE.toString()) ? true : false;
+                rangerKerberosEnabled = rangerKerberosEnabledValue.equals(Boolean.TRUE.toString());
 
                 if (rangerKerberosEnabled) {
                     // configure UGI for when RangerAdminRESTClient calls UserGroupInformation.isSecurityEnabled()

@@ -45,8 +45,6 @@ import org.mockito.Mockito;
 import java.io.File;
 import java.util.HashMap;
 import java.util.Map;
-import java.util.stream.Collectors;
-import java.util.stream.Stream;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -87,12 +85,11 @@ public class TestRangerNiFiAuthorizer {
         UserGroupInformation.setConfiguration(securityConf);
 
         // initialize the content of authorizers.xml in case tests added further entries to it
-        authorizersXmlContent = Stream.of(new String[][] {
-                {RangerNiFiAuthorizer.RANGER_SECURITY_PATH_PROP, "src/test/resources/ranger/ranger-nifi-security.xml"},
-                {RangerNiFiAuthorizer.RANGER_AUDIT_PATH_PROP, "src/test/resources/ranger/ranger-nifi-audit.xml"},
-                {RangerNiFiAuthorizer.RANGER_APP_ID_PROP, appId},
-                {RangerNiFiAuthorizer.RANGER_SERVICE_TYPE_PROP, serviceType}
-        }).collect(Collectors.toMap(entry -> entry[0], entry -> entry[1]));
+        authorizersXmlContent = new HashMap<>();
+        authorizersXmlContent.put(RangerNiFiAuthorizer.RANGER_SECURITY_PATH_PROP, "src/test/resources/ranger/ranger-nifi-security.xml");
+        authorizersXmlContent.put(RangerNiFiAuthorizer.RANGER_AUDIT_PATH_PROP, "src/test/resources/ranger/ranger-nifi-audit.xml");
+        authorizersXmlContent.put(RangerNiFiAuthorizer.RANGER_APP_ID_PROP, appId);
+        authorizersXmlContent.put(RangerNiFiAuthorizer.RANGER_SERVICE_TYPE_PROP, serviceType);
         configurationContext = createMockConfigContext();
         rangerBasePlugin = Mockito.mock(RangerBasePluginWithPolicies.class);
 
@@ -143,7 +140,7 @@ public class TestRangerNiFiAuthorizer {
         authorizer = new MockRangerNiFiAuthorizer(rangerBasePlugin);
         authorizer.setNiFiProperties(nifiProperties);
 
-        assertThrows(AuthorizerCreationException.class, () ->authorizer.onConfigured(configurationContext));
+        assertThrows(AuthorizerCreationException.class, () -> authorizer.onConfigured(configurationContext));
     }
 
     @Test
@@ -197,7 +194,7 @@ public class TestRangerNiFiAuthorizer {
         final String user = "admin";
         final String clientIp = "192.168.1.1";
 
-        final Map<String,String> userContext = new HashMap<>();
+        final Map<String, String> userContext = new HashMap<>();
         userContext.put(UserContextKeys.CLIENT_ADDRESS.name(), clientIp);
 
         // the incoming NiFi request to test

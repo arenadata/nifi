@@ -54,7 +54,7 @@ public final class GreengageUtil {
             SUPPORTED_MAX_VALUE_TYPES.stream()
                     .map(e -> e.name().toLowerCase())
                     .collect(Collectors.joining(", "));
-    private final static Map<Integer, Integer> TYPE_OID_TO_JDBC_TYPE_MAP = Map.ofEntries(
+    private static final Map<Integer, Integer> TYPE_OID_TO_JDBC_TYPE_MAP = Map.ofEntries(
             Map.entry(Oid.INT2, Types.SMALLINT),
             Map.entry(Oid.INT4, Types.INTEGER),
             Map.entry(Oid.OID, Types.BIGINT),

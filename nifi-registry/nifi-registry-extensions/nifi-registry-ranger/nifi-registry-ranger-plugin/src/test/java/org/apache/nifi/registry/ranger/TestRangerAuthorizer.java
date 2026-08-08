@@ -48,8 +48,6 @@ import org.mockito.ArgumentMatcher;
 import java.io.File;
 import java.util.HashMap;
 import java.util.Map;
-import java.util.stream.Collectors;
-import java.util.stream.Stream;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -103,13 +101,12 @@ public class TestRangerAuthorizer {
 
     @BeforeEach
     public void initialization() {
-        authorizersXmlContent = Stream.of(new String[][] {
-                {RangerAuthorizer.USER_GROUP_PROVIDER, "user-group-provider"},
-                {RangerAuthorizer.RANGER_SECURITY_PATH_PROP, "src/test/resources/ranger/ranger-nifi-registry-security.xml"},
-                {RangerAuthorizer.RANGER_AUDIT_PATH_PROP, "src/test/resources/ranger/ranger-nifi-registry-audit.xml"},
-                {RangerAuthorizer.RANGER_APP_ID_PROP, appId},
-                {RangerAuthorizer.RANGER_SERVICE_TYPE_PROP, serviceType}
-        }).collect(Collectors.toMap(entry -> entry[0], entry -> entry[1]));
+        authorizersXmlContent = new HashMap<>();
+        authorizersXmlContent.put(RangerAuthorizer.USER_GROUP_PROVIDER, "user-group-provider");
+        authorizersXmlContent.put(RangerAuthorizer.RANGER_SECURITY_PATH_PROP, "src/test/resources/ranger/ranger-nifi-registry-security.xml");
+        authorizersXmlContent.put(RangerAuthorizer.RANGER_AUDIT_PATH_PROP, "src/test/resources/ranger/ranger-nifi-registry-audit.xml");
+        authorizersXmlContent.put(RangerAuthorizer.RANGER_APP_ID_PROP, appId);
+        authorizersXmlContent.put(RangerAuthorizer.RANGER_SERVICE_TYPE_PROP, serviceType);
     }
 
     private void setup(final NiFiRegistryProperties registryProperties,
@@ -238,7 +235,7 @@ public class TestRangerAuthorizer {
         final String user = "admin";
         final String clientIp = "192.168.1.1";
 
-        final Map<String,String> userContext = new HashMap<>();
+        final Map<String, String> userContext = new HashMap<>();
         userContext.put(UserContextKeys.CLIENT_ADDRESS.name(), clientIp);
 
         // the incoming NiFi request to test

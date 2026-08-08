@@ -60,8 +60,6 @@ import org.w3c.dom.Element;
 import org.w3c.dom.Node;
 import org.w3c.dom.NodeList;
 
-import javax.xml.transform.dom.DOMSource;
-import javax.xml.transform.stream.StreamResult;
 import java.io.ByteArrayInputStream;
 import java.io.File;
 import java.io.IOException;
@@ -75,6 +73,8 @@ import java.util.Set;
 import java.util.WeakHashMap;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import javax.xml.transform.dom.DOMSource;
+import javax.xml.transform.stream.StreamResult;
 
 /**
  * Authorizer implementation that uses Apache Ranger to make authorization decisions.
@@ -327,7 +327,7 @@ public class RangerAuthorizer implements ManagedAuthorizer, AuthorizationAuditor
     private Set<String> getConfigValues(final AuthorizerConfigurationContext context, final Pattern namePattern, final String defaultValue) {
         final Set<String> configValues = new HashSet<>();
 
-        for (Map.Entry<String,String> entry : context.getProperties().entrySet()) {
+        for (Map.Entry<String, String> entry : context.getProperties().entrySet()) {
             Matcher matcher = namePattern.matcher(entry.getKey());
             if (matcher.matches() && !StringUtils.isBlank(entry.getValue())) {
                 configValues.add(entry.getValue());
