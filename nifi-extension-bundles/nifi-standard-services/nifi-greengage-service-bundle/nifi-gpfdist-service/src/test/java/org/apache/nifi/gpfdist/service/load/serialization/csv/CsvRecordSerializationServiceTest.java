@@ -57,7 +57,11 @@ import java.time.Instant;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
-import java.util.*;
+import java.util.Date;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.TreeMap;
 
 import static org.apache.nifi.gpfdist.service.load.serialization.csv.CsvRecordSetWriter.DATE_FORMAT;
 import static org.apache.nifi.gpfdist.service.load.serialization.csv.CsvRecordSetWriter.TIMESTAMP_WITHOUT_TIME_ZONE_FORMAT;
