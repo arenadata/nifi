@@ -33,8 +33,6 @@ import org.apache.nifi.authorization.exception.AuthorizationAccessException;
 import org.apache.nifi.authorization.exception.AuthorizerCreationException;
 import org.apache.nifi.authorization.exception.AuthorizerDestructionException;
 import org.apache.nifi.components.PropertyValue;
-import org.apache.nifi.deprecation.log.DeprecationLogger;
-import org.apache.nifi.deprecation.log.DeprecationLoggerFactory;
 import org.apache.nifi.util.NiFiProperties;
 import org.apache.ranger.audit.model.AuthzAuditEvent;
 import org.apache.ranger.authorization.hadoop.config.RangerConfiguration;
@@ -86,8 +84,6 @@ public class RangerNiFiAuthorizer implements Authorizer, AuthorizationAuditor {
     private volatile boolean rangerKerberosEnabled = false;
     private volatile NiFiProperties nifiProperties;
     private final NumberFormat numberFormat = NumberFormat.getInstance();
-
-    private final DeprecationLogger deprecationLogger = DeprecationLoggerFactory.getLogger(getClass());
 
     @Override
     public void initialize(AuthorizerInitializationContext initializationContext) throws AuthorizerCreationException {

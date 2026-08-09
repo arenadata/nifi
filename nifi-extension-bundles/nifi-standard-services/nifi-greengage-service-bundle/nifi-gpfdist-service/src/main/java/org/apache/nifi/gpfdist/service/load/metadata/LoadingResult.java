@@ -26,9 +26,6 @@ public class LoadingResult {
     private final AtomicReference<Throwable> error = new AtomicReference<>();
     private final Map<Integer, LoadingSegmentResult> segmentResults = new ConcurrentHashMap<>();
 
-    public LoadingResult() {
-    }
-
     public AtomicInteger getSegmentsCount() {
         return segmentsCount;
     }

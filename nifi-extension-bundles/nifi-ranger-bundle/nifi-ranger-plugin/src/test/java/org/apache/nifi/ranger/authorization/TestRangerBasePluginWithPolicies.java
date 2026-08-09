@@ -114,7 +114,7 @@ public class TestRangerBasePluginWithPolicies {
         final AccessPolicy readResource1 = pluginWithPolicies.getAccessPolicy(resourceIdentifier1, RequestAction.READ);
         assertNotNull(readResource1);
         assertTrue(accessPolicies.contains(readResource1));
-        assertTrue(readResource1.equals(pluginWithPolicies.getAccessPolicy(readResource1.getIdentifier())));
+        assertEquals(readResource1, pluginWithPolicies.getAccessPolicy(readResource1.getIdentifier()));
         assertEquals(1, readResource1.getUsers().size());
         assertTrue(readResource1.getUsers().contains(new User.Builder().identifierGenerateFromSeed(user1).identity(user1).build().getIdentifier()));
         assertTrue(readResource1.getGroups().isEmpty());
@@ -130,7 +130,7 @@ public class TestRangerBasePluginWithPolicies {
         final AccessPolicy readResource2 = pluginWithPolicies.getAccessPolicy(resourceIdentifier2, RequestAction.READ);
         assertNotNull(readResource2);
         assertTrue(accessPolicies.contains(readResource2));
-        assertTrue(readResource2.equals(pluginWithPolicies.getAccessPolicy(readResource2.getIdentifier())));
+        assertEquals(readResource2, pluginWithPolicies.getAccessPolicy(readResource2.getIdentifier()));
         assertTrue(readResource2.getUsers().isEmpty());
         assertEquals(1, readResource2.getGroups().size());
         assertTrue(readResource2.getGroups().contains(new Group.Builder().identifierGenerateFromSeed(group1).name(group1).build().getIdentifier()));
@@ -139,7 +139,7 @@ public class TestRangerBasePluginWithPolicies {
         final AccessPolicy writeResource2 = pluginWithPolicies.getAccessPolicy(resourceIdentifier2, RequestAction.READ);
         assertNotNull(writeResource2);
         assertTrue(accessPolicies.contains(writeResource2));
-        assertTrue(writeResource2.equals(pluginWithPolicies.getAccessPolicy(writeResource2.getIdentifier())));
+        assertEquals(writeResource2, pluginWithPolicies.getAccessPolicy(writeResource2.getIdentifier()));
         assertTrue(writeResource2.getUsers().isEmpty());
         assertEquals(1, writeResource2.getGroups().size());
         assertTrue(writeResource2.getGroups().contains(new Group.Builder().identifierGenerateFromSeed(group1).name(group1).build().getIdentifier()));
@@ -517,7 +517,7 @@ public class TestRangerBasePluginWithPolicies {
         final AccessPolicy readResource1 = pluginWithPolicies.getAccessPolicy(resourceIdentifier1, RequestAction.READ);
         assertNotNull(readResource1);
         assertTrue(accessPolicies.contains(readResource1));
-        assertTrue(readResource1.equals(pluginWithPolicies.getAccessPolicy(readResource1.getIdentifier())));
+        assertEquals(readResource1, pluginWithPolicies.getAccessPolicy(readResource1.getIdentifier()));
         assertTrue(readResource1.getUsers().isEmpty());
         assertEquals(1, readResource1.getGroups().size());
         assertTrue(readResource1.getGroups().contains(new Group.Builder().identifierGenerateFromSeed(group2).name(group2).build().getIdentifier()));
@@ -533,7 +533,7 @@ public class TestRangerBasePluginWithPolicies {
         final AccessPolicy readResource2 = pluginWithPolicies.getAccessPolicy(resourceIdentifier2, RequestAction.READ);
         assertNotNull(readResource2);
         assertTrue(accessPolicies.contains(readResource2));
-        assertTrue(readResource2.equals(pluginWithPolicies.getAccessPolicy(readResource2.getIdentifier())));
+        assertEquals(readResource2, pluginWithPolicies.getAccessPolicy(readResource2.getIdentifier()));
         assertEquals(1, readResource2.getUsers().size());
         assertTrue(readResource2.getUsers().contains(new User.Builder().identifierGenerateFromSeed(user2).identity(user2).build().getIdentifier()));
         assertTrue(readResource2.getGroups().isEmpty());
@@ -542,7 +542,7 @@ public class TestRangerBasePluginWithPolicies {
         final AccessPolicy writeResource2 = pluginWithPolicies.getAccessPolicy(resourceIdentifier2, RequestAction.READ);
         assertNotNull(writeResource2);
         assertTrue(accessPolicies.contains(writeResource2));
-        assertTrue(writeResource2.equals(pluginWithPolicies.getAccessPolicy(writeResource2.getIdentifier())));
+        assertEquals(writeResource2, pluginWithPolicies.getAccessPolicy(writeResource2.getIdentifier()));
         assertEquals(1, writeResource2.getUsers().size());
         assertTrue(writeResource2.getUsers().contains(new User.Builder().identifierGenerateFromSeed(user2).identity(user2).build().getIdentifier()));
         assertTrue(writeResource2.getGroups().isEmpty());

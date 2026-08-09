@@ -62,7 +62,7 @@ public class ClusterStateNodeIndexService implements NodeIndexService {
     }
 
     private Set<String> getHosts(String hostsStr) {
-        if (hostsStr == null || hostsStr.trim().isEmpty()) {
+        if (hostsStr == null || hostsStr.isEmpty()) {
             throw new IllegalStateException("Cluster hosts state is empty when getting node index for " + hostName);
         }
         final Set<String> hosts = Arrays.stream(hostsStr.split(","))

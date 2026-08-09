@@ -82,11 +82,13 @@ public class NifiSystemContainerizedIT extends NiFiSystemIT {
         setupClient(9091);
     }
 
+    @Override
     protected void setupClient(final int apiPort) {
         nifiClient = createClient(apiPort);
         clientUtil = new NiFiClientUtil(nifiClient, getNiFiVersion(), getTestName());
     }
 
+    @Override
     protected NiFiClient createClient(final int port) {
         final NiFiClientConfig.Builder clientConfigBuilder = new NiFiClientConfig.Builder()
                 .baseUrl("http://localhost:" + port)

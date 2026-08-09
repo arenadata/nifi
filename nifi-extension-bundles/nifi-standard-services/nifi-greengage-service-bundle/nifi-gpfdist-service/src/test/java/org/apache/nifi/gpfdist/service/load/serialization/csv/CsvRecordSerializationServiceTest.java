@@ -57,11 +57,7 @@ import java.time.Instant;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
-import java.util.Date;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.TreeMap;
+import java.util.*;
 
 import static org.apache.nifi.gpfdist.service.load.serialization.csv.CsvRecordSetWriter.DATE_FORMAT;
 import static org.apache.nifi.gpfdist.service.load.serialization.csv.CsvRecordSetWriter.TIMESTAMP_WITHOUT_TIME_ZONE_FORMAT;
@@ -154,54 +150,56 @@ class CsvRecordSerializationServiceTest {
         Timestamp timestampField = new Timestamp(1740027473375L);
         Timestamp zonedTimestampField = new Timestamp(1740002273375L);
 
+        Map<String, Object> recordValues1 = Map.ofEntries(
+                Map.entry(fieldNames.get(0), 1),
+                Map.entry(fieldNames.get(1), 2478701872L),
+                Map.entry(fieldNames.get(2), false),
+                Map.entry(fieldNames.get(3), true),
+                Map.entry(fieldNames.get(4), new Byte[]{-48, 120}),
+                Map.entry(fieldNames.get(5), "tt"),
+                Map.entry(fieldNames.get(6), "c4ca4238a0"),
+                Map.entry(fieldNames.get(7), "edc8acddc2e9a0a6aec79ddd681c75ac"),
+                Map.entry(fieldNames.get(8), dateField),
+                Map.entry(fieldNames.get(9), 0.557235836982727),
+                Map.entry(fieldNames.get(10), 6.559277),
+                Map.entry(fieldNames.get(11), "{\"a\": \"b\"}"),
+                Map.entry(fieldNames.get(12), 45.51123),
+                Map.entry(fieldNames.get(13), 10.3),
+                Map.entry(fieldNames.get(14), 15),
+                Map.entry(fieldNames.get(15), 5000),
+                Map.entry(fieldNames.get(16), timeField),
+                Map.entry(fieldNames.get(17), timestampField),
+                Map.entry(fieldNames.get(18), zonedTimestampField),
+                Map.entry(fieldNames.get(19), "c2142fe5-e305-42ab-8b95-598567e9ea86"),
+                Map.entry(fieldNames.get(20), "{val, val}"),
+                Map.entry(fieldNames.get(21), "{ISBN-13=978-1449370000, weight=11.2 ounces, paperback=243, publisher=postgresqltutorial.com, language=English}"));
+
+        Map<String, Object> recordValues2 = new HashMap<>();
+        recordValues2.put(fieldNames.get(0), 1);
+        recordValues2.put(fieldNames.get(0), null);
+        recordValues2.put(fieldNames.get(2), null);
+        recordValues2.put(fieldNames.get(3), null);
+        recordValues2.put(fieldNames.get(4), null);
+        recordValues2.put(fieldNames.get(5), null);
+        recordValues2.put(fieldNames.get(6), null);
+        recordValues2.put(fieldNames.get(7), null);
+        recordValues2.put(fieldNames.get(8), null);
+        recordValues2.put(fieldNames.get(9), null);
+        recordValues2.put(fieldNames.get(10), null);
+        recordValues2.put(fieldNames.get(11), null);
+        recordValues2.put(fieldNames.get(12), null);
+        recordValues2.put(fieldNames.get(13), null);
+        recordValues2.put(fieldNames.get(14), null);
+        recordValues2.put(fieldNames.get(15), null);
+        recordValues2.put(fieldNames.get(16), null);
+        recordValues2.put(fieldNames.get(17), null);
+        recordValues2.put(fieldNames.get(18), null);
+        recordValues2.put(fieldNames.get(19), null);
+        recordValues2.put(fieldNames.get(20), null);
+        recordValues2.put(fieldNames.get(21), null);
         List<Record> records = List.of(
-                new MapRecord(recordSchema, new HashMap<>() {{
-                        put(fieldNames.get(0), 1);
-                        put(fieldNames.get(1), 2478701872L);
-                        put(fieldNames.get(2), false);
-                        put(fieldNames.get(3), true);
-                        put(fieldNames.get(4), new Byte[]{-48, 120});
-                        put(fieldNames.get(5), "tt");
-                        put(fieldNames.get(6), "c4ca4238a0");
-                        put(fieldNames.get(7), "edc8acddc2e9a0a6aec79ddd681c75ac");
-                        put(fieldNames.get(8), dateField);
-                        put(fieldNames.get(9), 0.557235836982727);
-                        put(fieldNames.get(10), 6.559277);
-                        put(fieldNames.get(11), "{\"a\": \"b\"}");
-                        put(fieldNames.get(12), 45.51123);
-                        put(fieldNames.get(13), 10.3);
-                        put(fieldNames.get(14), 15);
-                        put(fieldNames.get(15), 5000);
-                        put(fieldNames.get(16), timeField);
-                        put(fieldNames.get(17), timestampField);
-                        put(fieldNames.get(18), zonedTimestampField);
-                        put(fieldNames.get(19), "c2142fe5-e305-42ab-8b95-598567e9ea86");
-                        put(fieldNames.get(20), "{val, val}");
-                        put(fieldNames.get(21), "{ISBN-13=978-1449370000, weight=11.2 ounces, paperback=243, publisher=postgresqltutorial.com, language=English}");
-                    }}, true, false),
-                new MapRecord(recordSchema, new HashMap<>() {{
-                        put(fieldNames.get(0), 1);
-                        put(fieldNames.get(0), null);
-                        put(fieldNames.get(2), null);
-                        put(fieldNames.get(3), null);
-                        put(fieldNames.get(4), null);
-                        put(fieldNames.get(5), null);
-                        put(fieldNames.get(6), null);
-                        put(fieldNames.get(7), null);
-                        put(fieldNames.get(8), null);
-                        put(fieldNames.get(9), null);
-                        put(fieldNames.get(10), null);
-                        put(fieldNames.get(11), null);
-                        put(fieldNames.get(12), null);
-                        put(fieldNames.get(13), null);
-                        put(fieldNames.get(14), null);
-                        put(fieldNames.get(15), null);
-                        put(fieldNames.get(16), null);
-                        put(fieldNames.get(17), null);
-                        put(fieldNames.get(18), null);
-                        put(fieldNames.get(19), null);
-                        put(fieldNames.get(20), null);
-                        put(fieldNames.get(21), null); }}, true, false));
+                new MapRecord(recordSchema, recordValues1, true, false),
+                new MapRecord(recordSchema, recordValues2, true, false));
 
         serializationService = new CsvRecordSerializationService(recordSchema, columns, csvFormatConfig, logger);
         records.forEach(r -> serializationService.append(r));

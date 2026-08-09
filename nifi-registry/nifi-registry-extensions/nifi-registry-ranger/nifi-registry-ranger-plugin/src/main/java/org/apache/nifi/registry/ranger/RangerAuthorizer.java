@@ -19,8 +19,6 @@ package org.apache.nifi.registry.ranger;
 import org.apache.commons.lang.StringUtils;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.security.UserGroupInformation;
-import org.apache.nifi.deprecation.log.DeprecationLogger;
-import org.apache.nifi.deprecation.log.DeprecationLoggerFactory;
 import org.apache.nifi.registry.properties.NiFiRegistryProperties;
 import org.apache.nifi.registry.security.authorization.AccessPolicy;
 import org.apache.nifi.registry.security.authorization.AccessPolicyProvider;
@@ -111,8 +109,6 @@ public class RangerAuthorizer implements ManagedAuthorizer, AuthorizationAuditor
 
     private UserGroupProviderLookup userGroupProviderLookup;
     private UserGroupProvider userGroupProvider;
-
-    private final DeprecationLogger deprecationLogger = DeprecationLoggerFactory.getLogger(getClass());
 
     @Override
     public void initialize(AuthorizerInitializationContext initializationContext) throws SecurityProviderCreationException {

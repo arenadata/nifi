@@ -23,6 +23,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.ArrayBlockingQueue;
+import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -32,7 +33,7 @@ public class GpfdistRecordProcessingService
         implements RecordProcessingService {
     private static final int MINIMUM_RECORDS_BUFFER_SIZE = 1000;
     private final String processorTaskId;
-    private final ArrayBlockingQueue<Record> queue;
+    private final BlockingQueue<Record> queue;
     private final AtomicBoolean isStopped = new AtomicBoolean(false);
     private final Map<GreengageChunkId, GpfdistChunkRequestProcessor> segmentDataProcessors = new ConcurrentHashMap<>();
     private final ComponentLog logger;
