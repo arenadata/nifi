@@ -48,22 +48,27 @@
             <dependency>
                 <groupId>org.eclipse.jetty</groupId>
                 <artifactId>jetty-io</artifactId>
-                <version>9.4.58.v20250814</version>
+                <version>${ranger.jetty.version}</version>
             </dependency>
             <dependency>
                 <groupId>org.eclipse.jetty</groupId>
                 <artifactId>jetty-util</artifactId>
-                <version>9.4.58.v20250814</version>
+                <version>${ranger.jetty.version}</version>
             </dependency>
             <dependency>
                 <groupId>org.eclipse.jetty</groupId>
                 <artifactId>jetty-alpn-client</artifactId>
-                <version>9.4.58.v20250814</version>
+                <version>${ranger.jetty.version}</version>
             </dependency>
             <dependency>
                 <groupId>org.eclipse.jetty</groupId>
                 <artifactId>jetty-util-ajax</artifactId>
-                <version>9.4.58.v20250814</version>
+                <version>${ranger.jetty.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.eclipse.jetty</groupId>
+                <artifactId>jetty-alpn-java-client</artifactId>
+                <version>${ranger.jetty.version}</version>
             </dependency>
             <!-- Override commons-beanutils -->
             <dependency>
