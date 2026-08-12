@@ -27,11 +27,11 @@ This extension provides `org.apache.nifi.registry.ranger.RangerAuthorizer` class
 In order to enable Ranger extension when you build NiFi Registry, specify `include-ranger` profile with a maven install command:
 
 ```
-cd nifi-registry
+cd nifi-assembly
 mvn clean install -Pinclude-ranger
 ```
 
-Then the extension will be installed at `${NIFI_REG_HOME}/ext/ranger` directory.
+The extension will be packaged in the NiFi distribution and will be available in the ${NIFI_HOME}/ext/ranger directory after extraction.
 
 ### Add Ranger extension to existing NiFi Registry
 
@@ -39,18 +39,18 @@ Alternatively, you can add Ranger extension to an existing NiFi Registry.
 To do so, build the extension with the following command:
 
 ```
-cd nifi-registry
-mvn clean install -f nifi-registry-extensions/nifi-registry-ranger
+cd nifi-assembly
+mvn clean install -f nifi-registry-extensions/nifi-registry-ranger/nifi-registry-ranger-assembly
 ```
 
-The extension zip will be created as `nifi-registry-extensions/nifi-registry-ranger-extension/target/nifi-registry-ranger-extension-xxx-bin.zip`.
+The extension zip will be created as `nifi-registry-extensions/nifi-registry-ranger/nifi-registry-ranger-assembly/target/nifi-registry-ranger-assembly-xxx-bin.zip`.
 
 Unzip the file into arbitrary directory so that NiFi Registry can use, such as `${NIFI_REG_HOME}/ext/ranger`.
 For example:
 
 ```
 mkdir -p ${NIFI_REG_HOME}/ext/ranger
-unzip -d ${NIFI_REG_HOME}/ext/ranger nifi-registry-extensions/nifi-registry-ranger-extension/target/nifi-registry-ranger-extension-xxx-bin.zip
+unzip -d ${NIFI_REG_HOME}/ext/ranger nifi-registry-extensions/nifi-registry-ranger/nifi-registry-ranger-assembly/target/nifi-registry-ranger-assembly-xxx-bin.zip
 ```
 
 ## NiFi Registry Configuration
