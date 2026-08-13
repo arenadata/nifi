@@ -27,6 +27,7 @@ public class TestConfig {
     private DataSourceProperties adb;
     private DataSourceProperties postgres;
     private String gpfdistPort;
+    private int clientApiPort;
     private int generalTimeout;
     private int pollInterval;
     private String dockerHostIp;
