@@ -349,7 +349,7 @@ public class PutGreengageRecordIT extends NifiSystemContainerizedIT {
         Map<String, String> dbcpServiceProperties = new HashMap<>();
         dbcpServiceProperties.put("Database Connection URL", dsProperties.getContainerAddress());
         dbcpServiceProperties.put("Database Driver Class Name", dsProperties.getDriverName());
-        dbcpServiceProperties.put("database-driver-locations", dsProperties.getDriverLocation());
+        dbcpServiceProperties.put("Database Driver Locations", dsProperties.getDriverLocation());
         dbcpServiceProperties.put("Database User", dsProperties.getUsername());
         if (dsProperties.getPassword() != null) {
             dbcpServiceProperties.put("Password", dsProperties.getPassword());
@@ -391,7 +391,7 @@ public class PutGreengageRecordIT extends NifiSystemContainerizedIT {
                 NIFI_GROUP_ID, QUERY_DB_TABLE_PROCESSOR_NAR_ARTIFACT, getNiFiVersion());
         Map<String, String> queryDbTableProperties = new HashMap<>();
         queryDbTableProperties.put("Database Connection Pooling Service", dbcpService.getId());
-        queryDbTableProperties.put("db-fetch-db-type", "PostgreSQL");
+        queryDbTableProperties.put("Database Type", "PostgreSQL");
         queryDbTableProperties.put("Table Name", PG_TABLE_NAME);
         queryDbTableProperties.put("Columns to Return", getFieldNamesString(fieldMap));
         if (fieldMap.containsKey(ID_COLUMN)) {

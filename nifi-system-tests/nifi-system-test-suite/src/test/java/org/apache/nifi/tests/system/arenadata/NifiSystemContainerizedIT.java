@@ -19,7 +19,6 @@ package org.apache.nifi.tests.system.arenadata;
 import io.qameta.allure.Step;
 import lombok.SneakyThrows;
 import lombok.val;
-import org.apache.nifi.tests.system.NiFiClientUtil;
 import org.apache.nifi.tests.system.NiFiSystemIT;
 import org.apache.nifi.tests.system.arenadata.model.Component;
 import org.apache.nifi.tests.system.arenadata.service.DockerComposeService;
@@ -38,8 +37,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testcontainers.shaded.org.awaitility.Awaitility;
 
-import java.io.IOException;
-import java.security.NoSuchAlgorithmException;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
@@ -72,21 +69,17 @@ public class NifiSystemContainerizedIT extends NiFiSystemIT {
 
     @Override
     @BeforeEach
-    public void setup(final TestInfo testInfo) throws IOException, NoSuchAlgorithmException {
+    public void setup(final TestInfo testInfo) {
         super.testInfo = testInfo;
         final String testClassName = testInfo.getTestClass().map(Class::getSimpleName).orElse("<Unknown Test Class>");
         final String friendlyTestName = testClassName + ":" + testInfo.getDisplayName();
         logger.info("Beginning Test {}", friendlyTestName);
 
         Thread.currentThread().setContextClassLoader(ClassLoader.getSystemClassLoader());
-        setupClient(9091);
+        setupClient();
     }
 
-    protected void setupClient(final int apiPort) {
-        nifiClient = createClient(apiPort);
-        clientUtil = new NiFiClientUtil(nifiClient, getNiFiVersion(), getTestName());
-    }
-
+    @Override
     protected NiFiClient createClient(final int port) {
         final NiFiClientConfig.Builder clientConfigBuilder = new NiFiClientConfig.Builder()
                 .baseUrl("http://localhost:" + port)
@@ -96,6 +89,11 @@ public class NifiSystemContainerizedIT extends NiFiSystemIT {
         return new JerseyNiFiClient.Builder()
                 .config(clientConfigBuilder.build())
                 .build();
+    }
+
+    @Override
+    protected int getClientApiPort() {
+        return getTestConfig().getClientApiPort();
     }
 
     @SneakyThrows
