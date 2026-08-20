@@ -42,7 +42,9 @@ public class GpfidstLoadConfig {
 
     @Override
     public boolean equals(Object o) {
-        if (o == null || getClass() != o.getClass()) return false;
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
         GpfidstLoadConfig that = (GpfidstLoadConfig) o;
         return asyncContextTimeoutMs == that.asyncContextTimeoutMs
                 && gpfdistSegmentStreamBufferSize == that.gpfdistSegmentStreamBufferSize

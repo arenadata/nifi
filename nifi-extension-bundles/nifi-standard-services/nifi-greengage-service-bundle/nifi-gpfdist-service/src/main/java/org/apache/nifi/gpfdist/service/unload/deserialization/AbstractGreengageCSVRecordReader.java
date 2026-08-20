@@ -37,7 +37,7 @@ import java.util.Optional;
 import static org.apache.nifi.gpfdist.service.util.GreengageColumnDataTypeConverter.parseArray;
 import static org.apache.nifi.gpfdist.service.util.GreengageColumnDataTypeConverter.parseMap;
 
-abstract public class AbstractGreengageCSVRecordReader implements RecordReader {
+public abstract class AbstractGreengageCSVRecordReader implements RecordReader {
     private final boolean trimDoubleQuote;
     protected final String dateFormat;
     protected final String timeFormat;

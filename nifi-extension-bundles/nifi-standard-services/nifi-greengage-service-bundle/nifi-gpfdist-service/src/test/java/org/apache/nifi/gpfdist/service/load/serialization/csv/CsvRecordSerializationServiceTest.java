@@ -154,55 +154,57 @@ class CsvRecordSerializationServiceTest {
         Timestamp timestampField = new Timestamp(1740027473375L);
         Timestamp zonedTimestampField = new Timestamp(1740002273375L);
 
+        Map<String, Object> rValues1 = new HashMap<>();
+        rValues1.put(fieldNames.get(0), 1);
+        rValues1.put(fieldNames.get(1), 2478701872L);
+        rValues1.put(fieldNames.get(2), false);
+        rValues1.put(fieldNames.get(3), true);
+        rValues1.put(fieldNames.get(4), new Byte[]{-48, 120});
+        rValues1.put(fieldNames.get(5), "tt");
+        rValues1.put(fieldNames.get(6), "c4ca4238a0");
+        rValues1.put(fieldNames.get(7), "edc8acddc2e9a0a6aec79ddd681c75ac");
+        rValues1.put(fieldNames.get(8), dateField);
+        rValues1.put(fieldNames.get(9), 0.557235836982727);
+        rValues1.put(fieldNames.get(10), 6.559277);
+        rValues1.put(fieldNames.get(11), "{\"a\": \"b\"}");
+        rValues1.put(fieldNames.get(12), 45.51123);
+        rValues1.put(fieldNames.get(13), 10.3);
+        rValues1.put(fieldNames.get(14), 15);
+        rValues1.put(fieldNames.get(15), 5000);
+        rValues1.put(fieldNames.get(16), timeField);
+        rValues1.put(fieldNames.get(17), timestampField);
+        rValues1.put(fieldNames.get(18), zonedTimestampField);
+        rValues1.put(fieldNames.get(19), "c2142fe5-e305-42ab-8b95-598567e9ea86");
+        rValues1.put(fieldNames.get(20), "{val, val}");
+        rValues1.put(fieldNames.get(21), "{ISBN-13=978-1449370000, weight=11.2 ounces, paperback=243, publisher=postgresqltutorial.com, language=English}");
+
+        Map<String, Object> rValues2 = new HashMap<>();
+        rValues2.put(fieldNames.get(0), 1);
+        rValues2.put(fieldNames.get(1), null);
+        rValues2.put(fieldNames.get(2), null);
+        rValues2.put(fieldNames.get(3), null);
+        rValues2.put(fieldNames.get(4), null);
+        rValues2.put(fieldNames.get(5), null);
+        rValues2.put(fieldNames.get(6), null);
+        rValues2.put(fieldNames.get(7), null);
+        rValues2.put(fieldNames.get(8), null);
+        rValues2.put(fieldNames.get(9), null);
+        rValues2.put(fieldNames.get(10), null);
+        rValues2.put(fieldNames.get(11), null);
+        rValues2.put(fieldNames.get(12), null);
+        rValues2.put(fieldNames.get(13), null);
+        rValues2.put(fieldNames.get(14), null);
+        rValues2.put(fieldNames.get(15), null);
+        rValues2.put(fieldNames.get(16), null);
+        rValues2.put(fieldNames.get(17), null);
+        rValues2.put(fieldNames.get(18), null);
+        rValues2.put(fieldNames.get(19), null);
+        rValues2.put(fieldNames.get(20), null);
+        rValues2.put(fieldNames.get(21), null);
+
         List<Record> records = List.of(
-                new MapRecord(recordSchema, new HashMap<>() {{
-                    put(fieldNames.get(0), 1);
-                    put(fieldNames.get(1), 2478701872L);
-                    put(fieldNames.get(2), false);
-                    put(fieldNames.get(3), true);
-                    put(fieldNames.get(4), new Byte[]{-48, 120});
-                    put(fieldNames.get(5), "tt");
-                    put(fieldNames.get(6), "c4ca4238a0");
-                    put(fieldNames.get(7), "edc8acddc2e9a0a6aec79ddd681c75ac");
-                    put(fieldNames.get(8), dateField);
-                    put(fieldNames.get(9), 0.557235836982727);
-                    put(fieldNames.get(10), 6.559277);
-                    put(fieldNames.get(11), "{\"a\": \"b\"}");
-                    put(fieldNames.get(12), 45.51123);
-                    put(fieldNames.get(13), 10.3);
-                    put(fieldNames.get(14), 15);
-                    put(fieldNames.get(15), 5000);
-                    put(fieldNames.get(16), timeField);
-                    put(fieldNames.get(17), timestampField);
-                    put(fieldNames.get(18), zonedTimestampField);
-                    put(fieldNames.get(19), "c2142fe5-e305-42ab-8b95-598567e9ea86");
-                    put(fieldNames.get(20), "{val, val}");
-                    put(fieldNames.get(21), "{ISBN-13=978-1449370000, weight=11.2 ounces, paperback=243, publisher=postgresqltutorial.com, language=English}");
-                }}, true, false),
-                new MapRecord(recordSchema, new HashMap<>() {{
-                    put(fieldNames.get(0), 1);
-                    put(fieldNames.get(0), null);
-                    put(fieldNames.get(2), null);
-                    put(fieldNames.get(3), null);
-                    put(fieldNames.get(4), null);
-                    put(fieldNames.get(5), null);
-                    put(fieldNames.get(6), null);
-                    put(fieldNames.get(7), null);
-                    put(fieldNames.get(8), null);
-                    put(fieldNames.get(9), null);
-                    put(fieldNames.get(10), null);
-                    put(fieldNames.get(11), null);
-                    put(fieldNames.get(12), null);
-                    put(fieldNames.get(13), null);
-                    put(fieldNames.get(14), null);
-                    put(fieldNames.get(15), null);
-                    put(fieldNames.get(16), null);
-                    put(fieldNames.get(17), null);
-                    put(fieldNames.get(18), null);
-                    put(fieldNames.get(19), null);
-                    put(fieldNames.get(20), null);
-                    put(fieldNames.get(21), null);
-                }}, true, false));
+                new MapRecord(recordSchema, rValues1, true, false),
+                new MapRecord(recordSchema, rValues2, true, false));
 
         serializationService = new CsvRecordSerializationService(recordSchema, columns, csvFormatConfig, logger);
         records.forEach(r -> serializationService.append(r));
@@ -216,7 +218,7 @@ class CsvRecordSerializationServiceTest {
                 ""\"ISBN-13""=>""978-1449370000"", ""weight""=>""11.2 ounces"", \
                 ""paperback""=>""243"", ""publisher""=>""postgresqltutorial.com"", \
                 ""language""=>""English""\"\r
-                |||||||||||||||||||||\r
+                "1"|||||||||||||||||||||\r
                 """.formatted(
                 dateToString(dateField),
                 timeToString(timeField),

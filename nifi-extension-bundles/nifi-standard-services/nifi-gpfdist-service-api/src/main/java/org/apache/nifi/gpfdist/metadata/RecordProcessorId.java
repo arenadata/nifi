@@ -40,7 +40,9 @@ public class RecordProcessorId {
 
     @Override
     public boolean equals(Object o) {
-        if (o == null || getClass() != o.getClass()) return false;
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
         RecordProcessorId that = (RecordProcessorId) o;
         return segmentId == that.segmentId && Objects.equals(sinkId, that.sinkId) && Objects.equals(txId, that.txId);
     }

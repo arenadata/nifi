@@ -15,13 +15,14 @@ package org.apache.nifi.gpfdist.service.unload.process;
 
 import org.apache.nifi.logging.ComponentLog;
 
+import java.util.Queue;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentLinkedQueue;
 
 public class ProcessorTaskManager {
     private final int globalParallelFactor;
     private final ComponentLog logger;
-    private final ConcurrentLinkedQueue<ProcessorTask> processorTasksQueue;
+    private final Queue<ProcessorTask> processorTasksQueue;
 
     public ProcessorTaskManager(int nodeIndex,
                                 int nodeCount,
@@ -66,7 +67,7 @@ public class ProcessorTaskManager {
         }
     }
 
-    public ConcurrentLinkedQueue<ProcessorTask> getProcessorTask() {
+    public Queue<ProcessorTask> getProcessorTask() {
         return processorTasksQueue;
     }
 

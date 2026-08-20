@@ -35,9 +35,6 @@ public class CsvFormatConfig implements DataFormatConfig {
             .setSkipHeaderRecord(true)
             .build();
 
-    public CsvFormatConfig() {
-    }
-
     public CSVFormat getCsvFormat() {
         return GREENGAGE_CSV_FORMAT;
     }

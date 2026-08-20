@@ -34,7 +34,9 @@ public class SegmentResult {
 
     @Override
     public boolean equals(Object o) {
-        if (o == null || getClass() != o.getClass()) return false;
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
         SegmentResult that = (SegmentResult) o;
         return segmentId == that.segmentId && Objects.equals(transactions, that.transactions);
     }

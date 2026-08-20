@@ -296,7 +296,9 @@ public class GpfdistRecordSink implements RecordSink {
 
     @Override
     public boolean equals(Object o) {
-        if (!(o instanceof GpfdistRecordSink)) return false;
+        if (!(o instanceof GpfdistRecordSink)) {
+            return false;
+        }
         return Objects.equals(sinkId, ((GpfdistRecordSink) o).sinkId);
     }
 

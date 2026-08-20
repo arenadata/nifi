@@ -49,7 +49,9 @@ public class UnloadingResult {
 
     @Override
     public boolean equals(Object o) {
-        if (o == null || getClass() != o.getClass()) return false;
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
         UnloadingResult that = (UnloadingResult) o;
         return Objects.equals(chunkId, that.chunkId);
     }

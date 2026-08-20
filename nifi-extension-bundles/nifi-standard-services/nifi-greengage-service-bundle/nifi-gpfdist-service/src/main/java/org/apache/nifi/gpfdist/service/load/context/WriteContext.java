@@ -35,8 +35,8 @@ import java.util.concurrent.locks.ReentrantLock;
 import java.util.stream.Collectors;
 
 public class WriteContext implements Context {
-    private final ConcurrentHashMap<String, ReentrantLock> externalTableLocksBySink = new ConcurrentHashMap<>();
-    private final ConcurrentHashMap<String, Boolean> externalTableCreatedBySink = new ConcurrentHashMap<>();
+    private final Map<String, ReentrantLock> externalTableLocksBySink = new ConcurrentHashMap<>();
+    private final Map<String, Boolean> externalTableCreatedBySink = new ConcurrentHashMap<>();
     private final ContextId contextId;
     private final Map<String, GpfdistLoadMetadata> metadataMap;
     private final Map<String, RecordSink> recordSinkMap;
@@ -132,6 +132,15 @@ public class WriteContext implements Context {
             externalTableLocksBySink.clear();
             logger.info("Closed write context with id: {}", contextId);
         }
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
+        WriteContext that = (WriteContext) o;
+        return Objects.equals(contextId, that.contextId);
     }
 
     @Override
