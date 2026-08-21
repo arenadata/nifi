@@ -306,7 +306,7 @@ public class GetGreengageRecordIT extends NifiSystemContainerizedIT {
         Map<String, String> dbcpServiceProperties = new HashMap<>();
         dbcpServiceProperties.put("Database Connection URL", dsProperties.getContainerAddress());
         dbcpServiceProperties.put("Database Driver Class Name", dsProperties.getDriverName());
-        dbcpServiceProperties.put("database-driver-locations", dsProperties.getDriverLocation());
+        dbcpServiceProperties.put("Database Driver Locations", dsProperties.getDriverLocation());
         dbcpServiceProperties.put("Database User", dsProperties.getUsername());
         if (dsProperties.getPassword() != null) {
             dbcpServiceProperties.put("Password", dsProperties.getPassword());
@@ -381,12 +381,12 @@ public class GetGreengageRecordIT extends NifiSystemContainerizedIT {
         ProcessorEntity processor = getClientUtil().createProcessor(PUT_DATABASE_RECORD_PROCESSOR_CLASS_NAME,
                 NIFI_GROUP_ID, STANDARD_NAR_ARTIFACT, getNiFiVersion());
         Map<String, String> properties = new HashMap<>();
-        properties.put("put-db-record-dcbp-service", pgDbcpService.getId());
-        properties.put("put-db-record-record-reader", avroReaderService.getId());
-        properties.put("put-db-record-statement-type", "INSERT");
-        properties.put("put-db-record-table-name", PG_TABLE_NAME);
-        properties.put("put-db-record-schema-name", GG_SCHEMA_NAME);
-        properties.put("put-db-record-unmatched-column-behavior", "Ignore Unmatched Columns");
+        properties.put("Database Connection Pooling Service", pgDbcpService.getId());
+        properties.put("Record Reader", avroReaderService.getId());
+        properties.put("Statement Type", "INSERT");
+        properties.put("Table Name", PG_TABLE_NAME);
+        properties.put("Schema Name", GG_SCHEMA_NAME);
+        properties.put("Unmatched Column Behavior", "Ignore Unmatched Columns");
         getClientUtil().updateProcessorProperties(processor, properties);
         processor = getClientUtil().setAutoTerminatedRelationships(processor,
                 Set.of(RELATION_SUCCESS, RELATION_FAILURE, RELATION_RETRY));

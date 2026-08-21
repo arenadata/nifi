@@ -12,16 +12,25 @@
   See the License for the specific language governing permissions and
   limitations under the License.
 -->
+
+Run following commands from root dir.
+
 ### Build nifi project
 
 ```bash
-mvn clean install -DskipTests=true -f ../../pom.xml
+./mvnw clean install -DskipTests=true
+```
+
+### Build nifi docker image
+
+```bash
+./mvnw install -pl nifi-docker/dockermaven -P docker
 ```
 
 ### Start Arenadata integration tests
 
 ```bash
-mvn install -P arenadata,adb6
-mvn install -P arenadata,adb7
+./mvnw install -pl nifi-system-tests/nifi-system-test-suite -P arenadata,adb6
+./mvnw install -pl nifi-system-tests/nifi-system-test-suite -P arenadata,adb7
 ```
 Without specifying adb6/adb7 profile tests will be executed on adb6 by default.
