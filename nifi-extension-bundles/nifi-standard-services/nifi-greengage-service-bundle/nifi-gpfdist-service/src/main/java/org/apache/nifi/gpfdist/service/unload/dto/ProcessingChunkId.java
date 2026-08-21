@@ -40,7 +40,9 @@ public class ProcessingChunkId {
 
     @Override
     public boolean equals(Object o) {
-        if (o == null || getClass() != o.getClass()) return false;
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
         ProcessingChunkId that = (ProcessingChunkId) o;
         return segmentId == that.segmentId && Objects.equals(processorTaskId, that.processorTaskId) && Objects.equals(txId, that.txId);
     }

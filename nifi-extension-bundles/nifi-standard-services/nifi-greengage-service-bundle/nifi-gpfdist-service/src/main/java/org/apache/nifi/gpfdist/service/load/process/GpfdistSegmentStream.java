@@ -19,6 +19,7 @@ import org.apache.nifi.gpfdist.metadata.RecordProcessorId;
 import org.apache.nifi.logging.ComponentLog;
 
 import java.util.concurrent.ArrayBlockingQueue;
+import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -31,7 +32,7 @@ public class GpfdistSegmentStream {
     private final RecordProcessorId recordProcessorId;
     private final int avgGpfdistPacketSize;
     private final int capacity;
-    private final ArrayBlockingQueue<byte[]> queue;
+    private final BlockingQueue<byte[]> queue;
     private final long enqueueTimeoutMs;
     private final ComponentLog logger;
 

@@ -86,7 +86,9 @@ public class GpfdistCsvDataProcessor implements InputDataProcessor {
 
     @Override
     public boolean equals(Object o) {
-        if (o == null || getClass() != o.getClass()) return false;
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
         GpfdistCsvDataProcessor that = (GpfdistCsvDataProcessor) o;
         return Objects.equals(schema, that.schema)
                 && Objects.equals(dataTypes, that.dataTypes)

@@ -32,6 +32,8 @@ import org.apache.nifi.serialization.record.RecordField;
 import org.apache.nifi.serialization.record.RecordFieldType;
 import org.apache.nifi.serialization.record.RecordSchema;
 import org.apache.nifi.serialization.record.type.ArrayDataType;
+import org.apache.nifi.serialization.record.type.ChoiceDataType;
+import org.apache.nifi.serialization.record.util.DataTypeUtils;
 
 import java.io.IOException;
 import java.io.OutputStream;
@@ -204,6 +206,15 @@ public class CsvRecordSetWriter extends AbstractRecordSetWriter implements Recor
                 return record.getAsString(recordField, TIMESTAMP_WITH_TIME_ZONE_FORMAT);
             case ARRAY:
                 DataType arrayDataType = recordField.getDataType();
+                if (arrayDataType.getFieldType() == RecordFieldType.CHOICE) {
+                    Object arrValue = record.getValue(recordField);
+                    DataType resolvedType = DataTypeUtils.chooseDataType(arrValue, (ChoiceDataType) arrayDataType);
+                    if (resolvedType == null) {
+                        throw new IllegalArgumentException("Could not resolve CHOICE type " + arrayDataType
+                                + " for value [" + arrValue + "] of column type " + ARRAY);
+                    }
+                    arrayDataType = resolvedType;
+                }
                 if (arrayDataType.getFieldType() == RecordFieldType.ARRAY) {
                     return getArrayValue(record, recordField, arrayDataType);
                 } else if (arrayDataType.getFieldType() == RecordFieldType.STRING) {

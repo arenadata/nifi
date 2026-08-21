@@ -74,7 +74,9 @@ public class GpfdistChunkRequestProcessor {
 
     @Override
     public boolean equals(Object o) {
-        if (o == null || getClass() != o.getClass()) return false;
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
         GpfdistChunkRequestProcessor that = (GpfdistChunkRequestProcessor) o;
         return Objects.equals(chunkId, that.chunkId);
     }

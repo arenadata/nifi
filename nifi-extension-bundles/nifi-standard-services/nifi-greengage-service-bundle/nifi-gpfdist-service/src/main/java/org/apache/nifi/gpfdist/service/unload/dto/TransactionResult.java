@@ -29,7 +29,9 @@ public class TransactionResult {
 
     @Override
     public boolean equals(Object o) {
-        if (o == null || getClass() != o.getClass()) return false;
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
         TransactionResult that = (TransactionResult) o;
         return recordsCount == that.recordsCount && Objects.equals(txId, that.txId);
     }

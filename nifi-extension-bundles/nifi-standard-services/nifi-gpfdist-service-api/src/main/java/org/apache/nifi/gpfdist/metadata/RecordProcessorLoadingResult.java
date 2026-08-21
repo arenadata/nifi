@@ -49,7 +49,9 @@ public class RecordProcessorLoadingResult {
 
     @Override
     public boolean equals(Object o) {
-        if (o == null || getClass() != o.getClass()) return false;
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
         RecordProcessorLoadingResult that = (RecordProcessorLoadingResult) o;
         return recordCount == that.recordCount && recordBytes == that.recordBytes && Objects.equals(recordProcessorId, that.recordProcessorId);
     }

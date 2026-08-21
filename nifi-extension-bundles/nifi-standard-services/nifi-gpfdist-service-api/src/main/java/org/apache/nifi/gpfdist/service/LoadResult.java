@@ -53,7 +53,9 @@ public class LoadResult {
 
     @Override
     public boolean equals(Object o) {
-        if (o == null || getClass() != o.getClass()) return false;
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
         LoadResult result = (LoadResult) o;
         return Objects.equals(loadId, result.loadId);
     }
