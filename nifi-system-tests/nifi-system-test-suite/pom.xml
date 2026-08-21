@@ -298,11 +298,6 @@
                             <target>
                                 <replaceregexp
                                         file="${project.basedir}/env/arenadata/.env"
-                                        match="^NIFI_VERSION=.*$"
-                                        replace="NIFI_VERSION=${project.version}"
-                                        byline="true"/>
-                                <replaceregexp
-                                        file="${project.basedir}/env/arenadata/.env"
                                         match="^NIFI_IMAGE_VERSION=.*$"
                                         replace="NIFI_IMAGE_VERSION=${project.version}-maven"
                                         byline="true"/>
