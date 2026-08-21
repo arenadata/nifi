@@ -180,7 +180,7 @@ class CsvRecordSerializationServiceTest {
 
         Map<String, Object> recordValues2 = new HashMap<>();
         recordValues2.put(fieldNames.get(0), 1);
-        recordValues2.put(fieldNames.get(0), null);
+        recordValues2.put(fieldNames.get(1), null);
         recordValues2.put(fieldNames.get(2), null);
         recordValues2.put(fieldNames.get(3), null);
         recordValues2.put(fieldNames.get(4), null);
@@ -217,7 +217,7 @@ class CsvRecordSerializationServiceTest {
                 ""\"ISBN-13""=>""978-1449370000"", ""weight""=>""11.2 ounces"", \
                 ""paperback""=>""243"", ""publisher""=>""postgresqltutorial.com"", \
                 ""language""=>""English""\"\r
-                |||||||||||||||||||||\r
+                "1"|||||||||||||||||||||\r
                 """.formatted(
                 dateToString(dateField),
                 timeToString(timeField),

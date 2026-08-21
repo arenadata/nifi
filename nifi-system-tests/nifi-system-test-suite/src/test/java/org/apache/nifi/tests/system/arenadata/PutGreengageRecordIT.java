@@ -65,8 +65,8 @@ public class PutGreengageRecordIT extends NifiSystemContainerizedIT {
     private static final String CREATE_EXTENSION_UUID_SQL = "CREATE EXTENSION IF NOT EXISTS \"uuid-ossp\"";
     private static final String CREATE_TABLE_TEMPLATE_SQL = "CREATE TABLE %s (%s)";
     private static final String ID_COLUMN = "id";
-
     private static final Map<String, String> TABLE_COLUMNS = new LinkedHashMap<>();
+
     static {
         TABLE_COLUMNS.put(ID_COLUMN, "BIGSERIAL PRIMARY KEY");
         TABLE_COLUMNS.put("f_int", "INT");
