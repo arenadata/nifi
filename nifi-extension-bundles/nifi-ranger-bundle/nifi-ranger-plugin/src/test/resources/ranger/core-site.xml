@@ -1,4 +1,5 @@
-<?xml version="1.0" encoding="UTF-8"?>
+<?xml version="1.0"?>
+<?xml-stylesheet type="text/xsl" href="configuration.xsl"?>
 <!--
   Licensed to the Apache Software Foundation (ASF) under one or more
   contributor license agreements.  See the NOTICE file distributed with
@@ -13,19 +14,9 @@
   See the License for the specific language governing permissions and
   limitations under the License.
 -->
-<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
-    <parent>
-        <artifactId>nifi-registry</artifactId>
-        <groupId>org.apache.nifi.registry</groupId>
-        <version>2.10.0.1</version>
-    </parent>
-    <modelVersion>4.0.0</modelVersion>
-
-    <artifactId>nifi-registry-extensions</artifactId>
-    <packaging>pom</packaging>
-
-    <modules>
-        <module>nifi-registry-aws</module>
-        <module>nifi-registry-ranger</module>
-    </modules>
-</project>
+<configuration>
+    <property>
+        <name>hadoop.security.authentication</name>
+        <value>simple</value>
+    </property>
+</configuration>

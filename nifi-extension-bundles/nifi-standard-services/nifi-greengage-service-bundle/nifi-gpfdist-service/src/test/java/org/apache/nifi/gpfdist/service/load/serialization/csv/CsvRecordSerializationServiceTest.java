@@ -154,57 +154,56 @@ class CsvRecordSerializationServiceTest {
         Timestamp timestampField = new Timestamp(1740027473375L);
         Timestamp zonedTimestampField = new Timestamp(1740002273375L);
 
-        Map<String, Object> rValues1 = new HashMap<>();
-        rValues1.put(fieldNames.get(0), 1);
-        rValues1.put(fieldNames.get(1), 2478701872L);
-        rValues1.put(fieldNames.get(2), false);
-        rValues1.put(fieldNames.get(3), true);
-        rValues1.put(fieldNames.get(4), new Byte[]{-48, 120});
-        rValues1.put(fieldNames.get(5), "tt");
-        rValues1.put(fieldNames.get(6), "c4ca4238a0");
-        rValues1.put(fieldNames.get(7), "edc8acddc2e9a0a6aec79ddd681c75ac");
-        rValues1.put(fieldNames.get(8), dateField);
-        rValues1.put(fieldNames.get(9), 0.557235836982727);
-        rValues1.put(fieldNames.get(10), 6.559277);
-        rValues1.put(fieldNames.get(11), "{\"a\": \"b\"}");
-        rValues1.put(fieldNames.get(12), 45.51123);
-        rValues1.put(fieldNames.get(13), 10.3);
-        rValues1.put(fieldNames.get(14), 15);
-        rValues1.put(fieldNames.get(15), 5000);
-        rValues1.put(fieldNames.get(16), timeField);
-        rValues1.put(fieldNames.get(17), timestampField);
-        rValues1.put(fieldNames.get(18), zonedTimestampField);
-        rValues1.put(fieldNames.get(19), "c2142fe5-e305-42ab-8b95-598567e9ea86");
-        rValues1.put(fieldNames.get(20), "{val, val}");
-        rValues1.put(fieldNames.get(21), "{ISBN-13=978-1449370000, weight=11.2 ounces, paperback=243, publisher=postgresqltutorial.com, language=English}");
+        Map<String, Object> recordValues1 = Map.ofEntries(
+                Map.entry(fieldNames.get(0), 1),
+                Map.entry(fieldNames.get(1), 2478701872L),
+                Map.entry(fieldNames.get(2), false),
+                Map.entry(fieldNames.get(3), true),
+                Map.entry(fieldNames.get(4), new Byte[]{-48, 120}),
+                Map.entry(fieldNames.get(5), "tt"),
+                Map.entry(fieldNames.get(6), "c4ca4238a0"),
+                Map.entry(fieldNames.get(7), "edc8acddc2e9a0a6aec79ddd681c75ac"),
+                Map.entry(fieldNames.get(8), dateField),
+                Map.entry(fieldNames.get(9), 0.557235836982727),
+                Map.entry(fieldNames.get(10), 6.559277),
+                Map.entry(fieldNames.get(11), "{\"a\": \"b\"}"),
+                Map.entry(fieldNames.get(12), 45.51123),
+                Map.entry(fieldNames.get(13), 10.3),
+                Map.entry(fieldNames.get(14), 15),
+                Map.entry(fieldNames.get(15), 5000),
+                Map.entry(fieldNames.get(16), timeField),
+                Map.entry(fieldNames.get(17), timestampField),
+                Map.entry(fieldNames.get(18), zonedTimestampField),
+                Map.entry(fieldNames.get(19), "c2142fe5-e305-42ab-8b95-598567e9ea86"),
+                Map.entry(fieldNames.get(20), "{val, val}"),
+                Map.entry(fieldNames.get(21), "{ISBN-13=978-1449370000, weight=11.2 ounces, paperback=243, publisher=postgresqltutorial.com, language=English}"));
 
-        Map<String, Object> rValues2 = new HashMap<>();
-        rValues2.put(fieldNames.get(0), 1);
-        rValues2.put(fieldNames.get(1), null);
-        rValues2.put(fieldNames.get(2), null);
-        rValues2.put(fieldNames.get(3), null);
-        rValues2.put(fieldNames.get(4), null);
-        rValues2.put(fieldNames.get(5), null);
-        rValues2.put(fieldNames.get(6), null);
-        rValues2.put(fieldNames.get(7), null);
-        rValues2.put(fieldNames.get(8), null);
-        rValues2.put(fieldNames.get(9), null);
-        rValues2.put(fieldNames.get(10), null);
-        rValues2.put(fieldNames.get(11), null);
-        rValues2.put(fieldNames.get(12), null);
-        rValues2.put(fieldNames.get(13), null);
-        rValues2.put(fieldNames.get(14), null);
-        rValues2.put(fieldNames.get(15), null);
-        rValues2.put(fieldNames.get(16), null);
-        rValues2.put(fieldNames.get(17), null);
-        rValues2.put(fieldNames.get(18), null);
-        rValues2.put(fieldNames.get(19), null);
-        rValues2.put(fieldNames.get(20), null);
-        rValues2.put(fieldNames.get(21), null);
-
+        Map<String, Object> recordValues2 = new HashMap<>();
+        recordValues2.put(fieldNames.get(0), 1);
+        recordValues2.put(fieldNames.get(1), null);
+        recordValues2.put(fieldNames.get(2), null);
+        recordValues2.put(fieldNames.get(3), null);
+        recordValues2.put(fieldNames.get(4), null);
+        recordValues2.put(fieldNames.get(5), null);
+        recordValues2.put(fieldNames.get(6), null);
+        recordValues2.put(fieldNames.get(7), null);
+        recordValues2.put(fieldNames.get(8), null);
+        recordValues2.put(fieldNames.get(9), null);
+        recordValues2.put(fieldNames.get(10), null);
+        recordValues2.put(fieldNames.get(11), null);
+        recordValues2.put(fieldNames.get(12), null);
+        recordValues2.put(fieldNames.get(13), null);
+        recordValues2.put(fieldNames.get(14), null);
+        recordValues2.put(fieldNames.get(15), null);
+        recordValues2.put(fieldNames.get(16), null);
+        recordValues2.put(fieldNames.get(17), null);
+        recordValues2.put(fieldNames.get(18), null);
+        recordValues2.put(fieldNames.get(19), null);
+        recordValues2.put(fieldNames.get(20), null);
+        recordValues2.put(fieldNames.get(21), null);
         List<Record> records = List.of(
-                new MapRecord(recordSchema, rValues1, true, false),
-                new MapRecord(recordSchema, rValues2, true, false));
+                new MapRecord(recordSchema, recordValues1, true, false),
+                new MapRecord(recordSchema, recordValues2, true, false));
 
         serializationService = new CsvRecordSerializationService(recordSchema, columns, csvFormatConfig, logger);
         records.forEach(r -> serializationService.append(r));
