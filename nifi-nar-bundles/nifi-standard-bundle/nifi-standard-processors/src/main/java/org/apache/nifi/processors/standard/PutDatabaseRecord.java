@@ -65,6 +65,7 @@ import org.apache.nifi.serialization.record.util.IllegalTypeConversionException;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.sql.BatchUpdateException;
 import java.sql.Clob;
@@ -121,6 +122,8 @@ public class PutDatabaseRecord extends AbstractProcessor {
     public static final String SQL_TYPE = "SQL";   // Not an allowable value in the Statement Type property, must be set by attribute
     public static final String USE_ATTR_TYPE = "Use statement.type Attribute";
     public static final String USE_RECORD_PATH = "Use Record Path";
+
+    static final String DB_MONEY_TYPE_NAME = "money";
 
     static final String STATEMENT_TYPE_ATTRIBUTE = "statement.type";
 
@@ -888,8 +891,12 @@ public class PutDatabaseRecord extends AbstractProcessor {
                             }
                         }
 
+                        String columnTypeName = column == null ? null : column.getTypeName();
                         // Convert (if necessary) from field data type to column data type
-                        if (fieldSqlType != sqlType) {
+                        // PostgreSQL reports a 'money' column as Types.DOUBLE, so this would coerce the value to a
+                        // double (losing precision for large amounts) only for setParameter() to convert it again
+                        // Skip it for money, setParameter() binds the value directly as numeric, keeping it exact
+                        if (fieldSqlType != sqlType && !DB_MONEY_TYPE_NAME.equalsIgnoreCase(columnTypeName)) {
                             try {
                                 DataType targetDataType = DataTypeUtils.getDataTypeFromSQLTypeValue(sqlType);
                                 // If sqlType is unsupported, fall back to the fieldSqlType instead
@@ -940,17 +947,17 @@ public class PutDatabaseRecord extends AbstractProcessor {
 
                         // If DELETE type, insert the object twice if the column is nullable because of the null check (see generateDelete for details)
                         if (DELETE_TYPE.equalsIgnoreCase(statementType)) {
-                            setParameter(ps, ++deleteIndex, currentValue, fieldSqlType, sqlType);
+                            setParameter(ps, ++deleteIndex, currentValue, fieldSqlType, sqlType, columnTypeName);
                             if (column != null && column.isNullable()) {
-                                setParameter(ps, ++deleteIndex, currentValue, fieldSqlType, sqlType);
+                                setParameter(ps, ++deleteIndex, currentValue, fieldSqlType, sqlType, columnTypeName);
                             }
                         } else if (UPSERT_TYPE.equalsIgnoreCase(statementType)) {
                             final int timesToAddObjects = databaseAdapter.getTimesToAddColumnObjectsForUpsert();
                             for (int j = 0; j < timesToAddObjects; j++) {
-                                setParameter(ps, i + (fieldIndexes.size() * j) + 1, currentValue, fieldSqlType, sqlType);
+                                setParameter(ps, i + (fieldIndexes.size() * j) + 1, currentValue, fieldSqlType, sqlType, columnTypeName);
                             }
                         } else {
-                            setParameter(ps, i + 1, currentValue, fieldSqlType, sqlType);
+                            setParameter(ps, i + 1, currentValue, fieldSqlType, sqlType, columnTypeName);
                         }
                     }
 
@@ -978,8 +985,23 @@ public class PutDatabaseRecord extends AbstractProcessor {
         }
     }
 
-    private void setParameter(PreparedStatement ps, int index, Object value, int fieldSqlType, int sqlType) throws IOException {
-        if (sqlType == Types.BLOB) {
+    private void setParameter(PreparedStatement ps, int index, Object value, int fieldSqlType, int sqlType, String typeName) throws IOException {
+        // money must be checked first, before the sqlType-based branches below. PostgreSQL reports a 'money'
+        // column as Types.DOUBLE, so dispatching on sqlType would route the value to the generic
+        // setObject(value, DOUBLE) and fail
+        // including the case where the record field arrived as a VARCHAR/String but the target column is money
+        if (DB_MONEY_TYPE_NAME.equalsIgnoreCase(typeName)) {
+            try {
+                if (value == null) {
+                    ps.setNull(index, Types.NUMERIC);
+                } else {
+                    BigDecimal moneyValue = value instanceof BigDecimal ? ((BigDecimal) value) : new BigDecimal(value.toString());
+                    ps.setObject(index, moneyValue, Types.NUMERIC);
+                }
+            } catch (SQLException | NumberFormatException e) {
+                throw new IOException("Unable to set money value " + value, e);
+            }
+        } else if (sqlType == Types.BLOB) {
             // Convert Byte[] or String (anything that has been converted to byte[]) into BLOB
             if (fieldSqlType == Types.ARRAY || fieldSqlType == Types.VARCHAR) {
                 if (!(value instanceof byte[])) {
