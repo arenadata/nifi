@@ -30,6 +30,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 
+import java.math.BigDecimal;
 import java.sql.Connection;
 import java.sql.Date;
 import java.sql.DriverManager;
@@ -45,7 +46,6 @@ import java.util.HashMap;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-
 @SuppressWarnings("resource")
 public class PutDatabaseRecordIT {
 
@@ -60,12 +60,14 @@ public class PutDatabaseRecordIT {
             {
               "name": "John Doe",
               "age": 50,
-              "favorite_color": "blue"
+              "favorite_color": "blue",
+              "salary": 1234.56
             }
             """;
 
     private static final String FAVORITE_COLOR_FIELD = "favorite_color";
     private static final String FAVORITE_COLOR = "blue";
+    private static final String SALARY_INPUT = "1234.56";
 
     private static PostgreSQLContainer postgres;
     private TestRunner runner;
@@ -146,12 +148,43 @@ public class PutDatabaseRecordIT {
     }
 
     @Test
+    public void testWithMoneyValue() throws SQLException {
+        runner.enqueue("""
+            {
+              "name": "John Doe",
+              "age": 50,
+              "salary": 1234.56
+            }
+            """);
+        runner.run();
+        runner.assertAllFlowFilesTransferred(PutDatabaseRecord.REL_SUCCESS, 1);
+
+        getResults();
+    }
+
+    @Test
+    public void testWithMoneyValueAsString() throws SQLException {
+        runner.enqueue("""
+            {
+              "name": "John Doe",
+              "age": 50,
+              "salary": "1234.56"
+            }
+            """);
+        runner.run();
+        runner.assertAllFlowFilesTransferred(PutDatabaseRecord.REL_SUCCESS, 1);
+
+        getResults();
+    }
+
+    @Test
     public void testWithDate() throws SQLException {
         runner.enqueue("""
             {
               "name": "John Doe",
               "age": 50,
-              "dob": "1975-01-01"
+              "dob": "1975-01-01",
+              "salary": 1234.56
             }
             """);
         runner.run();
@@ -246,7 +279,7 @@ public class PutDatabaseRecordIT {
 
     private Map<String, Object> getResults() throws SQLException {
         try (final Connection connection = DriverManager.getConnection(postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword())) {
-            final String sqlQuery = "SELECT * FROM person";
+            final String sqlQuery = "SELECT name, age, favorite_color, dob, lastTransactionTime, salary::numeric AS salary FROM person";
             final Map<String, Object> resultsMap = new HashMap<>();
 
             try (final PreparedStatement preparedStatement = connection.prepareStatement(sqlQuery);
@@ -266,6 +299,7 @@ public class PutDatabaseRecordIT {
 
             assertEquals("John Doe", resultsMap.get("name"));
             assertEquals(50, resultsMap.get("age"));
+            assertEquals(new BigDecimal(SALARY_INPUT), resultsMap.get("salary"));
 
             return resultsMap;
         }
@@ -280,7 +314,8 @@ public class PutDatabaseRecordIT {
             {
               "name": "John Doe",
               "age": 50,
-              "lastTransactionTime": "%s"
-            }""".formatted(lastTransactionTime);
+              "lastTransactionTime": "%s",
+              "salary": %s
+            }""".formatted(lastTransactionTime, SALARY_INPUT);
     }
 }
