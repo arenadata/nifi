@@ -223,6 +223,62 @@
 
     <profiles>
         <profile>
+            <id>include-ranger</id>
+            <activation>
+                <activeByDefault>false</activeByDefault>
+            </activation>
+            <dependencies>
+                <dependency>
+                    <groupId>org.apache.nifi.registry</groupId>
+                    <artifactId>nifi-registry-ranger-assembly</artifactId>
+                    <version>2.10.0.1</version>
+                    <classifier>bin</classifier>
+                    <scope>runtime</scope>
+                    <type>${nifi.registry.extension.archive.type}</type>
+                    <exclusions>
+                        <exclusion>
+                            <groupId>com.fasterxml.jackson.core</groupId>
+                            <artifactId>jackson-core</artifactId>
+                        </exclusion>
+                        <exclusion>
+                            <groupId>net.minidev</groupId>
+                            <artifactId>json-smart</artifactId>
+                        </exclusion>
+                        <exclusion>
+                            <groupId>net.minidev</groupId>
+                            <artifactId>accessors-smart</artifactId>
+                        </exclusion>
+                        <exclusion>
+                            <groupId>org.apache.httpcomponents</groupId>
+                            <artifactId>httpcore</artifactId>
+                        </exclusion>
+                    </exclusions>
+                </dependency>
+            </dependencies>
+            <build>
+                <plugins>
+                    <plugin>
+                        <artifactId>maven-dependency-plugin</artifactId>
+                        <executions>
+                            <execution>
+                                <id>unpack-ranger-extensions</id>
+                                <goals>
+                                    <goal>unpack-dependencies</goal>
+                                </goals>
+                                <phase>generate-resources</phase>
+                                <configuration>
+                                    <outputDirectory>${project.build.directory}/ext/ranger</outputDirectory>
+                                    <includeGroupIds>org.apache.nifi.registry</includeGroupIds>
+                                    <includeArtifactIds>nifi-registry-ranger-assembly</includeArtifactIds>
+                                    <excludeTransitive>false</excludeTransitive>
+                                </configuration>
+                            </execution>
+                        </executions>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+        <profile>
             <id>include-aws</id>
             <activation>
                 <property>
