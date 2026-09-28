@@ -142,6 +142,8 @@ public class HiveMetastoreIcebergCatalog extends AbstractControllerService imple
 
     private static final String NAMESPACES_FOUND = "Namespaces found [%d]";
 
+    private static final String METASTORE_URI_NOT_FOUND = "Hive Metastore URI not found: configure the property or provide a configuration file containing %s or %s";
+
     private static final String CONFIGURATION_FAILED = "Catalog Configuration failed";
 
     private static final String SPACE_SEPARATOR = " ";
@@ -182,7 +184,7 @@ public class HiveMetastoreIcebergCatalog extends AbstractControllerService imple
                 results.add(new ValidationResult.Builder()
                         .subject(METASTORE_URI.getName())
                         .valid(false)
-                        .explanation("Hive Metastore URI not found: configure the property or provide a configuration file containing %s or %s".formatted(METASTORE_THRIFT_URIS_PROPERTY, METASTORE_URIS_PROPERTY))
+                        .explanation(METASTORE_URI_NOT_FOUND.formatted(METASTORE_THRIFT_URIS_PROPERTY, METASTORE_URIS_PROPERTY))
                         .build()
                 );
             }
