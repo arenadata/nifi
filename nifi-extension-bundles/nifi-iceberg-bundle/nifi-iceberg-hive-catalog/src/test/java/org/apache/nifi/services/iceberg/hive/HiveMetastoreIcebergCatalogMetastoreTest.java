@@ -37,7 +37,11 @@ import org.apache.iceberg.types.Types;
 import org.apache.nifi.components.ConfigVerificationResult;
 import org.apache.nifi.components.PropertyDescriptor;
 import org.apache.nifi.controller.ConfigurationContext;
+import org.apache.nifi.processors.iceberg.PutIcebergRecord;
 import org.apache.nifi.reporting.InitializationException;
+import org.apache.nifi.serialization.record.MockRecordParser;
+import org.apache.nifi.serialization.record.RecordFieldType;
+import org.apache.nifi.services.iceberg.parquet.ParquetIcebergWriter;
 import org.apache.nifi.util.MockConfigurationContext;
 import org.apache.nifi.util.NoOpProcessor;
 import org.apache.nifi.util.TestRunner;
@@ -91,6 +95,24 @@ class HiveMetastoreIcebergCatalogMetastoreTest {
     private static final String SERVICE_ID = "hive-metastore-catalog";
 
     private static final String SECOND_SERVICE_ID = "hive-metastore-catalog-second";
+
+    private static final String PROCESSOR_SERVICE_ID = "hive-metastore-catalog-processor";
+
+    private static final String WRITER_SERVICE_ID = "parquet-iceberg-writer";
+
+    private static final String READER_SERVICE_ID = "record-reader";
+
+    private static final String CATALOG_PROPERTY = "Iceberg Catalog";
+
+    private static final String WRITER_PROPERTY = "Iceberg Writer";
+
+    private static final String READER_PROPERTY = "Record Reader";
+
+    private static final String NAMESPACE_PROPERTY = "Namespace";
+
+    private static final String TABLE_NAME_PROPERTY = "Table Name";
+
+    private static final String SUCCESS_RELATIONSHIP = "success";
 
     private static final String NAMESPACE_FORMAT = "nifi_ads_3777_%d";
 
@@ -282,6 +304,57 @@ class HiveMetastoreIcebergCatalogMetastoreTest {
         catalog.createNamespace(namespace);
 
         assertTrue(catalog.namespaceExists(namespace));
+    }
+
+    @Test
+    void testPutIcebergRecordAppendsRecordsToTable() throws IOException, InitializationException {
+        runner.enableControllerService(catalogService);
+        final HiveCatalog catalog = assertInstanceOf(HiveCatalog.class, catalogService.getCatalog());
+        catalog.createNamespace(namespace);
+        catalog.createTable(tableIdentifier, SCHEMA, PartitionSpec.unpartitioned());
+
+        final TestRunner processorRunner = TestRunners.newTestRunner(PutIcebergRecord.class);
+        final HiveMetastoreIcebergCatalog processorCatalog = new HiveMetastoreIcebergCatalog();
+        processorRunner.addControllerService(PROCESSOR_SERVICE_ID, processorCatalog);
+        processorRunner.setProperty(processorCatalog, HiveMetastoreIcebergCatalog.METASTORE_URI, getMetastoreUri());
+        processorRunner.setProperty(processorCatalog, HiveMetastoreIcebergCatalog.WAREHOUSE_LOCATION, WAREHOUSE.toUri().toString());
+        processorRunner.enableControllerService(processorCatalog);
+
+        final ParquetIcebergWriter icebergWriter = new ParquetIcebergWriter();
+        processorRunner.addControllerService(WRITER_SERVICE_ID, icebergWriter);
+        processorRunner.enableControllerService(icebergWriter);
+
+        final MockRecordParser recordReader = new MockRecordParser();
+        recordReader.addSchemaField(IDENTIFIER_FIELD, RecordFieldType.LONG);
+        recordReader.addSchemaField(DESCRIPTION_FIELD, RecordFieldType.STRING);
+        recordReader.addRecord(0L, "record-0");
+        recordReader.addRecord(1L, "record-1");
+        processorRunner.addControllerService(READER_SERVICE_ID, recordReader);
+        processorRunner.enableControllerService(recordReader);
+
+        processorRunner.setProperty(CATALOG_PROPERTY, PROCESSOR_SERVICE_ID);
+        processorRunner.setProperty(WRITER_PROPERTY, WRITER_SERVICE_ID);
+        processorRunner.setProperty(READER_PROPERTY, READER_SERVICE_ID);
+        processorRunner.setProperty(NAMESPACE_PROPERTY, namespace.level(0));
+        processorRunner.setProperty(TABLE_NAME_PROPERTY, TABLE_NAME);
+
+        processorRunner.enqueue(new byte[0]);
+
+        try {
+            processorRunner.run();
+
+            processorRunner.assertAllFlowFilesTransferred(SUCCESS_RELATIONSHIP, 1);
+
+            final Table appended = catalog.loadTable(tableIdentifier);
+            assertNotNull(appended.currentSnapshot());
+
+            final List<Record> records = readRecords(appended);
+            assertEquals(2, records.size());
+            assertEquals(0L, records.get(0).getField(IDENTIFIER_FIELD));
+            assertEquals("record-1", records.get(1).getField(DESCRIPTION_FIELD));
+        } finally {
+            processorRunner.disableControllerService(processorCatalog);
+        }
     }
 
     private void setCatalogProperties(final HiveMetastoreIcebergCatalog service) {
