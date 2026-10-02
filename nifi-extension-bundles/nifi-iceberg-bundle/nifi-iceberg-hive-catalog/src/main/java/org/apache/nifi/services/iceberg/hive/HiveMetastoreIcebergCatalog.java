@@ -142,6 +142,10 @@ public class HiveMetastoreIcebergCatalog extends AbstractControllerService imple
 
     private static final String NAMESPACES_FOUND = "Namespaces found [%d]";
 
+    private static final String OZONE_FILE_SYSTEM_PROPERTY = "fs.ofs.impl";
+
+    private static final String OZONE_FILE_SYSTEM_CLASS = "org.apache.hadoop.fs.ozone.RootedOzoneFileSystem";
+
     private static final String METASTORE_URI_NOT_FOUND = "Hive Metastore URI not found: configure the property or provide a configuration file containing %s or %s";
 
     private static final String CONFIGURATION_FAILED = "Catalog Configuration failed";
@@ -350,6 +354,7 @@ public class HiveMetastoreIcebergCatalog extends AbstractControllerService imple
         }
 
         configuration.setIfUnset(CLIENT_SOCKET_TIMEOUT_PROPERTY, CLIENT_SOCKET_TIMEOUT_DEFAULT);
+        configuration.setIfUnset(OZONE_FILE_SYSTEM_PROPERTY, OZONE_FILE_SYSTEM_CLASS);
 
         return configuration;
     }
