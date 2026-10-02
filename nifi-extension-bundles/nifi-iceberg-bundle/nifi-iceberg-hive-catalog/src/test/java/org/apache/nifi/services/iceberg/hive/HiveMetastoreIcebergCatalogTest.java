@@ -36,6 +36,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.io.IOException;
+import java.lang.reflect.Proxy;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
@@ -43,7 +44,6 @@ import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -148,9 +148,7 @@ class HiveMetastoreIcebergCatalogTest {
         runner.setProperty(catalogService, HiveMetastoreIcebergCatalog.WAREHOUSE_LOCATION, WAREHOUSE_LOCATION);
         runner.enableControllerService(catalogService);
 
-        final Catalog catalog = catalogService.getCatalog();
-
-        final HiveCatalog hiveCatalog = assertInstanceOf(HiveCatalog.class, catalog);
+        final HiveCatalog hiveCatalog = catalogService.getHiveCatalog();
         assertEquals(SERVICE_ID, hiveCatalog.name());
 
         final Configuration configuration = hiveCatalog.getConf();
@@ -165,7 +163,7 @@ class HiveMetastoreIcebergCatalogTest {
         runner.setProperty(catalogService, HiveMetastoreIcebergCatalog.HADOOP_CONFIGURATION_RESOURCES, configuration.toString());
         runner.enableControllerService(catalogService);
 
-        final HiveCatalog hiveCatalog = assertInstanceOf(HiveCatalog.class, catalogService.getCatalog());
+        final HiveCatalog hiveCatalog = catalogService.getHiveCatalog();
         assertEquals(METASTORE_URI, hiveCatalog.getConf().get(METASTORE_URIS_PROPERTY));
     }
 
@@ -184,7 +182,7 @@ class HiveMetastoreIcebergCatalogTest {
         runner.setProperty(catalogService, HiveMetastoreIcebergCatalog.METASTORE_URI, METASTORE_URI);
         runner.enableControllerService(catalogService);
 
-        final HiveCatalog hiveCatalog = assertInstanceOf(HiveCatalog.class, catalogService.getCatalog());
+        final HiveCatalog hiveCatalog = catalogService.getHiveCatalog();
         final Configuration hiveConfiguration = hiveCatalog.getConf();
 
         assertEquals(METASTORE_URI, hiveConfiguration.get(METASTORE_URIS_PROPERTY));
@@ -240,7 +238,7 @@ class HiveMetastoreIcebergCatalogTest {
         runner.setProperty(catalogService, HiveMetastoreIcebergCatalog.METASTORE_URI, "%s,".formatted(METASTORE_URI));
         runner.enableControllerService(catalogService);
 
-        final HiveCatalog hiveCatalog = assertInstanceOf(HiveCatalog.class, catalogService.getCatalog());
+        final HiveCatalog hiveCatalog = catalogService.getHiveCatalog();
 
         assertEquals(METASTORE_URI, hiveCatalog.getConf().get(METASTORE_URIS_PROPERTY));
     }
@@ -272,7 +270,7 @@ class HiveMetastoreIcebergCatalogTest {
         runner.setProperty(catalogService, HiveMetastoreIcebergCatalog.KERBEROS_USER_SERVICE, KERBEROS_SERVICE_ID);
         runner.enableControllerService(catalogService);
 
-        assertInstanceOf(HiveCatalog.class, catalogService.getCatalog());
+        assertNotNull(catalogService.getCatalog());
 
         runner.disableControllerService(catalogService);
 
@@ -311,11 +309,22 @@ class HiveMetastoreIcebergCatalogTest {
         runner.setProperty(catalogService, CLIENT_POOL_CACHE_KEYS_PROPERTY, "ugi");
         runner.enableControllerService(catalogService);
 
-        final HiveCatalog hiveCatalog = assertInstanceOf(HiveCatalog.class, catalogService.getCatalog());
+        final HiveCatalog hiveCatalog = catalogService.getHiveCatalog();
         final String cacheKey = hiveCatalog.getConf().get(CLIENT_POOL_CACHE_KEY_PROPERTY);
 
         assertNotNull(cacheKey);
         assertTrue(cacheKey.startsWith(SERVICE_ID), cacheKey);
+    }
+
+    @Test
+    void testGetCatalogRunsInServiceContext() {
+        runner.setProperty(catalogService, HiveMetastoreIcebergCatalog.METASTORE_URI, METASTORE_URI);
+        runner.enableControllerService(catalogService);
+
+        final Catalog catalog = catalogService.getCatalog();
+
+        assertTrue(Proxy.isProxyClass(catalog.getClass()));
+        assertEquals(SERVICE_ID, catalog.name());
     }
 
     @Test

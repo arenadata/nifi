@@ -156,6 +156,8 @@ public class HiveMetastoreIcebergCatalog extends AbstractControllerService imple
 
     private volatile HiveCatalog catalog;
 
+    private volatile Catalog providedCatalog;
+
     private volatile KerberosUser kerberosUser;
 
     private volatile UserGroupInformation userGroupInformation;
@@ -215,9 +217,11 @@ public class HiveMetastoreIcebergCatalog extends AbstractControllerService imple
             }
 
             catalog = getInitializedCatalog(context, configuration, userGroupInformation);
+            providedCatalog = ContextClassLoaderInvocationHandler.getProxy(Catalog.class, catalog, getClass().getClassLoader());
         } catch (final IOException | RuntimeException e) {
             close(catalog);
             catalog = null;
+            providedCatalog = null;
             logout(kerberosUser);
             kerberosUser = null;
             userGroupInformation = null;
@@ -229,6 +233,7 @@ public class HiveMetastoreIcebergCatalog extends AbstractControllerService imple
     public void onDisabled() {
         close(catalog);
         catalog = null;
+        providedCatalog = null;
 
         logout(kerberosUser);
         kerberosUser = null;
@@ -237,6 +242,10 @@ public class HiveMetastoreIcebergCatalog extends AbstractControllerService imple
 
     @Override
     public Catalog getCatalog() {
+        return providedCatalog;
+    }
+
+    HiveCatalog getHiveCatalog() {
         return catalog;
     }
 
