@@ -215,7 +215,9 @@ public class HiveMetastoreIcebergCatalog extends AbstractControllerService imple
             }
 
             catalog = getInitializedCatalog(context, configuration, userGroupInformation);
-        } catch (final IOException e) {
+        } catch (final IOException | RuntimeException e) {
+            close(catalog);
+            catalog = null;
             logout(kerberosUser);
             kerberosUser = null;
             userGroupInformation = null;

@@ -80,6 +80,10 @@ class HiveMetastoreIcebergCatalogTest {
 
     private static final String CLIENT_POOL_CACHE_KEY_PROPERTY = "nifi.iceberg.catalog.client-pool-key";
 
+    private static final String FILE_IO_PROPERTY = "io-impl";
+
+    private static final String MISSING_FILE_IO_CLASS = "org.example.MissingFileIO";
+
     private static final String CONFIGURATION_FORMAT = """
             <?xml version="1.0" encoding="UTF-8"?>
             <configuration>
@@ -312,6 +316,18 @@ class HiveMetastoreIcebergCatalogTest {
 
         assertNotNull(cacheKey);
         assertTrue(cacheKey.startsWith(SERVICE_ID), cacheKey);
+    }
+
+    @Test
+    void testEnableFailsWithInvalidCatalogPropertyLogsOut() throws InitializationException {
+        final KerberosUser kerberosUser = mock(KerberosUser.class);
+        setKerberosUserService(kerberosUser);
+        runner.setProperty(catalogService, FILE_IO_PROPERTY, MISSING_FILE_IO_CLASS);
+
+        assertThrows(AssertionError.class, () -> runner.enableControllerService(catalogService));
+
+        assertNull(catalogService.getCatalog());
+        verify(kerberosUser).logout();
     }
 
     private void setKerberosUserService(final KerberosUser kerberosUser) throws InitializationException {
