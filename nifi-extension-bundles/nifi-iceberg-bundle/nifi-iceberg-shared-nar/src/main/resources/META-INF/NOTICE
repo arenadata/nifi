@@ -10,6 +10,11 @@ Apache Software License v2
 
 The following binary components are provided under the Apache Software License v2
 
+  (ASLv2) Apache Iceberg
+    The following NOTICE information applies:
+      Apache Iceberg
+      Copyright 2017-2025 The Apache Software Foundation
+
   (ASLv2) Apache Avro
     The following NOTICE information applies:
       Apache Avro
@@ -30,3 +35,58 @@ The following binary components are provided under the Apache Software License v
     The following NOTICE information applies:
       Guava: Google Core Libraries For Java
       Copyright (C) 2017 The Guava Authors
+
+  (ASLv2) Apache Hadoop
+    The following NOTICE information applies:
+      Apache Hadoop
+      Copyright 2006 and onwards The Apache Software Foundation
+
+  (ASLv2) Apache Commons CLI
+    The following NOTICE information applies:
+      Apache Commons CLI
+      Copyright 2001-2025 The Apache Software Foundation
+
+  (ASLv2) Apache Commons Collections
+    The following NOTICE information applies:
+      Apache Commons Collections
+      Copyright 2001-2019 The Apache Software Foundation
+
+  (ASLv2) Apache Commons Configuration
+    The following NOTICE information applies:
+      Apache Commons Configuration
+      Copyright 2001-2025 The Apache Software Foundation
+
+  (ASLv2) Woodstox
+    The following NOTICE information applies:
+      Woodstox XML processor
+      Copyright FasterXML, LLC
+
+  (ASLv2) Nimbus JOSE+JWT
+    The following NOTICE information applies:
+      Nimbus JOSE+JWT
+      Copyright Connect2id Ltd.
+
+  (ASLv2) Dropwizard Metrics
+    The following NOTICE information applies:
+      Metrics
+      Copyright 2010-2013 Coda Hale and Yammer, Inc.
+
+  (ASLv2) Gson
+    The following NOTICE information applies:
+      Gson
+      Copyright 2008 Google Inc.
+
+  (ASLv2) snappy-java
+    The following NOTICE information applies:
+      snappy-java
+      Copyright 2011 Taro L. Saito
+
+  (ASLv2) RoaringBitmap
+    The following NOTICE information applies:
+      RoaringBitmap
+      Copyright RoaringBitmap contributors
+
+  (ASLv2) The Netty Project
+    The following NOTICE information applies:
+      The Netty Project
+      Copyright 2014 The Netty Project
