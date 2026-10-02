@@ -80,6 +80,12 @@ class HiveMetastoreIcebergCatalogTest {
 
     private static final String CLIENT_POOL_CACHE_KEY_PROPERTY = "nifi.iceberg.catalog.client-pool-key";
 
+    private static final String OZONE_FILE_SYSTEM_PROPERTY = "fs.ofs.impl";
+
+    private static final String OZONE_FILE_SYSTEM_CLASS = "org.apache.hadoop.fs.ozone.RootedOzoneFileSystem";
+
+    private static final String CUSTOM_FILE_SYSTEM_CLASS = "org.example.CustomFileSystem";
+
     private static final String FILE_IO_PROPERTY = "io-impl";
 
     private static final String MISSING_FILE_IO_CLASS = "org.example.MissingFileIO";
@@ -325,6 +331,24 @@ class HiveMetastoreIcebergCatalogTest {
 
         assertTrue(Proxy.isProxyClass(catalog.getClass()));
         assertEquals(SERVICE_ID, catalog.name());
+    }
+
+    @Test
+    void testOzoneFileSystemConfigured() {
+        runner.setProperty(catalogService, HiveMetastoreIcebergCatalog.METASTORE_URI, METASTORE_URI);
+        runner.enableControllerService(catalogService);
+
+        assertEquals(OZONE_FILE_SYSTEM_CLASS, catalogService.getHiveCatalog().getConf().get(OZONE_FILE_SYSTEM_PROPERTY));
+    }
+
+    @Test
+    void testOzoneFileSystemFromConfigurationResourcesPreserved() throws IOException {
+        final Path configuration = writeConfiguration(OZONE_FILE_SYSTEM_PROPERTY, CUSTOM_FILE_SYSTEM_CLASS);
+        runner.setProperty(catalogService, HiveMetastoreIcebergCatalog.METASTORE_URI, METASTORE_URI);
+        runner.setProperty(catalogService, HiveMetastoreIcebergCatalog.HADOOP_CONFIGURATION_RESOURCES, configuration.toString());
+        runner.enableControllerService(catalogService);
+
+        assertEquals(CUSTOM_FILE_SYSTEM_CLASS, catalogService.getHiveCatalog().getConf().get(OZONE_FILE_SYSTEM_PROPERTY));
     }
 
     @Test
