@@ -201,7 +201,7 @@ class HiveMetastoreIcebergCatalogOzoneTest {
     @AfterEach
     void disableCatalogService() {
         if (runner.isControllerServiceEnabled(catalogService)) {
-            final HiveCatalog catalog = (HiveCatalog) catalogService.getCatalog();
+            final HiveCatalog catalog = catalogService.getHiveCatalog();
             if (catalog.tableExists(tableIdentifier)) {
                 catalog.dropTable(tableIdentifier, false);
             }
@@ -215,7 +215,7 @@ class HiveMetastoreIcebergCatalogOzoneTest {
     @Test
     void testDataFilesWrittenToObjectStore() throws IOException {
         runner.enableControllerService(catalogService);
-        final HiveCatalog catalog = assertInstanceOf(HiveCatalog.class, catalogService.getCatalog());
+        final HiveCatalog catalog = catalogService.getHiveCatalog();
 
         catalog.createNamespace(namespace, Map.of(NAMESPACE_LOCATION_PROPERTY, tempDirectory.toUri().toString()));
         final Table table = catalog.createTable(tableIdentifier, SCHEMA, PartitionSpec.unpartitioned(), tableLocation, Map.of());

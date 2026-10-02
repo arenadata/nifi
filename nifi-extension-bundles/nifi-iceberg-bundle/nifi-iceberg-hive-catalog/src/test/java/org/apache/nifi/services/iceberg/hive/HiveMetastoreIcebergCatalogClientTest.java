@@ -118,7 +118,7 @@ class HiveMetastoreIcebergCatalogClientTest {
     @Test
     void testMetastoreCallFailsWithConnectionErrorNotLinkageError() {
         runner.enableControllerService(catalogService);
-        final HiveCatalog catalog = assertInstanceOf(HiveCatalog.class, catalogService.getCatalog());
+        final HiveCatalog catalog = catalogService.getHiveCatalog();
 
         // A LinkageError is not an Exception: an unresolved Hive Metastore client dependency fails the assertion
         final Exception e = assertThrows(Exception.class, () -> catalog.listNamespaces(NAMESPACE));
@@ -130,7 +130,7 @@ class HiveMetastoreIcebergCatalogClientTest {
     void testCatalogFileIOIsHadoopFileIO() throws ReflectiveOperationException {
         runner.enableControllerService(catalogService);
 
-        final HiveCatalog hiveCatalog = assertInstanceOf(HiveCatalog.class, catalogService.getCatalog());
+        final HiveCatalog hiveCatalog = catalogService.getHiveCatalog();
         final Field fileIOField = HiveCatalog.class.getDeclaredField(FILE_IO_FIELD);
         fileIOField.setAccessible(true);
 
@@ -171,7 +171,7 @@ class HiveMetastoreIcebergCatalogClientTest {
         runner.setProperty(catalogService, HiveMetastoreIcebergCatalog.METASTORE_URI, spacedUriList);
         runner.enableControllerService(catalogService);
 
-        final HiveCatalog hiveCatalog = assertInstanceOf(HiveCatalog.class, catalogService.getCatalog());
+        final HiveCatalog hiveCatalog = catalogService.getHiveCatalog();
         final String configuredUris = hiveCatalog.getConf().get("hive.metastore.uris");
 
         assertEquals("%s,%s".formatted(metastoreUri, metastoreUri), configuredUris);
@@ -213,7 +213,7 @@ class HiveMetastoreIcebergCatalogClientTest {
     }
 
     private Object getClientPool(final HiveMetastoreIcebergCatalog service) throws ReflectiveOperationException {
-        final HiveCatalog hiveCatalog = assertInstanceOf(HiveCatalog.class, service.getCatalog());
+        final HiveCatalog hiveCatalog = service.getHiveCatalog();
 
         final Field clientsField = HiveCatalog.class.getDeclaredField(CLIENTS_FIELD);
         clientsField.setAccessible(true);
