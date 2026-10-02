@@ -16,6 +16,7 @@
  */
 package org.apache.nifi.services.iceberg.hive;
 
+import com.github.benmanes.caffeine.cache.Cache;
 import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.hadoop.HadoopFileIO;
 import org.apache.iceberg.hive.HiveCatalog;
@@ -67,6 +68,10 @@ class HiveMetastoreIcebergCatalogClientTest {
     private static final String CLIENTS_FIELD = "clients";
 
     private static final String CLIENT_POOL_METHOD = "clientPool";
+
+    private static final String CACHED_CLIENT_POOL_CLASS = "org.apache.iceberg.hive.CachedClientPool";
+
+    private static final String CLIENT_POOL_CACHE_METHOD = "clientPoolCache";
 
     private static final String SECOND_SERVICE_ID = "hive-metastore-catalog-second";
 
@@ -222,6 +227,22 @@ class HiveMetastoreIcebergCatalogClientTest {
         final Method clientPoolMethod = cachedClientPool.getClass().getDeclaredMethod(CLIENT_POOL_METHOD);
         clientPoolMethod.setAccessible(true);
         return clientPoolMethod.invoke(cachedClientPool);
+    }
+
+    @Test
+    void testVerifyDoesNotRetainClientPool() throws ReflectiveOperationException {
+        final int clientPools = getCachedClientPools();
+
+        verify();
+
+        assertEquals(clientPools, getCachedClientPools());
+    }
+
+    private int getCachedClientPools() throws ReflectiveOperationException {
+        final Method cacheMethod = Class.forName(CACHED_CLIENT_POOL_CLASS).getDeclaredMethod(CLIENT_POOL_CACHE_METHOD);
+        cacheMethod.setAccessible(true);
+        final Cache<?, ?> cache = (Cache<?, ?>) cacheMethod.invoke(null);
+        return cache == null ? 0 : cache.asMap().size();
     }
 
     private List<ConfigVerificationResult> verify() {

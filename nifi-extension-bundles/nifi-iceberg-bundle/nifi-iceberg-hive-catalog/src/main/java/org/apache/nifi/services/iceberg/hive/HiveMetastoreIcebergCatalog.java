@@ -18,11 +18,12 @@ package org.apache.nifi.services.iceberg.hive;
 
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.Path;
+import org.apache.hadoop.hive.metastore.IMetaStoreClient;
 import org.apache.hadoop.security.UserGroupInformation;
 import org.apache.iceberg.CatalogProperties;
 import org.apache.iceberg.catalog.Catalog;
-import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.hive.HiveCatalog;
+import org.apache.iceberg.hive.HiveClientPool;
 import org.apache.iceberg.metrics.LoggingMetricsReporter;
 import org.apache.nifi.annotation.behavior.RequiresInstanceClassLoading;
 import org.apache.nifi.annotation.behavior.SupportsSensitiveDynamicProperties;
@@ -141,6 +142,8 @@ public class HiveMetastoreIcebergCatalog extends AbstractControllerService imple
     private static final String INITIALIZED_STATUS = "Initialized";
 
     private static final String NAMESPACES_FOUND = "Namespaces found [%d]";
+
+    private static final int VERIFICATION_POOL_SIZE = 1;
 
     private static final String OZONE_FILE_SYSTEM_PROPERTY = "fs.ofs.impl";
 
@@ -273,11 +276,10 @@ public class HiveMetastoreIcebergCatalog extends AbstractControllerService imple
             componentLog.info("Hive Catalog Initialized [{}]", verificationCatalog.name());
             results.add(getSuccessfulResult(CONFIGURATION_STEP, INITIALIZED_STATUS));
 
-            final HiveCatalog initializedCatalog = verificationCatalog;
             final UserGroupInformation ugi = verificationUgi;
-            try {
-                final List<Namespace> namespaces = SecurityUtil.callWithUgi(ugi, () -> initializedCatalog.listNamespaces(Namespace.empty()));
-                results.add(getSuccessfulResult(CONNECTION_STEP, NAMESPACES_FOUND.formatted(namespaces.size())));
+            try (HiveClientPool clientPool = new HiveClientPool(VERIFICATION_POOL_SIZE, verificationCatalog.getConf())) {
+                final List<String> databases = SecurityUtil.callWithUgi(ugi, () -> clientPool.run(IMetaStoreClient::getAllDatabases));
+                results.add(getSuccessfulResult(CONNECTION_STEP, NAMESPACES_FOUND.formatted(databases.size())));
             } catch (final Throwable e) {
                 componentLog.warn("Hive Metastore connection failed", e);
                 results.add(getFailedResult(CONNECTION_STEP, e));
