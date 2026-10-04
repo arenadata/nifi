@@ -18,7 +18,7 @@ package org.apache.nifi.services.iceberg.hive;
 
 import org.apache.hadoop.conf.Configuration;
 import org.apache.iceberg.catalog.Catalog;
-import org.apache.iceberg.hive.HiveCatalog;
+import org.apache.iceberg.hive.HiveClientPool;
 import org.apache.nifi.components.PropertyDescriptor;
 import org.apache.nifi.controller.AbstractControllerService;
 import org.apache.nifi.controller.ConfigurationContext;
@@ -75,10 +75,6 @@ class HiveMetastoreIcebergCatalogTest {
     private static final String DYNAMIC_PROPERTY_NAME = "clients";
 
     private static final String DYNAMIC_PROPERTY_VALUE = "4";
-
-    private static final String CLIENT_POOL_CACHE_KEYS_PROPERTY = "client-pool-cache-keys";
-
-    private static final String CLIENT_POOL_CACHE_KEY_PROPERTY = "nifi.iceberg.catalog.client-pool-key";
 
     private static final String OZONE_FILE_SYSTEM_PROPERTY = "fs.ofs.impl";
 
@@ -154,7 +150,7 @@ class HiveMetastoreIcebergCatalogTest {
         runner.setProperty(catalogService, HiveMetastoreIcebergCatalog.WAREHOUSE_LOCATION, WAREHOUSE_LOCATION);
         runner.enableControllerService(catalogService);
 
-        final HiveCatalog hiveCatalog = catalogService.getHiveCatalog();
+        final HiveMetastoreCatalog hiveCatalog = catalogService.getHiveCatalog();
         assertEquals(SERVICE_ID, hiveCatalog.name());
 
         final Configuration configuration = hiveCatalog.getConf();
@@ -169,7 +165,7 @@ class HiveMetastoreIcebergCatalogTest {
         runner.setProperty(catalogService, HiveMetastoreIcebergCatalog.HADOOP_CONFIGURATION_RESOURCES, configuration.toString());
         runner.enableControllerService(catalogService);
 
-        final HiveCatalog hiveCatalog = catalogService.getHiveCatalog();
+        final HiveMetastoreCatalog hiveCatalog = catalogService.getHiveCatalog();
         assertEquals(METASTORE_URI, hiveCatalog.getConf().get(METASTORE_URIS_PROPERTY));
     }
 
@@ -188,7 +184,7 @@ class HiveMetastoreIcebergCatalogTest {
         runner.setProperty(catalogService, HiveMetastoreIcebergCatalog.METASTORE_URI, METASTORE_URI);
         runner.enableControllerService(catalogService);
 
-        final HiveCatalog hiveCatalog = catalogService.getHiveCatalog();
+        final HiveMetastoreCatalog hiveCatalog = catalogService.getHiveCatalog();
         final Configuration hiveConfiguration = hiveCatalog.getConf();
 
         assertEquals(METASTORE_URI, hiveConfiguration.get(METASTORE_URIS_PROPERTY));
@@ -244,7 +240,7 @@ class HiveMetastoreIcebergCatalogTest {
         runner.setProperty(catalogService, HiveMetastoreIcebergCatalog.METASTORE_URI, "%s,".formatted(METASTORE_URI));
         runner.enableControllerService(catalogService);
 
-        final HiveCatalog hiveCatalog = catalogService.getHiveCatalog();
+        final HiveMetastoreCatalog hiveCatalog = catalogService.getHiveCatalog();
 
         assertEquals(METASTORE_URI, hiveCatalog.getConf().get(METASTORE_URIS_PROPERTY));
     }
@@ -310,16 +306,16 @@ class HiveMetastoreIcebergCatalogTest {
     }
 
     @Test
-    void testClientPoolCacheKeyAppendedToDynamicProperty() {
+    void testClientPoolClosedOnDisabled() {
         runner.setProperty(catalogService, HiveMetastoreIcebergCatalog.METASTORE_URI, METASTORE_URI);
-        runner.setProperty(catalogService, CLIENT_POOL_CACHE_KEYS_PROPERTY, "ugi");
         runner.enableControllerService(catalogService);
 
-        final HiveCatalog hiveCatalog = catalogService.getHiveCatalog();
-        final String cacheKey = hiveCatalog.getConf().get(CLIENT_POOL_CACHE_KEY_PROPERTY);
+        final HiveClientPool clientPool = catalogService.getHiveCatalog().getClientPool();
+        assertFalse(clientPool.isClosed());
 
-        assertNotNull(cacheKey);
-        assertTrue(cacheKey.startsWith(SERVICE_ID), cacheKey);
+        runner.disableControllerService(catalogService);
+
+        assertTrue(clientPool.isClosed());
     }
 
     @Test

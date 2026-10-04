@@ -31,7 +31,6 @@ import org.apache.iceberg.data.IcebergGenerics;
 import org.apache.iceberg.data.Record;
 import org.apache.iceberg.encryption.EncryptedFiles;
 import org.apache.iceberg.hadoop.HadoopFileIO;
-import org.apache.iceberg.hive.HiveCatalog;
 import org.apache.iceberg.io.CloseableIterable;
 import org.apache.iceberg.io.DataWriter;
 import org.apache.iceberg.io.OutputFile;
@@ -46,7 +45,9 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.testcontainers.containers.GenericContainer;
+import org.testcontainers.containers.Network;
 import org.testcontainers.containers.wait.strategy.Wait;
+import org.testcontainers.images.builder.Transferable;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.EnabledIfDockerAvailable;
 import org.testcontainers.junit.jupiter.Testcontainers;
@@ -71,8 +72,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 /**
  * Writes Iceberg Data Files to Apache Ozone through Hadoop File IO. Storage is reached over the Ozone S3 Gateway with
  * the s3a File System, because the S3 Gateway proxies data through a single endpoint, while the ofs File System requires
- * the client to address DataNodes directly, which container port mapping does not support. The Hive Metastore container
- * records the table location and never reads it. Skipped when Docker is not available.
+ * the client to address DataNodes directly, which container port mapping does not support. The Hive Metastore checks
+ * and creates the table location when a table is created, so the Metastore container shares a network with the Ozone
+ * container and loads the s3a File System from the Hadoop tools libraries. Skipped when Docker is not available.
  */
 @Testcontainers
 @EnabledIfDockerAvailable
@@ -83,7 +85,7 @@ class HiveMetastoreIcebergCatalogOzoneTest {
 
     private static final String METASTORE_IMAGE_PROPERTY = "hive.metastore.image";
 
-    private static final String METASTORE_IMAGE_DEFAULT = "apache/hive:4.0.1";
+    private static final String METASTORE_IMAGE_DEFAULT = "apache/hive:4.2.1";
 
     private static final int S3_GATEWAY_PORT = 9878;
 
@@ -92,6 +94,12 @@ class HiveMetastoreIcebergCatalogOzoneTest {
     private static final String METASTORE_URI_FORMAT = "thrift://%s:%d";
 
     private static final String ENDPOINT_FORMAT = "http://%s:%d";
+
+    private static final String OZONE_ALIAS = "ozone";
+
+    private static final String METASTORE_AUXILIARY_JARS_DIRECTORY = "/opt/hadoop/share/hadoop/tools/lib";
+
+    private static final String METASTORE_CONFIGURATION_DIRECTORY = "/opt/hive/custom-conf";
 
     private static final String BUCKET = "nifi-iceberg";
 
@@ -140,14 +148,23 @@ class HiveMetastoreIcebergCatalogOzoneTest {
 
     private static final AtomicInteger NAMESPACE_COUNTER = new AtomicInteger();
 
+    private static final Network NETWORK = Network.newNetwork();
+
     @Container
     private static final GenericContainer<?> OZONE = new GenericContainer<>(DockerImageName.parse(System.getProperty(OZONE_IMAGE_PROPERTY, OZONE_IMAGE_DEFAULT)))
+            .withNetwork(NETWORK)
+            .withNetworkAliases(OZONE_ALIAS)
             .withExposedPorts(S3_GATEWAY_PORT)
             .waitingFor(Wait.forListeningPort().withStartupTimeout(Duration.ofMinutes(5)));
 
     @Container
     private static final GenericContainer<?> METASTORE = new GenericContainer<>(DockerImageName.parse(System.getProperty(METASTORE_IMAGE_PROPERTY, METASTORE_IMAGE_DEFAULT)))
+            .withNetwork(NETWORK)
             .withEnv("SERVICE_NAME", "metastore")
+            .withEnv("HIVE_AUX_JARS_PATH", METASTORE_AUXILIARY_JARS_DIRECTORY)
+            .withEnv("HIVE_CUSTOM_CONF_DIR", METASTORE_CONFIGURATION_DIRECTORY)
+            .withCopyToContainer(Transferable.of(getMetastoreConfiguration()), METASTORE_CONFIGURATION_DIRECTORY + "/" + CONFIGURATION_FILE)
+            .dependsOn(OZONE)
             .withExposedPorts(METASTORE_PORT)
             .waitingFor(Wait.forListeningPort().withStartupTimeout(Duration.ofMinutes(3)));
 
@@ -178,14 +195,7 @@ class HiveMetastoreIcebergCatalogOzoneTest {
         tableIdentifier = TableIdentifier.of(namespace, TABLE_NAME);
         tableLocation = TABLE_LOCATION_FORMAT.formatted(FILE_SYSTEM_URI_FORMAT.formatted(BUCKET), namespace.level(0), TABLE_NAME);
 
-        final Map<String, String> properties = new LinkedHashMap<>();
-        properties.put("fs.s3a.endpoint", ENDPOINT_FORMAT.formatted(OZONE.getHost(), OZONE.getMappedPort(S3_GATEWAY_PORT)));
-        properties.put("fs.s3a.endpoint.region", "us-east-1");
-        properties.put("fs.s3a.path.style.access", "true");
-        properties.put("fs.s3a.access.key", ACCESS_KEY);
-        properties.put("fs.s3a.secret.key", SECRET_KEY);
-        properties.put("fs.s3a.bucket.probe", "0");
-        properties.put("fs.s3a.change.detection.mode", "none");
+        final Map<String, String> properties = getFileSystemProperties(ENDPOINT_FORMAT.formatted(OZONE.getHost(), OZONE.getMappedPort(S3_GATEWAY_PORT)));
         final java.nio.file.Path configurationFile = writeConfiguration(properties);
 
         configuration = new Configuration();
@@ -201,7 +211,7 @@ class HiveMetastoreIcebergCatalogOzoneTest {
     @AfterEach
     void disableCatalogService() {
         if (runner.isControllerServiceEnabled(catalogService)) {
-            final HiveCatalog catalog = catalogService.getHiveCatalog();
+            final HiveMetastoreCatalog catalog = catalogService.getHiveCatalog();
             if (catalog.tableExists(tableIdentifier)) {
                 catalog.dropTable(tableIdentifier, false);
             }
@@ -215,7 +225,7 @@ class HiveMetastoreIcebergCatalogOzoneTest {
     @Test
     void testDataFilesWrittenToObjectStore() throws IOException {
         runner.enableControllerService(catalogService);
-        final HiveCatalog catalog = catalogService.getHiveCatalog();
+        final HiveMetastoreCatalog catalog = catalogService.getHiveCatalog();
 
         catalog.createNamespace(namespace, Map.of(NAMESPACE_LOCATION_PROPERTY, tempDirectory.toUri().toString()));
         final Table table = catalog.createTable(tableIdentifier, SCHEMA, PartitionSpec.unpartitioned(), tableLocation, Map.of());
@@ -261,6 +271,25 @@ class HiveMetastoreIcebergCatalogOzoneTest {
         }
 
         return records;
+    }
+
+    private static Map<String, String> getFileSystemProperties(final String endpoint) {
+        final Map<String, String> properties = new LinkedHashMap<>();
+        properties.put("fs.s3a.endpoint", endpoint);
+        properties.put("fs.s3a.endpoint.region", "us-east-1");
+        properties.put("fs.s3a.path.style.access", "true");
+        properties.put("fs.s3a.access.key", ACCESS_KEY);
+        properties.put("fs.s3a.secret.key", SECRET_KEY);
+        properties.put("fs.s3a.bucket.probe", "0");
+        properties.put("fs.s3a.change.detection.mode", "none");
+        return properties;
+    }
+
+    private static String getMetastoreConfiguration() {
+        final StringBuilder configurationProperties = new StringBuilder();
+        getFileSystemProperties(ENDPOINT_FORMAT.formatted(OZONE_ALIAS, S3_GATEWAY_PORT))
+                .forEach((name, value) -> configurationProperties.append(PROPERTY_FORMAT.formatted(name, value)));
+        return CONFIGURATION_FORMAT.formatted(configurationProperties);
     }
 
     private java.nio.file.Path writeConfiguration(final Map<String, String> properties) throws IOException {
