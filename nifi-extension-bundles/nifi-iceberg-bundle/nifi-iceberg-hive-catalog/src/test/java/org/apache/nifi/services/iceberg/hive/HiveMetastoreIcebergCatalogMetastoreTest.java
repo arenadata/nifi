@@ -29,7 +29,6 @@ import org.apache.iceberg.data.Record;
 import org.apache.iceberg.encryption.EncryptedFiles;
 import org.apache.iceberg.exceptions.NoSuchTableException;
 import org.apache.iceberg.hadoop.HadoopFileIO;
-import org.apache.iceberg.hive.HiveCatalog;
 import org.apache.iceberg.io.CloseableIterable;
 import org.apache.iceberg.io.DataWriter;
 import org.apache.iceberg.io.OutputFile;
@@ -86,7 +85,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class HiveMetastoreIcebergCatalogMetastoreTest {
     private static final String IMAGE_PROPERTY = "hive.metastore.image";
 
-    private static final String IMAGE_DEFAULT = "apache/hive:4.0.1";
+    private static final String IMAGE_DEFAULT = "apache/hive:4.2.1";
 
     private static final int METASTORE_PORT = 9083;
 
@@ -172,7 +171,7 @@ class HiveMetastoreIcebergCatalogMetastoreTest {
     @AfterEach
     void disableCatalogService() {
         if (runner.isControllerServiceEnabled(catalogService)) {
-            final HiveCatalog catalog = catalogService.getHiveCatalog();
+            final HiveMetastoreCatalog catalog = catalogService.getHiveCatalog();
             if (catalog.tableExists(tableIdentifier)) {
                 catalog.dropTable(tableIdentifier);
             }
@@ -203,7 +202,7 @@ class HiveMetastoreIcebergCatalogMetastoreTest {
     @Test
     void testCreateNamespaceAndTable() {
         runner.enableControllerService(catalogService);
-        final HiveCatalog catalog = catalogService.getHiveCatalog();
+        final HiveMetastoreCatalog catalog = catalogService.getHiveCatalog();
 
         catalog.createNamespace(namespace);
         assertTrue(catalog.namespaceExists(namespace));
@@ -221,7 +220,7 @@ class HiveMetastoreIcebergCatalogMetastoreTest {
     @Test
     void testLoadTableNotFound() {
         runner.enableControllerService(catalogService);
-        final HiveCatalog catalog = catalogService.getHiveCatalog();
+        final HiveMetastoreCatalog catalog = catalogService.getHiveCatalog();
         catalog.createNamespace(namespace);
 
         final TableIdentifier missing = TableIdentifier.of(namespace, MISSING_TABLE_NAME);
@@ -233,7 +232,7 @@ class HiveMetastoreIcebergCatalogMetastoreTest {
     @Test
     void testTableIoWritesAndReadsDataFiles() throws IOException {
         runner.enableControllerService(catalogService);
-        final HiveCatalog catalog = catalogService.getHiveCatalog();
+        final HiveMetastoreCatalog catalog = catalogService.getHiveCatalog();
         catalog.createNamespace(namespace);
         final Table table = catalog.createTable(tableIdentifier, SCHEMA, PartitionSpec.unpartitioned());
 
@@ -251,7 +250,7 @@ class HiveMetastoreIcebergCatalogMetastoreTest {
     @Test
     void testCommitVisibleToSecondServiceInstance() throws IOException, InitializationException {
         runner.enableControllerService(catalogService);
-        final HiveCatalog catalog = catalogService.getHiveCatalog();
+        final HiveMetastoreCatalog catalog = catalogService.getHiveCatalog();
         catalog.createNamespace(namespace);
         final Table table = catalog.createTable(tableIdentifier, SCHEMA, PartitionSpec.unpartitioned());
         table.newAppend().appendFile(writeDataFile(table, 1)).commit();
@@ -262,7 +261,7 @@ class HiveMetastoreIcebergCatalogMetastoreTest {
         runner.enableControllerService(secondService);
 
         try {
-            final HiveCatalog secondCatalog = secondService.getHiveCatalog();
+            final HiveMetastoreCatalog secondCatalog = secondService.getHiveCatalog();
             final Table secondTable = secondCatalog.loadTable(tableIdentifier);
 
             assertNotNull(secondTable.currentSnapshot());
@@ -276,7 +275,7 @@ class HiveMetastoreIcebergCatalogMetastoreTest {
     void testDynamicPropertyAppliedToTable() {
         runner.setProperty(catalogService, TABLE_DEFAULT_PROPERTY, TABLE_PROPERTY_VALUE);
         runner.enableControllerService(catalogService);
-        final HiveCatalog catalog = catalogService.getHiveCatalog();
+        final HiveMetastoreCatalog catalog = catalogService.getHiveCatalog();
         catalog.createNamespace(namespace);
 
         final Table table = catalog.createTable(tableIdentifier, SCHEMA, PartitionSpec.unpartitioned());
@@ -300,7 +299,7 @@ class HiveMetastoreIcebergCatalogMetastoreTest {
         runner.setProperty(catalogService, HiveMetastoreIcebergCatalog.HADOOP_CONFIGURATION_RESOURCES, configuration.toString());
         runner.enableControllerService(catalogService);
 
-        final HiveCatalog catalog = catalogService.getHiveCatalog();
+        final HiveMetastoreCatalog catalog = catalogService.getHiveCatalog();
         catalog.createNamespace(namespace);
 
         assertTrue(catalog.namespaceExists(namespace));
@@ -309,7 +308,7 @@ class HiveMetastoreIcebergCatalogMetastoreTest {
     @Test
     void testPutIcebergRecordAppendsRecordsToTable() throws IOException, InitializationException {
         runner.enableControllerService(catalogService);
-        final HiveCatalog catalog = catalogService.getHiveCatalog();
+        final HiveMetastoreCatalog catalog = catalogService.getHiveCatalog();
         catalog.createNamespace(namespace);
         catalog.createTable(tableIdentifier, SCHEMA, PartitionSpec.unpartitioned());
 

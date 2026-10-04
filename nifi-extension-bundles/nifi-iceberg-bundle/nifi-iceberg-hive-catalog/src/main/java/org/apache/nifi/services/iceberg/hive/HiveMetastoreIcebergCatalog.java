@@ -18,12 +18,10 @@ package org.apache.nifi.services.iceberg.hive;
 
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.Path;
-import org.apache.hadoop.hive.metastore.IMetaStoreClient;
 import org.apache.hadoop.security.UserGroupInformation;
 import org.apache.iceberg.CatalogProperties;
 import org.apache.iceberg.catalog.Catalog;
-import org.apache.iceberg.hive.HiveCatalog;
-import org.apache.iceberg.hive.HiveClientPool;
+import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.metrics.LoggingMetricsReporter;
 import org.apache.nifi.annotation.behavior.RequiresInstanceClassLoading;
 import org.apache.nifi.annotation.behavior.SupportsSensitiveDynamicProperties;
@@ -59,7 +57,6 @@ import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.UUID;
 import java.util.stream.Collectors;
 
 import static org.apache.nifi.components.ConfigVerificationResult.Outcome.FAILED;
@@ -127,14 +124,6 @@ public class HiveMetastoreIcebergCatalog extends AbstractControllerService imple
 
     private static final String CLIENT_SOCKET_TIMEOUT_DEFAULT = "60s";
 
-    private static final String CLIENT_POOL_CACHE_KEY_PROPERTY = "nifi.iceberg.catalog.client-pool-key";
-
-    private static final String CLIENT_POOL_CACHE_KEY_ELEMENT = "conf:" + CLIENT_POOL_CACHE_KEY_PROPERTY;
-
-    private static final String CLIENT_POOL_CACHE_KEY_FORMAT = "%s-%s";
-
-    private static final String CLIENT_POOL_CACHE_KEY_ELEMENTS_FORMAT = "%s," + CLIENT_POOL_CACHE_KEY_ELEMENT;
-
     private static final String CONFIGURATION_STEP = "Catalog Configuration";
 
     private static final String CONNECTION_STEP = "Metastore Connection";
@@ -142,8 +131,6 @@ public class HiveMetastoreIcebergCatalog extends AbstractControllerService imple
     private static final String INITIALIZED_STATUS = "Initialized";
 
     private static final String NAMESPACES_FOUND = "Namespaces found [%d]";
-
-    private static final int VERIFICATION_POOL_SIZE = 1;
 
     private static final String OZONE_FILE_SYSTEM_PROPERTY = "fs.ofs.impl";
 
@@ -161,7 +148,7 @@ public class HiveMetastoreIcebergCatalog extends AbstractControllerService imple
 
     private static final int MAXIMUM_CAUSE_DEPTH = 5;
 
-    private volatile HiveCatalog catalog;
+    private volatile HiveMetastoreCatalog catalog;
 
     private volatile Catalog providedCatalog;
 
@@ -252,7 +239,7 @@ public class HiveMetastoreIcebergCatalog extends AbstractControllerService imple
         return providedCatalog;
     }
 
-    HiveCatalog getHiveCatalog() {
+    HiveMetastoreCatalog getHiveCatalog() {
         return catalog;
     }
 
@@ -261,7 +248,7 @@ public class HiveMetastoreIcebergCatalog extends AbstractControllerService imple
         final List<ConfigVerificationResult> results = new ArrayList<>();
 
         KerberosUser verificationUser = null;
-        HiveCatalog verificationCatalog = null;
+        HiveMetastoreCatalog verificationCatalog = null;
         try {
             final Configuration configuration = getHadoopConfiguration(context);
 
@@ -276,10 +263,11 @@ public class HiveMetastoreIcebergCatalog extends AbstractControllerService imple
             componentLog.info("Hive Catalog Initialized [{}]", verificationCatalog.name());
             results.add(getSuccessfulResult(CONFIGURATION_STEP, INITIALIZED_STATUS));
 
+            final HiveMetastoreCatalog initializedCatalog = verificationCatalog;
             final UserGroupInformation ugi = verificationUgi;
-            try (HiveClientPool clientPool = new HiveClientPool(VERIFICATION_POOL_SIZE, verificationCatalog.getConf())) {
-                final List<String> databases = SecurityUtil.callWithUgi(ugi, () -> clientPool.run(IMetaStoreClient::getAllDatabases));
-                results.add(getSuccessfulResult(CONNECTION_STEP, NAMESPACES_FOUND.formatted(databases.size())));
+            try {
+                final List<Namespace> namespaces = SecurityUtil.callWithUgi(ugi, () -> initializedCatalog.listNamespaces(Namespace.empty()));
+                results.add(getSuccessfulResult(CONNECTION_STEP, NAMESPACES_FOUND.formatted(namespaces.size())));
             } catch (final Throwable e) {
                 componentLog.warn("Hive Metastore connection failed", e);
                 results.add(getFailedResult(CONNECTION_STEP, e));
@@ -311,20 +299,12 @@ public class HiveMetastoreIcebergCatalog extends AbstractControllerService imple
         return null;
     }
 
-    private HiveCatalog getInitializedCatalog(final ConfigurationContext context, final Configuration configuration, final UserGroupInformation ugi) throws IOException {
+    private HiveMetastoreCatalog getInitializedCatalog(final ConfigurationContext context, final Configuration configuration, final UserGroupInformation ugi) throws IOException {
         final Map<String, String> properties = new HashMap<>();
 
         properties.put(CatalogProperties.METRICS_REPORTER_IMPL, LoggingMetricsReporter.class.getName());
 
         properties.putAll(getDynamicProperties(context));
-
-        configuration.set(CLIENT_POOL_CACHE_KEY_PROPERTY, CLIENT_POOL_CACHE_KEY_FORMAT.formatted(getIdentifier(), UUID.randomUUID()));
-
-        final String configuredCacheKeys = properties.get(CatalogProperties.CLIENT_POOL_CACHE_KEYS);
-        final String cacheKeys = configuredCacheKeys == null || configuredCacheKeys.isBlank()
-                ? CLIENT_POOL_CACHE_KEY_ELEMENT
-                : CLIENT_POOL_CACHE_KEY_ELEMENTS_FORMAT.formatted(configuredCacheKeys.trim());
-        properties.put(CatalogProperties.CLIENT_POOL_CACHE_KEYS, cacheKeys);
 
         final String metastoreUri = getNormalizedUriList(context.getProperty(METASTORE_URI).evaluateAttributeExpressions().getValue());
         if (metastoreUri != null) {
@@ -340,7 +320,7 @@ public class HiveMetastoreIcebergCatalog extends AbstractControllerService imple
         final String identifier = getIdentifier();
 
         return SecurityUtil.callWithUgi(ugi, () -> {
-            final HiveCatalog hiveCatalog = new HiveCatalog();
+            final HiveMetastoreCatalog hiveCatalog = new HiveMetastoreCatalog();
             hiveCatalog.setConf(configuration);
             hiveCatalog.initialize(identifier, properties);
             return hiveCatalog;
@@ -450,7 +430,7 @@ public class HiveMetastoreIcebergCatalog extends AbstractControllerService imple
         }
     }
 
-    private void close(final HiveCatalog closeableCatalog) {
+    private void close(final HiveMetastoreCatalog closeableCatalog) {
         if (closeableCatalog != null) {
             try {
                 closeableCatalog.close();

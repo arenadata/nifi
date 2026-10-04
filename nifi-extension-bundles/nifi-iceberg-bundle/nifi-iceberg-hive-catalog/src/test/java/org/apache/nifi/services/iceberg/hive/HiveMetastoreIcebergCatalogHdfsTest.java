@@ -19,6 +19,7 @@ package org.apache.nifi.services.iceberg.hive;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
+import org.apache.hadoop.hive.metastore.IMetaStoreClient;
 import org.apache.iceberg.DataFile;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
@@ -31,7 +32,7 @@ import org.apache.iceberg.data.IcebergGenerics;
 import org.apache.iceberg.data.Record;
 import org.apache.iceberg.encryption.EncryptedFiles;
 import org.apache.iceberg.hadoop.HadoopFileIO;
-import org.apache.iceberg.hive.HiveCatalog;
+import org.apache.iceberg.hive.HiveClientPool;
 import org.apache.iceberg.io.CloseableIterable;
 import org.apache.iceberg.io.DataWriter;
 import org.apache.iceberg.io.OutputFile;
@@ -41,6 +42,7 @@ import org.apache.nifi.util.NoOpProcessor;
 import org.apache.nifi.util.TestRunner;
 import org.apache.nifi.util.TestRunners;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -71,8 +73,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 /**
  * Writes Iceberg Data Files to HDFS through Hadoop File IO. The NameNode and DataNode run in containers with fixed port
  * bindings, and the DataNode registers the hostname localhost, because an HDFS client receives DataNode addresses from
- * the NameNode and has to reach them directly. The Hive Metastore container records the table location and never reads
- * it, so the file system does not have to be reachable from the Metastore. Skipped when Docker is not available.
+ * the NameNode and has to reach them directly. The Hive Metastore checks and creates the table location when a table is
+ * created, so the Metastore container shares the network namespace of the NameNode container and reaches the same
+ * hdfs://localhost address as the client. Skipped when Docker is not available.
  */
 @Testcontainers
 @EnabledIfDockerAvailable
@@ -83,7 +86,7 @@ class HiveMetastoreIcebergCatalogHdfsTest {
 
     private static final String METASTORE_IMAGE_PROPERTY = "hive.metastore.image";
 
-    private static final String METASTORE_IMAGE_DEFAULT = "apache/hive:4.0.1";
+    private static final String METASTORE_IMAGE_DEFAULT = "apache/hive:4.2.1";
 
     private static final int NAME_NODE_PORT = 8020;
 
@@ -100,6 +103,18 @@ class HiveMetastoreIcebergCatalogHdfsTest {
     private static final String METASTORE_URI_FORMAT = "thrift://%s:%d";
 
     private static final String PORT_BINDING_FORMAT = "%d:%d";
+
+    private static final String NAME_NODE_NETWORK_MODE_FORMAT = "container:%s";
+
+    private static final Duration STARTUP_TIMEOUT = Duration.ofMinutes(3);
+
+    private static final Duration POLL_INTERVAL = Duration.ofSeconds(1);
+
+    private static final String LIVE_DATA_NODES = "Live datanodes (1)";
+
+    private static final String METASTORE_URIS_PROPERTY = "hive.metastore.uris";
+
+    private static final String METASTORE_CONNECT_RETRIES_PROPERTY = "hive.metastore.connect.retries";
 
     private static final String SERVICE_ID = "hive-metastore-catalog";
 
@@ -147,8 +162,10 @@ class HiveMetastoreIcebergCatalogHdfsTest {
             .withEnv("ENSURE_NAMENODE_DIR", "/tmp/hadoop-root/dfs/name")
             .withEnv("CORE-SITE.XML_fs.defaultFS", DEFAULT_FILE_SYSTEM)
             .withEnv("HDFS-SITE.XML_dfs.replication", "1")
+            .withEnv("HDFS-SITE.XML_dfs.permissions.enabled", "false")
+            .withEnv("HDFS-SITE.XML_dfs.namenode.rpc-bind-host", "0.0.0.0")
             .withCommand("hdfs", "namenode")
-            .waitingFor(Wait.forListeningPort().withStartupTimeout(Duration.ofMinutes(3)));
+            .waitingFor(Wait.forListeningPorts(NAME_NODE_PORT).withStartupTimeout(Duration.ofMinutes(3)));
 
     @Container
     private static final GenericContainer<?> DATA_NODE = new GenericContainer<>(DockerImageName.parse(System.getProperty(HADOOP_IMAGE_PROPERTY, HADOOP_IMAGE_DEFAULT)))
@@ -163,11 +180,11 @@ class HiveMetastoreIcebergCatalogHdfsTest {
     @Container
     private static final GenericContainer<?> METASTORE = new GenericContainer<>(DockerImageName.parse(System.getProperty(METASTORE_IMAGE_PROPERTY, METASTORE_IMAGE_DEFAULT)))
             .withEnv("SERVICE_NAME", "metastore")
-            .withExposedPorts(METASTORE_PORT)
-            .waitingFor(Wait.forListeningPort().withStartupTimeout(Duration.ofMinutes(3)));
+            .withCreateContainerCmdModifier(command -> command.getHostConfig().withNetworkMode(NAME_NODE_NETWORK_MODE_FORMAT.formatted(NAME_NODE.getContainerId())))
+            .dependsOn(NAME_NODE);
 
     static {
-        NAME_NODE.setPortBindings(List.of(PORT_BINDING_FORMAT.formatted(NAME_NODE_PORT, NAME_NODE_PORT)));
+        NAME_NODE.setPortBindings(List.of(PORT_BINDING_FORMAT.formatted(NAME_NODE_PORT, NAME_NODE_PORT), PORT_BINDING_FORMAT.formatted(METASTORE_PORT, METASTORE_PORT)));
         DATA_NODE.setPortBindings(List.of(PORT_BINDING_FORMAT.formatted(DATA_NODE_PORT, DATA_NODE_PORT)));
     }
 
@@ -185,6 +202,45 @@ class HiveMetastoreIcebergCatalogHdfsTest {
     private String tableLocation;
 
     private Configuration configuration;
+
+    @BeforeAll
+    static void waitForServices() throws InterruptedException {
+        waitUntilAvailable("DataNode not registered with NameNode", () -> {
+            final GenericContainer.ExecResult result = NAME_NODE.execInContainer("hdfs", "dfsadmin", "-report", "-live");
+            if (!result.getStdout().contains(LIVE_DATA_NODES)) {
+                throw new IllegalStateException(result.getStdout() + result.getStderr());
+            }
+        });
+
+        final Configuration metastoreConfiguration = new Configuration();
+        metastoreConfiguration.set(METASTORE_URIS_PROPERTY, getMetastoreUri());
+        metastoreConfiguration.set(METASTORE_CONNECT_RETRIES_PROPERTY, "1");
+        waitUntilAvailable("Hive Metastore not available", () -> {
+            try (HiveClientPool clientPool = new HiveClientPool(1, metastoreConfiguration)) {
+                clientPool.run(IMetaStoreClient::getAllDatabases);
+            }
+        });
+    }
+
+    private static void waitUntilAvailable(final String failureMessage, final AvailabilityCheck check) throws InterruptedException {
+        final long deadline = System.nanoTime() + STARTUP_TIMEOUT.toNanos();
+        while (true) {
+            try {
+                check.run();
+                return;
+            } catch (final Exception e) {
+                if (System.nanoTime() > deadline) {
+                    throw new IllegalStateException(failureMessage, e);
+                }
+                Thread.sleep(POLL_INTERVAL.toMillis());
+            }
+        }
+    }
+
+    @FunctionalInterface
+    private interface AvailabilityCheck {
+        void run() throws Exception;
+    }
 
     @BeforeEach
     void setCatalogService() throws InitializationException, IOException {
@@ -211,7 +267,7 @@ class HiveMetastoreIcebergCatalogHdfsTest {
     @AfterEach
     void disableCatalogService() {
         if (runner.isControllerServiceEnabled(catalogService)) {
-            final HiveCatalog catalog = catalogService.getHiveCatalog();
+            final HiveMetastoreCatalog catalog = catalogService.getHiveCatalog();
             if (catalog.tableExists(tableIdentifier)) {
                 catalog.dropTable(tableIdentifier, false);
             }
@@ -225,7 +281,7 @@ class HiveMetastoreIcebergCatalogHdfsTest {
     @Test
     void testDataFilesWrittenToFileSystem() throws IOException {
         runner.enableControllerService(catalogService);
-        final HiveCatalog catalog = catalogService.getHiveCatalog();
+        final HiveMetastoreCatalog catalog = catalogService.getHiveCatalog();
 
         catalog.createNamespace(namespace, Map.of(NAMESPACE_LOCATION_PROPERTY, tempDirectory.toUri().toString()));
         final Table table = catalog.createTable(tableIdentifier, SCHEMA, PartitionSpec.unpartitioned(), tableLocation, Map.of());
@@ -282,7 +338,7 @@ class HiveMetastoreIcebergCatalogHdfsTest {
         return configurationFile;
     }
 
-    private String getMetastoreUri() {
-        return METASTORE_URI_FORMAT.formatted(METASTORE.getHost(), METASTORE.getMappedPort(METASTORE_PORT));
+    private static String getMetastoreUri() {
+        return METASTORE_URI_FORMAT.formatted(NAME_NODE.getHost(), METASTORE_PORT);
     }
 }

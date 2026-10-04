@@ -16,10 +16,8 @@
  */
 package org.apache.nifi.services.iceberg.hive;
 
-import com.github.benmanes.caffeine.cache.Cache;
 import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.hadoop.HadoopFileIO;
-import org.apache.iceberg.hive.HiveCatalog;
 import org.apache.nifi.components.ConfigVerificationResult;
 import org.apache.nifi.components.PropertyDescriptor;
 import org.apache.nifi.controller.ConfigurationContext;
@@ -34,8 +32,6 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.io.IOException;
-import java.lang.reflect.Field;
-import java.lang.reflect.Method;
 import java.net.InetAddress;
 import java.net.ServerSocket;
 import java.nio.file.Files;
@@ -62,16 +58,6 @@ class HiveMetastoreIcebergCatalogClientTest {
     private static final String SERVICE_ID = "hive-metastore-catalog";
 
     private static final String METASTORE_URI_FORMAT = "thrift://localhost:%d";
-
-    private static final String FILE_IO_FIELD = "fileIO";
-
-    private static final String CLIENTS_FIELD = "clients";
-
-    private static final String CLIENT_POOL_METHOD = "clientPool";
-
-    private static final String CACHED_CLIENT_POOL_CLASS = "org.apache.iceberg.hive.CachedClientPool";
-
-    private static final String CLIENT_POOL_CACHE_METHOD = "clientPoolCache";
 
     private static final String SECOND_SERVICE_ID = "hive-metastore-catalog-second";
 
@@ -123,7 +109,7 @@ class HiveMetastoreIcebergCatalogClientTest {
     @Test
     void testMetastoreCallFailsWithConnectionErrorNotLinkageError() {
         runner.enableControllerService(catalogService);
-        final HiveCatalog catalog = catalogService.getHiveCatalog();
+        final HiveMetastoreCatalog catalog = catalogService.getHiveCatalog();
 
         // A LinkageError is not an Exception: an unresolved Hive Metastore client dependency fails the assertion
         final Exception e = assertThrows(Exception.class, () -> catalog.listNamespaces(NAMESPACE));
@@ -132,14 +118,10 @@ class HiveMetastoreIcebergCatalogClientTest {
     }
 
     @Test
-    void testCatalogFileIOIsHadoopFileIO() throws ReflectiveOperationException {
+    void testCatalogFileIOIsHadoopFileIO() {
         runner.enableControllerService(catalogService);
 
-        final HiveCatalog hiveCatalog = catalogService.getHiveCatalog();
-        final Field fileIOField = HiveCatalog.class.getDeclaredField(FILE_IO_FIELD);
-        fileIOField.setAccessible(true);
-
-        assertInstanceOf(HadoopFileIO.class, fileIOField.get(hiveCatalog));
+        assertInstanceOf(HadoopFileIO.class, catalogService.getHiveCatalog().getFileIO());
     }
 
     @Test
@@ -176,7 +158,7 @@ class HiveMetastoreIcebergCatalogClientTest {
         runner.setProperty(catalogService, HiveMetastoreIcebergCatalog.METASTORE_URI, spacedUriList);
         runner.enableControllerService(catalogService);
 
-        final HiveCatalog hiveCatalog = catalogService.getHiveCatalog();
+        final HiveMetastoreCatalog hiveCatalog = catalogService.getHiveCatalog();
         final String configuredUris = hiveCatalog.getConf().get("hive.metastore.uris");
 
         assertEquals("%s,%s".formatted(metastoreUri, metastoreUri), configuredUris);
@@ -201,7 +183,7 @@ class HiveMetastoreIcebergCatalogClientTest {
     }
 
     @Test
-    void testClientPoolNotSharedBetweenServiceInstances() throws Exception {
+    void testClientPoolNotSharedBetweenServiceInstances() throws InitializationException {
         runner.enableControllerService(catalogService);
 
         final HiveMetastoreIcebergCatalog secondService = new HiveMetastoreIcebergCatalog();
@@ -211,38 +193,10 @@ class HiveMetastoreIcebergCatalogClientTest {
         runner.enableControllerService(secondService);
 
         try {
-            assertNotSame(getClientPool(catalogService), getClientPool(secondService));
+            assertNotSame(catalogService.getHiveCatalog().getClientPool(), secondService.getHiveCatalog().getClientPool());
         } finally {
             runner.disableControllerService(secondService);
         }
-    }
-
-    private Object getClientPool(final HiveMetastoreIcebergCatalog service) throws ReflectiveOperationException {
-        final HiveCatalog hiveCatalog = service.getHiveCatalog();
-
-        final Field clientsField = HiveCatalog.class.getDeclaredField(CLIENTS_FIELD);
-        clientsField.setAccessible(true);
-        final Object cachedClientPool = clientsField.get(hiveCatalog);
-
-        final Method clientPoolMethod = cachedClientPool.getClass().getDeclaredMethod(CLIENT_POOL_METHOD);
-        clientPoolMethod.setAccessible(true);
-        return clientPoolMethod.invoke(cachedClientPool);
-    }
-
-    @Test
-    void testVerifyDoesNotRetainClientPool() throws ReflectiveOperationException {
-        final int clientPools = getCachedClientPools();
-
-        verify();
-
-        assertEquals(clientPools, getCachedClientPools());
-    }
-
-    private int getCachedClientPools() throws ReflectiveOperationException {
-        final Method cacheMethod = Class.forName(CACHED_CLIENT_POOL_CLASS).getDeclaredMethod(CLIENT_POOL_CACHE_METHOD);
-        cacheMethod.setAccessible(true);
-        final Cache<?, ?> cache = (Cache<?, ?>) cacheMethod.invoke(null);
-        return cache == null ? 0 : cache.asMap().size();
     }
 
     private List<ConfigVerificationResult> verify() {
