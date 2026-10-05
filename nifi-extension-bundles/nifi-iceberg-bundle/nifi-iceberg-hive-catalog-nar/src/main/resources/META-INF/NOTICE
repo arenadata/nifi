@@ -13,7 +13,11 @@ The following binary components are provided under the Apache Software License v
   (ASLv2) Apache Iceberg
     The following NOTICE information applies:
       Apache Iceberg
-      Copyright 2017-2025 The Apache Software Foundation
+      Copyright 2017-2026 The Apache Software Foundation
+
+      This project includes code from Kite, developed at Cloudera, Inc. with
+      the following copyright notice:
+      Copyright 2013 Cloudera Inc.
 
   (ASLv2) Apache Hive
     The following NOTICE information applies:
