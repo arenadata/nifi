@@ -174,6 +174,10 @@ class HiveMetastoreCatalog extends BaseMetastoreCatalog implements SupportsNames
         final String database = getDatabaseName(namespace);
         try {
             final List<String> tableNames = run(client -> client.getAllTables(database));
+            if (tableNames.isEmpty()) {
+                getDatabase(namespace);
+                return List.of();
+            }
             final List<Table> tables = run(client -> client.getTableObjectsByName(database, tableNames));
             return tables.stream()
                     .filter(this::isIcebergTable)

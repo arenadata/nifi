@@ -16,7 +16,11 @@
  */
 package org.apache.nifi.services.iceberg.hive;
 
+import org.apache.hadoop.hive.metastore.api.FieldSchema;
+import org.apache.hadoop.hive.metastore.api.SerDeInfo;
+import org.apache.hadoop.hive.metastore.api.StorageDescriptor;
 import org.apache.iceberg.DataFile;
+import org.apache.iceberg.HasTableOperations;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.Table;
@@ -27,6 +31,9 @@ import org.apache.iceberg.data.GenericRecord;
 import org.apache.iceberg.data.IcebergGenerics;
 import org.apache.iceberg.data.Record;
 import org.apache.iceberg.encryption.EncryptedFiles;
+import org.apache.iceberg.exceptions.AlreadyExistsException;
+import org.apache.iceberg.exceptions.NamespaceNotEmptyException;
+import org.apache.iceberg.exceptions.NoSuchNamespaceException;
 import org.apache.iceberg.exceptions.NoSuchTableException;
 import org.apache.iceberg.hadoop.HadoopFileIO;
 import org.apache.iceberg.io.CloseableIterable;
@@ -62,8 +69,10 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.apache.iceberg.FileFormat.PARQUET;
@@ -119,6 +128,38 @@ class HiveMetastoreIcebergCatalogMetastoreTest {
 
     private static final String MISSING_TABLE_NAME = "records_missing";
 
+    private static final String RENAMED_TABLE_NAME = "records_renamed";
+
+    private static final String HIVE_TABLE_NAME = "records_hive";
+
+    private static final String HIVE_TABLE_TYPE = "EXTERNAL_TABLE";
+
+    private static final String HIVE_EXTERNAL_PROPERTY = "EXTERNAL";
+
+    private static final String HIVE_EXTERNAL_VALUE = "TRUE";
+
+    private static final String HIVE_INPUT_FORMAT = "org.apache.hadoop.mapred.TextInputFormat";
+
+    private static final String HIVE_OUTPUT_FORMAT = "org.apache.hadoop.hive.ql.io.HiveIgnoreKeyTextOutputFormat";
+
+    private static final String HIVE_SERDE = "org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe";
+
+    private static final String HIVE_COLUMN_TYPE = "bigint";
+
+    private static final String LOCATION_PROPERTY = "location";
+
+    private static final String COMMENT_PROPERTY = "comment";
+
+    private static final String COMMENT_VALUE = "NiFi namespace";
+
+    private static final String NAMESPACE_PROPERTY_NAME = "nifi.namespace.test";
+
+    private static final String NAMESPACE_PROPERTY_UPDATED = "ADS-3823";
+
+    private static final String NAMESPACE_DIRECTORY_FORMAT = "%s_custom";
+
+    private static final String TABLE_LOCATION_FORMAT = "%s.db/%s";
+
     private static final String TABLE_DEFAULT_PROPERTY = "table-default.nifi.catalog.test";
 
     private static final String TABLE_PROPERTY = "nifi.catalog.test";
@@ -169,14 +210,14 @@ class HiveMetastoreIcebergCatalogMetastoreTest {
     }
 
     @AfterEach
-    void disableCatalogService() {
+    void disableCatalogService() throws Exception {
         if (runner.isControllerServiceEnabled(catalogService)) {
             final HiveMetastoreCatalog catalog = catalogService.getHiveCatalog();
-            if (catalog.tableExists(tableIdentifier)) {
-                catalog.dropTable(tableIdentifier);
-            }
             if (catalog.namespaceExists(namespace)) {
-                catalog.dropNamespace(namespace);
+                catalog.getClientPool().run(client -> {
+                    client.dropDatabase(namespace.level(0), true, true, true);
+                    return null;
+                });
             }
             runner.disableControllerService(catalogService);
         }
@@ -356,6 +397,178 @@ class HiveMetastoreIcebergCatalogMetastoreTest {
         }
     }
 
+    @Test
+    void testCreateTableDefaultLocation() {
+        runner.enableControllerService(catalogService);
+        final HiveMetastoreCatalog catalog = catalogService.getHiveCatalog();
+        catalog.createNamespace(namespace);
+
+        final Table table = catalog.createTable(tableIdentifier, SCHEMA, PartitionSpec.unpartitioned());
+
+        final String expectedSuffix = TABLE_LOCATION_FORMAT.formatted(namespace.level(0), TABLE_NAME);
+        assertTrue(table.location().endsWith(expectedSuffix), table.location());
+    }
+
+    @Test
+    void testCreateNamespaceAlreadyExists() {
+        runner.enableControllerService(catalogService);
+        final HiveMetastoreCatalog catalog = catalogService.getHiveCatalog();
+        catalog.createNamespace(namespace);
+
+        assertThrows(AlreadyExistsException.class, () -> catalog.createNamespace(namespace));
+    }
+
+    @Test
+    void testNamespaceMetadataAndProperties() {
+        runner.enableControllerService(catalogService);
+        final HiveMetastoreCatalog catalog = catalogService.getHiveCatalog();
+        final String locationDirectory = NAMESPACE_DIRECTORY_FORMAT.formatted(namespace.level(0));
+        final String location = WAREHOUSE.resolve(locationDirectory).toUri().toString();
+
+        catalog.createNamespace(namespace, Map.of(
+                LOCATION_PROPERTY, location,
+                COMMENT_PROPERTY, COMMENT_VALUE,
+                NAMESPACE_PROPERTY_NAME, TABLE_PROPERTY_VALUE
+        ));
+
+        final Map<String, String> metadata = catalog.loadNamespaceMetadata(namespace);
+        assertTrue(metadata.get(LOCATION_PROPERTY).endsWith(locationDirectory), metadata.get(LOCATION_PROPERTY));
+        assertEquals(COMMENT_VALUE, metadata.get(COMMENT_PROPERTY));
+        assertEquals(TABLE_PROPERTY_VALUE, metadata.get(NAMESPACE_PROPERTY_NAME));
+
+        assertTrue(catalog.setProperties(namespace, Map.of(NAMESPACE_PROPERTY_NAME, NAMESPACE_PROPERTY_UPDATED)));
+        assertEquals(NAMESPACE_PROPERTY_UPDATED, catalog.loadNamespaceMetadata(namespace).get(NAMESPACE_PROPERTY_NAME));
+
+        assertTrue(catalog.removeProperties(namespace, Set.of(NAMESPACE_PROPERTY_NAME)));
+        final Map<String, String> removed = catalog.loadNamespaceMetadata(namespace);
+        assertFalse(removed.containsKey(NAMESPACE_PROPERTY_NAME));
+        assertEquals(COMMENT_VALUE, removed.get(COMMENT_PROPERTY));
+    }
+
+    @Test
+    void testNamespaceNotFound() {
+        runner.enableControllerService(catalogService);
+        final HiveMetastoreCatalog catalog = catalogService.getHiveCatalog();
+
+        assertFalse(catalog.namespaceExists(namespace));
+        assertFalse(catalog.dropNamespace(namespace));
+        assertThrows(NoSuchNamespaceException.class, () -> catalog.loadNamespaceMetadata(namespace));
+        assertThrows(NoSuchNamespaceException.class, () -> catalog.listNamespaces(namespace));
+        assertThrows(NoSuchNamespaceException.class, () -> catalog.listTables(namespace));
+        assertThrows(NoSuchNamespaceException.class, () -> catalog.setProperties(namespace, Map.of(NAMESPACE_PROPERTY_NAME, TABLE_PROPERTY_VALUE)));
+        assertThrows(NoSuchNamespaceException.class, () -> catalog.createTable(tableIdentifier, SCHEMA, PartitionSpec.unpartitioned()));
+    }
+
+    @Test
+    void testListNamespacesWithParentReturnsEmpty() {
+        runner.enableControllerService(catalogService);
+        final HiveMetastoreCatalog catalog = catalogService.getHiveCatalog();
+        catalog.createNamespace(namespace);
+
+        assertTrue(catalog.listNamespaces(namespace).isEmpty());
+    }
+
+    @Test
+    void testDropNamespaceNotEmpty() {
+        runner.enableControllerService(catalogService);
+        final HiveMetastoreCatalog catalog = catalogService.getHiveCatalog();
+        catalog.createNamespace(namespace);
+        catalog.createTable(tableIdentifier, SCHEMA, PartitionSpec.unpartitioned());
+
+        assertThrows(NamespaceNotEmptyException.class, () -> catalog.dropNamespace(namespace));
+        assertTrue(catalog.namespaceExists(namespace));
+
+        assertTrue(catalog.dropTable(tableIdentifier));
+        assertTrue(catalog.dropNamespace(namespace));
+        assertFalse(catalog.namespaceExists(namespace));
+    }
+
+    @Test
+    void testListTablesReturnsIcebergTablesOnly() throws Exception {
+        runner.enableControllerService(catalogService);
+        final HiveMetastoreCatalog catalog = catalogService.getHiveCatalog();
+        catalog.createNamespace(namespace);
+        assertTrue(catalog.listTables(namespace).isEmpty());
+
+        catalog.createTable(tableIdentifier, SCHEMA, PartitionSpec.unpartitioned());
+        createHiveTable(catalog);
+
+        assertEquals(List.of(tableIdentifier), catalog.listTables(namespace));
+    }
+
+    @Test
+    void testRenameTable() throws IOException {
+        runner.enableControllerService(catalogService);
+        final HiveMetastoreCatalog catalog = catalogService.getHiveCatalog();
+        catalog.createNamespace(namespace);
+        final Table table = catalog.createTable(tableIdentifier, SCHEMA, PartitionSpec.unpartitioned());
+        table.newAppend().appendFile(writeDataFile(table, 1)).commit();
+        final TableIdentifier renamed = TableIdentifier.of(namespace, RENAMED_TABLE_NAME);
+
+        catalog.renameTable(tableIdentifier, renamed);
+
+        assertFalse(catalog.tableExists(tableIdentifier));
+        assertTrue(catalog.tableExists(renamed));
+        assertEquals(1, readRecords(catalog.loadTable(renamed)).size());
+    }
+
+    @Test
+    void testRenameTableNotFound() throws Exception {
+        runner.enableControllerService(catalogService);
+        final HiveMetastoreCatalog catalog = catalogService.getHiveCatalog();
+        catalog.createNamespace(namespace);
+        createHiveTable(catalog);
+        final TableIdentifier renamed = TableIdentifier.of(namespace, RENAMED_TABLE_NAME);
+
+        assertThrows(NoSuchTableException.class, () -> catalog.renameTable(TableIdentifier.of(namespace, MISSING_TABLE_NAME), renamed));
+        assertThrows(NoSuchTableException.class, () -> catalog.renameTable(TableIdentifier.of(namespace, HIVE_TABLE_NAME), renamed));
+        assertFalse(catalog.tableExists(renamed));
+    }
+
+    @Test
+    void testDropTableWithoutPurgeKeepsFiles() throws IOException {
+        runner.enableControllerService(catalogService);
+        final HiveMetastoreCatalog catalog = catalogService.getHiveCatalog();
+        catalog.createNamespace(namespace);
+        final Table table = catalog.createTable(tableIdentifier, SCHEMA, PartitionSpec.unpartitioned());
+        final DataFile dataFile = writeDataFile(table, 1);
+        table.newAppend().appendFile(dataFile).commit();
+        final String metadataLocation = getMetadataLocation(table);
+
+        assertTrue(catalog.dropTable(tableIdentifier, false));
+
+        assertFalse(catalog.tableExists(tableIdentifier));
+        assertTrue(catalog.getFileIO().newInputFile(dataFile.location()).exists());
+        assertTrue(catalog.getFileIO().newInputFile(metadataLocation).exists());
+    }
+
+    @Test
+    void testDropTableWithPurgeDeletesFiles() throws IOException {
+        runner.enableControllerService(catalogService);
+        final HiveMetastoreCatalog catalog = catalogService.getHiveCatalog();
+        catalog.createNamespace(namespace);
+        final Table table = catalog.createTable(tableIdentifier, SCHEMA, PartitionSpec.unpartitioned());
+        final DataFile dataFile = writeDataFile(table, 1);
+        table.newAppend().appendFile(dataFile).commit();
+        final String metadataLocation = getMetadataLocation(table);
+
+        assertTrue(catalog.dropTable(tableIdentifier, true));
+
+        assertFalse(catalog.tableExists(tableIdentifier));
+        assertFalse(catalog.getFileIO().newInputFile(dataFile.location()).exists());
+        assertFalse(catalog.getFileIO().newInputFile(metadataLocation).exists());
+    }
+
+    @Test
+    void testDropTableNotFound() {
+        runner.enableControllerService(catalogService);
+        final HiveMetastoreCatalog catalog = catalogService.getHiveCatalog();
+        catalog.createNamespace(namespace);
+
+        assertFalse(catalog.dropTable(TableIdentifier.of(namespace, MISSING_TABLE_NAME), true));
+        assertFalse(catalog.dropTable(TableIdentifier.of(namespace, MISSING_TABLE_NAME), false));
+    }
+
     private void setCatalogProperties(final HiveMetastoreIcebergCatalog service) {
         runner.setProperty(service, HiveMetastoreIcebergCatalog.METASTORE_URI, getMetastoreUri());
         runner.setProperty(service, HiveMetastoreIcebergCatalog.WAREHOUSE_LOCATION, WAREHOUSE.toUri().toString());
@@ -363,6 +576,32 @@ class HiveMetastoreIcebergCatalogMetastoreTest {
 
     private String getMetastoreUri() {
         return METASTORE_URI_FORMAT.formatted(METASTORE.getHost(), METASTORE.getMappedPort(METASTORE_PORT));
+    }
+
+    private void createHiveTable(final HiveMetastoreCatalog catalog) throws Exception {
+        final StorageDescriptor storageDescriptor = new StorageDescriptor();
+        storageDescriptor.setCols(new ArrayList<>(List.of(new FieldSchema(IDENTIFIER_FIELD, HIVE_COLUMN_TYPE, null))));
+        storageDescriptor.setLocation(WAREHOUSE.resolve("%s_%s".formatted(namespace.level(0), HIVE_TABLE_NAME)).toUri().toString());
+        storageDescriptor.setInputFormat(HIVE_INPUT_FORMAT);
+        storageDescriptor.setOutputFormat(HIVE_OUTPUT_FORMAT);
+        storageDescriptor.setSerdeInfo(new SerDeInfo(null, HIVE_SERDE, new HashMap<>()));
+
+        final org.apache.hadoop.hive.metastore.api.Table table = new org.apache.hadoop.hive.metastore.api.Table();
+        table.setDbName(namespace.level(0));
+        table.setTableName(HIVE_TABLE_NAME);
+        table.setTableType(HIVE_TABLE_TYPE);
+        table.setSd(storageDescriptor);
+        table.setPartitionKeys(new ArrayList<>());
+        table.setParameters(new HashMap<>(Map.of(HIVE_EXTERNAL_PROPERTY, HIVE_EXTERNAL_VALUE)));
+
+        catalog.getClientPool().run(client -> {
+            client.createTable(table);
+            return null;
+        });
+    }
+
+    private String getMetadataLocation(final Table table) {
+        return ((HasTableOperations) table).operations().current().metadataFileLocation();
     }
 
     private DataFile writeDataFile(final Table table, final int count) throws IOException {
