@@ -67,6 +67,7 @@ import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.attribute.PosixFilePermissions;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -179,6 +180,12 @@ class HiveMetastoreIcebergCatalogMetastoreTest {
             Types.NestedField.optional(2, DESCRIPTION_FIELD, Types.StringType.get())
     );
 
+    private static final String[] METASTORE_ENTRYPOINT = {"sh", "-c", "umask 0000 && exec /entrypoint.sh"};
+
+    private static final String POSIX_FILE_ATTRIBUTE_VIEW = "posix";
+
+    private static final String WAREHOUSE_PERMISSIONS = "rwxrwxrwx";
+
     private static final AtomicInteger NAMESPACE_COUNTER = new AtomicInteger();
 
     private static final Path WAREHOUSE = getWarehouseDirectory();
@@ -188,6 +195,7 @@ class HiveMetastoreIcebergCatalogMetastoreTest {
             .withEnv("SERVICE_NAME", "metastore")
             .withExposedPorts(METASTORE_PORT)
             .withFileSystemBind(WAREHOUSE.toString(), WAREHOUSE.toString(), BindMode.READ_WRITE)
+            .withCreateContainerCmdModifier(command -> command.withEntrypoint(METASTORE_ENTRYPOINT))
             .waitingFor(Wait.forListeningPort().withStartupTimeout(Duration.ofMinutes(3)));
 
     private TestRunner runner;
@@ -215,7 +223,7 @@ class HiveMetastoreIcebergCatalogMetastoreTest {
             final HiveMetastoreCatalog catalog = catalogService.getHiveCatalog();
             if (catalog.namespaceExists(namespace)) {
                 catalog.getClientPool().run(client -> {
-                    client.dropDatabase(namespace.level(0), true, true, true);
+                    client.dropDatabase(namespace.level(0), false, true, true);
                     return null;
                 });
             }
@@ -634,7 +642,11 @@ class HiveMetastoreIcebergCatalogMetastoreTest {
 
     private static Path getWarehouseDirectory() {
         try {
-            return Files.createTempDirectory("nifi-iceberg-warehouse");
+            final Path warehouse = Files.createTempDirectory("nifi-iceberg-warehouse");
+            if (warehouse.getFileSystem().supportedFileAttributeViews().contains(POSIX_FILE_ATTRIBUTE_VIEW)) {
+                Files.setPosixFilePermissions(warehouse, PosixFilePermissions.fromString(WAREHOUSE_PERMISSIONS));
+            }
+            return warehouse;
         } catch (final IOException e) {
             throw new UncheckedIOException(e);
         }
