@@ -34,6 +34,8 @@ import org.junit.jupiter.api.io.TempDir;
 import java.io.IOException;
 import java.net.InetAddress;
 import java.net.ServerSocket;
+import java.net.URL;
+import java.net.URLClassLoader;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.LinkedHashMap;
@@ -45,6 +47,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNotSame;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -115,6 +118,26 @@ class HiveMetastoreIcebergCatalogClientTest {
         final Exception e = assertThrows(Exception.class, () -> catalog.listNamespaces(NAMESPACE));
 
         assertMetastoreConnectionFailure(e);
+    }
+
+    @Test
+    void testMetastoreClientCreatedWithProcessorContextClassLoader() throws IOException {
+        runner.enableControllerService(catalogService);
+        final HiveMetastoreCatalog catalog = catalogService.getHiveCatalog();
+
+        final Thread thread = Thread.currentThread();
+        final ClassLoader serviceClassLoader = thread.getContextClassLoader();
+        try (URLClassLoader processorClassLoader = new URLClassLoader(new URL[0], ClassLoader.getPlatformClassLoader())) {
+            thread.setContextClassLoader(processorClassLoader);
+
+            // HiveMetaStoreClient is not visible to the Processor class loader, so a missing class means the client was created with it
+            final Exception e = assertThrows(Exception.class, () -> catalog.listNamespaces(NAMESPACE));
+
+            assertMetastoreConnectionFailure(e);
+            assertSame(processorClassLoader, thread.getContextClassLoader());
+        } finally {
+            thread.setContextClassLoader(serviceClassLoader);
+        }
     }
 
     @Test
@@ -229,6 +252,7 @@ class HiveMetastoreIcebergCatalogClientTest {
         final String lowerCased = explanation.toLowerCase();
         assertFalse(lowerCased.contains("noclassdeffound"), () -> "Missing runtime dependency reported: %s".formatted(explanation));
         assertFalse(lowerCased.contains("classnotfound"), () -> "Missing runtime dependency reported: %s".formatted(explanation));
+        assertFalse(lowerCased.contains("class not found"), () -> "Missing runtime dependency reported: %s".formatted(explanation));
         assertTrue(
                 lowerCased.contains("connect") || lowerCased.contains("metastore") || lowerCased.contains("transport"),
                 () -> "Metastore connection failure not reported: %s".formatted(explanation)

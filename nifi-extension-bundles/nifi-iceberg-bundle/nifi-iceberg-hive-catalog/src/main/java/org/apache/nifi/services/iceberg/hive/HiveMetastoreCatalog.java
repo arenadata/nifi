@@ -54,11 +54,15 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.Supplier;
 
 /**
  * Apache Iceberg Catalog backed by Apache Hive Metastore using the Hive 4 Metastore Client.
  * Iceberg HiveCatalog reads HiveConf.ConfVars fields renamed in Hive 4, so this Catalog extends BaseMetastoreCatalog
  * and reuses HiveTableOperations and HiveClientPool with configuration property names instead.
+ * Metastore clients are created with the Thread Context ClassLoader that initialized the Catalog, because the Hive client
+ * loads HiveMetaStoreClient and configured hooks through the Thread Context ClassLoader, which belongs to the calling
+ * Processor when a Table commit opens a new connection.
  */
 class HiveMetastoreCatalog extends BaseMetastoreCatalog implements SupportsNamespaces, Configurable {
 
@@ -110,7 +114,7 @@ class HiveMetastoreCatalog extends BaseMetastoreCatalog implements SupportsNames
         fileIO = fileIOImpl == null ? new HadoopFileIO(conf) : CatalogUtil.loadFileIO(fileIOImpl, properties, conf);
 
         final int poolSize = PropertyUtil.propertyAsInt(properties, CatalogProperties.CLIENT_POOL_SIZE, CatalogProperties.CLIENT_POOL_SIZE_DEFAULT);
-        clients = new HiveClientPool(poolSize, conf);
+        clients = new ContextClassLoaderHiveClientPool(poolSize, conf, Thread.currentThread().getContextClassLoader());
     }
 
     @Override
@@ -417,6 +421,36 @@ class HiveMetastoreCatalog extends BaseMetastoreCatalog implements SupportsNames
         } catch (final InterruptedException e) {
             Thread.currentThread().interrupt();
             throw new RuntimeException("Hive Metastore operation interrupted", e);
+        }
+    }
+
+    private static class ContextClassLoaderHiveClientPool extends HiveClientPool {
+        private final ClassLoader classLoader;
+
+        private ContextClassLoaderHiveClientPool(final int poolSize, final Configuration configuration, final ClassLoader classLoader) {
+            super(poolSize, configuration);
+            this.classLoader = classLoader;
+        }
+
+        @Override
+        protected IMetaStoreClient newClient() {
+            return getWithClassLoader(super::newClient);
+        }
+
+        @Override
+        protected IMetaStoreClient reconnect(final IMetaStoreClient client) {
+            return getWithClassLoader(() -> super.reconnect(client));
+        }
+
+        private IMetaStoreClient getWithClassLoader(final Supplier<IMetaStoreClient> supplier) {
+            final Thread thread = Thread.currentThread();
+            final ClassLoader callerClassLoader = thread.getContextClassLoader();
+            thread.setContextClassLoader(classLoader);
+            try {
+                return supplier.get();
+            } finally {
+                thread.setContextClassLoader(callerClassLoader);
+            }
         }
     }
 }
