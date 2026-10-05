@@ -161,6 +161,8 @@ class HiveMetastoreIcebergCatalogMetastoreTest {
 
     private static final String TABLE_LOCATION_FORMAT = "%s.db/%s";
 
+    private static final String DATABASE_DIRECTORY_FORMAT = "%s.db";
+
     private static final String TABLE_DEFAULT_PROPERTY = "table-default.nifi.catalog.test";
 
     private static final String TABLE_PROPERTY = "nifi.catalog.test";
@@ -180,8 +182,6 @@ class HiveMetastoreIcebergCatalogMetastoreTest {
             Types.NestedField.optional(2, DESCRIPTION_FIELD, Types.StringType.get())
     );
 
-    private static final String[] METASTORE_ENTRYPOINT = {"sh", "-c", "umask 0000 && exec /entrypoint.sh"};
-
     private static final String POSIX_FILE_ATTRIBUTE_VIEW = "posix";
 
     private static final String WAREHOUSE_PERMISSIONS = "rwxrwxrwx";
@@ -195,7 +195,6 @@ class HiveMetastoreIcebergCatalogMetastoreTest {
             .withEnv("SERVICE_NAME", "metastore")
             .withExposedPorts(METASTORE_PORT)
             .withFileSystemBind(WAREHOUSE.toString(), WAREHOUSE.toString(), BindMode.READ_WRITE)
-            .withCreateContainerCmdModifier(command -> command.withEntrypoint(METASTORE_ENTRYPOINT))
             .waitingFor(Wait.forListeningPort().withStartupTimeout(Duration.ofMinutes(3)));
 
     private TestRunner runner;
@@ -207,8 +206,10 @@ class HiveMetastoreIcebergCatalogMetastoreTest {
     private TableIdentifier tableIdentifier;
 
     @BeforeEach
-    void setCatalogService() throws InitializationException {
+    void setCatalogService() throws InitializationException, IOException {
         namespace = Namespace.of(NAMESPACE_FORMAT.formatted(NAMESPACE_COUNTER.incrementAndGet()));
+        // Created by the test user so that table files can be written when the Metastore container runs as another user
+        Files.createDirectory(WAREHOUSE.resolve(DATABASE_DIRECTORY_FORMAT.formatted(namespace.level(0))));
         tableIdentifier = TableIdentifier.of(namespace, TABLE_NAME);
 
         catalogService = new HiveMetastoreIcebergCatalog();
