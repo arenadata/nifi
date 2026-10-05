@@ -18,6 +18,7 @@ package org.apache.nifi.services.iceberg.hive;
 
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.Path;
+import org.apache.hadoop.hive.metastore.conf.MetastoreConf;
 import org.apache.hadoop.security.UserGroupInformation;
 import org.apache.iceberg.CatalogProperties;
 import org.apache.iceberg.catalog.Catalog;
@@ -32,6 +33,7 @@ import org.apache.nifi.annotation.lifecycle.OnEnabled;
 import org.apache.nifi.components.ClassloaderIsolationKeyProvider;
 import org.apache.nifi.components.ConfigVerificationResult;
 import org.apache.nifi.components.PropertyDescriptor;
+import org.apache.nifi.components.PropertyValue;
 import org.apache.nifi.components.ValidationContext;
 import org.apache.nifi.components.ValidationResult;
 import org.apache.nifi.components.resource.ResourceCardinality;
@@ -57,6 +59,7 @@ import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
 import static org.apache.nifi.components.ConfigVerificationResult.Outcome.FAILED;
@@ -82,6 +85,33 @@ public class HiveMetastoreIcebergCatalog extends AbstractControllerService imple
             .description("Default location of the Catalog warehouse overriding the hive.metastore.warehouse.dir property")
             .required(false)
             .addValidator(StandardValidators.NON_BLANK_VALIDATOR)
+            .expressionLanguageSupported(ExpressionLanguageScope.ENVIRONMENT)
+            .build();
+
+    static final PropertyDescriptor METASTORE_CONNECTION_ATTEMPTS = new PropertyDescriptor.Builder()
+            .name("Metastore Connection Attempts")
+            .description("Number of rounds of connection attempts across all Hive Metastore URIs when opening a connection, overriding the metastore.connect.retries"
+                    + " property from Hadoop Configuration Resources. Hive Metastore Client default is 3")
+            .required(false)
+            .addValidator(StandardValidators.POSITIVE_INTEGER_VALIDATOR)
+            .expressionLanguageSupported(ExpressionLanguageScope.ENVIRONMENT)
+            .build();
+
+    static final PropertyDescriptor METASTORE_CONNECTION_RETRY_DELAY = new PropertyDescriptor.Builder()
+            .name("Metastore Connection Retry Delay")
+            .description("Delay between rounds of connection attempts and before reconnecting after a lost connection, with precision in seconds, overriding the"
+                    + " metastore.client.connect.retry.delay property from Hadoop Configuration Resources. Hive Metastore Client default is 1 sec")
+            .required(false)
+            .addValidator(StandardValidators.TIME_PERIOD_VALIDATOR)
+            .expressionLanguageSupported(ExpressionLanguageScope.ENVIRONMENT)
+            .build();
+
+    static final PropertyDescriptor METASTORE_CONNECTION_TIMEOUT = new PropertyDescriptor.Builder()
+            .name("Metastore Connection Timeout")
+            .description("Maximum time to establish a connection with each Hive Metastore URI, overriding the metastore.client.connection.timeout property"
+                    + " from Hadoop Configuration Resources. Default is 60 sec when not configured in Hadoop Configuration Resources")
+            .required(false)
+            .addValidator(StandardValidators.TIME_PERIOD_VALIDATOR)
             .expressionLanguageSupported(ExpressionLanguageScope.ENVIRONMENT)
             .build();
 
@@ -111,18 +141,19 @@ public class HiveMetastoreIcebergCatalog extends AbstractControllerService imple
     private static final List<PropertyDescriptor> PROPERTY_DESCRIPTORS = List.of(
             METASTORE_URI,
             WAREHOUSE_LOCATION,
+            METASTORE_CONNECTION_ATTEMPTS,
+            METASTORE_CONNECTION_RETRY_DELAY,
+            METASTORE_CONNECTION_TIMEOUT,
             HADOOP_CONFIGURATION_RESOURCES,
             ADDITIONAL_CLASSPATH_RESOURCES,
             KERBEROS_USER_SERVICE
     );
 
-    private static final String METASTORE_URIS_PROPERTY = "hive.metastore.uris";
-
-    private static final String METASTORE_THRIFT_URIS_PROPERTY = "metastore.thrift.uris";
-
     private static final String CLIENT_SOCKET_TIMEOUT_PROPERTY = "hive.metastore.client.socket.timeout";
 
     private static final String CLIENT_SOCKET_TIMEOUT_DEFAULT = "60s";
+
+    private static final String CLIENT_CONNECTION_TIMEOUT_DEFAULT = "60s";
 
     private static final String CONFIGURATION_STEP = "Catalog Configuration";
 
@@ -178,7 +209,7 @@ public class HiveMetastoreIcebergCatalog extends AbstractControllerService imple
                 results.add(new ValidationResult.Builder()
                         .subject(METASTORE_URI.getName())
                         .valid(false)
-                        .explanation(METASTORE_URI_NOT_FOUND.formatted(METASTORE_THRIFT_URIS_PROPERTY, METASTORE_URIS_PROPERTY))
+                        .explanation(METASTORE_URI_NOT_FOUND.formatted(MetastoreConf.ConfVars.THRIFT_URIS.getVarname(), MetastoreConf.ConfVars.THRIFT_URIS.getHiveName()))
                         .build()
                 );
             }
@@ -304,7 +335,6 @@ public class HiveMetastoreIcebergCatalog extends AbstractControllerService imple
         final String metastoreUri = getNormalizedUriList(context.getProperty(METASTORE_URI).evaluateAttributeExpressions().getValue());
         if (metastoreUri != null) {
             properties.put(CatalogProperties.URI, metastoreUri);
-            configuration.set(METASTORE_THRIFT_URIS_PROPERTY, metastoreUri);
         }
 
         final String warehouseLocation = context.getProperty(WAREHOUSE_LOCATION).evaluateAttributeExpressions().getValue();
@@ -331,6 +361,22 @@ public class HiveMetastoreIcebergCatalog extends AbstractControllerService imple
         }
 
         configuration.setIfUnset(CLIENT_SOCKET_TIMEOUT_PROPERTY, CLIENT_SOCKET_TIMEOUT_DEFAULT);
+        configuration.setIfUnset(MetastoreConf.ConfVars.CLIENT_CONNECTION_TIMEOUT.getHiveName(), CLIENT_CONNECTION_TIMEOUT_DEFAULT);
+
+        final PropertyValue connectionAttempts = context.getProperty(METASTORE_CONNECTION_ATTEMPTS).evaluateAttributeExpressions();
+        if (connectionAttempts.isSet()) {
+            MetastoreConf.setLongVar(configuration, MetastoreConf.ConfVars.THRIFT_CONNECTION_RETRIES, connectionAttempts.asInteger());
+        }
+
+        final PropertyValue connectionRetryDelay = context.getProperty(METASTORE_CONNECTION_RETRY_DELAY).evaluateAttributeExpressions();
+        if (connectionRetryDelay.isSet()) {
+            MetastoreConf.setTimeVar(configuration, MetastoreConf.ConfVars.CLIENT_CONNECT_RETRY_DELAY, connectionRetryDelay.asTimePeriod(TimeUnit.SECONDS), TimeUnit.SECONDS);
+        }
+
+        final PropertyValue connectionTimeout = context.getProperty(METASTORE_CONNECTION_TIMEOUT).evaluateAttributeExpressions();
+        if (connectionTimeout.isSet()) {
+            MetastoreConf.setTimeVar(configuration, MetastoreConf.ConfVars.CLIENT_CONNECTION_TIMEOUT, connectionTimeout.asTimePeriod(TimeUnit.MILLISECONDS), TimeUnit.MILLISECONDS);
+        }
         configuration.setIfUnset(OZONE_FILE_SYSTEM_PROPERTY, OZONE_FILE_SYSTEM_CLASS);
 
         return configuration;
@@ -347,8 +393,7 @@ public class HiveMetastoreIcebergCatalog extends AbstractControllerService imple
         }
 
         final Configuration configuration = getHadoopConfiguration(validationContext);
-        final String configuredUris = configuration.get(METASTORE_THRIFT_URIS_PROPERTY, configuration.get(METASTORE_URIS_PROPERTY));
-        return configuredUris != null && !configuredUris.isBlank();
+        return !MetastoreConf.getVar(configuration, MetastoreConf.ConfVars.THRIFT_URIS).isBlank();
     }
 
     private String getNormalizedUriList(final String uriList) {

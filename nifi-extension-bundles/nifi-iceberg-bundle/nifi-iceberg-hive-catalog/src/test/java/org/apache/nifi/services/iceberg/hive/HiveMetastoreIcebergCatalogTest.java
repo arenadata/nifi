@@ -17,6 +17,7 @@
 package org.apache.nifi.services.iceberg.hive;
 
 import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.hive.metastore.conf.MetastoreConf;
 import org.apache.iceberg.catalog.Catalog;
 import org.apache.iceberg.hive.HiveClientPool;
 import org.apache.nifi.components.PropertyDescriptor;
@@ -40,6 +41,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -85,6 +87,18 @@ class HiveMetastoreIcebergCatalogTest {
     private static final String FILE_IO_PROPERTY = "io-impl";
 
     private static final String MISSING_FILE_IO_CLASS = "org.example.MissingFileIO";
+
+    private static final String CONNECTION_ATTEMPTS = "10";
+
+    private static final String CONFIGURED_CONNECTION_ATTEMPTS = "24";
+
+    private static final String CONNECTION_RETRY_DELAY = "5 sec";
+
+    private static final String CONNECTION_TIMEOUT = "30 sec";
+
+    private static final int DEFAULT_CONNECTION_ATTEMPTS = 3;
+
+    private static final long DEFAULT_CONNECTION_TIMEOUT_SECONDS = 60;
 
     private static final String CONFIGURATION_FORMAT = """
             <?xml version="1.0" encoding="UTF-8"?>
@@ -215,12 +229,74 @@ class HiveMetastoreIcebergCatalogTest {
                 List.of(
                         HiveMetastoreIcebergCatalog.METASTORE_URI,
                         HiveMetastoreIcebergCatalog.WAREHOUSE_LOCATION,
+                        HiveMetastoreIcebergCatalog.METASTORE_CONNECTION_ATTEMPTS,
+                        HiveMetastoreIcebergCatalog.METASTORE_CONNECTION_RETRY_DELAY,
+                        HiveMetastoreIcebergCatalog.METASTORE_CONNECTION_TIMEOUT,
                         HiveMetastoreIcebergCatalog.HADOOP_CONFIGURATION_RESOURCES,
                         HiveMetastoreIcebergCatalog.ADDITIONAL_CLASSPATH_RESOURCES,
                         HiveMetastoreIcebergCatalog.KERBEROS_USER_SERVICE
                 ),
                 descriptors
         );
+    }
+
+    @Test
+    void testMetastoreConnectionPropertiesApplied() {
+        runner.setProperty(catalogService, HiveMetastoreIcebergCatalog.METASTORE_URI, METASTORE_URI);
+        runner.setProperty(catalogService, HiveMetastoreIcebergCatalog.METASTORE_CONNECTION_ATTEMPTS, CONNECTION_ATTEMPTS);
+        runner.setProperty(catalogService, HiveMetastoreIcebergCatalog.METASTORE_CONNECTION_RETRY_DELAY, CONNECTION_RETRY_DELAY);
+        runner.setProperty(catalogService, HiveMetastoreIcebergCatalog.METASTORE_CONNECTION_TIMEOUT, CONNECTION_TIMEOUT);
+        runner.enableControllerService(catalogService);
+
+        final Configuration configuration = catalogService.getHiveCatalog().getConf();
+
+        assertEquals(Integer.parseInt(CONNECTION_ATTEMPTS), MetastoreConf.getIntVar(configuration, MetastoreConf.ConfVars.THRIFT_CONNECTION_RETRIES));
+        assertEquals(5, MetastoreConf.getTimeVar(configuration, MetastoreConf.ConfVars.CLIENT_CONNECT_RETRY_DELAY, TimeUnit.SECONDS));
+        assertEquals(30, MetastoreConf.getTimeVar(configuration, MetastoreConf.ConfVars.CLIENT_CONNECTION_TIMEOUT, TimeUnit.SECONDS));
+    }
+
+    @Test
+    void testMetastoreConnectionDefaults() {
+        runner.setProperty(catalogService, HiveMetastoreIcebergCatalog.METASTORE_URI, METASTORE_URI);
+        runner.enableControllerService(catalogService);
+
+        final Configuration configuration = catalogService.getHiveCatalog().getConf();
+
+        assertEquals(DEFAULT_CONNECTION_ATTEMPTS, MetastoreConf.getIntVar(configuration, MetastoreConf.ConfVars.THRIFT_CONNECTION_RETRIES));
+        assertEquals(DEFAULT_CONNECTION_TIMEOUT_SECONDS, MetastoreConf.getTimeVar(configuration, MetastoreConf.ConfVars.CLIENT_CONNECTION_TIMEOUT, TimeUnit.SECONDS));
+    }
+
+    @Test
+    void testMetastoreConnectionAttemptsFromConfigurationResources() throws IOException {
+        final Path configuration = writeConfiguration(MetastoreConf.ConfVars.THRIFT_CONNECTION_RETRIES.getHiveName(), CONFIGURED_CONNECTION_ATTEMPTS);
+        runner.setProperty(catalogService, HiveMetastoreIcebergCatalog.METASTORE_URI, METASTORE_URI);
+        runner.setProperty(catalogService, HiveMetastoreIcebergCatalog.HADOOP_CONFIGURATION_RESOURCES, configuration.toString());
+        runner.enableControllerService(catalogService);
+
+        final Configuration hiveConfiguration = catalogService.getHiveCatalog().getConf();
+
+        assertEquals(Integer.parseInt(CONFIGURED_CONNECTION_ATTEMPTS), MetastoreConf.getIntVar(hiveConfiguration, MetastoreConf.ConfVars.THRIFT_CONNECTION_RETRIES));
+    }
+
+    @Test
+    void testMetastoreConnectionAttemptsOverrideConfigurationResources() throws IOException {
+        final Path configuration = writeConfiguration(MetastoreConf.ConfVars.THRIFT_CONNECTION_RETRIES.getHiveName(), CONFIGURED_CONNECTION_ATTEMPTS);
+        runner.setProperty(catalogService, HiveMetastoreIcebergCatalog.METASTORE_URI, METASTORE_URI);
+        runner.setProperty(catalogService, HiveMetastoreIcebergCatalog.HADOOP_CONFIGURATION_RESOURCES, configuration.toString());
+        runner.setProperty(catalogService, HiveMetastoreIcebergCatalog.METASTORE_CONNECTION_ATTEMPTS, CONNECTION_ATTEMPTS);
+        runner.enableControllerService(catalogService);
+
+        final Configuration hiveConfiguration = catalogService.getHiveCatalog().getConf();
+
+        assertEquals(Integer.parseInt(CONNECTION_ATTEMPTS), MetastoreConf.getIntVar(hiveConfiguration, MetastoreConf.ConfVars.THRIFT_CONNECTION_RETRIES));
+    }
+
+    @Test
+    void testNotValidWithInvalidMetastoreConnectionAttempts() {
+        runner.setProperty(catalogService, HiveMetastoreIcebergCatalog.METASTORE_URI, METASTORE_URI);
+        runner.setProperty(catalogService, HiveMetastoreIcebergCatalog.METASTORE_CONNECTION_ATTEMPTS, "0");
+
+        runner.assertNotValid(catalogService);
     }
 
     @Test

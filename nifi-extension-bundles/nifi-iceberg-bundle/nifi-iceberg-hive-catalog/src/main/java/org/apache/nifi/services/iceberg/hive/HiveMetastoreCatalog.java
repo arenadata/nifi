@@ -24,6 +24,7 @@ import org.apache.hadoop.hive.metastore.api.InvalidOperationException;
 import org.apache.hadoop.hive.metastore.api.NoSuchObjectException;
 import org.apache.hadoop.hive.metastore.api.Table;
 import org.apache.hadoop.hive.metastore.api.UnknownDBException;
+import org.apache.hadoop.hive.metastore.conf.MetastoreConf;
 import org.apache.iceberg.BaseMetastoreCatalog;
 import org.apache.iceberg.BaseMetastoreTableOperations;
 import org.apache.iceberg.CatalogProperties;
@@ -66,10 +67,6 @@ import java.util.function.Supplier;
  */
 class HiveMetastoreCatalog extends BaseMetastoreCatalog implements SupportsNamespaces, Configurable {
 
-    static final String METASTORE_URIS_PROPERTY = "hive.metastore.uris";
-
-    static final String METASTORE_WAREHOUSE_PROPERTY = "hive.metastore.warehouse.dir";
-
     private static final String LOCATION_PROPERTY = "location";
 
     private static final String COMMENT_PROPERTY = "comment";
@@ -94,18 +91,19 @@ class HiveMetastoreCatalog extends BaseMetastoreCatalog implements SupportsNames
     public void initialize(final String inputName, final Map<String, String> properties) {
         name = inputName;
         catalogProperties = Map.copyOf(properties);
+        metricsReporter();
         if (conf == null) {
             conf = new Configuration();
         }
 
         final String uri = properties.get(CatalogProperties.URI);
         if (uri != null) {
-            conf.set(METASTORE_URIS_PROPERTY, uri);
+            setMetastoreProperty(MetastoreConf.ConfVars.THRIFT_URIS, uri);
         }
 
         final String warehouseLocation = properties.get(CatalogProperties.WAREHOUSE_LOCATION);
         if (warehouseLocation != null) {
-            conf.set(METASTORE_WAREHOUSE_PROPERTY, LocationUtil.stripTrailingSlash(warehouseLocation));
+            setMetastoreProperty(MetastoreConf.ConfVars.WAREHOUSE, LocationUtil.stripTrailingSlash(warehouseLocation));
         }
 
         uniqueTableLocation = PropertyUtil.propertyAsBoolean(properties, CatalogProperties.UNIQUE_TABLE_LOCATION, CatalogProperties.UNIQUE_TABLE_LOCATION_DEFAULT);
@@ -364,7 +362,7 @@ class HiveMetastoreCatalog extends BaseMetastoreCatalog implements SupportsNames
 
     @Override
     public String toString() {
-        return "%s[name=%s, uri=%s]".formatted(getClass().getSimpleName(), name, conf == null ? null : conf.get(METASTORE_URIS_PROPERTY));
+        return "%s[name=%s, uri=%s]".formatted(getClass().getSimpleName(), name, conf == null ? null : getMetastoreProperty(MetastoreConf.ConfVars.THRIFT_URIS));
     }
 
     HiveClientPool getClientPool() {
@@ -407,11 +405,21 @@ class HiveMetastoreCatalog extends BaseMetastoreCatalog implements SupportsNames
     }
 
     private String getDefaultDatabaseLocation(final String databaseName) {
-        final String warehouseLocation = conf.get(METASTORE_WAREHOUSE_PROPERTY);
+        final String warehouseLocation = getMetastoreProperty(MetastoreConf.ConfVars.WAREHOUSE);
         if (warehouseLocation == null) {
-            throw new IllegalStateException("Warehouse location not configured: %s".formatted(METASTORE_WAREHOUSE_PROPERTY));
+            throw new IllegalStateException("Warehouse location not configured: %s".formatted(MetastoreConf.ConfVars.WAREHOUSE.getVarname()));
         }
         return DATABASE_LOCATION_FORMAT.formatted(LocationUtil.stripTrailingSlash(warehouseLocation), databaseName);
+    }
+
+    // Hive 4 Metastore Client reads the metastore name before the deprecated hive name, so both are set and read in that order
+    private void setMetastoreProperty(final MetastoreConf.ConfVars property, final String value) {
+        conf.set(property.getVarname(), value);
+        conf.set(property.getHiveName(), value);
+    }
+
+    private String getMetastoreProperty(final MetastoreConf.ConfVars property) {
+        return conf.get(property.getVarname(), conf.get(property.getHiveName()));
     }
 
     private boolean isIcebergTable(final Table table) {

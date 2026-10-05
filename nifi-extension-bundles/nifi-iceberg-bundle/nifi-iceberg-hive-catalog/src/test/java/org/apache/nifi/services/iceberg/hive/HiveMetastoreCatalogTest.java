@@ -17,6 +17,7 @@
 package org.apache.nifi.services.iceberg.hive;
 
 import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.hive.metastore.conf.MetastoreConf;
 import org.apache.iceberg.CatalogProperties;
 import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.catalog.TableIdentifier;
@@ -30,6 +31,7 @@ import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
 import java.util.Map;
+import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -48,7 +50,17 @@ class HiveMetastoreCatalogTest {
 
     private static final String METASTORE_URI = "thrift://127.0.0.1:1";
 
+    private static final String OTHER_METASTORE_URI = "thrift://127.0.0.1:2";
+
     private static final String WAREHOUSE_LOCATION = "file:/tmp/warehouse";
+
+    private static final String METASTORE_URIS_PROPERTY = MetastoreConf.ConfVars.THRIFT_URIS.getHiveName();
+
+    private static final String METASTORE_THRIFT_URIS_PROPERTY = MetastoreConf.ConfVars.THRIFT_URIS.getVarname();
+
+    private static final String METASTORE_WAREHOUSE_PROPERTY = MetastoreConf.ConfVars.WAREHOUSE.getHiveName();
+
+    private static final String METASTORE_WAREHOUSE_DIR_PROPERTY = MetastoreConf.ConfVars.WAREHOUSE.getVarname();
 
     private static final String CLIENT_POOL_SIZE = "3";
 
@@ -57,6 +69,8 @@ class HiveMetastoreCatalogTest {
     private static final String CONFIGURATION_VALUE = "ADS-3777";
 
     private static final String TABLE_NAME = "records";
+
+    private static final String MISSING_METRICS_REPORTER_CLASS = "org.example.MissingMetricsReporter";
 
     private static final Namespace NAMESPACE = Namespace.of("nifi");
 
@@ -86,21 +100,57 @@ class HiveMetastoreCatalogTest {
         ));
 
         assertEquals(CATALOG_NAME, catalog.name());
-        assertEquals(METASTORE_URI, catalog.getConf().get(HiveMetastoreCatalog.METASTORE_URIS_PROPERTY));
-        assertEquals(WAREHOUSE_LOCATION, catalog.getConf().get(HiveMetastoreCatalog.METASTORE_WAREHOUSE_PROPERTY));
+        assertEquals(METASTORE_URI, catalog.getConf().get(METASTORE_URIS_PROPERTY));
+        assertEquals(WAREHOUSE_LOCATION, catalog.getConf().get(METASTORE_WAREHOUSE_PROPERTY));
+        assertEquals(METASTORE_URI, catalog.getConf().get(METASTORE_THRIFT_URIS_PROPERTY));
+        assertEquals(WAREHOUSE_LOCATION, catalog.getConf().get(METASTORE_WAREHOUSE_DIR_PROPERTY));
         assertTrue(catalog.toString().contains(METASTORE_URI), catalog.toString());
+    }
+
+    @Test
+    void testUriOverridesMetastoreThriftUrisFromConfiguration() {
+        final Configuration configuration = new Configuration(false);
+        configuration.set(METASTORE_THRIFT_URIS_PROPERTY, OTHER_METASTORE_URI);
+        catalog.setConf(configuration);
+
+        catalog.initialize(CATALOG_NAME, Map.of(CatalogProperties.URI, METASTORE_URI));
+
+        assertEquals(METASTORE_URI, MetastoreConf.getVar(catalog.getConf(), MetastoreConf.ConfVars.THRIFT_URIS));
+        assertTrue(catalog.toString().contains(METASTORE_URI), catalog.toString());
+    }
+
+    @Test
+    void testCreateNamespaceWithMetastoreWarehouseDirFromConfiguration() {
+        final Configuration configuration = new Configuration(false);
+        configuration.set(METASTORE_WAREHOUSE_DIR_PROPERTY, WAREHOUSE_LOCATION);
+        MetastoreConf.setLongVar(configuration, MetastoreConf.ConfVars.THRIFT_CONNECTION_RETRIES, 1);
+        MetastoreConf.setLongVar(configuration, MetastoreConf.ConfVars.THRIFT_FAILURE_RETRIES, 0);
+        MetastoreConf.setTimeVar(configuration, MetastoreConf.ConfVars.CLIENT_CONNECT_RETRY_DELAY, 0, TimeUnit.SECONDS);
+        catalog.setConf(configuration);
+        catalog.initialize(CATALOG_NAME, Map.of(CatalogProperties.URI, METASTORE_URI));
+
+        final RuntimeException exception = assertThrows(RuntimeException.class, () -> catalog.createNamespace(NAMESPACE));
+
+        assertFalse(exception instanceof IllegalStateException, exception::toString);
     }
 
     @Test
     void testInitializeWithoutPropertiesKeepsConfiguration() {
         final Configuration configuration = new Configuration(false);
-        configuration.set(HiveMetastoreCatalog.METASTORE_URIS_PROPERTY, METASTORE_URI);
+        configuration.set(METASTORE_URIS_PROPERTY, METASTORE_URI);
         catalog.setConf(configuration);
 
         catalog.initialize(CATALOG_NAME, Map.of());
 
-        assertEquals(METASTORE_URI, catalog.getConf().get(HiveMetastoreCatalog.METASTORE_URIS_PROPERTY));
-        assertNull(catalog.getConf().get(HiveMetastoreCatalog.METASTORE_WAREHOUSE_PROPERTY));
+        assertEquals(METASTORE_URI, catalog.getConf().get(METASTORE_URIS_PROPERTY));
+        assertNull(catalog.getConf().get(METASTORE_WAREHOUSE_PROPERTY));
+    }
+
+    @Test
+    void testInitializeFailsWithInvalidMetricsReporter() {
+        final Map<String, String> properties = Map.of(CatalogProperties.URI, METASTORE_URI, CatalogProperties.METRICS_REPORTER_IMPL, MISSING_METRICS_REPORTER_CLASS);
+
+        assertThrows(IllegalArgumentException.class, () -> catalog.initialize(CATALOG_NAME, properties));
     }
 
     @Test
@@ -160,7 +210,7 @@ class HiveMetastoreCatalogTest {
 
         final IllegalStateException exception = assertThrows(IllegalStateException.class, () -> catalog.createNamespace(NAMESPACE));
 
-        assertTrue(exception.getMessage().contains(HiveMetastoreCatalog.METASTORE_WAREHOUSE_PROPERTY), exception.getMessage());
+        assertTrue(exception.getMessage().contains(METASTORE_WAREHOUSE_DIR_PROPERTY), exception.getMessage());
     }
 
     @Test
