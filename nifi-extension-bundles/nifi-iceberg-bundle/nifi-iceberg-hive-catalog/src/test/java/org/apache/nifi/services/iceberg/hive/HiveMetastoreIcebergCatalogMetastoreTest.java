@@ -24,6 +24,7 @@ import org.apache.iceberg.HasTableOperations;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.Table;
+import org.apache.iceberg.TableProperties;
 import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.data.GenericAppenderFactory;
@@ -74,6 +75,11 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.UUID;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.apache.iceberg.FileFormat.PARQUET;
@@ -162,6 +168,12 @@ class HiveMetastoreIcebergCatalogMetastoreTest {
     private static final String TABLE_LOCATION_FORMAT = "%s.db/%s";
 
     private static final String DATABASE_DIRECTORY_FORMAT = "%s.db";
+
+    private static final int CONCURRENT_COMMITS = 4;
+
+    private static final String COMMIT_RETRIES = "10";
+
+    private static final long COMMIT_TIMEOUT_SECONDS = 120;
 
     private static final String TABLE_DEFAULT_PROPERTY = "table-default.nifi.catalog.test";
 
@@ -578,6 +590,34 @@ class HiveMetastoreIcebergCatalogMetastoreTest {
         assertFalse(catalog.dropTable(TableIdentifier.of(namespace, MISSING_TABLE_NAME), false));
     }
 
+    @Test
+    void testConcurrentAppendsCommitted() throws Exception {
+        runner.enableControllerService(catalogService);
+        final HiveMetastoreCatalog catalog = catalogService.getHiveCatalog();
+        catalog.createNamespace(namespace);
+        catalog.createTable(tableIdentifier, SCHEMA, PartitionSpec.unpartitioned(), Map.of(TableProperties.COMMIT_NUM_RETRIES, COMMIT_RETRIES));
+
+        final ExecutorService executor = Executors.newFixedThreadPool(CONCURRENT_COMMITS);
+        try {
+            final List<Future<?>> commits = new ArrayList<>();
+            for (int i = 0; i < CONCURRENT_COMMITS; i++) {
+                commits.add(executor.submit(() -> {
+                    final Table table = catalog.loadTable(tableIdentifier);
+                    table.newAppend().appendFile(writeDataFile(table, 1)).commit();
+                    return null;
+                }));
+            }
+            for (final Future<?> commit : commits) {
+                commit.get(COMMIT_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+            }
+        } finally {
+            executor.shutdownNow();
+        }
+
+        final Table committed = catalog.loadTable(tableIdentifier);
+        assertEquals(CONCURRENT_COMMITS, readRecords(committed).size());
+    }
+
     private void setCatalogProperties(final HiveMetastoreIcebergCatalog service) {
         runner.setProperty(service, HiveMetastoreIcebergCatalog.METASTORE_URI, getMetastoreUri());
         runner.setProperty(service, HiveMetastoreIcebergCatalog.WAREHOUSE_LOCATION, WAREHOUSE.toUri().toString());
@@ -614,7 +654,7 @@ class HiveMetastoreIcebergCatalogMetastoreTest {
     }
 
     private DataFile writeDataFile(final Table table, final int count) throws IOException {
-        final OutputFile outputFile = table.io().newOutputFile("%s/data/%s.parquet".formatted(table.location(), System.nanoTime()));
+        final OutputFile outputFile = table.io().newOutputFile("%s/data/%s.parquet".formatted(table.location(), UUID.randomUUID()));
         final GenericAppenderFactory appenderFactory = new GenericAppenderFactory(table.schema());
 
         try (DataWriter<Record> writer = appenderFactory.newDataWriter(EncryptedFiles.plainAsEncryptedOutput(outputFile), PARQUET, null)) {
