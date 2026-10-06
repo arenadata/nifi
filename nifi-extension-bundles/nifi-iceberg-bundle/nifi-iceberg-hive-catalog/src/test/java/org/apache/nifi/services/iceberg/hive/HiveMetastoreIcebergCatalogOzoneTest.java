@@ -230,7 +230,7 @@ class HiveMetastoreIcebergCatalogOzoneTest {
         catalog.createNamespace(namespace, Map.of(NAMESPACE_LOCATION_PROPERTY, tempDirectory.toUri().toString()));
         final Table table = catalog.createTable(tableIdentifier, SCHEMA, PartitionSpec.unpartitioned(), tableLocation, Map.of());
 
-        assertInstanceOf(HadoopFileIO.class, table.io());
+        assertInstanceOf(HadoopFileIO.class, assertInstanceOf(PrivilegedFileIO.class, table.io()).getDelegate());
         assertEquals(tableLocation, table.location());
 
         final DataFile dataFile = writeDataFile(table);
