@@ -19,7 +19,6 @@ package org.apache.nifi.services.iceberg.hive;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.hive.metastore.conf.MetastoreConf;
-import org.apache.hadoop.security.UserGroupInformation;
 import org.apache.iceberg.CatalogProperties;
 import org.apache.iceberg.catalog.Catalog;
 import org.apache.iceberg.catalog.Namespace;
@@ -167,6 +166,10 @@ public class HiveMetastoreIcebergCatalog extends AbstractControllerService imple
 
     private static final String OZONE_FILE_SYSTEM_CLASS = "org.apache.hadoop.fs.ozone.RootedOzoneFileSystem";
 
+    private static final String KERBEROS_AUTHENTICATION_NOT_FOUND = "Kerberos User Service requires %s set to %s in Hadoop Configuration Resources such as core-site.xml";
+
+    private static final String KERBEROS_USER_SERVICE_NOT_FOUND = "Kerberos User Service required when %s is set to %s in Hadoop Configuration Resources";
+
     private static final String METASTORE_URI_NOT_FOUND = "Hive Metastore URI not found: configure the property or provide a configuration file containing %s or %s";
 
     private static final String CONFIGURATION_FAILED = "Catalog Configuration failed";
@@ -181,9 +184,7 @@ public class HiveMetastoreIcebergCatalog extends AbstractControllerService imple
 
     private volatile HiveMetastoreCatalog catalog;
 
-    private volatile KerberosUser kerberosUser;
-
-    private volatile UserGroupInformation userGroupInformation;
+    private volatile HadoopIdentity identity;
 
     @Override
     protected List<PropertyDescriptor> getSupportedPropertyDescriptors() {
@@ -205,11 +206,30 @@ public class HiveMetastoreIcebergCatalog extends AbstractControllerService imple
         final List<ValidationResult> results = new ArrayList<>();
 
         try {
-            if (!isMetastoreUriConfigured(validationContext)) {
+            final Configuration configuration = getHadoopConfiguration(validationContext);
+            if (!isMetastoreUriConfigured(validationContext, configuration)) {
                 results.add(new ValidationResult.Builder()
                         .subject(METASTORE_URI.getName())
                         .valid(false)
                         .explanation(METASTORE_URI_NOT_FOUND.formatted(MetastoreConf.ConfVars.THRIFT_URIS.getVarname(), MetastoreConf.ConfVars.THRIFT_URIS.getHiveName()))
+                        .build()
+                );
+            }
+
+            final boolean kerberosUserServiceConfigured = validationContext.getProperty(KERBEROS_USER_SERVICE).isSet();
+            final boolean kerberosAuthenticationConfigured = SecurityUtil.isSecurityEnabled(configuration);
+            if (kerberosUserServiceConfigured && !kerberosAuthenticationConfigured) {
+                results.add(new ValidationResult.Builder()
+                        .subject(KERBEROS_USER_SERVICE.getName())
+                        .valid(false)
+                        .explanation(KERBEROS_AUTHENTICATION_NOT_FOUND.formatted(SecurityUtil.HADOOP_SECURITY_AUTHENTICATION, SecurityUtil.KERBEROS))
+                        .build()
+                );
+            } else if (!kerberosUserServiceConfigured && kerberosAuthenticationConfigured) {
+                results.add(new ValidationResult.Builder()
+                        .subject(KERBEROS_USER_SERVICE.getName())
+                        .valid(false)
+                        .explanation(KERBEROS_USER_SERVICE_NOT_FOUND.formatted(SecurityUtil.HADOOP_SECURITY_AUTHENTICATION, SecurityUtil.KERBEROS))
                         .build()
                 );
             }
@@ -229,23 +249,11 @@ public class HiveMetastoreIcebergCatalog extends AbstractControllerService imple
     public void onEnabled(final ConfigurationContext context) {
         final Configuration configuration = getHadoopConfiguration(context);
 
-        final KerberosUserService kerberosUserService = context.getProperty(KERBEROS_USER_SERVICE).asControllerService(KerberosUserService.class);
         try {
-            if (kerberosUserService == null) {
-                kerberosUser = null;
-                userGroupInformation = null;
-            } else {
-                kerberosUser = kerberosUserService.createKerberosUser();
-                userGroupInformation = SecurityUtil.getUgiForKerberosUser(configuration, kerberosUser);
-            }
-
-            catalog = getInitializedCatalog(context, configuration, userGroupInformation);
+            identity = getIdentity(context, configuration);
+            catalog = getInitializedCatalog(context, configuration, identity);
         } catch (final IOException | RuntimeException e) {
-            close(catalog);
-            catalog = null;
-            logout(kerberosUser);
-            kerberosUser = null;
-            userGroupInformation = null;
+            onDisabled();
             throw new ProcessException("Hive Catalog initialization failed", e);
         }
     }
@@ -255,9 +263,8 @@ public class HiveMetastoreIcebergCatalog extends AbstractControllerService imple
         close(catalog);
         catalog = null;
 
-        logout(kerberosUser);
-        kerberosUser = null;
-        userGroupInformation = null;
+        close(identity);
+        identity = null;
     }
 
     @Override
@@ -273,26 +280,18 @@ public class HiveMetastoreIcebergCatalog extends AbstractControllerService imple
     public List<ConfigVerificationResult> verify(final ConfigurationContext context, final ComponentLog componentLog, final Map<String, String> attributes) {
         final List<ConfigVerificationResult> results = new ArrayList<>();
 
-        KerberosUser verificationUser = null;
+        HadoopIdentity verificationIdentity = null;
         HiveMetastoreCatalog verificationCatalog = null;
         try {
             final Configuration configuration = getHadoopConfiguration(context);
 
-            UserGroupInformation verificationUgi = null;
-            final KerberosUserService kerberosUserService = context.getProperty(KERBEROS_USER_SERVICE).asControllerService(KerberosUserService.class);
-            if (kerberosUserService != null) {
-                verificationUser = kerberosUserService.createKerberosUser();
-                verificationUgi = SecurityUtil.getUgiForKerberosUser(configuration, verificationUser);
-            }
-
-            verificationCatalog = getInitializedCatalog(context, configuration, verificationUgi);
+            verificationIdentity = getIdentity(context, configuration);
+            verificationCatalog = getInitializedCatalog(context, configuration, verificationIdentity);
             componentLog.info("Hive Catalog Initialized [{}]", verificationCatalog.name());
             results.add(getSuccessfulResult(CONFIGURATION_STEP, INITIALIZED_STATUS));
 
-            final HiveMetastoreCatalog initializedCatalog = verificationCatalog;
-            final UserGroupInformation ugi = verificationUgi;
             try {
-                final List<Namespace> namespaces = SecurityUtil.callWithUgi(ugi, () -> initializedCatalog.listNamespaces(Namespace.empty()));
+                final List<Namespace> namespaces = verificationCatalog.listNamespaces(Namespace.empty());
                 results.add(getSuccessfulResult(CONNECTION_STEP, NAMESPACES_FOUND.formatted(namespaces.size())));
             } catch (final Throwable e) {
                 componentLog.warn("Hive Metastore connection failed", e);
@@ -304,7 +303,7 @@ public class HiveMetastoreIcebergCatalog extends AbstractControllerService imple
             results.add(getSkippedResult(CONNECTION_STEP, CONFIGURATION_FAILED));
         } finally {
             close(verificationCatalog);
-            logout(verificationUser);
+            close(verificationIdentity);
         }
 
         return results;
@@ -325,7 +324,13 @@ public class HiveMetastoreIcebergCatalog extends AbstractControllerService imple
         return null;
     }
 
-    private HiveMetastoreCatalog getInitializedCatalog(final ConfigurationContext context, final Configuration configuration, final UserGroupInformation ugi) throws IOException {
+    private HadoopIdentity getIdentity(final ConfigurationContext context, final Configuration configuration) throws IOException {
+        final KerberosUserService kerberosUserService = context.getProperty(KERBEROS_USER_SERVICE).asControllerService(KerberosUserService.class);
+        final KerberosUser kerberosUser = kerberosUserService == null ? null : kerberosUserService.createKerberosUser();
+        return HadoopIdentity.login(configuration, kerberosUser, getLogger());
+    }
+
+    private HiveMetastoreCatalog getInitializedCatalog(final ConfigurationContext context, final Configuration configuration, final HadoopIdentity hadoopIdentity) {
         final Map<String, String> properties = new HashMap<>();
 
         properties.put(CatalogProperties.METRICS_REPORTER_IMPL, LoggingMetricsReporter.class.getName());
@@ -344,8 +349,8 @@ public class HiveMetastoreIcebergCatalog extends AbstractControllerService imple
 
         final String identifier = getIdentifier();
 
-        return SecurityUtil.callWithUgi(ugi, () -> {
-            final HiveMetastoreCatalog hiveCatalog = new HiveMetastoreCatalog();
+        return hadoopIdentity.doAs(() -> {
+            final HiveMetastoreCatalog hiveCatalog = new HiveMetastoreCatalog(hadoopIdentity);
             hiveCatalog.setConf(configuration);
             hiveCatalog.initialize(identifier, properties);
             return hiveCatalog;
@@ -382,7 +387,7 @@ public class HiveMetastoreIcebergCatalog extends AbstractControllerService imple
         return configuration;
     }
 
-    private boolean isMetastoreUriConfigured(final ValidationContext validationContext) {
+    private boolean isMetastoreUriConfigured(final ValidationContext validationContext, final Configuration configuration) {
         final String metastoreUri = getNormalizedUriList(validationContext.getProperty(METASTORE_URI).evaluateAttributeExpressions().getValue());
         if (metastoreUri != null) {
             return true;
@@ -392,7 +397,6 @@ public class HiveMetastoreIcebergCatalog extends AbstractControllerService imple
             return false;
         }
 
-        final Configuration configuration = getHadoopConfiguration(validationContext);
         return !MetastoreConf.getVar(configuration, MetastoreConf.ConfVars.THRIFT_URIS).isBlank();
     }
 
@@ -480,13 +484,9 @@ public class HiveMetastoreIcebergCatalog extends AbstractControllerService imple
         }
     }
 
-    private void logout(final KerberosUser user) {
-        if (user != null) {
-            try {
-                user.logout();
-            } catch (final Exception e) {
-                getLogger().warn("Kerberos User logout failed", e);
-            }
+    private void close(final HadoopIdentity closeableIdentity) {
+        if (closeableIdentity != null) {
+            closeableIdentity.close();
         }
     }
 }

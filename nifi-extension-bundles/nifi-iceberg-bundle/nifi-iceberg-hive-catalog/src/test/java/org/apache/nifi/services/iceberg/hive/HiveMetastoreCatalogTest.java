@@ -25,6 +25,7 @@ import org.apache.iceberg.exceptions.NoSuchNamespaceException;
 import org.apache.iceberg.exceptions.NoSuchTableException;
 import org.apache.iceberg.hadoop.HadoopFileIO;
 import org.apache.iceberg.inmemory.InMemoryFileIO;
+import org.apache.nifi.logging.ComponentLog;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -40,6 +41,7 @@ import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.Mockito.mock;
 
 /**
  * Covers the Catalog paths that complete without a Hive Metastore connection: configuration, identifier validation
@@ -80,16 +82,20 @@ class HiveMetastoreCatalogTest {
 
     private static final TableIdentifier NESTED_TABLE_IDENTIFIER = TableIdentifier.of(NESTED_NAMESPACE, TABLE_NAME);
 
+    private HadoopIdentity identity;
+
     private HiveMetastoreCatalog catalog;
 
     @BeforeEach
-    void setCatalog() {
-        catalog = new HiveMetastoreCatalog();
+    void setCatalog() throws IOException {
+        identity = HadoopIdentity.login(new Configuration(false), null, mock(ComponentLog.class));
+        catalog = new HiveMetastoreCatalog(identity);
     }
 
     @AfterEach
     void closeCatalog() throws IOException {
         catalog.close();
+        identity.close();
     }
 
     @Test
@@ -170,10 +176,11 @@ class HiveMetastoreCatalogTest {
     }
 
     @Test
-    void testFileIODefaultHadoopFileIO() {
+    void testFileIODefaultPrivilegedHadoopFileIO() {
         catalog.initialize(CATALOG_NAME, Map.of(CatalogProperties.URI, METASTORE_URI));
 
-        assertInstanceOf(HadoopFileIO.class, catalog.getFileIO());
+        final PrivilegedFileIO fileIO = assertInstanceOf(PrivilegedFileIO.class, catalog.getFileIO());
+        assertInstanceOf(HadoopFileIO.class, fileIO.getDelegate());
     }
 
     @Test
