@@ -19,11 +19,13 @@ package org.apache.nifi.services.iceberg.hive;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.minikdc.MiniKdc;
 import org.apache.hadoop.security.UserGroupInformation;
+import org.apache.iceberg.CatalogProperties;
 import org.apache.nifi.hadoop.SecurityUtil;
 import org.apache.nifi.logging.ComponentLog;
 import org.apache.nifi.security.krb.KerberosKeytabUser;
 import org.apache.nifi.security.krb.KerberosPasswordUser;
 import org.apache.nifi.security.krb.KerberosUser;
+import org.apache.nifi.util.MockComponentLog;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
@@ -33,18 +35,23 @@ import org.junit.jupiter.api.io.TempDir;
 import java.io.File;
 import java.io.IOException;
 import java.io.UncheckedIOException;
+import java.lang.reflect.Field;
 import java.nio.file.Path;
 import java.security.PrivilegedAction;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.Optional;
 import java.util.Properties;
 import java.util.Set;
+import java.util.concurrent.ExecutorService;
 import javax.security.auth.Subject;
 import javax.security.auth.kerberos.KerberosTicket;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 
@@ -68,6 +75,14 @@ class HadoopIdentityKerberosTest {
     private static final String PRINCIPAL_FORMAT = "%s@%s";
 
     private static final String KEYTAB_FORMAT = "%s.keytab";
+
+    private static final String SUBJECT_CONTEXT_SUFFIX = "-subject";
+
+    private static final String METASTORE_URI = "thrift://127.0.0.1:1";
+
+    private static final String KEYTAB_LOGIN_RENEWAL_PROPERTY = "hadoop.kerberos.keytab.login.autorenewal.enabled";
+
+    private static final String LOGIN_RENEWAL_EXECUTOR_FIELD = "kerberosLoginRenewalExecutor";
 
     private static String krb5Configuration;
 
@@ -191,15 +206,80 @@ class HadoopIdentityKerberosTest {
         assertFalse(kerberosUser.isLoggedIn());
     }
 
+    @Test
+    void testKmsWarningOnlyForUsersWithoutKeytab() throws IOException {
+        final MockComponentLog keytabLog = new MockComponentLog(FIRST_USER, this);
+        login(new KerberosKeytabUser(firstPrincipal, firstKeytab.getAbsolutePath()), keytabLog);
+        final MockComponentLog passwordLog = new MockComponentLog(PASSWORD_USER, this);
+        login(new KerberosPasswordUser(passwordPrincipal, PASSWORD), passwordLog);
+
+        assertTrue(keytabLog.getWarnMessages().isEmpty(), keytabLog.getWarnMessages()::toString);
+        assertEquals(1, passwordLog.getWarnMessages().size(), passwordLog.getWarnMessages()::toString);
+    }
+
+    @Test
+    void testClientContextSeparatesKeytabAndSubjectLogins() throws IOException {
+        final String keytabContext = getClientContext(login(new KerberosKeytabUser(firstPrincipal, firstKeytab.getAbsolutePath())));
+        final String passwordContext = getClientContext(login(new KerberosPasswordUser(passwordPrincipal, PASSWORD)));
+
+        assertTrue(keytabContext.endsWith(firstPrincipal), keytabContext);
+        assertTrue(passwordContext.endsWith(SUBJECT_CONTEXT_SUFFIX), passwordContext);
+        assertTrue(passwordContext.contains(passwordPrincipal), passwordContext);
+    }
+
+    @Test
+    void testCloseKeepsLoginUserTicketRenewal() throws Exception {
+        final Configuration configuration = getConfiguration();
+        configuration.setBoolean(KEYTAB_LOGIN_RENEWAL_PROPERTY, true);
+        UserGroupInformation.setConfiguration(configuration);
+        UserGroupInformation.loginUserFromKeytab(secondPrincipal, secondKeytab.getAbsolutePath());
+        try {
+            final ExecutorService renewal = getLoginRenewalExecutor();
+            assertFalse(renewal.isShutdown());
+
+            final HadoopIdentity identity = login(new KerberosKeytabUser(firstPrincipal, firstKeytab.getAbsolutePath()));
+            identity.close();
+
+            assertTrue(getTickets(identity).isEmpty());
+            assertSame(renewal, getLoginRenewalExecutor());
+            assertFalse(renewal.isShutdown());
+        } finally {
+            UserGroupInformation.getLoginUser().logoutUserFromKeytab();
+            UserGroupInformation.reset();
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    private static ExecutorService getLoginRenewalExecutor() throws ReflectiveOperationException {
+        final Field field = UserGroupInformation.class.getDeclaredField(LOGIN_RENEWAL_EXECUTOR_FIELD);
+        field.setAccessible(true);
+        return ((Optional<ExecutorService>) field.get(null)).orElseThrow();
+    }
+
     private HadoopIdentity login(final KerberosUser kerberosUser) throws IOException {
+        return login(kerberosUser, mock(ComponentLog.class));
+    }
+
+    private static String getClientContext(final HadoopIdentity identity) throws IOException {
+        try (HiveMetastoreCatalog catalog = new HiveMetastoreCatalog(identity)) {
+            catalog.setConf(new Configuration(false));
+            catalog.initialize(FIRST_USER, Map.of(CatalogProperties.URI, METASTORE_URI));
+            return catalog.getConf().get(HiveMetastoreCatalog.CLIENT_CONTEXT_PROPERTY);
+        }
+    }
+
+    private HadoopIdentity login(final KerberosUser kerberosUser, final ComponentLog componentLog) throws IOException {
         kerberosUsers.add(kerberosUser);
 
-        final Configuration configuration = new Configuration();
-        configuration.set(SecurityUtil.HADOOP_SECURITY_AUTHENTICATION, SecurityUtil.KERBEROS);
-
-        final HadoopIdentity identity = HadoopIdentity.login(configuration, kerberosUser, mock(ComponentLog.class));
+        final HadoopIdentity identity = HadoopIdentity.login(getConfiguration(), kerberosUser, componentLog);
         identities.add(identity);
         return identity;
+    }
+
+    private static Configuration getConfiguration() {
+        final Configuration configuration = new Configuration();
+        configuration.set(SecurityUtil.HADOOP_SECURITY_AUTHENTICATION, SecurityUtil.KERBEROS);
+        return configuration;
     }
 
     private static Set<KerberosTicket> getTickets(final HadoopIdentity identity) {

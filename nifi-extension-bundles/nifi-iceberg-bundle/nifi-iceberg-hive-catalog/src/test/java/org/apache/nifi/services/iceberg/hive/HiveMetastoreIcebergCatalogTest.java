@@ -367,7 +367,25 @@ class HiveMetastoreIcebergCatalogTest {
         when(kerberosUser.getPrincipal()).thenReturn(PRINCIPAL);
         final ConfigurationContext context = getContextWithKerberosUserService(kerberosUser);
 
-        assertEquals(PRINCIPAL, catalogService.getClassloaderIsolationKey(context));
+        assertNull(catalogService.getClassloaderIsolationKey(context));
+    }
+
+    @Test
+    void testZooKeeperKerberosDisabledByDefault() {
+        runner.setProperty(catalogService, HiveMetastoreIcebergCatalog.METASTORE_URI, METASTORE_URI);
+        runner.enableControllerService(catalogService);
+
+        assertFalse(MetastoreConf.getBoolVar(catalogService.getHiveCatalog().getConf(), MetastoreConf.ConfVars.THRIFT_ZOOKEEPER_USE_KERBEROS));
+    }
+
+    @Test
+    void testZooKeeperKerberosFromConfigurationResourcesPreserved() throws IOException {
+        final Path configuration = writeConfiguration(MetastoreConf.ConfVars.THRIFT_ZOOKEEPER_USE_KERBEROS.getHiveName(), Boolean.TRUE.toString());
+        runner.setProperty(catalogService, HiveMetastoreIcebergCatalog.METASTORE_URI, METASTORE_URI);
+        runner.setProperty(catalogService, HiveMetastoreIcebergCatalog.HADOOP_CONFIGURATION_RESOURCES, configuration.toString());
+        runner.enableControllerService(catalogService);
+
+        assertTrue(MetastoreConf.getBoolVar(catalogService.getHiveCatalog().getConf(), MetastoreConf.ConfVars.THRIFT_ZOOKEEPER_USE_KERBEROS));
     }
 
     @Test

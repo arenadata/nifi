@@ -309,18 +309,15 @@ public class HiveMetastoreIcebergCatalog extends AbstractControllerService imple
         return results;
     }
 
+    /**
+     * Share the bundle ClassLoader between instances, because Hadoop and User Group Information come from a parent bundle
+     * that ClassLoader isolation does not copy, and each instance uses its own Hadoop Identity instead
+     *
+     * @param context Property Context
+     * @return Null for instance ClassLoaders that contain only Additional Classpath Resources
+     */
     @Override
     public String getClassloaderIsolationKey(final PropertyContext context) {
-        try {
-            final KerberosUserService kerberosUserService = context.getProperty(KERBEROS_USER_SERVICE).asControllerService(KerberosUserService.class);
-            if (kerberosUserService != null) {
-                final KerberosUser isolationUser = kerberosUserService.createKerberosUser();
-                return isolationUser.getPrincipal();
-            }
-        } catch (final IllegalStateException e) {
-            getLogger().debug("Kerberos User Service not available for Classloader Isolation Key", e);
-        }
-
         return null;
     }
 
@@ -383,6 +380,11 @@ public class HiveMetastoreIcebergCatalog extends AbstractControllerService imple
             MetastoreConf.setTimeVar(configuration, MetastoreConf.ConfVars.CLIENT_CONNECTION_TIMEOUT, connectionTimeout.asTimePeriod(TimeUnit.MILLISECONDS), TimeUnit.MILLISECONDS);
         }
         configuration.setIfUnset(OZONE_FILE_SYSTEM_PROPERTY, OZONE_FILE_SYSTEM_CLASS);
+
+        final MetastoreConf.ConfVars zookeeperKerberos = MetastoreConf.ConfVars.THRIFT_ZOOKEEPER_USE_KERBEROS;
+        if (configuration.get(zookeeperKerberos.getVarname()) == null && configuration.get(zookeeperKerberos.getHiveName()) == null) {
+            MetastoreConf.setBoolVar(configuration, zookeeperKerberos, false);
+        }
 
         return configuration;
     }

@@ -18,6 +18,7 @@ package org.apache.nifi.services.iceberg.hive;
 
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hive.metastore.IMetaStoreClient;
+import org.apache.hadoop.hive.metastore.api.MetaException;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.catalog.Namespace;
@@ -214,7 +215,7 @@ class HiveMetastoreIcebergCatalogAuthorizationTest {
     @BeforeAll
     static void waitForServices() throws Exception {
         waitUntilAvailable("DataNode not registered with NameNode", () -> {
-            final ExecResult result = NAME_NODE.execInContainer("hdfs", "dfsadmin", "-report", "-live");
+            final ExecResult result = NAME_NODE.execInContainer("hdfs", "dfsadmin", "-D", "ipc.client.rpc-timeout.ms=10000", "-report", "-live");
             if (!result.getStdout().contains(LIVE_DATA_NODES)) {
                 throw new IllegalStateException(result.getStdout() + result.getStderr());
             }
@@ -287,6 +288,7 @@ class HiveMetastoreIcebergCatalogAuthorizationTest {
         final AssertionError error = assertThrows(AssertionError.class, () -> runner.run());
 
         assertTrue(getCauseMessages(error).contains(PERMISSION_DENIED), () -> getCauseMessages(error));
+        assertTrue(hasCause(error, MetaException.class), () -> getCauseMessages(error));
         assertEquals(1, runner.getQueueSize().getObjectCount());
         assertTrue(runner.getFlowFilesForRelationship(FAILURE_RELATIONSHIP).isEmpty());
     }
@@ -312,6 +314,17 @@ class HiveMetastoreIcebergCatalogAuthorizationTest {
 
     private boolean isPermissionDenied(final LogMessage message) {
         return message.getThrowable() != null && getCauseMessages(message.getThrowable()).contains(PERMISSION_DENIED);
+    }
+
+    private static boolean hasCause(final Throwable throwable, final Class<? extends Throwable> causeType) {
+        Throwable cause = throwable;
+        while (cause != null) {
+            if (causeType.isInstance(cause)) {
+                return true;
+            }
+            cause = cause.getCause() == cause ? null : cause.getCause();
+        }
+        return false;
     }
 
     private static String getCauseMessages(final Throwable throwable) {

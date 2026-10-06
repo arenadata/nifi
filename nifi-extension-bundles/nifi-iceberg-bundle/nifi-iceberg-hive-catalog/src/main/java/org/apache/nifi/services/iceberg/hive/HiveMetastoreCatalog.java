@@ -25,6 +25,7 @@ import org.apache.hadoop.hive.metastore.api.NoSuchObjectException;
 import org.apache.hadoop.hive.metastore.api.Table;
 import org.apache.hadoop.hive.metastore.api.UnknownDBException;
 import org.apache.hadoop.hive.metastore.conf.MetastoreConf;
+import org.apache.hadoop.security.UserGroupInformation;
 import org.apache.iceberg.BaseMetastoreCatalog;
 import org.apache.iceberg.BaseMetastoreTableOperations;
 import org.apache.iceberg.CatalogProperties;
@@ -49,6 +50,8 @@ import org.apache.iceberg.io.FileIO;
 import org.apache.iceberg.util.LocationUtil;
 import org.apache.iceberg.util.PropertyUtil;
 import org.apache.thrift.TException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.util.Collections;
@@ -78,6 +81,16 @@ class HiveMetastoreCatalog extends BaseMetastoreCatalog implements SupportsNames
     private static final String DATABASE_LOCATION_FORMAT = "%s/%s.db";
 
     private static final String TABLE_LOCATION_FORMAT = "%s/%s";
+
+    static final String CLIENT_CONTEXT_PROPERTY = "dfs.client.context";
+
+    static final String DEAD_NODE_DETECTION_PROPERTY = "dfs.client.deadnode.detection.enabled";
+
+    private static final String CLIENT_CONTEXT_FORMAT = "nifi-iceberg-%s";
+
+    private static final String SUBJECT_CLIENT_CONTEXT_FORMAT = "nifi-iceberg-%s-subject";
+
+    private static final Logger LOGGER = LoggerFactory.getLogger(HiveMetastoreCatalog.class);
 
     private String name;
 
@@ -117,6 +130,15 @@ class HiveMetastoreCatalog extends BaseMetastoreCatalog implements SupportsNames
         }
 
         uniqueTableLocation = PropertyUtil.propertyAsBoolean(properties, CatalogProperties.UNIQUE_TABLE_LOCATION, CatalogProperties.UNIQUE_TABLE_LOCATION_DEFAULT);
+
+        final UserGroupInformation userGroupInformation = identity.getUserGroupInformation();
+        final boolean subjectLogin = userGroupInformation.hasKerberosCredentials() && !userGroupInformation.isFromKeytab();
+        final String clientContextFormat = subjectLogin ? SUBJECT_CLIENT_CONTEXT_FORMAT : CLIENT_CONTEXT_FORMAT;
+        conf.setIfUnset(CLIENT_CONTEXT_PROPERTY, clientContextFormat.formatted(userGroupInformation.getUserName()));
+        if (conf.getBoolean(DEAD_NODE_DETECTION_PROPERTY, false)) {
+            LOGGER.warn("HDFS dead node detection disabled for Catalog [{}]: detection threads run as the identity that created the client context", name);
+            conf.setBoolean(DEAD_NODE_DETECTION_PROPERTY, false);
+        }
 
         final String fileIOImpl = properties.get(CatalogProperties.FILE_IO_IMPL);
         final FileIO configuredFileIO = fileIOImpl == null ? new HadoopFileIO(conf) : CatalogUtil.loadFileIO(fileIOImpl, properties, conf);

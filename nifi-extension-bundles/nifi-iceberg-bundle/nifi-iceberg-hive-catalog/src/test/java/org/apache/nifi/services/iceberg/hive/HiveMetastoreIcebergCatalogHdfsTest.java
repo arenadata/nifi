@@ -106,7 +106,7 @@ class HiveMetastoreIcebergCatalogHdfsTest {
 
     private static final String NAME_NODE_NETWORK_MODE_FORMAT = "container:%s";
 
-    private static final Duration STARTUP_TIMEOUT = Duration.ofMinutes(3);
+    private static final Duration STARTUP_TIMEOUT = Duration.ofMinutes(5);
 
     private static final Duration POLL_INTERVAL = Duration.ofSeconds(1);
 
@@ -206,7 +206,7 @@ class HiveMetastoreIcebergCatalogHdfsTest {
     @BeforeAll
     static void waitForServices() throws InterruptedException {
         waitUntilAvailable("DataNode not registered with NameNode", () -> {
-            final GenericContainer.ExecResult result = NAME_NODE.execInContainer("hdfs", "dfsadmin", "-report", "-live");
+            final GenericContainer.ExecResult result = NAME_NODE.execInContainer("hdfs", "dfsadmin", "-D", "ipc.client.rpc-timeout.ms=10000", "-report", "-live");
             if (!result.getStdout().contains(LIVE_DATA_NODES)) {
                 throw new IllegalStateException(result.getStdout() + result.getStderr());
             }
