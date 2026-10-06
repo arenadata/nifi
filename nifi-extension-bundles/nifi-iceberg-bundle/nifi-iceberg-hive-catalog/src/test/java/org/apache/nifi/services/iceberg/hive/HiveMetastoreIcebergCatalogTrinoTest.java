@@ -221,7 +221,7 @@ class HiveMetastoreIcebergCatalogTrinoTest {
     @BeforeAll
     static void waitForServices() throws InterruptedException {
         waitUntilAvailable("DataNode not registered with NameNode", () -> {
-            final ExecResult result = NAME_NODE.execInContainer("hdfs", "dfsadmin", "-report", "-live");
+            final ExecResult result = NAME_NODE.execInContainer("hdfs", "dfsadmin", "-D", "ipc.client.rpc-timeout.ms=10000", "-report", "-live");
             if (!result.getStdout().contains(LIVE_DATA_NODES)) {
                 throw new IllegalStateException(result.getStdout() + result.getStderr());
             }

@@ -17,7 +17,9 @@
 package org.apache.nifi.services.iceberg.hive;
 
 import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.hdfs.ClientContext;
 import org.apache.hadoop.hive.metastore.conf.MetastoreConf;
+import org.apache.hadoop.security.UserGroupInformation;
 import org.apache.iceberg.CatalogProperties;
 import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.catalog.TableIdentifier;
@@ -26,11 +28,16 @@ import org.apache.iceberg.exceptions.NoSuchTableException;
 import org.apache.iceberg.hadoop.HadoopFileIO;
 import org.apache.iceberg.inmemory.InMemoryFileIO;
 import org.apache.nifi.logging.ComponentLog;
+import org.apache.nifi.security.krb.KerberosUser;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import java.io.Closeable;
 import java.io.IOException;
+import java.security.PrivilegedExceptionAction;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
@@ -38,9 +45,12 @@ import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
+import static org.junit.jupiter.api.Assertions.assertNotSame;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.mock;
 
 /**
@@ -72,6 +82,12 @@ class HiveMetastoreCatalogTest {
 
     private static final String TABLE_NAME = "records";
 
+    private static final String FIRST_USER = "nifi-first";
+
+    private static final String SECOND_USER = "nifi-second";
+
+    private static final String CONFIGURED_CLIENT_CONTEXT = "configured";
+
     private static final String MISSING_METRICS_REPORTER_CLASS = "org.example.MissingMetricsReporter";
 
     private static final Namespace NAMESPACE = Namespace.of("nifi");
@@ -81,6 +97,8 @@ class HiveMetastoreCatalogTest {
     private static final TableIdentifier TABLE_IDENTIFIER = TableIdentifier.of(NAMESPACE, TABLE_NAME);
 
     private static final TableIdentifier NESTED_TABLE_IDENTIFIER = TableIdentifier.of(NESTED_NAMESPACE, TABLE_NAME);
+
+    private final List<Closeable> closeables = new ArrayList<>();
 
     private HadoopIdentity identity;
 
@@ -96,6 +114,9 @@ class HiveMetastoreCatalogTest {
     void closeCatalog() throws IOException {
         catalog.close();
         identity.close();
+        for (final Closeable closeable : closeables) {
+            closeable.close();
+        }
     }
 
     @Test
@@ -181,6 +202,54 @@ class HiveMetastoreCatalogTest {
 
         final PrivilegedFileIO fileIO = assertInstanceOf(PrivilegedFileIO.class, catalog.getFileIO());
         assertInstanceOf(HadoopFileIO.class, fileIO.getDelegate());
+    }
+
+    @Test
+    void testClientContextPerPrincipal() throws Exception {
+        final HiveMetastoreCatalog first = getCatalog(FIRST_USER);
+        final HiveMetastoreCatalog second = getCatalog(SECOND_USER);
+
+        final String firstContext = first.getConf().get(HiveMetastoreCatalog.CLIENT_CONTEXT_PROPERTY);
+        final String secondContext = second.getConf().get(HiveMetastoreCatalog.CLIENT_CONTEXT_PROPERTY);
+
+        assertTrue(firstContext.endsWith(FIRST_USER), firstContext);
+        assertTrue(secondContext.endsWith(SECOND_USER), secondContext);
+        assertNotSame(ClientContext.get(firstContext, first.getConf()).getKeyProviderCache(), ClientContext.get(secondContext, second.getConf()).getKeyProviderCache());
+    }
+
+    @Test
+    void testDeadNodeDetectionDisabled() {
+        final Configuration configuration = new Configuration(false);
+        configuration.setBoolean(HiveMetastoreCatalog.DEAD_NODE_DETECTION_PROPERTY, true);
+        catalog.setConf(configuration);
+
+        catalog.initialize(CATALOG_NAME, Map.of(CatalogProperties.URI, METASTORE_URI));
+
+        assertFalse(catalog.getConf().getBoolean(HiveMetastoreCatalog.DEAD_NODE_DETECTION_PROPERTY, true));
+    }
+
+    @Test
+    void testClientContextFromConfigurationPreserved() {
+        final Configuration configuration = new Configuration(false);
+        configuration.set(HiveMetastoreCatalog.CLIENT_CONTEXT_PROPERTY, CONFIGURED_CLIENT_CONTEXT);
+        catalog.setConf(configuration);
+
+        catalog.initialize(CATALOG_NAME, Map.of(CatalogProperties.URI, METASTORE_URI));
+
+        assertEquals(CONFIGURED_CLIENT_CONTEXT, catalog.getConf().get(HiveMetastoreCatalog.CLIENT_CONTEXT_PROPERTY));
+    }
+
+    private HiveMetastoreCatalog getCatalog(final String userName) throws Exception {
+        final KerberosUser kerberosUser = mock(KerberosUser.class);
+        doReturn(UserGroupInformation.createRemoteUser(userName)).when(kerberosUser).doAs(any(PrivilegedExceptionAction.class));
+        final HadoopIdentity userIdentity = HadoopIdentity.login(new Configuration(false), kerberosUser, mock(ComponentLog.class));
+        closeables.add(userIdentity);
+
+        final HiveMetastoreCatalog userCatalog = new HiveMetastoreCatalog(userIdentity);
+        userCatalog.setConf(new Configuration(false));
+        userCatalog.initialize(CATALOG_NAME, Map.of(CatalogProperties.URI, METASTORE_URI));
+        closeables.add(userCatalog);
+        return userCatalog;
     }
 
     @Test

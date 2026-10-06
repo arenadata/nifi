@@ -52,7 +52,6 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.io.UncheckedIOException;
 import java.net.InetAddress;
-import java.net.InetSocketAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.nio.file.Files;
@@ -242,7 +241,7 @@ class HiveMetastoreIcebergCatalogKerberosTest {
             metastore.stop();
         }
         if (kdcRelay != null) {
-            kdcRelay.stop();
+            kdcRelay.close();
         }
         if (kdc != null) {
             kdc.stop();
@@ -434,53 +433,51 @@ class HiveMetastoreIcebergCatalogKerberosTest {
     }
 
     /**
-     * TCP relay to the Key Distribution Center on a fixed local port, stopped and started again to simulate an outage
+     * TCP relay to the Key Distribution Center that keeps its port for the whole test and closes accepted connections
+     * while unavailable, which simulates an outage without letting another process take the port
      */
     private static class KdcRelay {
-        private final int targetPort;
+        private final ServerSocket serverSocket;
 
-        private final int port;
+        private final int targetPort;
 
         private final Set<Socket> sockets = ConcurrentHashMap.newKeySet();
 
-        private volatile ServerSocket serverSocket;
+        private volatile boolean available;
 
         private KdcRelay(final int targetPort) throws IOException {
             this.targetPort = targetPort;
-            try (ServerSocket socket = new ServerSocket(0)) {
-                this.port = socket.getLocalPort();
-            }
+            this.serverSocket = new ServerSocket(0, 0, InetAddress.getLoopbackAddress());
+            Thread.ofVirtual().start(this::accept);
         }
 
         int getPort() {
-            return port;
+            return serverSocket.getLocalPort();
         }
 
-        synchronized void start() throws IOException {
-            if (serverSocket != null) {
-                return;
-            }
-            final ServerSocket socket = new ServerSocket();
-            socket.setReuseAddress(true);
-            socket.bind(new InetSocketAddress(InetAddress.getLoopbackAddress(), port));
-            serverSocket = socket;
-            Thread.ofVirtual().start(() -> accept(socket));
+        void start() {
+            available = true;
         }
 
-        synchronized void stop() {
-            final ServerSocket socket = serverSocket;
-            serverSocket = null;
-            if (socket != null) {
-                close(socket);
-            }
+        void stop() {
+            available = false;
             sockets.forEach(KdcRelay::close);
             sockets.clear();
         }
 
-        private void accept(final ServerSocket socket) {
-            while (!socket.isClosed()) {
+        void close() {
+            stop();
+            close(serverSocket);
+        }
+
+        private void accept() {
+            while (!serverSocket.isClosed()) {
                 try {
-                    final Socket client = socket.accept();
+                    final Socket client = serverSocket.accept();
+                    if (!available) {
+                        close(client);
+                        continue;
+                    }
                     final Socket target = new Socket(InetAddress.getLoopbackAddress(), targetPort);
                     sockets.add(client);
                     sockets.add(target);

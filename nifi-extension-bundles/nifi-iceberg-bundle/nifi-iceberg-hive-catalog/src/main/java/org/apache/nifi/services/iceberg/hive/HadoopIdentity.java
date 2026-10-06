@@ -28,8 +28,16 @@ import java.io.UncheckedIOException;
 import java.security.PrivilegedAction;
 import java.security.PrivilegedActionException;
 import java.security.PrivilegedExceptionAction;
+import java.util.Iterator;
 import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.CompletionException;
+import javax.security.auth.DestroyFailedException;
+import javax.security.auth.Destroyable;
 import javax.security.auth.Subject;
+import javax.security.auth.kerberos.KerberosKey;
+import javax.security.auth.kerberos.KerberosTicket;
+import javax.security.auth.kerberos.KeyTab;
 import javax.security.auth.login.AppConfigurationEntry;
 
 /**
@@ -38,7 +46,8 @@ import javax.security.auth.login.AppConfigurationEntry;
  * and File Systems cached for the identity are closed together with it. The Kerberos Ticket Granting Ticket is refreshed
  * before each privileged action. Keytab users log in through Hadoop, because the Hadoop KMS client accepts only a
  * Hadoop login for encryption zones and falls back to the process-wide login user otherwise. Other Kerberos users are
- * used through their Subject.
+ * used through their Subject, which is refreshed under the lock of its private credentials, the lock that the JDK and
+ * Hadoop take when reading Kerberos tickets for new connections.
  */
 final class HadoopIdentity implements Closeable {
     private static final String KEYTAB_OPTION = "keyTab";
@@ -47,12 +56,15 @@ final class HadoopIdentity implements Closeable {
 
     private final UserGroupInformation userGroupInformation;
 
+    private final Subject subject;
+
     private final KerberosUser kerberosUser;
 
     private final ComponentLog logger;
 
     private HadoopIdentity(final UserGroupInformation userGroupInformation, final KerberosUser kerberosUser, final ComponentLog logger) {
         this.userGroupInformation = userGroupInformation;
+        this.subject = userGroupInformation.doAs((PrivilegedAction<Subject>) Subject::current);
         this.kerberosUser = kerberosUser;
         this.logger = logger;
     }
@@ -87,10 +99,11 @@ final class HadoopIdentity implements Closeable {
         try {
             kerberosUser.login();
             final UserGroupInformation ugi = kerberosUser.doAs((PrivilegedExceptionAction<UserGroupInformation>) () -> UserGroupInformation.getUGIFromSubject(Subject.current()));
+            logger.warn("Kerberos User [{}] has no keytab: Hadoop KMS requests for encryption zones run as the NiFi process login user", kerberosUser.getPrincipal());
             return new HadoopIdentity(ugi, kerberosUser, logger);
-        } catch (final PrivilegedActionException e) {
+        } catch (final PrivilegedActionException | CompletionException e) {
             logout(kerberosUser, logger);
-            throw new IOException("Kerberos login failed for [%s]".formatted(kerberosUser.getPrincipal()), e.getException());
+            throw new IOException("Kerberos login failed for [%s]".formatted(kerberosUser.getPrincipal()), e.getCause());
         } catch (final RuntimeException e) {
             logout(kerberosUser, logger);
             throw e;
@@ -114,7 +127,9 @@ final class HadoopIdentity implements Closeable {
      */
     void checkLogin() {
         if (kerberosUser != null) {
-            kerberosUser.checkTGTAndRelogin();
+            synchronized (subject.getPrivateCredentials()) {
+                kerberosUser.checkTGTAndRelogin();
+            }
         } else if (userGroupInformation.isFromKeytab()) {
             try {
                 userGroupInformation.checkTGTAndReloginFromKeytab();
@@ -138,11 +153,7 @@ final class HadoopIdentity implements Closeable {
             if (kerberosUser != null) {
                 logout(kerberosUser, logger);
             } else if (userGroupInformation.isFromKeytab()) {
-                try {
-                    userGroupInformation.logoutUserFromKeytab();
-                } catch (final IOException e) {
-                    logger.warn("Kerberos logout failed for [{}]", userGroupInformation.getUserName(), e);
-                }
+                removeCredentials();
             }
         }
     }
@@ -150,6 +161,30 @@ final class HadoopIdentity implements Closeable {
     @Override
     public String toString() {
         return "%s[%s]".formatted(getClass().getSimpleName(), userGroupInformation.getUserName());
+    }
+
+    private void removeCredentials() {
+        final Set<Object> credentials = subject.getPrivateCredentials();
+        synchronized (credentials) {
+            final Iterator<Object> iterator = credentials.iterator();
+            while (iterator.hasNext()) {
+                final Object credential = iterator.next();
+                if (credential instanceof KerberosTicket || credential instanceof KerberosKey || credential instanceof KeyTab) {
+                    iterator.remove();
+                    destroy(credential);
+                }
+            }
+        }
+    }
+
+    private void destroy(final Object credential) {
+        if (credential instanceof Destroyable destroyable) {
+            try {
+                destroyable.destroy();
+            } catch (final DestroyFailedException e) {
+                logger.debug("Destroy Kerberos credential failed for [{}]", userGroupInformation.getUserName(), e);
+            }
+        }
     }
 
     // Kerberos User implementations belong to the Kerberos User Service bundle, so the keytab is read from the login configuration
