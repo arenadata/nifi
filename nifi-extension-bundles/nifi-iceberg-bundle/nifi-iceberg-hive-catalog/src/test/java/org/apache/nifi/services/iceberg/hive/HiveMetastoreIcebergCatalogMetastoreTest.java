@@ -298,7 +298,7 @@ class HiveMetastoreIcebergCatalogMetastoreTest {
         catalog.createNamespace(namespace);
         final Table table = catalog.createTable(tableIdentifier, SCHEMA, PartitionSpec.unpartitioned());
 
-        assertInstanceOf(HadoopFileIO.class, table.io());
+        assertInstanceOf(HadoopFileIO.class, assertInstanceOf(PrivilegedFileIO.class, table.io()).getDelegate());
 
         final DataFile dataFile = writeDataFile(table, 2);
         table.newAppend().appendFile(dataFile).commit();

@@ -141,10 +141,10 @@ class HiveMetastoreIcebergCatalogClientTest {
     }
 
     @Test
-    void testCatalogFileIOIsHadoopFileIO() {
+    void testCatalogFileIOIsPrivilegedHadoopFileIO() {
         runner.enableControllerService(catalogService);
 
-        assertInstanceOf(HadoopFileIO.class, catalogService.getHiveCatalog().getFileIO());
+        assertInstanceOf(HadoopFileIO.class, assertInstanceOf(PrivilegedFileIO.class, catalogService.getHiveCatalog().getFileIO()).getDelegate());
     }
 
     @Test
