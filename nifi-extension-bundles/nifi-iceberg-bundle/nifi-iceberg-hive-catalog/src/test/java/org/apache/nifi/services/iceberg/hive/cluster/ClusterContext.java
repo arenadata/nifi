@@ -53,6 +53,8 @@ public final class ClusterContext {
 
     public static final int RANGER_PORT = 6080;
 
+    public static final int TRINO_PORT = 8080;
+
     public static final List<Integer> HOST_PORTS = List.of(KDC_PORT, NAME_NODE_PORT, DATA_NODE_PORT, METASTORE_PORT, OZONE_MANAGER_PORT,
             OZONE_RATIS_PORT, OZONE_GRPC_PORT, OZONE_SCM_CLIENT_PORT, RANGER_PORT);
 
@@ -72,6 +74,10 @@ public final class ClusterContext {
 
     public static final String HIVE_KEYTAB = "hive.keytab";
 
+    public static final String TRINO_KEYTAB = "trino.keytab";
+
+    public static final String SPARK_KEYTAB = "spark.keytab";
+
     public static final String NIFI_KEYTAB = "nifi.keytab";
 
     public static final String ADMIN_KEYTAB = "admin.keytab";
@@ -89,6 +95,10 @@ public final class ClusterContext {
     public static final String HTTP_PRINCIPAL = servicePrincipal("HTTP");
 
     public static final String HIVE_PRINCIPAL = servicePrincipal("hive");
+
+    public static final String TRINO_PRINCIPAL = servicePrincipal("trino");
+
+    public static final String SPARK_PRINCIPAL = servicePrincipal("spark");
 
     public static final String NIFI_PRINCIPAL = userPrincipal("nifi");
 
@@ -225,6 +235,8 @@ public final class ClusterContext {
         keytabs.put(OZONE_MANAGER_KEYTAB, List.of(OZONE_MANAGER_PRINCIPAL, HTTP_PRINCIPAL));
         keytabs.put(OZONE_DATA_NODE_KEYTAB, List.of(OZONE_DATA_NODE_PRINCIPAL, HTTP_PRINCIPAL));
         keytabs.put(HIVE_KEYTAB, List.of(HIVE_PRINCIPAL));
+        keytabs.put(TRINO_KEYTAB, List.of(TRINO_PRINCIPAL));
+        keytabs.put(SPARK_KEYTAB, List.of(SPARK_PRINCIPAL));
         keytabs.put(NIFI_KEYTAB, List.of(NIFI_PRINCIPAL));
         keytabs.put(ADMIN_KEYTAB, List.of(ADMIN_PRINCIPAL));
         return Map.copyOf(keytabs);

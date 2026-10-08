@@ -34,6 +34,9 @@
         <zookeeper.version>3.9.6</zookeeper.version>
         <curator.version>5.9.0</curator.version>
         <iceberg.ozone.version>2.2.1</iceberg.ozone.version>
+        <spark.iceberg.version>1.10.1</spark.iceberg.version>
+        <spark.hive.metastore.version>2.3.10_arenadata1</spark.hive.metastore.version>
+        <cluster.ozone.version>2.1.2</cluster.ozone.version>
     </properties>
 
     <dependencyManagement>
@@ -505,4 +508,87 @@
             </plugin>
         </plugins>
     </build>
+
+    <profiles>
+        <profile>
+            <id>iceberg-cluster-test</id>
+            <activation>
+                <property>
+                    <name>!skipTests</name>
+                </property>
+            </activation>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-dependency-plugin</artifactId>
+                        <executions>
+                            <execution>
+                                <id>copy-cluster-libraries</id>
+                                <phase>generate-test-resources</phase>
+                                <goals>
+                                    <goal>copy</goal>
+                                </goals>
+                                <configuration>
+                                    <overWriteReleases>true</overWriteReleases>
+                                    <artifactItems>
+                                        <artifactItem>
+                                            <groupId>org.apache.ozone</groupId>
+                                            <artifactId>ozone-filesystem-hadoop2</artifactId>
+                                            <version>${iceberg.ozone.version}</version>
+                                            <outputDirectory>${project.build.directory}/trino-ozone</outputDirectory>
+                                            <destFileName>ozone-filesystem-hadoop2.jar</destFileName>
+                                        </artifactItem>
+                                        <artifactItem>
+                                            <groupId>org.apache.iceberg</groupId>
+                                            <artifactId>iceberg-spark-runtime-4.0_2.13</artifactId>
+                                            <version>${spark.iceberg.version}</version>
+                                            <outputDirectory>${project.build.directory}/spark-jars</outputDirectory>
+                                            <destFileName>iceberg-spark-runtime.jar</destFileName>
+                                        </artifactItem>
+                                        <artifactItem>
+                                            <groupId>io.arenadata.hive</groupId>
+                                            <artifactId>hive-metastore</artifactId>
+                                            <version>${spark.hive.metastore.version}</version>
+                                            <outputDirectory>${project.build.directory}/spark-jars</outputDirectory>
+                                            <destFileName>hive-metastore.jar</destFileName>
+                                        </artifactItem>
+                                        <artifactItem>
+                                            <groupId>io.arenadata.hive</groupId>
+                                            <artifactId>hive-common</artifactId>
+                                            <version>${spark.hive.metastore.version}</version>
+                                            <outputDirectory>${project.build.directory}/spark-jars</outputDirectory>
+                                            <destFileName>hive-common.jar</destFileName>
+                                        </artifactItem>
+                                        <artifactItem>
+                                            <groupId>io.arenadata.hive</groupId>
+                                            <artifactId>hive-exec</artifactId>
+                                            <version>${spark.hive.metastore.version}</version>
+                                            <classifier>core</classifier>
+                                            <outputDirectory>${project.build.directory}/spark-jars</outputDirectory>
+                                            <destFileName>hive-exec.jar</destFileName>
+                                        </artifactItem>
+                                        <artifactItem>
+                                            <groupId>io.arenadata.hive</groupId>
+                                            <artifactId>hive-serde</artifactId>
+                                            <version>${spark.hive.metastore.version}</version>
+                                            <outputDirectory>${project.build.directory}/spark-jars</outputDirectory>
+                                            <destFileName>hive-serde.jar</destFileName>
+                                        </artifactItem>
+                                        <artifactItem>
+                                            <groupId>org.apache.ozone</groupId>
+                                            <artifactId>ozone-filesystem-hadoop3-client</artifactId>
+                                            <version>${cluster.ozone.version}</version>
+                                            <outputDirectory>${project.build.directory}/spark-jars</outputDirectory>
+                                            <destFileName>ozone-filesystem-hadoop3-client.jar</destFileName>
+                                        </artifactItem>
+                                    </artifactItems>
+                                </configuration>
+                            </execution>
+                        </executions>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+    </profiles>
 </project>

@@ -55,6 +55,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 
 /**
@@ -154,7 +155,7 @@ public final class HdfsComponent implements Startable {
 
     private static final String SAFE_MODE_OFF = "Safe mode is OFF";
 
-    private static final String AUDIT_COMMAND_FORMAT = "if [ -d %1$s ]; then find %1$s -type f -exec cat {} +; fi";
+    private static final String AUDIT_COMMAND_FORMAT = "if [ -d %1$s ]; then find %1$s -type f | sort | while read -r file; do cat \"${file}\"; done; fi";
 
     private static final String FILE_SYSTEM_URI = "hdfs://%s:%d".formatted(ClusterContext.HOST, ClusterContext.NAME_NODE_PORT);
 
@@ -184,32 +185,24 @@ public final class HdfsComponent implements Startable {
 
     private final ClusterContext context;
 
-    private final RangerComponent ranger;
-
     private final GenericContainer<?> nameNode;
 
     private final GenericContainer<?> dataNode;
 
     public HdfsComponent(final ClusterContext context, final RangerComponent ranger) {
         this.context = context;
-        this.ranger = ranger;
+        final String serviceName = Objects.requireNonNull(ranger, "Ranger component required").hdfsServiceName();
 
         final String image = System.getProperty(IMAGE_PROPERTY, IMAGE_DEFAULT);
-        final GenericContainer<?> nameNodeContainer;
-        if (ranger == null) {
-            nameNodeContainer = new GenericContainer<>(DockerImageName.parse(image));
-        } else {
-            final ImageFromDockerfile rangerImage = new ImageFromDockerfile(RANGER_IMAGE_NAME, false)
-                    .withFileFromClasspath(DOCKERFILE, DOCKERFILE_RESOURCE)
-                    .withFileFromPath(PLUGIN_ARCHIVE, downloadPluginArchive())
-                    .withBuildArg(IMAGE_ARGUMENT, image);
-            nameNodeContainer = new GenericContainer<>(rangerImage);
-            final String serviceName = ranger.hdfsServiceName();
-            ranger.pluginFiles(SERVICE_TYPE, serviceName).forEach((path, content) ->
-                    nameNodeContainer.withCopyToContainer(Transferable.of(content), getPluginFilePath(path)));
-            nameNodeContainer.withCopyToContainer(Transferable.of(ClusterFiles.hadoopXml(getAuditProperties())),
-                    CONFIGURATION_FILE_FORMAT.formatted(SERVICE_AUDIT_FILE_FORMAT.formatted(serviceName)));
-        }
+        final ImageFromDockerfile rangerImage = new ImageFromDockerfile(RANGER_IMAGE_NAME, false)
+                .withFileFromClasspath(DOCKERFILE, DOCKERFILE_RESOURCE)
+                .withFileFromPath(PLUGIN_ARCHIVE, downloadPluginArchive())
+                .withBuildArg(IMAGE_ARGUMENT, image);
+        final GenericContainer<?> nameNodeContainer = new GenericContainer<>(rangerImage);
+        ranger.pluginFiles(SERVICE_TYPE, serviceName).forEach((path, content) ->
+                nameNodeContainer.withCopyToContainer(Transferable.of(content), getPluginFilePath(path)));
+        nameNodeContainer.withCopyToContainer(Transferable.of(ClusterFiles.hadoopXml(getAuditProperties())),
+                CONFIGURATION_FILE_FORMAT.formatted(SERVICE_AUDIT_FILE_FORMAT.formatted(serviceName)));
         this.nameNode = configure(nameNodeContainer, ClusterContext.NAME_NODE_KEYTAB, NAME_NODE_PREFIX)
                 .withEnv(NAME_DIRECTORY_VARIABLE, NAME_DIRECTORY)
                 .withEnv(HEAP_VARIABLE, NAME_NODE_HEAP)
@@ -298,13 +291,10 @@ public final class HdfsComponent implements Startable {
     /**
      * Ranger HDFS audit events written by the NameNode as JSON lines
      *
-     * @return Audit events or empty list when Ranger is not configured or no events were written yet
+     * @return Audit events in file name order or empty list when no events were written yet
      * @throws Exception Thrown when reading from the NameNode container failed
      */
     public List<String> auditLines() throws Exception {
-        if (ranger == null) {
-            return List.of();
-        }
         final ExecResult result = nameNode.execInContainer(SHELL, SHELL_COMMAND_OPTION, AUDIT_COMMAND_FORMAT.formatted(AUDIT_DIRECTORY));
         if (result.getExitCode() != 0) {
             throw new IllegalStateException("Reading Ranger audit failed with exit code [%d]: %s".formatted(result.getExitCode(), result.getStderr()));
@@ -339,10 +329,8 @@ public final class HdfsComponent implements Startable {
         properties.put(USE_DATA_NODE_HOSTNAME_PROPERTY, ENABLED);
         properties.put("dfs.web.authentication.kerberos.principal", ClusterContext.HTTP_PRINCIPAL);
         properties.put("dfs.web.authentication.kerberos.keytab", context.containerKeytab(keytab));
-        if (ranger != null) {
-            properties.put("dfs.namenode.inode.attributes.provider.class", RANGER_AUTHORIZER);
-            properties.put("dfs.permissions.ContentSummary.subAccess", ENABLED);
-        }
+        properties.put("dfs.namenode.inode.attributes.provider.class", RANGER_AUTHORIZER);
+        properties.put("dfs.permissions.ContentSummary.subAccess", ENABLED);
         return properties;
     }
 
