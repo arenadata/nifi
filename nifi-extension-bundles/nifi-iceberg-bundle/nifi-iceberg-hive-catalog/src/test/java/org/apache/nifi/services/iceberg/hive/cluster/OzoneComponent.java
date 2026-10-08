@@ -22,16 +22,10 @@ import org.apache.hadoop.fs.FSDataOutputStream;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.hdds.conf.OzoneConfiguration;
-import org.apache.hadoop.ozone.OzoneAcl;
-import org.apache.hadoop.ozone.client.ObjectStore;
 import org.apache.hadoop.ozone.client.OzoneClient;
 import org.apache.hadoop.ozone.client.OzoneClientFactory;
-import org.apache.hadoop.ozone.client.OzoneVolume;
-import org.apache.hadoop.ozone.security.acl.IAccessAuthorizer.ACLIdentityType;
-import org.apache.hadoop.ozone.security.acl.IAccessAuthorizer.ACLType;
-import org.apache.hadoop.ozone.security.acl.OzoneObj;
-import org.apache.hadoop.ozone.security.acl.OzoneObjInfo;
 import org.apache.hadoop.security.UserGroupInformation;
+import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testcontainers.containers.BindMode;
 import org.testcontainers.containers.Container.ExecResult;
@@ -54,13 +48,16 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 
 /**
  * Kerberized Apache Ozone with Storage Container Manager, Ozone Manager and DataNode in one container. The Ozone Manager
- * uses the Ranger Ozone plugin when configured, otherwise the native Ozone ACL authorizer.
+ * authorizes requests with the Ranger Ozone plugin and writes Ranger audit events as JSON lines to a local directory.
  */
 public final class OzoneComponent implements Startable {
+    private static final Logger LOGGER = LoggerFactory.getLogger(OzoneComponent.class);
+
     private static final String IMAGE_PROPERTY = "ozone.image";
 
     private static final String IMAGE_DEFAULT = "apache/ozone:2.1.2-slim";
@@ -115,6 +112,8 @@ public final class OzoneComponent implements Startable {
 
     private static final String FAILED_MESSAGE = "Ozone cluster failed";
 
+    private static final String PLUGIN_FAILED_MESSAGE = "Error Enabling RangerOzonePlugin";
+
     private static final String STARTED_PATTERN = ".*(%s|%s).*".formatted(READY_MESSAGE, FAILED_MESSAGE);
 
     private static final String LOG_PREFIX = "ozone";
@@ -133,9 +132,7 @@ public final class OzoneComponent implements Startable {
 
     private static final String AUDIT_BATCH_INTERVAL = "1000";
 
-    private static final String AUDIT_COMMAND_FORMAT = "if [ -d %1$s ]; then find %1$s -type f -exec cat {} +; fi";
-
-    private static final String NATIVE_AUTHORIZER = "org.apache.hadoop.ozone.security.acl.OzoneNativeAuthorizer";
+    private static final String AUDIT_COMMAND_FORMAT = "if [ -d %1$s ]; then find %1$s -type f | sort | while read -r file; do cat \"${file}\"; done; fi";
 
     private static final String RANGER_AUTHORIZER = "org.apache.ranger.authorization.ozone.authorizer.RangerOzoneAuthorizer";
 
@@ -165,8 +162,6 @@ public final class OzoneComponent implements Startable {
 
     private static final String ADMINISTRATORS = "hadoop,admin";
 
-    private static final List<String> CLUSTER_USERS = List.of("hive", "nifi");
-
     private static final Duration BOOTSTRAP_TIMEOUT = Duration.ofMinutes(3);
 
     private final ClusterContext context;
@@ -181,20 +176,13 @@ public final class OzoneComponent implements Startable {
 
     public OzoneComponent(final ClusterContext context, final RangerComponent ranger) {
         this.context = context;
-        this.ranger = ranger;
+        this.ranger = Objects.requireNonNull(ranger, "Ranger component required");
 
         final String baseImage = System.getProperty(IMAGE_PROPERTY, IMAGE_DEFAULT);
-        final String pluginUrls;
-        final String imageTag;
-        if (ranger == null) {
-            pluginUrls = "";
-            imageTag = getImageTag(baseImage);
-        } else {
-            final String archiveUrl = RangerComponent.pluginArchiveUrl(SERVICE_TYPE);
-            final Set<String> urls = new LinkedHashSet<>(List.of(archiveUrl.replace(ARCHIVE_URL_PREFIX, MIRROR_URL_PREFIX), archiveUrl));
-            pluginUrls = String.join(URL_SEPARATOR, urls);
-            imageTag = getImageTag(baseImage) + RANGER_IMAGE_TAG_SUFFIX;
-        }
+        final String archiveUrl = RangerComponent.pluginArchiveUrl(SERVICE_TYPE);
+        final Set<String> urls = new LinkedHashSet<>(List.of(archiveUrl.replace(ARCHIVE_URL_PREFIX, MIRROR_URL_PREFIX), archiveUrl));
+        final String pluginUrls = String.join(URL_SEPARATOR, urls);
+        final String imageTag = getImageTag(baseImage) + RANGER_IMAGE_TAG_SUFFIX;
         this.image = new ImageFromDockerfile(IMAGE_NAME_FORMAT.formatted(imageTag), false)
                 .withFileFromClasspath(DOCKERFILE, DOCKERFILE_RESOURCE)
                 .withBuildArg(IMAGE_ARGUMENT, baseImage)
@@ -205,19 +193,19 @@ public final class OzoneComponent implements Startable {
                 .withCopyToContainer(Transferable.of(ClusterFiles.resource(START_SCRIPT_RESOURCE, Map.of()), EXECUTABLE_MODE), START_SCRIPT_PATH)
                 .withCopyToContainer(Transferable.of(ClusterFiles.hadoopXml(context.coreSite(Map.of(OZONE_MANAGER_ADDRESS_PROPERTY, getServerAddress())))),
                         CONFIGURATION_FILE_FORMAT.formatted(CORE_SITE))
-                .withCopyToContainer(Transferable.of(ClusterFiles.hadoopXml(getServerProperties(context, ranger != null))), CONFIGURATION_FILE_FORMAT.formatted(OZONE_SITE))
+                .withCopyToContainer(Transferable.of(ClusterFiles.hadoopXml(getServerProperties(context))), CONFIGURATION_FILE_FORMAT.formatted(OZONE_SITE))
                 .withFileSystemBind(context.keytabDirectory().toString(), ClusterContext.KEYTAB_DIRECTORY, BindMode.READ_ONLY)
                 .withEnv(CHECK_PRINCIPAL_VARIABLE, ClusterContext.SCM_PRINCIPAL)
                 .withEnv(CHECK_KEYTAB_VARIABLE, context.containerKeytab(ClusterContext.SCM_KEYTAB))
                 .withEnv(READY_TIMEOUT_VARIABLE, Long.toString(ClusterContext.STARTUP_TIMEOUT.minusMinutes(1).toSeconds()))
                 .withCreateContainerCmdModifier(command -> command.getHostConfig().withNetworkMode(context.networkMode()))
                 .withCommand(SHELL, START_SCRIPT_PATH)
-                .withLogConsumer(new Slf4jLogConsumer(LoggerFactory.getLogger(OzoneComponent.class)).withPrefix(LOG_PREFIX))
+                .withLogConsumer(new Slf4jLogConsumer(LOGGER).withPrefix(LOG_PREFIX))
                 .waitingFor(Wait.forLogMessage(STARTED_PATTERN, 1).withStartupTimeout(ClusterContext.STARTUP_TIMEOUT));
     }
 
     /**
-     * Build the Ozone image, including the Ranger plugin when configured, without starting the container
+     * Build the Ozone image with the Ranger Ozone plugin without starting the container
      */
     public void buildImage() {
         image.get();
@@ -225,20 +213,23 @@ public final class OzoneComponent implements Startable {
 
     /**
      * Start the container and wait until the Storage Container Manager left safe mode with an open RATIS/ONE pipeline
-     * and the Ozone Manager accepts Kerberos authenticated client connections from the test process
+     * and the Ozone Manager accepts Kerberos authenticated client connections from the test process. Fails fast when
+     * the Ranger Ozone plugin was not enabled, as the Ozone Manager then fails every request.
      */
     @Override
     public void start() {
-        if (ranger != null) {
-            final String serviceName = ranger.ozoneServiceName();
-            ranger.pluginFiles(SERVICE_TYPE, serviceName).forEach((path, content) ->
-                    container.withCopyToContainer(Transferable.of(content), getPluginFilePath(path)));
-            container.withCopyToContainer(Transferable.of(ClusterFiles.hadoopXml(getAuditProperties())),
-                    CONFIGURATION_FILE_FORMAT.formatted(SERVICE_AUDIT_FILE_FORMAT.formatted(serviceName)));
-        }
+        final String serviceName = ranger.ozoneServiceName();
+        ranger.pluginFiles(SERVICE_TYPE, serviceName).forEach((path, content) ->
+                container.withCopyToContainer(Transferable.of(content), getPluginFilePath(path)));
+        container.withCopyToContainer(Transferable.of(ClusterFiles.hadoopXml(getAuditProperties())),
+                CONFIGURATION_FILE_FORMAT.formatted(SERVICE_AUDIT_FILE_FORMAT.formatted(serviceName)));
         container.start();
-        if (container.getLogs().contains(FAILED_MESSAGE)) {
+        final String logs = container.getLogs();
+        if (logs.contains(FAILED_MESSAGE)) {
             throw new IllegalStateException("Ozone start failed, see container log with prefix [%s]".formatted(LOG_PREFIX));
+        }
+        if (logs.contains(PLUGIN_FAILED_MESSAGE)) {
+            throw new IllegalStateException("Ranger Ozone plugin not enabled, see container log with prefix [%s]".formatted(LOG_PREFIX));
         }
         try {
             ClusterFiles.waitUntil("Ozone Manager", ClusterContext.STARTUP_TIMEOUT, this::connect);
@@ -287,20 +278,18 @@ public final class OzoneComponent implements Startable {
     }
 
     /**
-     * Create volume and bucket as the admin principal, verify writing and reading a file, then grant the owner and the
-     * cluster users access to the volume and bucket, including default ACLs. Retries until success or timeout.
+     * Create volume and bucket as the admin principal and verify writing and reading a probe file. Access of other
+     * users is decided by Ranger policies only. Retries until success or timeout.
      *
      * @param volume Volume name
      * @param bucket Bucket name
-     * @param owner Owner user name
      * @throws Exception Thrown on login or Ozone failures
      */
-    public void createBucket(final String volume, final String bucket, final String owner) throws Exception {
+    public void createBucket(final String volume, final String bucket) throws Exception {
         final Configuration configuration = getClientConfiguration();
         final Path bucketPath = new Path(BUCKET_PATH_FORMAT.formatted(volume, bucket));
         ClusterFiles.waitUntil("Ozone bucket [%s]".formatted(bucketPath), BOOTSTRAP_TIMEOUT, () -> getAdminUser().doAs((PrivilegedExceptionAction<Void>) () -> {
             writeProbe(configuration, bucketPath);
-            grantAccess(configuration, volume, bucket, owner);
             return null;
         }));
     }
@@ -308,13 +297,10 @@ public final class OzoneComponent implements Startable {
     /**
      * Ranger Ozone audit events written by the Ozone Manager as JSON lines
      *
-     * @return Audit events or empty list when Ranger is not configured or no events were written yet
+     * @return Audit events in file name order or empty list when no events were written yet
      * @throws Exception Thrown when reading from the Ozone container failed
      */
     public List<String> auditLines() throws Exception {
-        if (ranger == null) {
-            return List.of();
-        }
         final ExecResult result = container.execInContainer(SHELL, SHELL_COMMAND_OPTION, AUDIT_COMMAND_FORMAT.formatted(AUDIT_DIRECTORY));
         if (result.getExitCode() != 0) {
             throw new IllegalStateException("Reading Ranger audit failed with exit code [%d]: %s".formatted(result.getExitCode(), result.getStderr()));
@@ -353,36 +339,6 @@ public final class OzoneComponent implements Startable {
         }
     }
 
-    private static void grantAccess(final Configuration configuration, final String volume, final String bucket, final String owner) throws IOException {
-        try (OzoneClient client = OzoneClientFactory.getRpcClient(new OzoneConfiguration(configuration))) {
-            final ObjectStore objectStore = client.getObjectStore();
-            final OzoneVolume ozoneVolume = objectStore.getVolume(volume);
-            ozoneVolume.setOwner(owner);
-            ozoneVolume.getBucket(bucket).setOwner(owner);
-
-            final OzoneObj volumeObject = OzoneObjInfo.Builder.newBuilder()
-                    .setResType(OzoneObj.ResourceType.VOLUME)
-                    .setStoreType(OzoneObj.StoreType.OZONE)
-                    .setVolumeName(volume)
-                    .build();
-            final OzoneObj bucketObject = OzoneObjInfo.Builder.newBuilder()
-                    .setResType(OzoneObj.ResourceType.BUCKET)
-                    .setStoreType(OzoneObj.StoreType.OZONE)
-                    .setVolumeName(volume)
-                    .setBucketName(bucket)
-                    .build();
-
-            final Set<String> users = new LinkedHashSet<>();
-            users.add(owner);
-            users.addAll(CLUSTER_USERS);
-            for (final String user : users) {
-                objectStore.addAcl(volumeObject, OzoneAcl.of(ACLIdentityType.USER, user, OzoneAcl.AclScope.ACCESS, ACLType.READ, ACLType.LIST));
-                objectStore.addAcl(bucketObject, OzoneAcl.of(ACLIdentityType.USER, user, OzoneAcl.AclScope.ACCESS, ACLType.ALL));
-                objectStore.addAcl(bucketObject, OzoneAcl.of(ACLIdentityType.USER, user, OzoneAcl.AclScope.DEFAULT, ACLType.ALL));
-            }
-        }
-    }
-
     private synchronized UserGroupInformation getAdminUser() throws IOException {
         if (adminUser == null) {
             final Configuration configuration = getClientConfiguration();
@@ -403,7 +359,7 @@ public final class OzoneComponent implements Startable {
         return configuration;
     }
 
-    private static Map<String, String> getServerProperties(final ClusterContext context, final boolean rangerEnabled) {
+    private static Map<String, String> getServerProperties(final ClusterContext context) {
         final Map<String, String> properties = new LinkedHashMap<>(clientProperties());
         properties.put(OZONE_MANAGER_ADDRESS_PROPERTY, getServerAddress());
         properties.put("ozone.scm.names", ClusterContext.HOST);
@@ -447,7 +403,7 @@ public final class OzoneComponent implements Startable {
         properties.put("hdds.datanode.http.auth.kerberos.keytab", context.containerKeytab(ClusterContext.OZONE_DATA_NODE_KEYTAB));
         properties.put("ozone.administrators", ADMINISTRATORS);
         properties.put("ozone.acl.enabled", ENABLED);
-        properties.put("ozone.acl.authorizer.class", rangerEnabled ? RANGER_AUTHORIZER : NATIVE_AUTHORIZER);
+        properties.put("ozone.acl.authorizer.class", RANGER_AUTHORIZER);
         return properties;
     }
 
