@@ -27,7 +27,6 @@ import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
-import java.util.EnumMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -36,7 +35,7 @@ import java.util.concurrent.CompletionException;
 
 /**
  * Kerberized cluster in containers sharing the network namespace of the Key Distribution Center container: Ranger Admin,
- * HDFS and Ozone with Ranger plugins and Hive Metastore. Independent containers start in parallel batches.
+ * HDFS and Ozone with Ranger plugins, Hive Metastore, Trino and Spark. Independent containers start in parallel batches.
  */
 public final class IcebergTestCluster implements AutoCloseable {
     public static final String NIFI_USER = "nifi";
@@ -51,16 +50,45 @@ public final class IcebergTestCluster implements AutoCloseable {
 
     public static final String OZONE_WAREHOUSE = OzoneComponent.location(OZONE_VOLUME, OZONE_BUCKET);
 
+    public static final String TRINO_USER = "trino";
+
+    public static final String SPARK_USER = "spark";
+
+    public static final List<String> DATA_USERS = List.of(NIFI_USER, TRINO_USER, SPARK_USER);
+
+    private static final String HDFS_SECURED_PATH = "/secured";
+
+    private static final String HDFS_SECURED = "hdfs://%s:%d%s".formatted(ClusterContext.HOST, ClusterContext.NAME_NODE_PORT, HDFS_SECURED_PATH);
+
+    private static final String OZONE_SECURED_BUCKET = "secured";
+
+    private static final String OZONE_SECURED = OzoneComponent.location(OZONE_VOLUME, OZONE_SECURED_BUCKET);
+
+    private static final String OZONE_DENIED_BUCKET = "denied";
+
+    private static final String BUCKET_RESOURCE_FORMAT = "%s/%s";
+
+    public static final String OZONE_SECURED_BUCKET_RESOURCE = BUCKET_RESOURCE_FORMAT.formatted(OZONE_VOLUME, OZONE_SECURED_BUCKET);
+
     /**
-     * Ranger plugin in the Ozone Manager, enabled with -Dranger.ozone.plugin=true
+     * HDFS root location where only the hadoop and hive users may write
      */
-    public static final boolean OZONE_RANGER_ENABLED = Boolean.getBoolean("ranger.ozone.plugin");
+    private static final String HDFS_DENIED_LOCATION = "hdfs://%s:%d".formatted(ClusterContext.HOST, ClusterContext.NAME_NODE_PORT);
+
+    /**
+     * Location in a missing Ozone bucket that ofs creates on first use, which requires Ranger CREATE on the bucket
+     */
+    private static final String OZONE_DENIED_LOCATION = OzoneComponent.location(OZONE_VOLUME, OZONE_DENIED_BUCKET);
+
+    private static final String OZONE_DENIED_BUCKET_RESOURCE = BUCKET_RESOURCE_FORMAT.formatted(OZONE_VOLUME, OZONE_DENIED_BUCKET);
+
+    private static final String HDFS_DENIED_RESOURCE_FORMAT = "/%s.db";
 
     private static final Logger LOGGER = LoggerFactory.getLogger(IcebergTestCluster.class);
 
     private static final String DIRECTORY_PROPERTY = "iceberg.cluster.directory";
 
-    private static final String DIRECTORY_DEFAULT = "target";
+    private static final String DIRECTORY_DEFAULT = System.getProperty("java.io.tmpdir");
 
     private static final String DIRECTORY_PREFIX = "iceberg-cluster-";
 
@@ -76,7 +104,15 @@ public final class IcebergTestCluster implements AutoCloseable {
 
     private static final String WAREHOUSE_PERMISSION = "777";
 
-    private static final List<String> SERVICE_USERS = List.of("hadoop", HIVE_USER);
+    private static final String HADOOP_USER = "hadoop";
+
+    private static final String ADMIN_USER = "admin";
+
+    private static final List<String> HDFS_SERVICE_USERS = List.of(HADOOP_USER, HIVE_USER);
+
+    private static final List<String> OZONE_SERVICE_USERS = List.of(HADOOP_USER, ADMIN_USER, HIVE_USER);
+
+    private static final List<String> ENGINE_USERS = List.of(TRINO_USER, SPARK_USER);
 
     private static final String HDFS_ROOT = "/";
 
@@ -98,25 +134,45 @@ public final class IcebergTestCluster implements AutoCloseable {
 
     private static final String ALL = "all";
 
-    private static final String[] HDFS_ALL_ACCESS = {READ, WRITE, EXECUTE};
+    private static final String[] HDFS_WRITE_ACCESS = {READ, WRITE, EXECUTE};
 
-    private static final String[] HDFS_NIFI_READ_ACCESS = {READ, EXECUTE};
+    private static final String[] HDFS_READ_ACCESS = {READ, EXECUTE};
+
+    private static final String[] HDFS_DENY_WRITE_ACCESS = {WRITE};
+
+    private static final String[] HDFS_DENY_READ_ACCESS = {READ};
 
     private static final String[] OZONE_ALL_ACCESS = {ALL, READ, WRITE, CREATE, LIST, DELETE, READ_ACL, WRITE_ACL};
 
     private static final String[] OZONE_NIFI_READ_ACCESS = {READ, LIST, READ_ACL};
 
-    private static final String[] OZONE_NIFI_WRITE_ACCESS = {READ, WRITE, CREATE, LIST, DELETE, READ_ACL};
+    private static final String[] OZONE_READ_ACCESS = {READ, LIST};
+
+    private static final String[] OZONE_WRITE_ACCESS = {READ, WRITE, CREATE, LIST, DELETE, READ_ACL};
+
+    private static final String[] OZONE_DENY_WRITE_ACCESS = {WRITE, CREATE, DELETE};
+
+    private static final String[] OZONE_DENY_READ_ACCESS = {READ};
 
     private static final String OZONE_VOLUME_KEYS = "%s/*/*".formatted(OZONE_VOLUME);
 
-    private static final String OZONE_BUCKET_KEYS = "%s/%s/*".formatted(OZONE_VOLUME, OZONE_BUCKET);
+    private static final String OZONE_WAREHOUSE_KEYS = "%s/%s/*".formatted(OZONE_VOLUME, OZONE_BUCKET);
+
+    private static final String OZONE_SECURED_KEYS = "%s/%s/*".formatted(OZONE_VOLUME, OZONE_SECURED_BUCKET);
+
+    private static final String HDFS_RESOURCE_FORMAT = "%s/%s";
+
+    private static final String OZONE_KEYS_FORMAT = "%s/%s/%s*";
+
+    private static final String OZONE_SECURED_KEY_FORMAT = "%s/%s/%s";
+
+    private static final String HDFS_DATA_RESOURCE_FORMAT = "%s/%s/data";
+
+    private static final String OZONE_DATA_RESOURCE_FORMAT = "%s/%s/%s/data/*";
 
     private final ClusterContext context;
 
     private final List<Startable> components = new ArrayList<>();
-
-    private final Map<Storage, Long> writePolicies = new EnumMap<>(Storage.class);
 
     private final String previousKrb5Conf;
 
@@ -130,10 +186,14 @@ public final class IcebergTestCluster implements AutoCloseable {
 
     private MetastoreComponent metastore;
 
+    private TrinoEngine trino;
+
+    private SparkEngine spark;
+
     private Path clientSite;
 
     /**
-     * Storage systems with Ranger write policies for the nifi user
+     * Storage systems authorized by Ranger plugins
      */
     public enum Storage {
         HDFS,
@@ -141,7 +201,16 @@ public final class IcebergTestCluster implements AutoCloseable {
     }
 
     /**
-     * Cluster with keytabs and configuration files in a new directory under target or -Diceberg.cluster.directory
+     * Ranger access levels mapped to the access types of each storage: READ allows reading and listing, WRITE allows
+     * reading and modifying. Denying WRITE denies modifications only.
+     */
+    public enum Access {
+        READ,
+        WRITE
+    }
+
+    /**
+     * Cluster with keytabs and configuration files in a new directory under the system temporary directory or -Diceberg.cluster.directory
      */
     public IcebergTestCluster() {
         final Path parent = Path.of(System.getProperty(DIRECTORY_PROPERTY, DIRECTORY_DEFAULT)).toAbsolutePath();
@@ -169,6 +238,7 @@ public final class IcebergTestCluster implements AutoCloseable {
         bootstrapStorage();
         writeClientSite();
         startMetastore();
+        startEngines();
         LOGGER.info("Iceberg test cluster started");
     }
 
@@ -195,12 +265,12 @@ public final class IcebergTestCluster implements AutoCloseable {
         }
     }
 
-    public HdfsComponent hdfs() {
-        return hdfs;
+    public TrinoEngine trino() {
+        return trino;
     }
 
-    public OzoneComponent ozone() {
-        return ozone;
+    public SparkEngine spark() {
+        return spark;
     }
 
     /**
@@ -223,34 +293,205 @@ public final class IcebergTestCluster implements AutoCloseable {
     }
 
     /**
-     * Delete the Ranger policy allowing the nifi user to write and wait until the plugin activated the change
+     * Remove the Ranger policy item allowing the nifi user to write in the warehouse without waiting for the plugin.
+     * Trino and Spark keep their policy items for the warehouse.
      *
      * @param storage Storage system
-     * @throws Exception Thrown on Ranger failures or timeout
+     * @throws Exception Thrown on Ranger failures
      */
     public void revokeNifiWrite(final Storage storage) throws Exception {
-        final Long policyId = writePolicies.remove(storage);
-        if (policyId != null) {
-            ranger.delete(policyId);
-            ranger.awaitPolicyRefresh(getServiceName(storage));
-        }
+        revoke(storage, getWarehouseResource(storage), NIFI_USER);
     }
 
     /**
-     * Create the Ranger policy allowing the nifi user to write when missing and wait until the plugin activated it
+     * Add the Ranger policy item allowing the nifi user to write in the warehouse without waiting for the plugin
+     *
+     * @param storage Storage system
+     * @throws Exception Thrown on Ranger failures
+     */
+    public void grantNifiWrite(final Storage storage) throws Exception {
+        allow(storage, getWarehouseResource(storage), NIFI_USER, Access.WRITE);
+    }
+
+    /**
+     * Allow access for a user on a Ranger resource of the storage service without waiting for the plugin
+     *
+     * @param storage Storage system
+     * @param resource HDFS path or Ozone volume/bucket/key pattern, such as returned from securedResource
+     * @param user Short user name
+     * @param access Access level
+     * @return Policy identifier, shared by all users of the same resource
+     * @throws Exception Thrown on Ranger failures
+     */
+    public long allow(final Storage storage, final String resource, final String user, final Access access) throws Exception {
+        return ranger.allow(getServiceName(storage), resource, user, getAllowAccessTypes(storage, access));
+    }
+
+    /**
+     * Allow access for a user on a path under the secured location without files and directories below it: a
+     * non-recursive HDFS path or an exact Ozone key without wildcard. Does not wait for the plugin.
+     *
+     * @param storage Storage system
+     * @param path Relative path such as namespace.db/table
+     * @param user Short user name
+     * @param access Access level
+     * @return Policy identifier, shared by all users of the same resource
+     * @throws Exception Thrown on Ranger failures
+     */
+    public long allowWithoutDescendants(final Storage storage, final String path, final String user, final Access access) throws Exception {
+        final String[] accessTypes = getAllowAccessTypes(storage, access);
+        return switch (storage) {
+            case HDFS -> ranger.allow(getServiceName(storage), HDFS_RESOURCE_FORMAT.formatted(HDFS_SECURED_PATH, path), false, user, accessTypes);
+            case OZONE -> ranger.allow(getServiceName(storage), OZONE_SECURED_KEY_FORMAT.formatted(OZONE_VOLUME, OZONE_SECURED_BUCKET, path), user, accessTypes);
+        };
+    }
+
+    /**
+     * Deny access for a user on a Ranger resource of the storage service without waiting for the plugin
+     *
+     * @param storage Storage system
+     * @param resource HDFS path or Ozone volume/bucket/key pattern, such as returned from securedResource
+     * @param user Short user name
+     * @param access Access level to deny
+     * @return Policy identifier, shared by all users of the same resource
+     * @throws Exception Thrown on Ranger failures
+     */
+    public long deny(final Storage storage, final String resource, final String user, final Access access) throws Exception {
+        return ranger.deny(getServiceName(storage), resource, user, getDenyAccessTypes(storage, access));
+    }
+
+    /**
+     * Remove the allow and deny policy items of a user on a Ranger resource without waiting for the plugin
+     *
+     * @param storage Storage system
+     * @param resource HDFS path or Ozone volume/bucket/key pattern
+     * @param user Short user name
+     * @throws Exception Thrown on Ranger failures
+     */
+    public void revoke(final Storage storage, final String resource, final String user) throws Exception {
+        ranger.revoke(getServiceName(storage), resource, user);
+    }
+
+    /**
+     * Enable or disable a Ranger policy without waiting for the plugin
+     *
+     * @param policyId Policy identifier
+     * @param enabled Enabled status
+     * @throws Exception Thrown on Ranger failures
+     */
+    public void setPolicyEnabled(final long policyId, final boolean enabled) throws Exception {
+        ranger.setEnabled(policyId, enabled);
+    }
+
+    /**
+     * Delete a Ranger policy without waiting for the plugin, ignoring policies that do not exist
+     *
+     * @param policyId Policy identifier
+     * @throws Exception Thrown on Ranger failures
+     */
+    public void deletePolicy(final long policyId) throws Exception {
+        ranger.delete(policyId);
+    }
+
+    /**
+     * Wait until the Ranger plugin of the storage activated the latest policy version
      *
      * @param storage Storage system
      * @throws Exception Thrown on Ranger failures or timeout
      */
-    public void grantNifiWrite(final Storage storage) throws Exception {
-        if (!writePolicies.containsKey(storage)) {
-            final long policyId = switch (storage) {
-                case HDFS -> ranger.allow(ranger.hdfsServiceName(), HDFS_WAREHOUSE_PATH, NIFI_USER, HDFS_ALL_ACCESS);
-                case OZONE -> ranger.allow(ranger.ozoneServiceName(), OZONE_BUCKET_KEYS, NIFI_USER, OZONE_NIFI_WRITE_ACCESS);
-            };
-            writePolicies.put(storage, policyId);
-        }
+    public void awaitPolicyRefresh(final Storage storage) throws Exception {
         ranger.awaitPolicyRefresh(getServiceName(storage));
+    }
+
+    /**
+     * Ranger audit events of the storage plugin as JSON lines in write order
+     *
+     * @param storage Storage system
+     * @return Audit lines
+     * @throws Exception Thrown when reading the audit files failed
+     */
+    public List<String> auditLines(final Storage storage) throws Exception {
+        return switch (storage) {
+            case HDFS -> hdfs.auditLines();
+            case OZONE -> ozone.auditLines();
+        };
+    }
+
+    /**
+     * Location without Ranger path or key policies for Trino and Spark, where the nifi user may write. On Ozone, Trino
+     * and Spark may only read and list the volume and the bucket.
+     *
+     * @param storage Storage system
+     * @return Location such as hdfs://localhost:8020/secured
+     */
+    public static String securedLocation(final Storage storage) {
+        return switch (storage) {
+            case HDFS -> HDFS_SECURED;
+            case OZONE -> OZONE_SECURED;
+        };
+    }
+
+    /**
+     * Ranger resource for a path under the secured location and everything below it
+     *
+     * @param storage Storage system
+     * @param path Relative path such as namespace.db/table
+     * @return Recursive HDFS path or Ozone volume/bucket/key pattern
+     */
+    public static String securedResource(final Storage storage, final String path) {
+        return getResource(storage, HDFS_SECURED_PATH, OZONE_SECURED_BUCKET, path);
+    }
+
+    /**
+     * Ranger resource for the data directory of a table under the secured location and everything below it
+     *
+     * @param storage Storage system
+     * @param tablePath Relative table path such as namespace.db/table
+     * @return Recursive HDFS path or Ozone volume/bucket/key pattern
+     */
+    public static String securedDataResource(final Storage storage, final String tablePath) {
+        return switch (storage) {
+            case HDFS -> HDFS_DATA_RESOURCE_FORMAT.formatted(HDFS_SECURED_PATH, tablePath);
+            case OZONE -> OZONE_DATA_RESOURCE_FORMAT.formatted(OZONE_VOLUME, OZONE_SECURED_BUCKET, tablePath);
+        };
+    }
+
+    /**
+     * Ranger resource for a path under the warehouse location and everything below it
+     *
+     * @param storage Storage system
+     * @param path Relative path such as namespace.db/table
+     * @return Recursive HDFS path or Ozone volume/bucket/key pattern
+     */
+    public static String warehouseResource(final Storage storage, final String path) {
+        return getResource(storage, HDFS_WAREHOUSE_PATH, OZONE_BUCKET, path);
+    }
+
+    /**
+     * Location without Ranger policies allowing the nifi user to create directories
+     *
+     * @param storage Storage system
+     * @return HDFS root or a location in a missing Ozone bucket
+     */
+    public static String deniedLocation(final Storage storage) {
+        return switch (storage) {
+            case HDFS -> HDFS_DENIED_LOCATION;
+            case OZONE -> OZONE_DENIED_LOCATION;
+        };
+    }
+
+    /**
+     * Ranger audit resource of a namespace denied in the location returned from deniedLocation
+     *
+     * @param storage Storage system
+     * @param namespaceName Namespace name
+     * @return HDFS namespace directory or the missing Ozone bucket
+     */
+    public static String deniedResource(final Storage storage, final String namespaceName) {
+        return switch (storage) {
+            case HDFS -> HDFS_DENIED_RESOURCE_FORMAT.formatted(namespaceName);
+            case OZONE -> OZONE_DENIED_BUCKET_RESOURCE;
+        };
     }
 
     private void startKeyDistributionCenter() {
@@ -265,7 +506,7 @@ public final class IcebergTestCluster implements AutoCloseable {
     private void startRanger() throws Exception {
         ranger = new RangerComponent(context);
         hdfs = new HdfsComponent(context, ranger);
-        ozone = new OzoneComponent(context, OZONE_RANGER_ENABLED ? ranger : null);
+        ozone = new OzoneComponent(context, ranger);
         components.add(ranger);
         await(CompletableFuture.allOf(
                 Startables.deepStart(ranger),
@@ -274,22 +515,33 @@ public final class IcebergTestCluster implements AutoCloseable {
         ));
         ranger.createServices();
         createBasePolicies();
-        LOGGER.info("Ranger Admin started with HDFS service [{}] and Ozone plugin enabled [{}]", ranger.hdfsServiceName(), OZONE_RANGER_ENABLED);
+        LOGGER.info("Ranger Admin started with services [{}] [{}]", ranger.hdfsServiceName(), ranger.ozoneServiceName());
     }
 
     private void createBasePolicies() throws Exception {
-        for (final String user : SERVICE_USERS) {
-            ranger.allow(ranger.hdfsServiceName(), HDFS_ROOT, user, HDFS_ALL_ACCESS);
+        final String hdfsService = ranger.hdfsServiceName();
+        for (final String user : HDFS_SERVICE_USERS) {
+            ranger.allow(hdfsService, HDFS_ROOT, user, HDFS_WRITE_ACCESS);
         }
-        ranger.allow(ranger.hdfsServiceName(), HDFS_ROOT, NIFI_USER, HDFS_NIFI_READ_ACCESS);
-        writePolicies.put(Storage.HDFS, ranger.allow(ranger.hdfsServiceName(), HDFS_WAREHOUSE_PATH, NIFI_USER, HDFS_ALL_ACCESS));
-        if (OZONE_RANGER_ENABLED) {
-            for (final String user : SERVICE_USERS) {
-                ranger.allow(ranger.ozoneServiceName(), OZONE_VOLUME_KEYS, user, OZONE_ALL_ACCESS);
-            }
-            ranger.allow(ranger.ozoneServiceName(), OZONE_VOLUME_KEYS, NIFI_USER, OZONE_NIFI_READ_ACCESS);
-            writePolicies.put(Storage.OZONE, ranger.allow(ranger.ozoneServiceName(), OZONE_BUCKET_KEYS, NIFI_USER, OZONE_NIFI_WRITE_ACCESS));
+        ranger.allow(hdfsService, HDFS_ROOT, NIFI_USER, HDFS_READ_ACCESS);
+        for (final String user : DATA_USERS) {
+            ranger.allow(hdfsService, HDFS_WAREHOUSE_PATH, user, HDFS_WRITE_ACCESS);
         }
+        ranger.allow(hdfsService, HDFS_SECURED_PATH, NIFI_USER, HDFS_WRITE_ACCESS);
+
+        final String ozoneService = ranger.ozoneServiceName();
+        for (final String user : OZONE_SERVICE_USERS) {
+            ranger.allow(ozoneService, OZONE_VOLUME_KEYS, user, OZONE_ALL_ACCESS);
+        }
+        ranger.allow(ozoneService, OZONE_VOLUME_KEYS, NIFI_USER, OZONE_NIFI_READ_ACCESS);
+        for (final String user : ENGINE_USERS) {
+            ranger.allow(ozoneService, OZONE_VOLUME, user, OZONE_READ_ACCESS);
+            ranger.allow(ozoneService, OZONE_SECURED_BUCKET_RESOURCE, user, OZONE_READ_ACCESS);
+        }
+        for (final String user : DATA_USERS) {
+            ranger.allow(ozoneService, OZONE_WAREHOUSE_KEYS, user, OZONE_WRITE_ACCESS);
+        }
+        ranger.allow(ozoneService, OZONE_SECURED_KEYS, NIFI_USER, OZONE_WRITE_ACCESS);
     }
 
     private void startStorage() throws Exception {
@@ -297,16 +549,16 @@ public final class IcebergTestCluster implements AutoCloseable {
         components.add(ozone);
         await(Startables.deepStart(hdfs, ozone));
         ranger.awaitPolicyRefresh(ranger.hdfsServiceName());
-        if (OZONE_RANGER_ENABLED) {
-            ranger.awaitPolicyRefresh(ranger.ozoneServiceName());
-        }
-        LOGGER.info("HDFS and Ozone started");
+        ranger.awaitPolicyRefresh(ranger.ozoneServiceName());
+        LOGGER.info("HDFS and Ozone started with active Ranger policies");
     }
 
     private void bootstrapStorage() throws Exception {
         hdfs.createDirectory(HDFS_WAREHOUSE_PATH, HIVE_USER, WAREHOUSE_PERMISSION);
-        ozone.createBucket(OZONE_VOLUME, OZONE_BUCKET, NIFI_USER);
-        LOGGER.info("Storage bootstrapped [{}] [{}]", HDFS_WAREHOUSE, OZONE_WAREHOUSE);
+        hdfs.createDirectory(HDFS_SECURED_PATH, HIVE_USER, WAREHOUSE_PERMISSION);
+        ozone.createBucket(OZONE_VOLUME, OZONE_BUCKET);
+        ozone.createBucket(OZONE_VOLUME, OZONE_SECURED_BUCKET);
+        LOGGER.info("Storage bootstrapped [{}] [{}] [{}] [{}]", HDFS_WAREHOUSE, HDFS_SECURED, OZONE_WAREHOUSE, OZONE_SECURED);
     }
 
     private void writeClientSite() {
@@ -322,6 +574,43 @@ public final class IcebergTestCluster implements AutoCloseable {
         components.add(metastore);
         metastore.start();
         LOGGER.info("Hive Metastore started [{}]", MetastoreComponent.METASTORE_URI);
+    }
+
+    private void startEngines() {
+        trino = new TrinoEngine(context, clientSite);
+        spark = new SparkEngine(context, clientSite);
+        components.add(trino);
+        components.add(spark);
+        await(Startables.deepStart(trino, spark));
+        LOGGER.info("Trino and Spark started");
+    }
+
+    private static String[] getAllowAccessTypes(final Storage storage, final Access access) {
+        return switch (storage) {
+            case HDFS -> access == Access.READ ? HDFS_READ_ACCESS : HDFS_WRITE_ACCESS;
+            case OZONE -> access == Access.READ ? OZONE_READ_ACCESS : OZONE_WRITE_ACCESS;
+        };
+    }
+
+    private static String[] getDenyAccessTypes(final Storage storage, final Access access) {
+        return switch (storage) {
+            case HDFS -> access == Access.READ ? HDFS_DENY_READ_ACCESS : HDFS_DENY_WRITE_ACCESS;
+            case OZONE -> access == Access.READ ? OZONE_DENY_READ_ACCESS : OZONE_DENY_WRITE_ACCESS;
+        };
+    }
+
+    private static String getResource(final Storage storage, final String hdfsPath, final String bucket, final String path) {
+        return switch (storage) {
+            case HDFS -> HDFS_RESOURCE_FORMAT.formatted(hdfsPath, path);
+            case OZONE -> OZONE_KEYS_FORMAT.formatted(OZONE_VOLUME, bucket, path);
+        };
+    }
+
+    private static String getWarehouseResource(final Storage storage) {
+        return switch (storage) {
+            case HDFS -> HDFS_WAREHOUSE_PATH;
+            case OZONE -> OZONE_WAREHOUSE_KEYS;
+        };
     }
 
     private String getServiceName(final Storage storage) {
