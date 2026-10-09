@@ -19,7 +19,6 @@ package org.apache.nifi.remote.protocol;
 import org.apache.nifi.remote.Transaction;
 import org.apache.nifi.remote.TransactionCompletion;
 import org.apache.nifi.remote.util.StandardDataPacket;
-import org.apache.nifi.stream.io.StreamUtils;
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
@@ -43,8 +42,8 @@ public class SiteToSiteTestUtils {
 
     public static String readContents(DataPacket packet) throws IOException {
         ByteArrayOutputStream os = new ByteArrayOutputStream((int) packet.getSize());
-        StreamUtils.copy(packet.getData(), os);
-        return new String(os.toByteArray(), StandardCharsets.UTF_8);
+        packet.getData().transferTo(os);
+        return os.toString(StandardCharsets.UTF_8);
     }
 
     public static void execReceiveZeroFlowFile(Transaction transaction) throws IOException {

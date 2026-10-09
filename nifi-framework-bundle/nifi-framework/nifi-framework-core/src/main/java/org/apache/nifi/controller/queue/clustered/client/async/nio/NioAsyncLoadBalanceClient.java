@@ -56,19 +56,18 @@ import java.util.function.BooleanSupplier;
 import java.util.function.Predicate;
 import java.util.function.Supplier;
 import javax.net.ssl.SSLContext;
-import javax.net.ssl.SSLEngine;
 
 public class NioAsyncLoadBalanceClient implements AsyncLoadBalanceClient {
     private static final Logger logger = LoggerFactory.getLogger(NioAsyncLoadBalanceClient.class);
     private static final long PENALIZATION_MILLIS = TimeUnit.SECONDS.toMillis(1L);
 
     private final NodeIdentifier nodeIdentifier;
-    private final SSLContext sslContext;
     private final int timeoutMillis;
     private final FlowFileContentAccess flowFileContentAccess;
     private final LoadBalanceFlowFileCodec flowFileCodec;
     private final EventReporter eventReporter;
     private final ClusterCoordinator clusterCoordinator;
+    private final PeerChannelProvider peerChannelProvider;
 
     private volatile boolean running = false;
     private final AtomicLong penalizationEnd = new AtomicLong(0L);
@@ -92,12 +91,12 @@ public class NioAsyncLoadBalanceClient implements AsyncLoadBalanceClient {
     public NioAsyncLoadBalanceClient(final NodeIdentifier nodeIdentifier, final SSLContext sslContext, final int timeoutMillis, final FlowFileContentAccess flowFileContentAccess,
                                     final LoadBalanceFlowFileCodec flowFileCodec, final EventReporter eventReporter, final ClusterCoordinator clusterCoordinator) {
         this.nodeIdentifier = nodeIdentifier;
-        this.sslContext = sslContext;
         this.timeoutMillis = timeoutMillis;
         this.flowFileContentAccess = flowFileContentAccess;
         this.flowFileCodec = flowFileCodec;
         this.eventReporter = eventReporter;
         this.clusterCoordinator = clusterCoordinator;
+        this.peerChannelProvider = new StandardPeerChannelProvider(sslContext, nodeIdentifier);
     }
 
     @Override
@@ -138,6 +137,10 @@ public class NioAsyncLoadBalanceClient implements AsyncLoadBalanceClient {
 
                 logger.debug("{} Triggering failure callback for {} FlowFiles for Registered Partition {} because partition was unregistered", this, flowFilesSent.size(), removedPartition);
                 removedPartition.getFailureCallback().onTransactionFailed(flowFilesSent, TransactionFailureCallback.TransactionPhase.SENDING);
+
+                // The transaction was abandoned mid-stream. Close the connection so the socket is not reused for the next
+                // transaction; a reused socket would leave the peer reading a stray protocol byte and aborting the transfer.
+                close();
             }
         }
     }
@@ -427,7 +430,7 @@ public class NioAsyncLoadBalanceClient implements AsyncLoadBalanceClient {
         return new SimpleLimitThreshold(1000, 10_000_000L);
     }
 
-    private synchronized boolean isConnectionEstablished() {
+    synchronized boolean isConnectionEstablished() {
         return selector != null && channel != null && channel.isConnected();
     }
 
@@ -445,7 +448,8 @@ public class NioAsyncLoadBalanceClient implements AsyncLoadBalanceClient {
                 socketChannel = createChannel();
                 socketChannel.configureBlocking(true);
 
-                peerChannel = createPeerChannel(socketChannel, socketChannel.getLocalAddress() + "::" + socketChannel.getRemoteAddress());
+                final String peerDescription = socketChannel.getLocalAddress() + "::" + socketChannel.getRemoteAddress();
+                peerChannel = peerChannelProvider.getPeerChannel(socketChannel, peerDescription);
                 channel = peerChannel;
             }
 
@@ -473,21 +477,6 @@ public class NioAsyncLoadBalanceClient implements AsyncLoadBalanceClient {
 
             throw e;
         }
-    }
-
-    private PeerChannel createPeerChannel(final SocketChannel channel, final String peerDescription) {
-        if (sslContext == null) {
-            logger.debug("No SSL Context is available so will not perform SSL Handshake with Peer {}", peerDescription);
-            return new PeerChannel(channel, null, peerDescription);
-        }
-
-        logger.debug("Performing SSL Handshake with Peer {}", peerDescription);
-
-        final SSLEngine sslEngine = sslContext.createSSLEngine();
-        sslEngine.setUseClientMode(true);
-        sslEngine.setNeedClientAuth(true);
-
-        return new PeerChannel(channel, sslEngine, peerDescription);
     }
 
     private SocketChannel createChannel() throws IOException {

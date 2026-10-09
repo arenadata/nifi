@@ -114,7 +114,7 @@ public class ByteArrayContentRepository implements ContentRepository {
         final ContentClaim clone = create(lossTolerant);
         try (final InputStream in = read(original);
              final OutputStream out = write(clone)) {
-            StreamUtils.copy(in, out);
+            in.transferTo(out);
         }
 
         return clone;
@@ -130,7 +130,7 @@ public class ByteArrayContentRepository implements ContentRepository {
     @Override
     public long importFrom(final InputStream content, final ContentClaim claim) throws IOException {
         try (final OutputStream out = write(claim)) {
-            return StreamUtils.copy(content, out);
+            return content.transferTo(out);
         }
     }
 
@@ -157,7 +157,7 @@ public class ByteArrayContentRepository implements ContentRepository {
     @Override
     public long exportTo(final ContentClaim claim, final OutputStream destination) throws IOException {
         try (final InputStream in = read(claim)) {
-            return StreamUtils.copy(in, destination);
+            return in.transferTo(destination);
         }
     }
 
@@ -197,11 +197,10 @@ public class ByteArrayContentRepository implements ContentRepository {
             return new ByteArrayInputStream(new byte[0]);
         }
 
-        if (!(claim instanceof ByteArrayResourceClaim)) {
+        if (!(claim instanceof final ByteArrayResourceClaim byteArrayResourceClaim)) {
             throw new IllegalArgumentException("Cannot access Resource Claim " + claim + " because the Resource Claim does not belong to this Content Repository");
         }
 
-        final ByteArrayResourceClaim byteArrayResourceClaim = (ByteArrayResourceClaim) claim;
         return byteArrayResourceClaim.read();
     }
 

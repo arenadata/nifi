@@ -98,6 +98,20 @@ public interface FlowFileQueue {
     QueueSize size();
 
     /**
+     * Returns an atomic, point-in-time view of this queue's total {@link QueueSize} and the
+     * FlowFiles currently held in this node's active in-memory queue. Implementations freeze every
+     * partition that contributes to the {@link QueueSize} for the duration of the call, so the
+     * active list and the {@link QueueSize} are mutually consistent. When
+     * {@code snapshot.activeFlowFiles().size()} equals {@code snapshot.queueSize().getObjectCount()},
+     * the active list is exhaustive. Any difference is accounted for by FlowFiles that are swapped to
+     * disk, assigned to remote partitions (destined for other cluster nodes), or in the rebalancing
+     * partition (being redistributed).
+     *
+     * @return a non-null snapshot of the queue's size and active in-memory FlowFiles
+     */
+    FlowFileQueueSnapshot getQueueSnapshot();
+
+    /**
      * @param fromTimestamp The timestamp in milliseconds from which to calculate durations. This will typically be the current timestamp.
      * @return the sum in milliseconds of how long all FlowFiles within this queue have currently been in this queue.
      */
@@ -212,7 +226,7 @@ public interface FlowFileQueue {
     /**
      * Cancels the request to drop FlowFiles that has the given identifier. After this method is called, the request
      * will no longer be known by this queue, so subsequent calls to {@link #getDropFlowFileStatus(String)} or
-     * {@link #cancelDropFlowFileRequest(String)} will return <code>null</code>
+     * cancelDropFlowFileRequest(String) will return <code>null</code>
      *
      * @param requestIdentifier the identifier of the Drop FlowFile Request
      * @return the status for the request with the given identifier after it has been canceled, or <code>null</code> if no
@@ -269,7 +283,7 @@ public interface FlowFileQueue {
     /**
      * Cancels the request to list FlowFiles that has the given identifier. After this method is called, the request
      * will no longer be known by this queue, so subsequent calls to {@link #getListFlowFileStatus(String)} or
-     * {@link #cancelListFlowFileRequest(String)} will return <code>null</code>
+     * cancelListFlowFileRequest(String) will return <code>null</code>
      *
      * @param requestIdentifier the identifier of the Drop FlowFile Request
      * @return the current status of the List FlowFile Request with the given identifier or <code>null</code> if no

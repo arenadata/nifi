@@ -84,7 +84,7 @@ public class NioAsyncLoadBalanceClientTask implements Runnable {
                         }
                     } catch (final Exception e) {
                         eventReporter.reportEvent(Severity.ERROR, EVENT_CATEGORY, "Failed to communicate with Peer "
-                            + client.getNodeIdentifier() + " while trying to load balance data across the cluster due to " + e.toString());
+                            + client.getNodeIdentifier() + " while trying to load balance data across the cluster due to " + e);
                         logger.error("Failed to communicate with Peer {} while trying to load balance data across the cluster.", client.getNodeIdentifier(), e);
                     }
 
@@ -100,7 +100,7 @@ public class NioAsyncLoadBalanceClientTask implements Runnable {
                 return;
             } catch (final Exception e) {
                 logger.error("Failed to communicate with peer while trying to load balance data across the cluster", e);
-                eventReporter.reportEvent(Severity.ERROR, EVENT_CATEGORY, "Failed to comunicate with Peer while trying to load balance data across the cluster due to " + e);
+                eventReporter.reportEvent(Severity.ERROR, EVENT_CATEGORY, "Failed to communicate with Peer while trying to load balance data across the cluster due to " + e);
             }
         }
     }

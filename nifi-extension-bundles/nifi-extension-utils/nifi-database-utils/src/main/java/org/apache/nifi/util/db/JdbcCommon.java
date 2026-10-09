@@ -58,10 +58,8 @@ import java.sql.ResultSetMetaData;
 import java.sql.SQLDataException;
 import java.sql.SQLException;
 import java.sql.SQLFeatureNotSupportedException;
-import java.sql.SQLXML;
 import java.sql.Time;
 import java.sql.Timestamp;
-import java.sql.Types;
 import java.text.ParseException;
 import java.time.Instant;
 import java.time.LocalDate;
@@ -366,16 +364,16 @@ public class JdbcCommon {
                         rec.put(i - 1, rs.getFloat(i));
                     } else if (javaSqlType == 101) { // Handle Oracle BINARY_DOUBLE data type
                         rec.put(i - 1, rs.getDouble(i));
-                    } else if (value instanceof Byte) {
+                    } else if (value instanceof final Byte byteObj) {
                         // tinyint(1) type is returned by JDBC driver as java.sql.Types.TINYINT
                         // But value is returned by JDBC as java.lang.Byte
                         // (at least H2 JDBC works this way)
                         // direct put to avro record results:
                         // org.apache.avro.AvroRuntimeException: Unknown datum type java.lang.Byte
-                        rec.put(i - 1, ((Byte) value).intValue());
-                    } else if (value instanceof Short) {
+                        rec.put(i - 1, byteObj.intValue());
+                    } else if (value instanceof final Short shortObj) {
                         //MS SQL returns TINYINT as a Java Short, which Avro doesn't understand.
-                        rec.put(i - 1, ((Short) value).intValue());
+                        rec.put(i - 1, shortObj.intValue());
                     } else if (value instanceof BigDecimal) {
                         if (options.useLogicalTypes) {
                             // Delegate mapping to AvroTypeUtil in order to utilize logical types.
@@ -385,7 +383,7 @@ public class JdbcCommon {
                             rec.put(i - 1, value.toString());
                         }
 
-                    } else if (value instanceof BigInteger) {
+                    } else if (value instanceof final BigInteger bigInteger) {
                         // Check the precision of the BIGINT. Some databases allow arbitrary precision (> 19), but Avro won't handle that.
                         // It the SQL type is BIGINT and the precision is between 0 and 19 (inclusive); if so, the BigInteger is likely a
                         // long (and the schema says it will be), so try to get its value as a long.
@@ -397,7 +395,7 @@ public class JdbcCommon {
                                 rec.put(i - 1, value.toString());
                             } else {
                                 try {
-                                    rec.put(i - 1, ((BigInteger) value).longValueExact());
+                                    rec.put(i - 1, bigInteger.longValueExact());
                                 } catch (ArithmeticException ae) {
                                     // Since the value won't fit in a long, convert it to a string
                                     rec.put(i - 1, value.toString());
@@ -415,8 +413,8 @@ public class JdbcCommon {
                             } else {
                                 rec.put(i - 1, value);
                             }
-                        } else if ((value instanceof Long) && meta.getPrecision(i) < MAX_DIGITS_IN_INT) {
-                            int intValue = ((Long) value).intValue();
+                        } else if ((value instanceof final Long longObj) && meta.getPrecision(i) < MAX_DIGITS_IN_INT) {
+                            int intValue = longObj.intValue();
                             rec.put(i - 1, intValue);
                         } else {
                             rec.put(i - 1, value);
@@ -429,12 +427,12 @@ public class JdbcCommon {
                             // As string for backward compatibility.
                             rec.put(i - 1, value.toString());
                         }
-                    } else if (value instanceof java.sql.Date) {
+                    } else if (value instanceof final java.sql.Date date) {
                         if (options.useLogicalTypes) {
                             // Delegate mapping to AvroTypeUtil in order to utilize logical types.
                             // AvroTypeUtil.convertToAvroObject() expects java.sql.Date object as a UTC normalized date (UTC 00:00:00)
                             // but it comes from the driver in JVM's local time zone 00:00:00 and needs to be converted.
-                            java.sql.Date normalizedDate = DataTypeUtils.convertDateToUTC((java.sql.Date) value);
+                            java.sql.Date normalizedDate = DataTypeUtils.convertDateToUTC(date);
                             rec.put(i - 1, AvroTypeUtil.convertToAvroObject(normalizedDate, fieldSchema));
                         } else {
                             // As string for backward compatibility.
@@ -450,8 +448,8 @@ public class JdbcCommon {
                             rec.put(i - 1, value.toString());
                         }
 
-                    } else if (value instanceof java.sql.SQLXML) {
-                        rec.put(i - 1, ((SQLXML) value).getString());
+                    } else if (value instanceof final java.sql.SQLXML sqlxml) {
+                        rec.put(i - 1, sqlxml.getString());
                     } else {
                         // The different types that we support are numbers (int, long, double, float),
                         // as well as boolean values and Strings. Since Avro doesn't provide
@@ -465,8 +463,7 @@ public class JdbcCommon {
                     nrOfRows += 1;
                 } catch (DataFileWriter.AppendWriteException awe) {
                     Throwable rootCause = ExceptionUtils.getRootCause(awe);
-                    if (rootCause instanceof UnresolvedUnionException) {
-                        UnresolvedUnionException uue = (UnresolvedUnionException) rootCause;
+                    if (rootCause instanceof final UnresolvedUnionException uue) {
                         throw new RuntimeException(
                                 "Unable to resolve union for value " + uue.getUnresolvedDatum() +
                                 " with type " + uue.getUnresolvedDatum().getClass().getCanonicalName() +
@@ -752,7 +749,7 @@ public class JdbcCommon {
             final String sqlArgumentFormat = attributes.containsKey(sqlArgumentFormatAttributeName) ? attributes.get(sqlArgumentFormatAttributeName).getValue() : "";
 
             try {
-                JdbcCommon.setParameter(stmt, sqlArgumentIndex, sqlArgumentValue, sqlType, sqlArgumentFormat);
+                setParameter(stmt, sqlArgumentIndex, sqlArgumentValue, sqlType, sqlArgumentFormat);
             } catch (final NumberFormatException nfe) {
                 throw new SQLDataException("The value of the " + sqlArgumentValueAttributeName + " is '" + sqlArgumentLogValue + "', which cannot be converted into the necessary data type", nfe);
             } catch (ParseException pe) {
@@ -780,36 +777,36 @@ public class JdbcCommon {
             stmt.setNull(parameterIndex, jdbcType);
         } else {
             switch (jdbcType) {
-                case Types.BIT:
+                case BIT:
                     stmt.setBoolean(parameterIndex, "1".equals(parameterValue) || "t".equalsIgnoreCase(parameterValue) || Boolean.parseBoolean(parameterValue));
                     break;
-                case Types.BOOLEAN:
+                case BOOLEAN:
                     stmt.setBoolean(parameterIndex, Boolean.parseBoolean(parameterValue));
                     break;
-                case Types.TINYINT:
+                case TINYINT:
                     stmt.setByte(parameterIndex, Byte.parseByte(parameterValue));
                     break;
-                case Types.SMALLINT:
+                case SMALLINT:
                     stmt.setShort(parameterIndex, Short.parseShort(parameterValue));
                     break;
-                case Types.INTEGER:
+                case INTEGER:
                     stmt.setInt(parameterIndex, Integer.parseInt(parameterValue));
                     break;
-                case Types.BIGINT:
+                case BIGINT:
                     stmt.setLong(parameterIndex, Long.parseLong(parameterValue));
                     break;
-                case Types.REAL:
+                case REAL:
                     stmt.setFloat(parameterIndex, Float.parseFloat(parameterValue));
                     break;
-                case Types.FLOAT:
-                case Types.DOUBLE:
+                case FLOAT:
+                case DOUBLE:
                     stmt.setDouble(parameterIndex, Double.parseDouble(parameterValue));
                     break;
-                case Types.DECIMAL:
-                case Types.NUMERIC:
+                case DECIMAL:
+                case NUMERIC:
                     stmt.setBigDecimal(parameterIndex, new BigDecimal(parameterValue));
                     break;
-                case Types.DATE:
+                case DATE:
                     java.sql.Date date;
 
                     if (valueFormat.equals("")) {
@@ -827,7 +824,7 @@ public class JdbcCommon {
 
                     stmt.setDate(parameterIndex, date);
                     break;
-                case Types.TIME:
+                case TIME:
                     Time time;
 
                     if (valueFormat.equals("")) {
@@ -847,7 +844,7 @@ public class JdbcCommon {
 
                     stmt.setTime(parameterIndex, time);
                     break;
-                case Types.TIMESTAMP:
+                case TIMESTAMP:
                     Timestamp ts;
 
                     // Backwards compatibility note: Format was unsupported for a timestamp field.
@@ -868,9 +865,9 @@ public class JdbcCommon {
 
                     stmt.setTimestamp(parameterIndex, ts);
                     break;
-                case Types.BINARY:
-                case Types.VARBINARY:
-                case Types.LONGVARBINARY:
+                case BINARY:
+                case VARBINARY:
+                case LONGVARBINARY:
                     byte[] bValue;
 
                     switch (valueFormat) {
@@ -899,18 +896,18 @@ public class JdbcCommon {
                     }
 
                     break;
-                case Types.CHAR:
-                case Types.VARCHAR:
-                case Types.LONGNVARCHAR:
-                case Types.LONGVARCHAR:
+                case CHAR:
+                case VARCHAR:
+                case LONGNVARCHAR:
+                case LONGVARCHAR:
                     stmt.setString(parameterIndex, parameterValue);
                     break;
-                case Types.CLOB:
+                case CLOB:
                     try (final StringReader reader = new StringReader(parameterValue)) {
                         stmt.setCharacterStream(parameterIndex, reader);
                     }
                     break;
-                case Types.NCLOB:
+                case NCLOB:
                     try (final StringReader reader = new StringReader(parameterValue)) {
                         stmt.setNCharacterStream(parameterIndex, reader);
                     }

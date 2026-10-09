@@ -124,7 +124,11 @@ public class SiteToSiteStatusReportingTask extends AbstractSiteToSiteReportingTa
         processGroupIDToPath = new HashMap<>();
 
         final ProcessGroupStatus procGroupStatus = context.getEventAccess().getControllerStatus();
-        final String rootGroupName = procGroupStatus == null ? null : procGroupStatus.getName();
+        if (procGroupStatus == null) {
+            getLogger().debug("Controller status is not yet available; will report status on a subsequent trigger.");
+            return;
+        }
+        final String rootGroupName = procGroupStatus.getName();
 
         final String nifiUrl = context.getProperty(SiteToSiteUtils.INSTANCE_URL).evaluateAttributeExpressions().getValue();
         URL url;
@@ -196,8 +200,8 @@ public class SiteToSiteStatusReportingTask extends AbstractSiteToSiteReportingTa
                 if (transaction != null) {
                     transaction.error();
                 }
-                if (e instanceof ProcessException) {
-                    throw (ProcessException) e;
+                if (e instanceof final ProcessException processException) {
+                    throw processException;
                 } else {
                     throw new ProcessException("Failed to send Status Records to destination due to IOException:" + e.getMessage(), e);
                 }
@@ -217,7 +221,7 @@ public class SiteToSiteStatusReportingTask extends AbstractSiteToSiteReportingTa
      */
     private boolean componentMatchesFilters(final String componentType, final String componentName) {
         return componentTypeFilter.matcher(componentType).matches()
-                && componentNameFilter.matcher(componentName).matches();
+                && componentNameFilter.matcher(componentName == null ? "" : componentName).matches();
     }
 
     /**

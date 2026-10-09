@@ -21,6 +21,7 @@ import { of, ReplaySubject, take, throwError } from 'rxjs';
 import { MatDialog, MatDialogRef } from '@angular/material/dialog';
 import { ComponentHistoryEntity } from '../../../../state/shared';
 import { EditProcessor } from '../../../../ui/common/component-dialogs/edit-processor/edit-processor.component';
+import { ProcessorBacklogDialog } from '../../ui/canvas/items/processor/backlog-dialog/backlog-dialog.component';
 import { PropertyTableHelperService } from '../../../../service/property-table-helper.service';
 import { FlowEffects } from './flow.effects';
 import { provideMockActions } from '@ngrx/effects/testing';
@@ -37,11 +38,13 @@ import {
     MoveToFrontRequest
 } from './index';
 import {
+    BacklogRequestEntity,
     DisableComponentRequest,
     EnableComponentRequest,
     StartComponentRequest,
     StopComponentRequest,
-    UpdateProcessorRequest
+    UpdateProcessorRequest,
+    UpdateProcessorResponse
 } from '../../../../state/shared';
 import { selectCurrentUser } from '../../../../state/current-user/current-user.selectors';
 import * as fromUser from '../../../../state/current-user/current-user.reducer';
@@ -61,7 +64,7 @@ import { CopyPasteService } from '../../service/copy-paste.service';
 import { CanvasView } from '../../service/canvas-view.service';
 import { BirdseyeView } from '../../service/birdseye-view.service';
 import { selectDisconnectionAcknowledged } from '../../../../state/cluster-summary/cluster-summary.selectors';
-import { ComponentType, ComponentTypeNamePipe } from '@nifi/shared';
+import { ComponentType, ComponentTypeNamePipe, YesNoDialog } from '@nifi/shared';
 import { ParameterContextService } from '../../../parameter-contexts/service/parameter-contexts.service';
 import { HttpErrorResponse } from '@angular/common/http';
 import { provideRouter, Router } from '@angular/router';
@@ -830,7 +833,8 @@ describe('FlowEffects', () => {
                         updateComponent: vi.fn(),
                         createConnection: vi.fn(),
                         createLabel: vi.fn(),
-                        clearBulletinsForProcessGroup: vi.fn()
+                        clearBulletinsForProcessGroup: vi.fn(),
+                        submitProcessorBacklogRequest: vi.fn()
                     }
                 },
                 {
@@ -850,7 +854,8 @@ describe('FlowEffects', () => {
                 {
                     provide: ParameterHelperService,
                     useValue: {
-                        getParameterContext: vi.fn()
+                        getParameterContext: vi.fn(),
+                        convertToParameter: vi.fn()
                     }
                 },
                 {
@@ -1289,6 +1294,112 @@ describe('FlowEffects', () => {
         });
     });
 
+    describe('loadProcessGroup$ — position sanitization (NIFI-16025)', () => {
+        function makeEntity(id: string, x: number, y: number): any {
+            return {
+                id,
+                permissions: { canRead: true, canWrite: true },
+                revision: { version: 0 },
+                position: { x, y },
+                component: {}
+            };
+        }
+
+        function makeConnection(id: string, bendX: number, bendY: number): any {
+            return {
+                id,
+                permissions: { canRead: true, canWrite: true },
+                revision: { version: 0 },
+                position: { x: 0, y: 0 },
+                component: { bends: [{ x: bendX, y: bendY }] }
+            };
+        }
+
+        function buildFlowResponse(overrides: Partial<any> = {}): any {
+            return {
+                processGroupFlow: {
+                    id: 'pg-1',
+                    parentGroupId: null,
+                    breadcrumb: {},
+                    flow: {
+                        processors: overrides.processors ?? [],
+                        processGroups: [],
+                        remoteProcessGroups: [],
+                        inputPorts: [],
+                        outputPorts: [],
+                        labels: [],
+                        funnels: [],
+                        connections: overrides.connections ?? []
+                    }
+                }
+            };
+        }
+
+        beforeEach(() => {
+            store.overrideSelector(flowSelectors.selectHasFlowData, false);
+            store.overrideSelector(selectConnectedStateChanged, false);
+            (flowService as any).getFlowStatus = vi.fn(() => of({}));
+            (flowService as any).getControllerBulletins = vi.fn(() => of({}));
+            vi.spyOn(TestBed.inject(RegistryService), 'getRegistryClients').mockReturnValue(
+                of({ registries: [] }) as any
+            );
+        });
+
+        it('passes in-bounds positions through unchanged', async () => {
+            const entity = makeEntity('p-1', 100, 200);
+            (flowService as any).getFlow = vi.fn(() => of(buildFlowResponse({ processors: [entity] })));
+
+            action$.next(FlowActions.loadProcessGroup({ request: { id: 'pg-1', transitionRequired: false } }));
+
+            const result: any = await firstValueFrom(effects.loadProcessGroup$.pipe(take(1)));
+            const processor = result.response.flow.processGroupFlow.flow.processors[0];
+            expect(processor.position).toEqual({ x: 100, y: 200 });
+        });
+
+        it('clamps catastrophic-finite coordinates to (0, 0)', async () => {
+            const entity = makeEntity('p-2', 7.490388061926315e307, 0);
+            (flowService as any).getFlow = vi.fn(() => of(buildFlowResponse({ processors: [entity] })));
+
+            const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+            action$.next(FlowActions.loadProcessGroup({ request: { id: 'pg-1', transitionRequired: false } }));
+
+            const result: any = await firstValueFrom(effects.loadProcessGroup$.pipe(take(1)));
+            const processor = result.response.flow.processGroupFlow.flow.processors[0];
+            expect(processor.position).toEqual({ x: 0, y: 0 });
+            expect(warnSpy).toHaveBeenCalled();
+            warnSpy.mockRestore();
+        });
+
+        it('clamps catastrophic-finite connection bends to (0, 0)', async () => {
+            const connection = makeConnection('conn-1', 9e307, 0);
+            (flowService as any).getFlow = vi.fn(() => of(buildFlowResponse({ connections: [connection] })));
+
+            const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+            action$.next(FlowActions.loadProcessGroup({ request: { id: 'pg-1', transitionRequired: false } }));
+
+            const result: any = await firstValueFrom(effects.loadProcessGroup$.pipe(take(1)));
+            const bend = result.response.flow.processGroupFlow.flow.connections[0].component.bends[0];
+            expect(bend).toEqual({ x: 0, y: 0 });
+            warnSpy.mockRestore();
+        });
+
+        it('warns at most once per component id across repeated loadProcessGroup calls', async () => {
+            const entity = makeEntity('p-dup', 7.490388061926315e307, 0);
+            (flowService as any).getFlow = vi.fn(() => of(buildFlowResponse({ processors: [entity] })));
+
+            const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+            action$.next(FlowActions.loadProcessGroup({ request: { id: 'pg-1', transitionRequired: false } }));
+            await firstValueFrom(effects.loadProcessGroup$.pipe(take(1)));
+
+            action$.next(FlowActions.loadProcessGroup({ request: { id: 'pg-1', transitionRequired: false } }));
+            await firstValueFrom(effects.loadProcessGroup$.pipe(take(1)));
+
+            expect(warnSpy).toHaveBeenCalledTimes(1);
+            warnSpy.mockRestore();
+        });
+    });
+
     describe('navigateToProvenanceForComponent$', () => {
         let router: Router;
 
@@ -1384,6 +1495,242 @@ describe('FlowEffects', () => {
                         context: 'Output Port'
                     }
                 }
+            });
+        });
+    });
+
+    describe('openProcessorBacklogDialog$', () => {
+        const PROCESSOR_ID = 'proc-1';
+
+        it('submits a backlog request and opens the dialog with the resulting request entity', () => {
+            const requestEntity: BacklogRequestEntity = {
+                request: {
+                    requestId: 'req-1',
+                    uri: `https://localhost:4200/nifi-api/processors/${PROCESSOR_ID}/backlog-requests/req-1`,
+                    componentId: PROCESSOR_ID,
+                    complete: false,
+                    percentCompleted: 0
+                }
+            };
+
+            vi.spyOn(flowService, 'submitProcessorBacklogRequest').mockReturnValue(of(requestEntity));
+
+            effects.openProcessorBacklogDialog$.subscribe();
+            action$.next(FlowActions.openProcessorBacklogDialog({ id: PROCESSOR_ID }));
+
+            expect(flowService.submitProcessorBacklogRequest).toHaveBeenCalledWith(PROCESSOR_ID);
+            expect(dialog.open).toHaveBeenCalledWith(
+                ProcessorBacklogDialog,
+                expect.objectContaining({
+                    minWidth: '36rem',
+                    maxWidth: '36rem',
+                    width: '36rem',
+                    data: { processorId: PROCESSOR_ID, requestEntity }
+                })
+            );
+        });
+
+        it('opens the dialog with an error message when the submit request fails', () => {
+            const errorHelper = TestBed.inject(ErrorHelper);
+            vi.spyOn(errorHelper, 'getErrorString').mockReturnValue('submit failed');
+            vi.spyOn(flowService, 'submitProcessorBacklogRequest').mockReturnValue(
+                throwError(() => new HttpErrorResponse({ status: 500 }))
+            );
+
+            effects.openProcessorBacklogDialog$.subscribe();
+            action$.next(FlowActions.openProcessorBacklogDialog({ id: PROCESSOR_ID }));
+
+            expect(dialog.open).toHaveBeenCalledWith(
+                ProcessorBacklogDialog,
+                expect.objectContaining({
+                    data: { processorId: PROCESSOR_ID, errorMessage: 'submit failed' }
+                })
+            );
+        });
+    });
+
+    describe('openEditProcessorDialog$ goToParameter', () => {
+        const PARAMETER_CONTEXT_ID = 'ctx-1';
+        const PROCESSOR_ID = 'd90ac264-018b-1000-1827-a86c8156fd9e';
+        const EXPECTED_COMMANDS = ['/parameter-contexts', PARAMETER_CONTEXT_ID, 'edit'];
+        const EXPECTED_BACK_NAVIGATION = {
+            route: ['/process-groups', 'pg-123', ComponentType.Processor, PROCESSOR_ID, 'edit'],
+            routeBoundary: ['/parameter-contexts'],
+            context: 'Processor'
+        };
+
+        let router: Router;
+        let editProcessorInstance: any;
+        let saveChangesInstance: { yes: EventEmitter<any>; no: EventEmitter<any> };
+
+        // Opens the edit dialog and returns the goToParameter callback the effect assigned to it.
+        const openDialogAndGetGoToParameter = (dirty: boolean): ((parameterValue: string) => void) => {
+            editProcessorInstance = {
+                ...MockComponent(EditProcessor),
+                verify,
+                editProcessor,
+                startComponentRequest: startRequest,
+                stopComponentRequest: stopRequest,
+                disableComponentRequest: disableRequest,
+                enableComponentRequest: enableRequest,
+                editProcessorForm: { dirty },
+                submitForm: vi.fn()
+            };
+            saveChangesInstance = { yes: new EventEmitter<any>(), no: new EventEmitter<any>() };
+
+            vi.spyOn(dialog, 'open').mockImplementation((component: any) => {
+                if (component === YesNoDialog) {
+                    return {
+                        componentInstance: saveChangesInstance,
+                        afterClosed: () => of()
+                    } as unknown as MatDialogRef<any>;
+                }
+
+                return {
+                    close: vi.fn(),
+                    afterClosed: () => of(),
+                    componentInstance: editProcessorInstance
+                } as unknown as MatDialogRef<EditProcessor>;
+            });
+
+            effects.openEditProcessorDialog$.subscribe();
+            action$.next(
+                FlowActions.openEditProcessorDialog({
+                    request: {
+                        type: mockData.type,
+                        uri: mockData.uri,
+                        entity: mockData.entity
+                    } as any
+                })
+            );
+
+            return editProcessorInstance.goToParameter;
+        };
+
+        beforeEach(() => {
+            router = TestBed.inject(Router);
+            vi.spyOn(router, 'navigate').mockImplementation(() => Promise.resolve(true));
+
+            store.overrideSelector(selectCurrentProcessGroupId, 'pg-123');
+            store.overrideSelector(flowSelectors.selectCurrentParameterContext, {
+                id: PARAMETER_CONTEXT_ID,
+                permissions: { canRead: true, canWrite: true }
+            } as any);
+            store.refreshState();
+
+            vi.spyOn(TestBed.inject(ParameterContextService), 'getParameterContext').mockReturnValue(
+                of({ id: PARAMETER_CONTEXT_ID, component: { name: 'ctx' } }) as any
+            );
+        });
+
+        it('navigates to the parameter context highlighting the referenced parameter when the form is pristine', () => {
+            const goToParameter = openDialogAndGetGoToParameter(false);
+
+            goToParameter('#{my-param}');
+
+            expect(router.navigate).toHaveBeenCalledWith(EXPECTED_COMMANDS, {
+                state: {
+                    backNavigation: EXPECTED_BACK_NAVIGATION,
+                    highlightedParameterName: 'my-param'
+                }
+            });
+        });
+
+        it('navigates without a highlight when the property value contains no parameter reference', () => {
+            const goToParameter = openDialogAndGetGoToParameter(false);
+
+            goToParameter('a literal value');
+
+            const state = vi.mocked(router.navigate).mock.calls[0][1]?.state ?? {};
+            expect(Object.keys(state)).toEqual(['backNavigation']);
+        });
+
+        it('submits the form with the highlight when the form is dirty and changes are saved', () => {
+            const goToParameter = openDialogAndGetGoToParameter(true);
+
+            goToParameter('#{my-param}');
+            saveChangesInstance.yes.emit();
+
+            expect(editProcessorInstance.submitForm).toHaveBeenCalledWith(EXPECTED_COMMANDS, ['/parameter-contexts'], {
+                highlightedParameterName: 'my-param'
+            });
+            expect(router.navigate).not.toHaveBeenCalled();
+        });
+
+        it('navigates with the highlight when the form is dirty and changes are discarded', () => {
+            const goToParameter = openDialogAndGetGoToParameter(true);
+
+            goToParameter('#{my-param}');
+            saveChangesInstance.no.emit();
+
+            expect(editProcessorInstance.submitForm).not.toHaveBeenCalled();
+            expect(router.navigate).toHaveBeenCalledWith(EXPECTED_COMMANDS, {
+                state: {
+                    backNavigation: EXPECTED_BACK_NAVIGATION,
+                    highlightedParameterName: 'my-param'
+                }
+            });
+        });
+    });
+
+    describe('updateProcessorSuccess$', () => {
+        let router: Router;
+
+        beforeEach(() => {
+            router = TestBed.inject(Router);
+            vi.spyOn(router, 'navigate').mockImplementation(() => Promise.resolve(true));
+            store.overrideSelector(selectCurrentProcessGroupId, 'pg-123');
+            store.refreshState();
+        });
+
+        it('should include postUpdateNavigationState in router navigate state when postUpdateNavigationState is provided', () => {
+            const response: UpdateProcessorResponse = {
+                id: 'proc-1',
+                type: ComponentType.Processor,
+                postUpdateNavigation: ['/parameter-contexts', 'ctx-1', 'edit'],
+                postUpdateNavigationBoundary: ['/parameter-contexts'],
+                postUpdateNavigationState: { highlightedParameterName: 'my-param' },
+                response: {}
+            };
+
+            effects.updateProcessorSuccess$.subscribe();
+            action$.next(FlowActions.updateProcessorSuccess({ response }));
+
+            expect(router.navigate).toHaveBeenCalledWith(['/parameter-contexts', 'ctx-1', 'edit'], {
+                state: {
+                    backNavigation: {
+                        route: ['/process-groups', 'pg-123', ComponentType.Processor, 'proc-1', 'edit'],
+                        routeBoundary: ['/parameter-contexts'],
+                        context: 'Processor'
+                    },
+                    highlightedParameterName: 'my-param'
+                }
+            });
+        });
+
+        it('should omit postUpdateNavigationState keys from router navigate state when postUpdateNavigationState is absent', () => {
+            const response: UpdateProcessorResponse = {
+                id: 'proc-2',
+                type: ComponentType.Processor,
+                postUpdateNavigation: ['/parameter-contexts', 'ctx-2', 'edit'],
+                postUpdateNavigationBoundary: ['/parameter-contexts'],
+                response: {}
+            };
+
+            effects.updateProcessorSuccess$.subscribe();
+            action$.next(FlowActions.updateProcessorSuccess({ response }));
+
+            expect(router.navigate).toHaveBeenCalledTimes(1);
+            expect(vi.mocked(router.navigate).mock.calls[0][0]).toEqual(['/parameter-contexts', 'ctx-2', 'edit']);
+
+            // Object.keys rather than toHaveBeenCalledWith: argument matching treats an absent key and an
+            // explicit undefined as equal, so it cannot distinguish omission from highlightedParameterName: undefined.
+            const state = vi.mocked(router.navigate).mock.calls[0][1]?.state ?? {};
+            expect(Object.keys(state)).toEqual(['backNavigation']);
+            expect(state['backNavigation']).toEqual({
+                route: ['/process-groups', 'pg-123', ComponentType.Processor, 'proc-2', 'edit'],
+                routeBoundary: ['/parameter-contexts'],
+                context: 'Processor'
             });
         });
     });

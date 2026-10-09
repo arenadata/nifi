@@ -39,7 +39,6 @@ import org.apache.nifi.processors.azure.storage.utils.AzureStorageUtils;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 
-import static org.apache.nifi.processors.azure.storage.utils.AzureStorageUtils.BLOB_STORAGE_CREDENTIALS_SERVICE;
 import static org.apache.nifi.processors.azure.storage.utils.BlobAttributes.ATTR_NAME_BLOBNAME;
 import static org.apache.nifi.processors.azure.storage.utils.BlobAttributes.ATTR_NAME_CONTAINER;
 
@@ -74,7 +73,7 @@ public class DeleteAzureBlobStorage_v12 extends AbstractAzureBlobProcessor_v12 {
             .build();
 
     private static final List<PropertyDescriptor> PROPERTY_DESCRIPTORS = List.of(
-            BLOB_STORAGE_CREDENTIALS_SERVICE,
+            AzureStorageUtils.BLOB_STORAGE_CREDENTIALS_SERVICE,
             CONTAINER,
             BLOB_NAME,
             DELETE_SNAPSHOTS_OPTION,
@@ -103,19 +102,19 @@ public class DeleteAzureBlobStorage_v12 extends AbstractAzureBlobProcessor_v12 {
             BlobContainerClient containerClient = storageClient.getBlobContainerClient(containerName);
             BlobClient blobClient = containerClient.getBlobClient(blobName);
 
-            String provenanceMesage;
+            String provenanceMessage;
             if (blobClient.exists()) {
                 DeleteSnapshotsOptionType deleteSnapshotsOptionType = getDeleteSnapshotsOptionType(deleteSnapshotsOption);
                 blobClient.deleteWithResponse(deleteSnapshotsOptionType, null, null, null);
-                provenanceMesage = getProvenanceMessage(deleteSnapshotsOptionType);
+                provenanceMessage = getProvenanceMessage(deleteSnapshotsOptionType);
             } else {
-                provenanceMesage = "Blob does not exist, nothing to delete";
+                provenanceMessage = "Blob does not exist, nothing to delete";
             }
 
             session.transfer(flowFile, REL_SUCCESS);
 
             long transferMillis = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startNanos);
-            session.getProvenanceReporter().invokeRemoteProcess(flowFile, blobClient.getBlobUrl(), String.format("%s (%d ms)", provenanceMesage, transferMillis));
+            session.getProvenanceReporter().invokeRemoteProcess(flowFile, blobClient.getBlobUrl(), String.format("%s (%d ms)", provenanceMessage, transferMillis));
         } catch (Exception e) {
             getLogger().error("Failed to delete the specified blob ({}) from Azure Blob Storage. Routing to failure", blobName, e);
             flowFile = session.penalize(flowFile);
@@ -126,7 +125,7 @@ public class DeleteAzureBlobStorage_v12 extends AbstractAzureBlobProcessor_v12 {
     @Override
     public void migrateProperties(PropertyConfiguration config) {
         super.migrateProperties(config);
-        config.renameProperty(AbstractAzureBlobProcessor_v12.OLD_BLOB_NAME_PROPERTY_DESCRIPTOR_NAME, BLOB_NAME.getName());
+        config.renameProperty(OLD_BLOB_NAME_PROPERTY_DESCRIPTOR_NAME, BLOB_NAME.getName());
         config.renameProperty("delete-snapshots-option", DELETE_SNAPSHOTS_OPTION.getName());
         config.renameProperty(AzureStorageUtils.OLD_CONTAINER_DESCRIPTOR_NAME, CONTAINER.getName());
         config.renameProperty(AzureStorageUtils.OLD_BLOB_STORAGE_CREDENTIALS_SERVICE_DESCRIPTOR_NAME, AzureStorageUtils.BLOB_STORAGE_CREDENTIALS_SERVICE.getName());

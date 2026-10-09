@@ -92,7 +92,7 @@ public class MonitorMemory extends AbstractReportingTask {
 
     private static final List<String> GC_OLD_GEN_POOLS = Collections.unmodifiableList(Arrays.asList("Tenured Gen", "PS Old Gen", "G1 Old Gen", "CMS Old Gen", "ZHeap"));
     private static final AllowableValue[] memPoolAllowableValues;
-    private static String defaultMemoryPool;
+    private static final String defaultMemoryPool;
 
     static {
         // Only allow memory pool beans that support usage thresholds, otherwise we wouldn't report anything anyway
@@ -212,7 +212,7 @@ public class MonitorMemory extends AbstractReportingTask {
             return;
         }
 
-        final double percentageUsed = (double) usage.getUsed() / (double) usage.getMax() * 100D;
+        final double percentageUsed = (double) usage.getUsed() / usage.getMax() * 100D;
         // In certain scenarios in the monitored memory bean the gcSensor can get stuck in 'on' state before the usage would reach the threshold
         // and this will cause false exceeded state until the next garbage collection. To eliminate this we are adding a condition with the calculated usage threshold.
         if (bean.isCollectionUsageThresholdSupported() && bean.isCollectionUsageThresholdExceeded() && usage.getUsed() > calculatedThreshold) {

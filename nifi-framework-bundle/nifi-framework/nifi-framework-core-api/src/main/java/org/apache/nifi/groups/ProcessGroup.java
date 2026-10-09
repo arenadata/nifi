@@ -145,19 +145,26 @@ public interface ProcessGroup extends ComponentAuthorizable, Positionable, Versi
     Optional<String> getConnectorIdentifier();
 
     /**
-     * Returns the owning Connector for this Process Group, traversing the Process Group hierarchy until a Process Group
-     * is found that is associated with a Connector. If no Process Group in the hierarchy is associated with a Connector,
-     * an empty Optional is returned. This is useful for determining whether a component is managed by a Connector.
-     *
-     * <p>The default implementation returns {@link Optional#empty()}. Implementations that can resolve a
-     * {@link ConnectorNode} from a connector identifier (typically via a FlowManager) should override this method
-     * and walk the parent chain using {@link #getConnectorIdentifier()} and {@link #getParent()} to locate the
-     * owning Connector.</p>
-     *
-     * @return an Optional containing the owning ConnectorNode, or empty if this Process Group and all of its ancestors are
-     * not managed by a Connector
+     * @return the Connector that owns this Process Group or an ancestor, or empty if none
      */
     default Optional<ConnectorNode> findOwningConnector() {
+        return Optional.empty();
+    }
+
+    /**
+     * @return the identifier of the Connector that owns this Process Group or an ancestor, or empty if none
+     */
+    default Optional<String> findOwningConnectorIdentifier() {
+        ProcessGroup group = this;
+        while (group != null) {
+            final Optional<String> connectorIdentifier = group.getConnectorIdentifier();
+            if (connectorIdentifier.isPresent()) {
+                return connectorIdentifier;
+            }
+
+            group = group.getParent();
+        }
+
         return Optional.empty();
     }
 
@@ -630,7 +637,7 @@ public interface ProcessGroup extends ComponentAuthorizable, Positionable, Versi
     ControllerServiceNode findControllerService(String id, boolean includeDescendantGroups, boolean includeAncestorGroups);
 
     /**
-     * @return a List of all Controller Services contained within this ProcessGroup and any child Process Groups
+     * @return a Set of all Controller Services contained within this ProcessGroup and any child Process Groups
      */
     Set<ControllerServiceNode> findAllControllerServices();
 
@@ -763,7 +770,7 @@ public interface ProcessGroup extends ComponentAuthorizable, Positionable, Versi
 
     /**
      * @return a List of all Labels that are children or descendants of this
-     * ProcessGroup. This performsn a recursive search of all descendant
+     * ProcessGroup. This performs a recursive search of all descendant
      * ProcessGroups
      */
     List<Label> findAllLabels();
@@ -918,7 +925,7 @@ public interface ProcessGroup extends ComponentAuthorizable, Positionable, Versi
     RemoteGroupPort findRemoteGroupPort(String identifier);
 
     /**
-     * @return a Set of all {@link org.apache.nifi.connectable.Positionable}s contained within this
+     * @return a Set of all {@link Positionable}s contained within this
      * {@link ProcessGroup} and any child {@link ProcessGroup}s
      */
     Set<Positionable> findAllPositionables();

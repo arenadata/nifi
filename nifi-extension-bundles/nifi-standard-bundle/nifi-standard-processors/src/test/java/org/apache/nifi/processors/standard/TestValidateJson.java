@@ -16,6 +16,7 @@
  */
 package org.apache.nifi.processors.standard;
 
+import org.apache.nifi.components.ValidationResult;
 import org.apache.nifi.controller.AbstractControllerService;
 import org.apache.nifi.json.schema.JsonSchema;
 import org.apache.nifi.json.schema.SchemaVersion;
@@ -39,6 +40,7 @@ import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.Collection;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.stream.Stream;
@@ -250,6 +252,120 @@ class TestValidateJson {
         }
 
         runner.clearTransferState();
+    }
+
+    @ParameterizedTest
+    @MethodSource("schemasWithLeadingComments")
+    void testSchemaContentWithLeadingComments(String schema) {
+        runner.setProperty(ValidateJson.SCHEMA_CONTENT, schema);
+        runner.setProperty(JsonSchemaRegistryComponent.SCHEMA_VERSION, SCHEMA_VERSION);
+        runner.enqueue(getFileContent("simple-example-with-comments.json"));
+
+        runner.assertNotValid();
+        final Collection<ValidationResult> validationResults = runner.validate();
+        final String explanation = validationResults.iterator().next().getExplanation();
+        assertTrue(explanation.contains("JsonParseException") && !explanation.contains("FileNotFoundException"));
+    }
+
+    @ParameterizedTest
+    @MethodSource("schemasWithEmbeddedComments")
+    void testSchemaContentWithEmbeddedComments(String schema) {
+        runner.setProperty(ValidateJson.SCHEMA_CONTENT, schema);
+        runner.setProperty(JsonSchemaRegistryComponent.SCHEMA_VERSION, SCHEMA_VERSION);
+        runner.enqueue(getFileContent("simple-example-with-comments.json"));
+
+        runner.assertNotValid();
+        final Collection<ValidationResult> validationResults = runner.validate();
+        final String explanation = validationResults.iterator().next().getExplanation();
+        assertTrue(explanation.contains("JsonParseException"));
+    }
+
+    @ParameterizedTest
+    @MethodSource("schemasWithTrailingComments")
+    void testSchemaContentWithTrailingCommentsIgnored(String schema) {
+        runner.setProperty(ValidateJson.SCHEMA_CONTENT, schema);
+        runner.setProperty(JsonSchemaRegistryComponent.SCHEMA_VERSION, SCHEMA_VERSION);
+        runner.enqueue(getFileContent("simple-example-with-comments.json"));
+        runner.assertValid();
+
+        runner.run();
+
+        runner.assertAllFlowFilesTransferred(ValidateJson.REL_VALID);
+    }
+
+    private static Stream<Arguments> schemasWithLeadingComments() {
+        final String schemasWithSingleLineComment = """
+                 // Single line Java comment
+                {
+                    "$schema": "http://json-schema.org/draft-07/schema#",
+                    "type": "object",
+                    "additionalProperties": true
+                }
+                """;
+        final String schemaWithMultiLineComment = """
+                /*
+                    Multi-line Java comment
+                */
+                {
+                   "$schema": "http://json-schema.org/draft-07/schema#",
+                   "type": "object",
+                   "additionalProperties": true
+                }
+                """;
+        return Stream.of(
+                Arguments.argumentSet("Leading Java single line comment", schemasWithSingleLineComment),
+                Arguments.argumentSet("Leading Java multi-line comment", schemaWithMultiLineComment)
+        );
+    }
+
+    private static Stream<Arguments> schemasWithEmbeddedComments() {
+        final String schemasWithSingleLineComment = """
+                {
+                    // Single line Java comment
+                    "$schema": "http://json-schema.org/draft-07/schema#",
+                    "type": "object",
+                    "additionalProperties": true
+                }
+                """;
+        final String schemaWithMultiLineComment = """
+                {
+                    /*
+                        Multi-line Java comment
+                    */
+                   "$schema": "http://json-schema.org/draft-07/schema#",
+                   "type": "object",
+                   "additionalProperties": true
+                }
+                """;
+        return Stream.of(
+                Arguments.argumentSet("Embedded Java single line comment", schemasWithSingleLineComment),
+                Arguments.argumentSet("Embedded Java multi-line comment", schemaWithMultiLineComment)
+        );
+    }
+
+    private static Stream<Arguments> schemasWithTrailingComments() {
+        final String schemasWithSingleLineComment = """
+                {
+                    "$schema": "http://json-schema.org/draft-07/schema#",
+                    "type": "object",
+                    "additionalProperties": true
+                }
+                // Single line Java comment
+                """;
+        final String schemaWithMultiLineComment = """
+                {
+                   "$schema": "http://json-schema.org/draft-07/schema#",
+                   "type": "object",
+                   "additionalProperties": true
+                }
+                 /*
+                        Multi-line Java comment
+                  */
+                """;
+        return Stream.of(
+                Arguments.argumentSet("Trailing Java single line comment", schemasWithSingleLineComment),
+                Arguments.argumentSet("Trailing Java multi-line comment", schemaWithMultiLineComment)
+        );
     }
 
     private void assertValidationErrors(Relationship relationship, boolean expected) {

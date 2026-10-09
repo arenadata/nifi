@@ -448,40 +448,36 @@ public abstract class TestWriteAvroResult {
                 avroValue = avroValue.toString();
             }
 
-            if (recordValue instanceof Object[] && avroValue instanceof ByteBuffer) {
-                final ByteBuffer bb = (ByteBuffer) avroValue;
-                final Object[] objectArray = (Object[]) recordValue;
+            if (recordValue instanceof final Object[] objectArray && avroValue instanceof final ByteBuffer bb) {
                 assertEquals(objectArray.length, bb.remaining(),
                         "For field " + fieldName + ", byte buffer remaining should have been " + objectArray.length + " but was " + bb.remaining());
 
                 for (Object o : objectArray) {
                     assertEquals(o, bb.get());
                 }
-            } else if (recordValue instanceof Object[]) {
+            } else if (recordValue instanceof final Object[] recordArray) {
                 assertInstanceOf(GenericArray.class, avroValue, fieldName + " should have been instanceof GenericArray");
                 final GenericArray<?> avroArray = (GenericArray<?>) avroValue;
-                final Object[] recordArray = (Object[]) recordValue;
                 assertEquals(recordArray.length, avroArray.size(),
                         fieldName + " not equal");
                 for (int i = 0; i < recordArray.length; i++) {
                     assertEquals(recordArray[i], avroArray.get(i),
                             fieldName + "[" + i + "] not equal");
                 }
-            } else if (recordValue instanceof byte[]) {
-                final ByteBuffer bb = ByteBuffer.wrap((byte[]) recordValue);
+            } else if (recordValue instanceof final byte[] bytes) {
+                final ByteBuffer bb = ByteBuffer.wrap(bytes);
                 assertEquals(bb, avroValue,
                         fieldName + " not equal");
-            } else if (recordValue instanceof Map) {
+            } else if (recordValue instanceof final Map<?, ?> recordMap) {
                 assertInstanceOf(Map.class, avroValue, fieldName + " should have been instanceof Map");
                 final Map<?, ?> avroMap = (Map<?, ?>) avroValue;
-                final Map<?, ?> recordMap = (Map<?, ?>) recordValue;
                 assertEquals(recordMap.size(), avroMap.size(),
                         fieldName + " not equal");
                 for (Object s : avroMap.keySet()) {
                     assertMatch((Record) recordMap.get(s.toString()), (GenericRecord) avroMap.get(s));
                 }
-            } else if (recordValue instanceof Record) {
-                assertMatch((Record) recordValue, (GenericRecord) avroValue);
+            } else if (recordValue instanceof final Record recordObj) {
+                assertMatch(recordObj, (GenericRecord) avroValue);
             } else {
                 assertEquals(recordValue, avroValue,
                         fieldName + " not equal");

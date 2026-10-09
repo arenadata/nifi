@@ -28,12 +28,19 @@ import org.apache.nifi.serialization.record.type.EnumDataType;
 import org.apache.nifi.serialization.record.type.MapDataType;
 import org.apache.nifi.serialization.record.type.RecordDataType;
 import org.apache.nifi.serialization.record.util.DataTypeUtils;
+import org.apache.nifi.serialization.record.validation.FieldValidator;
 import org.apache.nifi.serialization.record.validation.RecordSchemaValidator;
+import org.apache.nifi.serialization.record.validation.RecordValidator;
 import org.apache.nifi.serialization.record.validation.SchemaValidationResult;
+import org.apache.nifi.serialization.record.validation.SchemaValidators;
 import org.apache.nifi.serialization.record.validation.ValidationError;
 import org.apache.nifi.serialization.record.validation.ValidationErrorType;
 
 import java.math.BigInteger;
+import java.sql.Date;
+import java.sql.Time;
+import java.sql.Timestamp;
+import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 
@@ -46,10 +53,10 @@ public class StandardSchemaValidator implements RecordSchemaValidator {
 
     @Override
     public SchemaValidationResult validate(final Record record) {
-        return validate(record, validationContext.getSchema(), "");
+        return validate(record, validationContext.getSchema(), "", validationContext.getSchemaValidators());
     }
 
-    private SchemaValidationResult validate(final Record record, final RecordSchema schema, final String fieldPrefix) {
+    private SchemaValidationResult validate(final Record record, final RecordSchema schema, final String fieldPrefix, final SchemaValidators validators) {
         // Ensure that for every field in the schema, the type is correct (if we care) and that
         // a value is present (unless it is nullable).
         final StandardSchemaValidationResult result = new StandardSchemaValidationResult();
@@ -93,8 +100,11 @@ public class StandardSchemaValidator implements RecordSchemaValidator {
                 continue;
             }
 
+            final String fieldPath = concat(fieldPrefix, field);
+            applyFieldValidators(field, fieldPath, rawValue, result, validators);
+
             // Now that we have the 'canonical data type', we check if it is a Record. If so, we need to validate each sub-field.
-            verifyComplexType(dataType, rawValue, result, fieldPrefix, field);
+            verifyComplexType(canonicalDataType, rawValue, result, fieldPrefix, field, validators);
         }
 
         if (!validationContext.isExtraFieldAllowed()) {
@@ -105,20 +115,51 @@ public class StandardSchemaValidator implements RecordSchemaValidator {
             }
         }
 
+        applyRecordValidators(record, fieldPrefix, result, validators);
+
         return result;
     }
 
-    private void verifyComplexType(final DataType dataType, final Object rawValue, final StandardSchemaValidationResult result, final String fieldPrefix, final RecordField field) {
-        // If the field type is RECORD, or if the field type is a CHOICE that allows for a RECORD and the value is a RECORD, then we
-        // need to dig into each of the sub-fields. To do this, we first need to determine the 'canonical data type'.
-        final DataType canonicalDataType = getCanonicalDataType(dataType, rawValue, result, fieldPrefix, field);
-        if (canonicalDataType == null) {
+    private void applyFieldValidators(final RecordField field, final String fieldPath, final Object value, final StandardSchemaValidationResult result,
+            final SchemaValidators validators) {
+        if (value == null) {
             return;
         }
 
-        // Now that we have the 'canonical data type', we check if it is a Record. If so, we need to validate each sub-field.
+        for (final FieldValidator validator : validators.getFieldValidators(field.getFieldName())) {
+            final Collection<ValidationError> errors = validator.validate(fieldPath, value);
+            if (errors == null || errors.isEmpty()) {
+                continue;
+            }
+
+            for (final ValidationError validationError : errors) {
+                result.addValidationError(validationError);
+            }
+        }
+    }
+
+    private void applyRecordValidators(final Record record, final String fieldPath, final StandardSchemaValidationResult result, final SchemaValidators validators) {
+        final List<RecordValidator> recordValidators = validators.getRecordValidators();
+        if (recordValidators.isEmpty()) {
+            return;
+        }
+
+        for (final RecordValidator recordValidator : recordValidators) {
+            final Collection<ValidationError> validationErrors = recordValidator.validate(record, fieldPath);
+            if (validationErrors == null || validationErrors.isEmpty()) {
+                continue;
+            }
+
+            for (final ValidationError validationError : validationErrors) {
+                result.addValidationError(validationError);
+            }
+        }
+    }
+
+    private void verifyComplexType(final DataType canonicalDataType, final Object rawValue, final StandardSchemaValidationResult result, final String fieldPrefix,
+            final RecordField field, final SchemaValidators validators) {
         if (canonicalDataType.getFieldType() == RecordFieldType.RECORD) {
-            verifyChildRecord(canonicalDataType, rawValue, dataType, result, field, fieldPrefix);
+            verifyChildRecord(canonicalDataType, rawValue, result, field, fieldPrefix, validators);
         }
 
         if (canonicalDataType.getFieldType() == RecordFieldType.ARRAY) {
@@ -126,9 +167,11 @@ public class StandardSchemaValidator implements RecordSchemaValidator {
             final DataType elementType = arrayDataType.getElementType();
             final Object[] arrayObject = (Object[]) rawValue;
 
+            final String arrayPath = concat(fieldPrefix, field);
+            final SchemaValidators childValidators = validators.getNestedValidators(field.getFieldName());
             int i = 0;
             for (final Object arrayValue : arrayObject) {
-                verifyComplexType(elementType, arrayValue, result, fieldPrefix + "[" + i + "]", field);
+                validateArrayElement(elementType, arrayValue, result, arrayPath + "[" + i + "]", childValidators);
                 i++;
             }
         }
@@ -153,28 +196,60 @@ public class StandardSchemaValidator implements RecordSchemaValidator {
         return canonicalDataType;
     }
 
-    private void verifyChildRecord(final DataType canonicalDataType, final Object rawValue, final DataType expectedDataType, final StandardSchemaValidationResult result,
-        final RecordField field, final String fieldPrefix) {
-        // Now that we have the 'canonical data type', we check if it is a Record. If so, we need to validate each sub-field.
-        if (canonicalDataType.getFieldType() == RecordFieldType.RECORD) {
-            if (!(rawValue instanceof Record)) { // sanity check
-                result.addValidationError(new StandardValidationError(concat(fieldPrefix, field), rawValue, ValidationErrorType.INVALID_FIELD,
-                    "Value is of type " + classNameOrNull(rawValue) + " but was expected to be of type " + expectedDataType));
+    private void verifyChildRecord(final DataType canonicalDataType, final Object rawValue, final StandardSchemaValidationResult result,
+            final RecordField field, final String fieldPrefix, final SchemaValidators validators) {
+        if (!(rawValue instanceof Record)) {
+            result.addValidationError(new StandardValidationError(concat(fieldPrefix, field), rawValue, ValidationErrorType.INVALID_FIELD,
+                "Value is of type " + classNameOrNull(rawValue) + " but was expected to be of type " + canonicalDataType));
+            return;
+        }
 
+        final RecordDataType recordDataType = (RecordDataType) canonicalDataType;
+        final RecordSchema childSchema = recordDataType.getChildSchema();
+
+        final String fullChildFieldName = concat(fieldPrefix, field);
+        final SchemaValidators childValidators = validators.getNestedValidators(field.getFieldName());
+        final SchemaValidationResult childValidationResult = validate((Record) rawValue, childSchema, fullChildFieldName, childValidators);
+        if (childValidationResult.isValid()) {
+            return;
+        }
+
+        for (final ValidationError validationError : childValidationResult.getValidationErrors()) {
+            result.addValidationError(validationError);
+        }
+    }
+
+    private void validateArrayElement(final DataType elementType, final Object rawValue, final StandardSchemaValidationResult result,
+            final String elementPath, final SchemaValidators validators) {
+        if (rawValue == null) {
+            return;
+        }
+
+        final DataType resolvedType;
+        if (elementType.getFieldType() == RecordFieldType.CHOICE) {
+            resolvedType = DataTypeUtils.chooseDataType(rawValue, (ChoiceDataType) elementType);
+            if (resolvedType == null) {
+                result.addValidationError(new StandardValidationError(elementPath, rawValue, ValidationErrorType.INVALID_FIELD,
+                    "Value is of type " + classNameOrNull(rawValue) + " but was expected to be of type " + elementType));
                 return;
             }
+        } else {
+            resolvedType = elementType;
+        }
 
-            final RecordDataType recordDataType = (RecordDataType) canonicalDataType;
-            final RecordSchema childSchema = recordDataType.getChildSchema();
-
-            final String fullChildFieldName = concat(fieldPrefix, field);
-            final SchemaValidationResult childValidationResult = validate((Record) rawValue, childSchema, fullChildFieldName);
-            if (childValidationResult.isValid()) {
-                return;
+        if (resolvedType.getFieldType() == RecordFieldType.RECORD && rawValue instanceof Record) {
+            final RecordDataType recordDataType = (RecordDataType) resolvedType;
+            final SchemaValidationResult childResult = validate((Record) rawValue, recordDataType.getChildSchema(), elementPath, validators);
+            for (final ValidationError error : childResult.getValidationErrors()) {
+                result.addValidationError(error);
             }
-
-            for (final ValidationError validationError : childValidationResult.getValidationErrors()) {
-                result.addValidationError(validationError);
+        } else if (resolvedType.getFieldType() == RecordFieldType.ARRAY && rawValue instanceof Object[]) {
+            final ArrayDataType nestedArrayType = (ArrayDataType) resolvedType;
+            final Object[] nestedArray = (Object[]) rawValue;
+            int i = 0;
+            for (final Object nestedValue : nestedArray) {
+                validateArrayElement(nestedArrayType.getElementType(), nestedValue, result, elementPath + "[" + i + "]", validators);
+                i++;
             }
         }
     }
@@ -189,14 +264,13 @@ public class StandardSchemaValidator implements RecordSchemaValidator {
                 final List<String> enumList = enumDataType.getEnums();
                 return enumList.contains(value);
             case ARRAY:
-                if (!(value instanceof Object[])) {
+                if (!(value instanceof final Object[] array)) {
                     return false;
                 }
 
                 final ArrayDataType arrayDataType = (ArrayDataType) dataType;
                 final DataType elementType = arrayDataType.getElementType();
 
-                final Object[] array = (Object[]) value;
                 for (final Object arrayVal : array) {
                     if (arrayVal == null && arrayDataType.isElementsNullable()) {
                         continue;
@@ -208,10 +282,9 @@ public class StandardSchemaValidator implements RecordSchemaValidator {
 
                 return true;
             case MAP:
-                if (value instanceof Map) {
+                if (value instanceof final Map<?, ?> map) {
                     final MapDataType mapDataType = (MapDataType) dataType;
                     final DataType valueDataType = mapDataType.getValueType();
-                    final Map<?, ?> map = (Map<?, ?>) value;
 
                     for (final Object mapValue : map.values()) {
                         if (mapValue == null && mapDataType.isValuesNullable()) {
@@ -222,8 +295,7 @@ public class StandardSchemaValidator implements RecordSchemaValidator {
                         }
                     }
                     return true;
-                } else if (value instanceof Record) {
-                    Record record = (Record) value;
+                } else if (value instanceof final Record record) {
                     final MapDataType mapDataType = (MapDataType) dataType;
                     final DataType valueDataType = mapDataType.getValueType();
 
@@ -253,13 +325,13 @@ public class StandardSchemaValidator implements RecordSchemaValidator {
             case CHAR:
                 return value instanceof Character;
             case DATE:
-                return value instanceof java.sql.Date;
+                return value instanceof Date;
             case STRING:
                 return value instanceof String;
             case TIME:
-                return value instanceof java.sql.Time;
+                return value instanceof Time;
             case TIMESTAMP:
-                return value instanceof java.sql.Timestamp;
+                return value instanceof Timestamp;
 
             // Numeric data types
             case BIGINT:
@@ -303,7 +375,7 @@ public class StandardSchemaValidator implements RecordSchemaValidator {
         return fieldPrefix + "/" + field.getFieldName();
     }
 
-    private String classNameOrNull(Object value) {
+    private String classNameOrNull(final Object value) {
         return value == null ? "null" : value.getClass().getName();
     }
 }

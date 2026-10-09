@@ -40,6 +40,8 @@ import org.apache.nifi.authorization.resource.ResourceFactory;
 import org.apache.nifi.authorization.resource.ResourceType;
 import org.apache.nifi.bundle.Bundle;
 import org.apache.nifi.bundle.BundleCoordinate;
+import org.apache.nifi.components.Backlog;
+import org.apache.nifi.components.BacklogReportingException;
 import org.apache.nifi.components.ConfigVerificationResult;
 import org.apache.nifi.components.ConfigVerificationResult.Outcome;
 import org.apache.nifi.components.ConfigurableComponent;
@@ -87,11 +89,12 @@ import org.apache.nifi.parameter.ParameterLookup;
 import org.apache.nifi.parameter.ParameterParser;
 import org.apache.nifi.parameter.ParameterReference;
 import org.apache.nifi.parameter.ParameterTokenList;
+import org.apache.nifi.processor.BacklogReportingProcessor;
 import org.apache.nifi.processor.ProcessContext;
 import org.apache.nifi.processor.ProcessSessionFactory;
 import org.apache.nifi.processor.Processor;
 import org.apache.nifi.processor.Relationship;
-import org.apache.nifi.processor.SimpleProcessLogger;
+import org.apache.nifi.processor.StandardComponentLog;
 import org.apache.nifi.processor.VerifiableProcessor;
 import org.apache.nifi.scheduling.ExecutionNode;
 import org.apache.nifi.scheduling.SchedulingStrategy;
@@ -184,6 +187,8 @@ public class StandardProcessorNode extends ProcessorNode implements Connectable 
     private SchedulingStrategy schedulingStrategy; // guarded by synchronized keyword
     private ExecutionNode executionNode;
     private final Map<Thread, ActiveTask> activeThreads = new ConcurrentHashMap<>(48);
+    private final AtomicReference<AtomicLong> activeStartupAttempt = new AtomicReference<>();
+    private final AtomicReference<AtomicLong> runningStartupAttempt = new AtomicReference<>();
     private final int hashCode;
     private volatile boolean hasActiveThreads = false;
 
@@ -1008,9 +1013,8 @@ public class StandardProcessorNode extends ProcessorNode implements Connectable 
             }
 
             final Processor processor = getProcessor();
-            if (processor instanceof VerifiableProcessor) {
+            if (processor instanceof final VerifiableProcessor verifiable) {
                 LOG.debug("{} is a VerifiableProcessor. Will perform full verification of configuration.", this);
-                final VerifiableProcessor verifiable = (VerifiableProcessor) getProcessor();
 
                 // Check if the given configuration requires a different classloader than the current configuration
                 final boolean classpathDifferent = isClasspathDifferent(context.getProperties());
@@ -1124,7 +1128,7 @@ public class StandardProcessorNode extends ProcessorNode implements Connectable 
             }
         } catch (final Throwable t) {
             LOG.error("Failed to perform validation", t);
-            results.add(new ValidationResult.Builder().explanation("Failed to run validation due to " + t.toString())
+            results.add(new ValidationResult.Builder().explanation("Failed to run validation due to " + t)
                     .valid(false).build());
         }
 
@@ -1231,11 +1235,10 @@ public class StandardProcessorNode extends ProcessorNode implements Connectable 
      */
     @Override
     public boolean equals(final Object other) {
-        if (!(other instanceof ProcessorNode)) {
+        if (!(other instanceof final ProcessorNode on)) {
             return false;
         }
 
-        final ProcessorNode on = (ProcessorNode) other;
         return Objects.equals(identifier, on.getIdentifier());
     }
 
@@ -1475,7 +1478,7 @@ public class StandardProcessorNode extends ProcessorNode implements Connectable 
      * Similar to {@link #start(ScheduledExecutorService, long, long, Supplier, SchedulingAgentCallback, boolean, boolean)}, except for the following:
      * <ul>
      *     <li>
-     *         Once the {@link Processor#onTrigger(ProcessContext, ProcessSessionFactory)} method has been invoked successfully, the processor is scehduled to be stopped immediately.
+     *         Once the {@link Processor#onTrigger(ProcessContext, ProcessSessionFactory)} method has been invoked successfully, the processor is scheduled to be stopped immediately.
      *         All appropriate lifecycle methods will be executed as well.
      *     </li>
      *     <li>
@@ -1496,7 +1499,7 @@ public class StandardProcessorNode extends ProcessorNode implements Connectable 
                      final ScheduledState scheduledState, final boolean triggerLifecycleMethods) {
 
         final Processor processor = processorRef.get().getProcessor();
-        final ComponentLog procLog = new SimpleProcessLogger(StandardProcessorNode.this.getIdentifier(), processor, new StandardLoggingContext(StandardProcessorNode.this));
+        final ComponentLog procLog = new StandardComponentLog(StandardProcessorNode.this.getIdentifier(), processor, new StandardLoggingContext(StandardProcessorNode.this));
         LOG.debug("Starting {}", this);
 
         ScheduledState currentState;
@@ -1518,7 +1521,9 @@ public class StandardProcessorNode extends ProcessorNode implements Connectable 
         }
 
         if (starting) { // will ensure that the Processor represented by this node can only be started once
-            initiateStart(taskScheduler, administrativeYieldMillis, timeoutMillis, new AtomicLong(0), processContextFactory, schedulingAgentCallback, triggerLifecycleMethods);
+            final AtomicLong startupAttemptCount = new AtomicLong(0);
+            activeStartupAttempt.set(startupAttemptCount);
+            initiateStart(taskScheduler, administrativeYieldMillis, timeoutMillis, startupAttemptCount, processContextFactory, schedulingAgentCallback, triggerLifecycleMethods);
         } else {
             final String procName = processorRef.get().getProcessor().toString();
             procLog.warn("Cannot start {} because it is not currently stopped. Current state is {}", procName, currentState);
@@ -1636,12 +1641,56 @@ public class StandardProcessorNode extends ProcessorNode implements Connectable 
         }
     }
 
+    @Override
+    public boolean supportsBacklogReporting() {
+        return getProcessor() instanceof BacklogReportingProcessor;
+    }
+
+    @Override
+    public Optional<Backlog> getReportedBacklog(final ProcessContext context) throws BacklogReportingException {
+        final Processor processor = getProcessor();
+        if (!(processor instanceof BacklogReportingProcessor)) {
+            return Optional.empty();
+        }
+
+        try (final NarCloseable ignored = NarCloseable.withComponentNarLoader(getExtensionManager(), processor.getClass(), processor.getIdentifier())) {
+            return ((BacklogReportingProcessor) processor).getBacklog(context);
+        } catch (final BacklogReportingException e) {
+            LOG.error("Failed to determine backlog for {}", this, e);
+            throw e;
+        } catch (final RuntimeException e) {
+            LOG.error("Failed to determine backlog for {}", this, e);
+            throw new BacklogReportingException("Failed to determine backlog for " + this, e);
+        }
+    }
+
+    @Override
+    public void verifyCanReportBacklog() {
+        if (!supportsBacklogReporting()) {
+            throw new IllegalStateException("Cannot report backlog for " + this + " because the Processor does not implement BacklogReportingProcessor");
+        }
+
+        final ScheduledState state = getScheduledState();
+        if (state == ScheduledState.DISABLED) {
+            throw new IllegalStateException("Cannot report backlog for " + this + " because the Processor is disabled");
+        }
+
+        final ValidationStatus validationStatus = getValidationStatus();
+        if (validationStatus != ValidationStatus.VALID) {
+            throw new IllegalStateException("Cannot report backlog for " + this + " because the Processor is not valid (Validation State is " + validationStatus + ")");
+        }
+    }
+
     private void initiateStart(final ScheduledExecutorService taskScheduler, final long administrativeYieldMillis, final long timeoutMillis,
             final AtomicLong startupAttemptCount, final Supplier<ProcessContext> processContextFactory, final SchedulingAgentCallback schedulingAgentCallback,
             final boolean triggerLifecycleMethods) {
 
+        if (activeStartupAttempt.get() != startupAttemptCount) {
+            return;
+        }
+
         final Processor processor = getProcessor();
-        final ComponentLog procLog = new SimpleProcessLogger(StandardProcessorNode.this.getIdentifier(), processor, new StandardLoggingContext(StandardProcessorNode.this));
+        final ComponentLog procLog = new StandardComponentLog(StandardProcessorNode.this.getIdentifier(), processor, new StandardLoggingContext(StandardProcessorNode.this));
 
         // Completion Timestamp is set to MAX_VALUE because we don't want to timeout until the task has a chance to run.
         final AtomicLong completionTimestampRef = new AtomicLong(Long.MAX_VALUE);
@@ -1651,10 +1700,16 @@ public class StandardProcessorNode extends ProcessorNode implements Connectable 
 
         // Create a task to invoke the @OnScheduled annotation of the processor
         final Callable<Void> startupTask = () -> {
+            if (activeStartupAttempt.get() != startupAttemptCount) {
+                schedulingAgentCallback.onTaskComplete();
+                return null;
+            }
+
             final ScheduledState currentScheduleState = scheduledState.get();
             if (currentScheduleState == ScheduledState.STOPPING || currentScheduleState == ScheduledState.STOPPED || getDesiredState() == ScheduledState.STOPPED) {
                 LOG.info("Aborting start of {}: scheduledState={}, desiredState={}, validationStatus={}",
                         StandardProcessorNode.this, currentScheduleState, getDesiredState(), getValidationStatus());
+                activeStartupAttempt.compareAndSet(startupAttemptCount, null);
                 schedulingAgentCallback.onTaskComplete();
                 completeStopAction();
                 return null;
@@ -1666,6 +1721,7 @@ public class StandardProcessorNode extends ProcessorNode implements Connectable 
                     final ValidationState validationState = getValidationState();
                     procLog.warn("Cannot run once {} because Processor is not valid (Validation State is {}: {}). Returning to stopped.",
                             StandardProcessorNode.this, validationState, validationState.getValidationErrors());
+                    activeStartupAttempt.compareAndSet(startupAttemptCount, null);
                     schedulingAgentCallback.onTaskComplete();
                     completeStopAction();
                     return null;
@@ -1684,11 +1740,11 @@ public class StandardProcessorNode extends ProcessorNode implements Connectable 
                     LOG.debug("Cannot start {} because Processor is currently not valid; will try again after 500 ms", StandardProcessorNode.this);
                 }
 
-                // re-initiate the entire process
-                final Runnable initiateStartTask = () -> initiateStart(taskScheduler, administrativeYieldMillis, timeoutMillis, startupAttemptCount,
-                    processContextFactory, schedulingAgentCallback, triggerLifecycleMethods);
-
-                taskScheduler.schedule(initiateStartTask, 500, TimeUnit.MILLISECONDS);
+                if (activeStartupAttempt.get() == startupAttemptCount) {
+                    final Runnable initiateStartTask = () -> initiateStart(taskScheduler, administrativeYieldMillis, timeoutMillis, startupAttemptCount,
+                        processContextFactory, schedulingAgentCallback, triggerLifecycleMethods);
+                    taskScheduler.schedule(initiateStartTask, 500, TimeUnit.MILLISECONDS);
+                }
 
                 schedulingAgentCallback.onTaskComplete();
                 return null;
@@ -1698,14 +1754,32 @@ public class StandardProcessorNode extends ProcessorNode implements Connectable 
             completionTimestampRef.set(System.currentTimeMillis() + timeoutMillis);
 
             final ProcessContext processContext = processContextFactory.get();
+            final boolean startPermitted;
+            synchronized (this) {
+                final ScheduledState currentState = scheduledState.get();
+                startPermitted = activeStartupAttempt.get() == startupAttemptCount && currentState != ScheduledState.STOPPING
+                    && currentState != ScheduledState.STOPPED && getDesiredState() != ScheduledState.STOPPED;
+                if (startPermitted) {
+                    runningStartupAttempt.set(startupAttemptCount);
+                    if (triggerLifecycleMethods) {
+                        activateThread();
+                    }
+                }
+            }
 
+            if (!startPermitted) {
+                schedulingAgentCallback.onTaskComplete();
+                completeStopAction();
+                return null;
+            }
+
+            boolean startupCompleted = false;
             try (final NarCloseable ignored = NarCloseable.withComponentNarLoader(getExtensionManager(), processor.getClass(), processor.getIdentifier())) {
                 try {
                     hasActiveThreads = true;
 
                     if (triggerLifecycleMethods) {
                         LOG.debug("Invoking @OnScheduled methods of {}", processor);
-                        activateThread();
                         try {
                             ReflectionUtils.invokeMethodsWithAnnotation(OnScheduled.class, processor, processContext);
                         } finally {
@@ -1719,7 +1793,9 @@ public class StandardProcessorNode extends ProcessorNode implements Connectable 
                         (desiredState == ScheduledState.RUNNING && scheduledState.compareAndSet(ScheduledState.STARTING, ScheduledState.RUNNING))
                             || (desiredState == ScheduledState.RUN_ONCE && scheduledState.compareAndSet(ScheduledState.RUN_ONCE, ScheduledState.RUN_ONCE))
                     ) {
+                        startupCompleted = true;
                         LOG.debug("Successfully completed the @OnScheduled methods of {}; will now start triggering processor to run", processor);
+                        activeStartupAttempt.compareAndSet(startupAttemptCount, null);
                         schedulingAgentCallback.trigger(); // callback provided by StandardProcessScheduler to essentially initiate component's onTrigger() cycle
                     } else {
                         LOG.info("Successfully invoked @OnScheduled methods of {} but scheduled state is no longer STARTING so will stop processor now; current state = {}, desired state = {}",
@@ -1751,7 +1827,7 @@ public class StandardProcessorNode extends ProcessorNode implements Connectable 
                 } finally {
                     schedulingAgentCallback.onTaskComplete();
                 }
-            } catch (Exception e) {
+            } catch (final Exception e) {
                 final Throwable cause = (e instanceof InvocationTargetException) ? e.getCause() : e;
                 procLog.error("Failed to properly initialize Processor. If still scheduled to run, NiFi will attempt to "
                     + "initialize and run the Processor again after the 'Administrative Yield Duration' has elapsed. Failure is due to " + cause, cause);
@@ -1769,13 +1845,17 @@ public class StandardProcessorNode extends ProcessorNode implements Connectable 
                 }
 
                 // make sure we only continue retry loop if STOP action wasn't initiated
-                if (scheduledState.get() != ScheduledState.STOPPING && scheduledState.get() != ScheduledState.RUN_ONCE) {
-                    // re-initiate the entire process
+                if (activeStartupAttempt.get() == startupAttemptCount && scheduledState.get() == ScheduledState.STARTING && getDesiredState() == ScheduledState.RUNNING) {
                     final Runnable initiateStartTask = () -> initiateStart(taskScheduler, administrativeYieldMillis, timeoutMillis, startupAttemptCount,
                         processContextFactory, schedulingAgentCallback, triggerLifecycleMethods);
-
                     taskScheduler.schedule(initiateStartTask, administrativeYieldMillis, TimeUnit.MILLISECONDS);
                 } else {
+                    activeStartupAttempt.compareAndSet(startupAttemptCount, null);
+                    completeStopAction();
+                }
+            } finally {
+                runningStartupAttempt.compareAndSet(startupAttemptCount, null);
+                if (!startupCompleted && activeStartupAttempt.get() != startupAttemptCount && getDesiredState() == ScheduledState.STOPPED) {
                     completeStopAction();
                 }
             }
@@ -1787,7 +1867,8 @@ public class StandardProcessorNode extends ProcessorNode implements Connectable 
         try {
             // Trigger the task in a background thread.
             taskFuture = schedulingAgentCallback.scheduleTask(startupTask);
-        } catch (RejectedExecutionException rejectedExecutionException) {
+        } catch (final RejectedExecutionException rejectedExecutionException) {
+            activeStartupAttempt.compareAndSet(startupAttemptCount, null);
             final ValidationState validationState = getValidationState();
             LOG.error("Unable to start {}.  Last known validation state was {} : {}", this, validationState, validationState.getValidationErrors(), rejectedExecutionException);
             return;
@@ -1952,9 +2033,19 @@ public class StandardProcessorNode extends ProcessorNode implements Connectable 
             // before stop() was called. If that happens the stop processor
             // routine will be initiated in start() method, otherwise the IF
             // part will handle the stop processor routine.
-            final boolean updated = this.scheduledState.compareAndSet(ScheduledState.STARTING, ScheduledState.STOPPING);
-            if (updated) {
-                LOG.debug("Transitioned state of {} from STARTING to STOPPING", this);
+            synchronized (this) {
+                final boolean updated = this.scheduledState.compareAndSet(ScheduledState.STARTING, ScheduledState.STOPPING);
+                if (updated) {
+                    LOG.debug("Transitioned state of {} from STARTING to STOPPING", this);
+                    activeStartupAttempt.set(null);
+                    for (final Thread activeThread : activeThreads.keySet()) {
+                        activeThread.interrupt();
+                    }
+
+                    if (activeThreads.isEmpty() && runningStartupAttempt.get() == null) {
+                        completeStopAction();
+                    }
+                }
             }
         }
 
@@ -1982,7 +2073,7 @@ public class StandardProcessorNode extends ProcessorNode implements Connectable 
     }
 
     @Override
-    public List<ConnectorMethod> getConnectorMethods() {
+    public List<ConnectorMethod> getConnectorMethods() throws InvocationFailedException {
         return getConnectorMethods(getProcessor().getClass());
     }
 
@@ -2041,6 +2132,12 @@ public class StandardProcessorNode extends ProcessorNode implements Connectable 
             } catch (final Exception e) {
                 throw new InvocationFailedException(e);
             }
+        } catch (final TypeNotPresentException | LinkageError e) {
+            // MethodArgument.type() throws TypeNotPresentException when an annotation Class member is absent from the component ClassLoader.
+            // Resolving the implementation Method's parameter types can still throw LinkageError. Discovery already wraps LinkageError, and
+            // Errors thrown from the invoked method body are wrapped by Method.invoke as InvocationTargetException.
+            throw new InvocationFailedException("Failed to invoke Connector Method '" + methodName + "' on " + this
+                + " because a class required by the component could not be loaded from the component's ClassLoader", e);
         }
     }
 

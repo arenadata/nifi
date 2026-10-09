@@ -17,14 +17,24 @@
 package org.apache.nifi.controller.repository;
 
 import org.apache.nifi.connectable.Connectable;
+import org.apache.nifi.connectable.Connection;
 import org.apache.nifi.connectable.FlowFileActivity;
 import org.apache.nifi.controller.lifecycle.TaskTermination;
+import org.apache.nifi.controller.metrics.ComponentMetricContext;
+import org.apache.nifi.controller.metrics.ConnectionStatusEvent;
 import org.apache.nifi.controller.metrics.GaugeRecord;
+import org.apache.nifi.controller.metrics.ProcessSessionEvent;
+import org.apache.nifi.controller.queue.FlowFileQueue;
+import org.apache.nifi.controller.queue.LoadBalanceStrategy;
+import org.apache.nifi.controller.queue.QueueSize;
 import org.apache.nifi.controller.repository.claim.ContentClaim;
 import org.apache.nifi.controller.repository.claim.ContentClaimWriteCache;
 import org.apache.nifi.controller.repository.metrics.PerformanceTracker;
+import org.apache.nifi.controller.status.FlowFileAvailability;
+import org.apache.nifi.controller.status.LoadBalanceStatus;
 import org.apache.nifi.flowfile.FlowFile;
 import org.apache.nifi.processor.ProcessSession;
+import org.apache.nifi.processor.Relationship;
 import org.apache.nifi.processor.metrics.CommitTiming;
 import org.apache.nifi.provenance.InternalProvenanceReporter;
 import org.apache.nifi.provenance.ProvenanceRepository;
@@ -43,17 +53,22 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
+import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
-import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.anySet;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isA;
 import static org.mockito.ArgumentMatchers.isNull;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -66,6 +81,8 @@ class StandardProcessSessionTest {
 
     private static final long EXPECTED_BYTES = 32;
 
+    private static final int EXPECTED_FLOWFILES = 1;
+
     private static final byte[] CONTENT = new byte[]{2};
 
     private static final long BYTES_READ = CONTENT.length;
@@ -75,6 +92,22 @@ class StandardProcessSessionTest {
     private static final String GAUGE_NAME = "freeMemory";
 
     private static final double GAUGE_VALUE = 64.5;
+
+    private static final String COUNTER_NAME = "onTrigger";
+
+    private static final long COUNTER_DELTA = 5;
+
+    private static final Map<String, String> METRIC_ATTRIBUTES = Map.of("service.name", "Processing", "deployment.environment", "production");
+
+    private static final String INPUT_CONNECTION_ID = "input-connection-id";
+    private static final String OUTPUT_CONNECTION_ID = "output-connection-id";
+    private static final String BACK_PRESSURE_DATA_SIZE_THRESHOLD = "1 MB";
+    private static final long BACK_PRESSURE_BYTES_THRESHOLD = 1048576;
+
+    private static final String SOURCE_CONNECTABLE_ID = "source-id";
+    private static final String SOURCE_CONNECTABLE_NAME = "source-name";
+    private static final String DESTINATION_CONNECTABLE_ID = "destination-id";
+    private static final String DESTINATION_CONNECTABLE_NAME = "destination-name";
 
     @Mock
     RepositoryContext repositoryContext;
@@ -110,10 +143,16 @@ class StandardProcessSessionTest {
     PerformanceTracker performanceTracker;
 
     @Captor
-    ArgumentCaptor<FlowFileEvent> flowFileEventCaptor;
+    ArgumentCaptor<ProcessSessionEvent> flowFileEventCaptor;
+
+    @Captor
+    ArgumentCaptor<ProcessSessionEvent> processSessionEventCaptor;
 
     @Captor
     ArgumentCaptor<GaugeRecord> gaugeRecordCaptor;
+
+    @Captor
+    ArgumentCaptor<ConnectionStatusEvent> connectionStatusEventCaptor;
 
     StandardProcessSession session;
 
@@ -127,6 +166,169 @@ class StandardProcessSessionTest {
         when(connectable.getFlowFileActivity()).thenReturn(flowFileActivity);
 
         session = new StandardProcessSession(repositoryContext, taskTermination, performanceTracker);
+    }
+
+    @Test
+    void testGetTransferConnectionStatusEventsDisabled() {
+        setRepositoryContext();
+        when(repositoryContext.getContentRepository()).thenReturn(contentRepository);
+        when(repositoryContext.isRecordConnectionStatusEventEnabled()).thenReturn(false);
+
+        final Connection connection = mock(Connection.class);
+        when(repositoryContext.getPollableConnections()).thenReturn(List.of(connection));
+        final FlowFileRecord flowFileRecord = mock(FlowFileRecord.class);
+        when(connection.poll(anySet())).thenReturn(flowFileRecord);
+        final FlowFileQueue flowFileQueue = mock(FlowFileQueue.class);
+        when(connection.getFlowFileQueue()).thenReturn(flowFileQueue);
+        when(connection.getIdentifier()).thenReturn(INPUT_CONNECTION_ID);
+
+        final FlowFile flowFile = session.get();
+        assertNotNull(flowFile);
+        session.transfer(flowFile);
+        session.commit();
+
+        verify(repositoryContext, never()).recordConnectionStatusEvent(connectionStatusEventCaptor.capture());
+    }
+
+    @Test
+    void testGetTransferConnectionStatusEvents() {
+        setRepositoryContext();
+        when(repositoryContext.getContentRepository()).thenReturn(contentRepository);
+        when(repositoryContext.isRecordConnectionStatusEventEnabled()).thenReturn(true);
+
+        final Connection connection = getConnection();
+        when(repositoryContext.getPollableConnections()).thenReturn(List.of(connection));
+        final FlowFileRecord flowFileRecord = mock(FlowFileRecord.class);
+        when(connection.poll(anySet())).thenReturn(flowFileRecord);
+        final FlowFileQueue flowFileQueue = mock(FlowFileQueue.class);
+        when(connection.getFlowFileQueue()).thenReturn(flowFileQueue);
+        when(connection.getIdentifier()).thenReturn(INPUT_CONNECTION_ID);
+
+        final FlowFile flowFile = session.get();
+        assertNotNull(flowFile);
+
+        final Connection outputConnection = getConnection();
+        when(outputConnection.getIdentifier()).thenReturn(OUTPUT_CONNECTION_ID);
+        final FlowFileQueue outputFlowFileQueue = mock(FlowFileQueue.class);
+        when(outputFlowFileQueue.getBackPressureDataSizeThreshold()).thenReturn(BACK_PRESSURE_DATA_SIZE_THRESHOLD);
+        when(outputConnection.getFlowFileQueue()).thenReturn(outputFlowFileQueue);
+        final QueueSize outputQueueSize = mock(QueueSize.class);
+        when(outputFlowFileQueue.size()).thenReturn(outputQueueSize);
+        when(outputFlowFileQueue.getFlowFileAvailability()).thenReturn(FlowFileAvailability.FLOWFILE_AVAILABLE);
+        doAnswer(inv -> when(outputFlowFileQueue.size()).thenReturn(new QueueSize(EXPECTED_FLOWFILES, EXPECTED_BYTES))).when(outputFlowFileQueue).putAll(any());
+
+        final Relationship relationship = new Relationship.Builder().name(Relationship.class.getSimpleName()).build();
+        when(repositoryContext.getConnections(eq(relationship))).thenReturn(List.of(outputConnection));
+        session.transfer(flowFile, relationship);
+
+        when(flowFileQueue.getBackPressureDataSizeThreshold()).thenReturn(BACK_PRESSURE_DATA_SIZE_THRESHOLD);
+        final QueueSize queueSize = mock(QueueSize.class);
+        final int objectCount = Integer.MAX_VALUE;
+        when(queueSize.getObjectCount()).thenReturn(objectCount);
+        final long byteCount = Long.MAX_VALUE;
+        when(queueSize.getByteCount()).thenReturn(byteCount);
+        when(flowFileQueue.size()).thenReturn(queueSize);
+        when(flowFileQueue.getLoadBalanceStrategy()).thenReturn(LoadBalanceStrategy.ROUND_ROBIN);
+        when(flowFileQueue.getFlowFileAvailability()).thenReturn(FlowFileAvailability.FLOWFILE_AVAILABLE);
+
+        session.commit();
+
+        verify(repositoryContext, times(2)).recordConnectionStatusEvent(connectionStatusEventCaptor.capture());
+        final List<ConnectionStatusEvent> events = connectionStatusEventCaptor.getAllValues();
+
+        final ConnectionStatusEvent firstConnectionStatusEvent = events.getFirst();
+        final ComponentMetricContext componentMetricContext = firstConnectionStatusEvent.getComponentMetricContext();
+        assertEquals(INPUT_CONNECTION_ID, componentMetricContext.id());
+        assertEquals(BACK_PRESSURE_BYTES_THRESHOLD, firstConnectionStatusEvent.getBackPressureBytesThreshold());
+        assertEquals(objectCount, firstConnectionStatusEvent.getQueuedCount());
+        assertEquals(byteCount, firstConnectionStatusEvent.getQueuedBytes());
+        assertEquals(LoadBalanceStatus.LOAD_BALANCE_INACTIVE, firstConnectionStatusEvent.getLoadBalanceStatus());
+        assertSourceDestinationFound(firstConnectionStatusEvent);
+
+        final ConnectionStatusEvent secondConnectionStatusEvent = events.getLast();
+        final ComponentMetricContext secondComponentMetricContext = secondConnectionStatusEvent.getComponentMetricContext();
+        assertEquals(OUTPUT_CONNECTION_ID, secondComponentMetricContext.id());
+        assertSourceDestinationFound(secondConnectionStatusEvent);
+        assertEquals(EXPECTED_FLOWFILES, secondConnectionStatusEvent.getQueuedCount());
+        assertEquals(EXPECTED_BYTES, secondConnectionStatusEvent.getQueuedBytes());
+    }
+
+    @Test
+    void testBatchedCheckpointRetainsConnectionMetricContext() {
+        setRepositoryContext();
+        when(repositoryContext.getContentRepository()).thenReturn(contentRepository);
+        when(repositoryContext.isRecordConnectionStatusEventEnabled()).thenReturn(true);
+
+        final Connection connection = getConnection();
+        when(repositoryContext.getPollableConnections()).thenReturn(List.of(connection));
+        final FlowFileRecord flowFileRecord = mock(FlowFileRecord.class);
+        when(connection.poll(anySet())).thenReturn(flowFileRecord);
+        final FlowFileQueue flowFileQueue = mock(FlowFileQueue.class);
+        when(connection.getFlowFileQueue()).thenReturn(flowFileQueue);
+        when(connection.getIdentifier()).thenReturn(INPUT_CONNECTION_ID);
+        when(connection.getName()).thenReturn("Connection Name");
+
+        final FlowFile flowFile = session.get();
+        assertNotNull(flowFile);
+
+        when(flowFileQueue.getBackPressureDataSizeThreshold()).thenReturn(BACK_PRESSURE_DATA_SIZE_THRESHOLD);
+        final QueueSize queueSize = mock(QueueSize.class);
+        when(flowFileQueue.size()).thenReturn(queueSize);
+        when(flowFileQueue.getLoadBalanceStrategy()).thenReturn(LoadBalanceStrategy.DO_NOT_LOAD_BALANCE);
+        when(flowFileQueue.getFlowFileAvailability()).thenReturn(FlowFileAvailability.FLOWFILE_AVAILABLE);
+
+        session.remove(flowFile);
+        session.checkpoint();
+        session.commit();
+
+        verify(repositoryContext, times(1)).recordConnectionStatusEvent(connectionStatusEventCaptor.capture());
+        final ConnectionStatusEvent connectionStatusEvent = connectionStatusEventCaptor.getValue();
+        assertEquals("Connection Name", connectionStatusEvent.getComponentMetricContext().name());
+    }
+
+    @Test
+    void testMigrateTracksConnectionStatusEventForNewOwner() {
+        setRepositoryContext();
+        when(repositoryContext.getContentRepository()).thenReturn(contentRepository);
+        when(repositoryContext.isRecordConnectionStatusEventEnabled()).thenReturn(true);
+
+        final Connection connection = getConnection();
+        when(repositoryContext.getPollableConnections()).thenReturn(List.of(connection));
+        final FlowFileRecord flowFileRecord = mock(FlowFileRecord.class);
+        when(connection.poll(anySet())).thenReturn(flowFileRecord);
+        final FlowFileQueue flowFileQueue = mock(FlowFileQueue.class);
+        when(connection.getFlowFileQueue()).thenReturn(flowFileQueue);
+        when(connection.getIdentifier()).thenReturn(INPUT_CONNECTION_ID);
+        when(flowFileQueue.getIdentifier()).thenReturn(INPUT_CONNECTION_ID);
+
+        final FlowFile flowFile = session.get();
+        assertNotNull(flowFile);
+
+        final StandardProcessSession newOwner = new StandardProcessSession(repositoryContext, taskTermination, performanceTracker);
+        session.migrate(newOwner);
+
+        when(flowFileQueue.getBackPressureDataSizeThreshold()).thenReturn(BACK_PRESSURE_DATA_SIZE_THRESHOLD);
+        final QueueSize queueSize = mock(QueueSize.class);
+        final int objectCount = Integer.MAX_VALUE;
+        when(queueSize.getObjectCount()).thenReturn(objectCount);
+        final long byteCount = Long.MAX_VALUE;
+        when(queueSize.getByteCount()).thenReturn(byteCount);
+        when(flowFileQueue.size()).thenReturn(queueSize);
+        when(flowFileQueue.getLoadBalanceStrategy()).thenReturn(LoadBalanceStrategy.DO_NOT_LOAD_BALANCE);
+        when(flowFileQueue.getFlowFileAvailability()).thenReturn(FlowFileAvailability.FLOWFILE_AVAILABLE);
+
+        newOwner.remove(flowFile);
+        newOwner.commit();
+
+        verify(repositoryContext, times(1)).recordConnectionStatusEvent(connectionStatusEventCaptor.capture());
+        final ConnectionStatusEvent connectionStatusEvent = connectionStatusEventCaptor.getValue();
+        assertEquals(INPUT_CONNECTION_ID, connectionStatusEvent.getComponentMetricContext().id());
+        assertEquals(BACK_PRESSURE_BYTES_THRESHOLD, connectionStatusEvent.getBackPressureBytesThreshold());
+        assertEquals(objectCount, connectionStatusEvent.getQueuedCount());
+        assertEquals(byteCount, connectionStatusEvent.getQueuedBytes());
+        assertEquals(LoadBalanceStatus.LOAD_BALANCE_NOT_CONFIGURED, connectionStatusEvent.getLoadBalanceStatus());
+        assertEquals(FlowFileAvailability.FLOWFILE_AVAILABLE, connectionStatusEvent.getFlowFileAvailability());
+        assertSourceDestinationFound(connectionStatusEvent);
     }
 
     @Test
@@ -171,26 +373,52 @@ class StandardProcessSessionTest {
     @Test
     void testRecordGaugeNow() {
         session.recordGauge(GAUGE_NAME, GAUGE_VALUE, CommitTiming.NOW);
+        session.recordGauge(GAUGE_NAME, GAUGE_VALUE, METRIC_ATTRIBUTES, CommitTiming.NOW);
 
-        verify(repositoryContext).recordGauge(gaugeRecordCaptor.capture());
-        final GaugeRecord gaugeRecord = gaugeRecordCaptor.getValue();
-
-        assertEquals(GAUGE_NAME, gaugeRecord.name());
-        assertEquals(GAUGE_VALUE, gaugeRecord.value());
+        assertGaugeRecordsMatched();
     }
 
     @Test
     void testRecordGaugeSessionCommitted() {
         session.recordGauge(GAUGE_NAME, GAUGE_VALUE, CommitTiming.SESSION_COMMITTED);
+        session.recordGauge(GAUGE_NAME, GAUGE_VALUE, METRIC_ATTRIBUTES, CommitTiming.SESSION_COMMITTED);
+
+        verify(repositoryContext, never()).recordGauge(any());
 
         setRepositoryContext();
         session.commit();
 
-        verify(repositoryContext).recordGauge(gaugeRecordCaptor.capture());
-        final GaugeRecord gaugeRecord = gaugeRecordCaptor.getValue();
+        assertGaugeRecordsMatched();
+    }
 
-        assertEquals(GAUGE_NAME, gaugeRecord.name());
-        assertEquals(GAUGE_VALUE, gaugeRecord.value());
+    @Test
+    void testAdjustCounterNow() {
+        session.adjustCounter(COUNTER_NAME, COUNTER_DELTA, true);
+        verify(repositoryContext).adjustCounter(eq(COUNTER_NAME), eq(COUNTER_DELTA), eq(Map.of()));
+
+        session.adjustCounter(COUNTER_NAME, COUNTER_DELTA, METRIC_ATTRIBUTES, CommitTiming.NOW);
+        verify(repositoryContext).adjustCounter(eq(COUNTER_NAME), eq(COUNTER_DELTA), eq(METRIC_ATTRIBUTES));
+    }
+
+    @Test
+    void testAdjustCounterSessionCommitted() throws IOException {
+        session.adjustCounter(COUNTER_NAME, COUNTER_DELTA, false);
+        session.adjustCounter(COUNTER_NAME, COUNTER_DELTA, METRIC_ATTRIBUTES, CommitTiming.SESSION_COMMITTED);
+        session.adjustCounter(COUNTER_NAME, COUNTER_DELTA, METRIC_ATTRIBUTES, CommitTiming.SESSION_COMMITTED);
+
+        verify(repositoryContext, never()).adjustCounter(any(), anyLong(), any());
+
+        setRepositoryContext();
+        session.commit();
+
+        // Measurements recorded for the same Counter name with differing attributes are aggregated separately
+        verify(repositoryContext).adjustCounter(eq(COUNTER_NAME), eq(COUNTER_DELTA), eq(Map.of()));
+        verify(repositoryContext).adjustCounter(eq(COUNTER_NAME), eq(COUNTER_DELTA * 2), eq(METRIC_ATTRIBUTES));
+
+        // FlowFile Events track Counter values by name alone, summing measurements recorded with differing attributes
+        verify(flowFileEventRepository).updateRepository(flowFileEventCaptor.capture());
+        final ProcessSessionEvent flowFileEvent = flowFileEventCaptor.getValue();
+        assertEquals(Map.of(COUNTER_NAME, COUNTER_DELTA * 3), flowFileEvent.getCounters());
     }
 
     @Test
@@ -213,12 +441,43 @@ class StandardProcessSessionTest {
         assertEquals(secondFlowFileId, secondFlowFile.getLineageStartIndex());
     }
 
+    private void assertGaugeRecordsMatched() {
+        verify(repositoryContext, times(2)).recordGauge(gaugeRecordCaptor.capture());
+        final List<GaugeRecord> gaugeRecords = gaugeRecordCaptor.getAllValues();
+
+        final GaugeRecord firstGaugeRecord = gaugeRecords.getFirst();
+        assertEquals(GAUGE_NAME, firstGaugeRecord.name());
+        assertEquals(GAUGE_VALUE, firstGaugeRecord.value());
+        assertEquals(Map.of(), firstGaugeRecord.attributes());
+
+        final GaugeRecord secondGaugeRecord = gaugeRecords.getLast();
+        assertEquals(GAUGE_NAME, secondGaugeRecord.name());
+        assertEquals(GAUGE_VALUE, secondGaugeRecord.value());
+        assertEquals(METRIC_ATTRIBUTES, secondGaugeRecord.attributes());
+    }
+
     private void assertFlowFileEventMatched(final long bytesRead, final long bytesWritten) throws IOException {
-        verify(flowFileEventRepository).updateRepository(flowFileEventCaptor.capture(), anyString());
-        final FlowFileEvent flowFileEvent = flowFileEventCaptor.getValue();
+        verify(flowFileEventRepository).updateRepository(flowFileEventCaptor.capture());
+        final ProcessSessionEvent flowFileEvent = flowFileEventCaptor.getValue();
 
         assertEquals(bytesRead, flowFileEvent.getBytesRead(), "Bytes read not matched");
         assertEquals(bytesWritten, flowFileEvent.getBytesWritten(), "Bytes written not matched");
+
+        verify(repositoryContext).recordProcessSessionEvent(processSessionEventCaptor.capture());
+        final ProcessSessionEvent processSessionEvent = processSessionEventCaptor.getValue();
+
+        assertEquals(bytesRead, processSessionEvent.getBytesRead(), "Process Session Bytes read not matched");
+        assertEquals(bytesWritten, processSessionEvent.getBytesWritten(), "Process Session Bytes written not matched");
+    }
+
+    private void assertSourceDestinationFound(final ConnectionStatusEvent connectionStatusEvent) {
+        final ComponentMetricContext source = connectionStatusEvent.getSourceComponentMetricContext();
+        assertEquals(SOURCE_CONNECTABLE_ID, source.id());
+        assertEquals(SOURCE_CONNECTABLE_NAME, source.name());
+
+        final ComponentMetricContext destination = connectionStatusEvent.getDestinationComponentMetricContext();
+        assertEquals(DESTINATION_CONNECTABLE_ID, destination.id());
+        assertEquals(DESTINATION_CONNECTABLE_NAME, destination.name());
     }
 
     private void setRepositoryContext() {
@@ -232,5 +491,21 @@ class StandardProcessSessionTest {
         final Path destination = Files.createTempFile(StandardProcessSessionTest.class.getSimpleName(), ProcessSession.class.getSimpleName());
         destination.toFile().deleteOnExit();
         return destination;
+    }
+
+    private Connection getConnection() {
+        final Connection connection = mock(Connection.class);
+
+        final Connectable source = mock(Connectable.class);
+        when(source.getIdentifier()).thenReturn(SOURCE_CONNECTABLE_ID);
+        when(source.getName()).thenReturn(SOURCE_CONNECTABLE_NAME);
+        when(connection.getSource()).thenReturn(source);
+
+        final Connectable destination = mock(Connectable.class);
+        when(destination.getIdentifier()).thenReturn(DESTINATION_CONNECTABLE_ID);
+        when(destination.getName()).thenReturn(DESTINATION_CONNECTABLE_NAME);
+        when(connection.getDestination()).thenReturn(destination);
+
+        return connection;
     }
 }

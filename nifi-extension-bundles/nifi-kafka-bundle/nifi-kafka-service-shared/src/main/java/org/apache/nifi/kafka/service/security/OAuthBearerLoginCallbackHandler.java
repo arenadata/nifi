@@ -42,8 +42,8 @@ import static org.apache.nifi.kafka.shared.util.SaslExtensionUtil.isSaslExtensio
 import static org.apache.nifi.kafka.shared.util.SaslExtensionUtil.removeSaslExtensionPropertyPrefix;
 
 /**
- * {@link org.apache.kafka.common.security.auth.AuthenticateCallbackHandler} implementation to support OAuth 2 in NiFi Kafka components.
- * It uses {@link org.apache.nifi.oauth2.OAuth2AccessTokenProvider} controller service to acquire Access Tokens. The service reference is injected via the Kafka configuration.
+ * {@link AuthenticateCallbackHandler} implementation to support OAuth 2 in NiFi Kafka components.
+ * It uses {@link OAuth2AccessTokenProvider} controller service to acquire Access Tokens. The service reference is injected via the Kafka configuration.
  * The service identifier will be validated against the serviceId provided in the JAAS configuration to ensure consistency.
  * For Access Token validation and parsing, the handler relies on the Kafka OAuth support classes. Only the token retrieval is NiFi specific.
  */
@@ -68,11 +68,10 @@ public class OAuthBearerLoginCallbackHandler implements AuthenticateCallbackHand
         }
 
         final Object service = configs.get(PROPERTY_KEY_NIFI_OAUTH_2_ACCESS_TOKEN_PROVIDER);
-        if (!(service instanceof OAuth2AccessTokenProvider)) {
+        if (!(service instanceof final OAuth2AccessTokenProvider accessTokenProvider)) {
             throw new ProcessException(String.format("OAuth2AccessTokenProvider must be provided via %s property in Kafka configuration", PROPERTY_KEY_NIFI_OAUTH_2_ACCESS_TOKEN_PROVIDER));
         }
 
-        final OAuth2AccessTokenProvider accessTokenProvider = (OAuth2AccessTokenProvider) service;
         if (!accessTokenProvider.getIdentifier().equals(serviceId)) {
             throw new ProcessException(String.format("OAuth2AccessTokenProvider's identifier [%s] does not mach %s [%s] in JAAS configuration",
                     accessTokenProvider.getIdentifier(), OAuthBearerLoginConfigProvider.SERVICE_ID_KEY, serviceId));
@@ -92,10 +91,10 @@ public class OAuthBearerLoginCallbackHandler implements AuthenticateCallbackHand
     @Override
     public void handle(final Callback[] callbacks) throws UnsupportedCallbackException {
         for (final Callback callback : callbacks) {
-            if (callback instanceof OAuthBearerTokenCallback) {
-                handleTokenCallback((OAuthBearerTokenCallback) callback);
-            } else if (callback instanceof SaslExtensionsCallback) {
-                handleExtensionsCallback((SaslExtensionsCallback) callback);
+            if (callback instanceof final OAuthBearerTokenCallback oAuthBearerTokenCallback) {
+                handleTokenCallback(oAuthBearerTokenCallback);
+            } else if (callback instanceof final SaslExtensionsCallback saslExtensionsCallback) {
+                handleExtensionsCallback(saslExtensionsCallback);
             } else {
                 throw new UnsupportedCallbackException(callback);
             }

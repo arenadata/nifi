@@ -24,6 +24,7 @@ import org.apache.nifi.controller.FlowController;
 import org.apache.nifi.controller.ProcessorNode;
 import org.apache.nifi.controller.ScheduledState;
 import org.apache.nifi.controller.lifecycle.TaskTerminationAwareStateManager;
+import org.apache.nifi.controller.metrics.ProcessSessionEvent;
 import org.apache.nifi.controller.queue.FlowFileQueue;
 import org.apache.nifi.controller.repository.ActiveProcessSessionFactory;
 import org.apache.nifi.controller.repository.BatchingSessionFactory;
@@ -31,7 +32,6 @@ import org.apache.nifi.controller.repository.RepositoryContext;
 import org.apache.nifi.controller.repository.StandardProcessSession;
 import org.apache.nifi.controller.repository.StandardProcessSessionFactory;
 import org.apache.nifi.controller.repository.WeakHashMapProcessSessionFactory;
-import org.apache.nifi.controller.repository.metrics.StandardFlowFileEvent;
 import org.apache.nifi.controller.repository.metrics.tracking.StandardStatsTracker;
 import org.apache.nifi.controller.repository.metrics.tracking.StatsTracker;
 import org.apache.nifi.controller.repository.metrics.tracking.TrackedStats;
@@ -45,10 +45,11 @@ import org.apache.nifi.nar.NarCloseable;
 import org.apache.nifi.processor.ProcessContext;
 import org.apache.nifi.processor.ProcessSessionFactory;
 import org.apache.nifi.processor.Processor;
-import org.apache.nifi.processor.SimpleProcessLogger;
+import org.apache.nifi.processor.StandardComponentLog;
 import org.apache.nifi.processor.StandardProcessContext;
 import org.apache.nifi.processor.exception.ProcessException;
 import org.apache.nifi.processor.exception.TerminatedTaskException;
+import org.apache.nifi.scheduling.SchedulingStrategy;
 import org.apache.nifi.util.Connectables;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -84,7 +85,7 @@ public class ConnectableTask {
         this.flowController = flowController;
 
         final StateManager baseStateManager;
-        if (connectable instanceof ProcessorNode processorNode) {
+        if (connectable instanceof final ProcessorNode processorNode) {
             final Processor processor = processorNode.getProcessor();
             final Class<?> componentClass = processor == null ? null : processor.getClass();
             baseStateManager = flowController.getStateManagerProvider().getStateManager(connectable.getIdentifier(), componentClass);
@@ -92,9 +93,9 @@ public class ConnectableTask {
             baseStateManager = flowController.getStateManagerProvider().getStateManager(connectable.getIdentifier());
         }
         final StateManager stateManager = new TaskTerminationAwareStateManager(baseStateManager, lifecycleState::isTerminated);
-        if (connectable instanceof ProcessorNode) {
+        if (connectable instanceof final ProcessorNode processorNode) {
             processContext = new StandardProcessContext(
-                    (ProcessorNode) connectable, flowController.getControllerServiceProvider(), stateManager, lifecycleState::isTerminated, flowController);
+                    processorNode, flowController.getControllerServiceProvider(), stateManager, lifecycleState::isTerminated, flowController);
         } else {
             processContext = new ConnectableProcessContext(connectable, stateManager);
         }
@@ -177,7 +178,14 @@ public class ConnectableTask {
 
         // make sure that either we're not clustered or this processor runs on all nodes or that this is the primary node
         if (!isRunOnCluster(flowController)) {
-            logger.debug("Will not trigger {} because this is not the primary node", connectable);
+            // Diagnostic: a cron-driven primary-node-only component triggers comparatively rarely, so log at INFO to
+            // make a skipped scheduled fire visible (e.g. a component that stops firing on its schedule after a
+            // primary-node change). Timer-driven components trigger frequently, so keep those at DEBUG to avoid noise.
+            if (connectable.getSchedulingStrategy() == SchedulingStrategy.CRON_DRIVEN) {
+                logger.info("Will not trigger {} because this is not the primary node; the cron-scheduled fire is being skipped", connectable);
+            } else {
+                logger.debug("Will not trigger {} because this is not the primary node", connectable);
+            }
             return InvocationResult.yield("This node is not the primary node");
         }
 
@@ -272,7 +280,7 @@ public class ConnectableTask {
         } finally {
             try {
                 if (batch) {
-                    final ComponentLog procLog = new SimpleProcessLogger(connectable.getIdentifier(), connectable.getRunnableComponent(), new StandardLoggingContext(connectable));
+                    final ComponentLog procLog = new StandardComponentLog(connectable.getIdentifier(), connectable.getRunnableComponent(), new StandardLoggingContext(connectable));
 
                     try {
                         rawSession.commitAsync(null, t -> {
@@ -298,13 +306,15 @@ public class ConnectableTask {
     }
 
     private void updateEventRepo(final TrackedStats stats, final int invocationCount) throws IOException {
-        final StandardFlowFileEvent flowFileEvent = stats.end();
-        flowFileEvent.setInvocations(invocationCount);
-        repositoryContext.getFlowFileEventRepository().updateRepository(flowFileEvent, connectable.getIdentifier());
+        final ProcessSessionEvent flowFileEvent = stats.end(repositoryContext.getComponentMetricContext())
+                .invocations(invocationCount)
+                .build();
+        repositoryContext.getFlowFileEventRepository().updateRepository(flowFileEvent);
+        repositoryContext.recordProcessSessionEvent(flowFileEvent);
     }
 
     private ComponentLog getComponentLog() {
-        return new SimpleProcessLogger(connectable.getIdentifier(), connectable.getRunnableComponent(), new StandardLoggingContext(connectable));
+        return new StandardComponentLog(connectable.getIdentifier(), connectable.getRunnableComponent(), new StandardLoggingContext(connectable));
     }
 
 }

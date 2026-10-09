@@ -32,6 +32,7 @@ import org.slf4j.LoggerFactory;
 
 import java.io.File;
 import java.io.IOException;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
@@ -243,7 +244,7 @@ public abstract class PartitionedEventStore implements EventStore {
             final long maxFileLife = repoConfig.getMaxRecordLife(TimeUnit.MILLISECONDS);
             for (final EventStorePartition partition : getPartitions()) {
                 try {
-                    partition.purgeOldEvents(maxFileLife, TimeUnit.MILLISECONDS);
+                    partition.purgeOldEvents(maxFileLife, ChronoUnit.MILLIS);
                 } catch (final Exception e) {
                     logger.error("Failed to purge expired events from {}", partition, e);
                     eventReporter.reportEvent(Severity.WARNING, EVENT_CATEGORY,
@@ -277,7 +278,7 @@ public abstract class PartitionedEventStore implements EventStore {
         } catch (final Exception e) {
             logger.error("Failed to perform periodic maintenance", e);
             eventReporter.reportEvent(Severity.ERROR, EVENT_CATEGORY,
-                "Failed to perform periodic maintenace for Provenance Repository. See logs for more information.");
+                "Failed to perform periodic maintenance for Provenance Repository. See logs for more information.");
         }
     }
 

@@ -23,12 +23,13 @@ import org.apache.nifi.json.JsonRecordSetWriter;
 import org.apache.nifi.json.JsonTreeReader;
 import org.apache.nifi.kafka.service.Kafka3ConnectionService;
 import org.apache.nifi.kafka.service.api.KafkaConnectionService;
+import org.apache.nifi.kafka.shared.property.SecurityProtocol;
 import org.apache.nifi.reporting.InitializationException;
 import org.apache.nifi.serialization.RecordReaderFactory;
 import org.apache.nifi.serialization.RecordSetWriterFactory;
 import org.apache.nifi.util.TestRunner;
 import org.junit.jupiter.api.BeforeAll;
-import org.testcontainers.kafka.ConfluentKafkaContainer;
+import org.testcontainers.kafka.KafkaContainer;
 import org.testcontainers.utility.DockerImageName;
 
 import java.time.Duration;
@@ -37,7 +38,7 @@ import java.util.Properties;
 
 public abstract class AbstractKafkaBaseIT {
 
-    protected static final String IMAGE_NAME = "confluentinc/cp-kafka:7.8.6"; // January 2026
+    protected static final String IMAGE_NAME = System.getProperty("kafka.docker.image", "apache/kafka:4.3.1");
 
     protected static final Integer MESSAGE_MAX_BYTES = 2097152;
 
@@ -52,11 +53,11 @@ public abstract class AbstractKafkaBaseIT {
 
     protected static final Duration DURATION_POLL = Duration.ofSeconds(3);
 
-    protected static final ConfluentKafkaContainer kafkaContainer;
+    protected static final KafkaContainer kafkaContainer;
 
     // NIFI-11259 - single testcontainers Kafka instance needed for all module integration tests
     static {
-        kafkaContainer = new ConfluentKafkaContainer(DockerImageName.parse(IMAGE_NAME))
+        kafkaContainer = new KafkaContainer(DockerImageName.parse(IMAGE_NAME))
                 .withEnv(getEnvironmentIntegration());
         kafkaContainer.start();
     }
@@ -78,6 +79,7 @@ public abstract class AbstractKafkaBaseIT {
         final KafkaConnectionService connectionService = new Kafka3ConnectionService();
         runner.addControllerService(CONNECTION_SERVICE_ID, connectionService);
         runner.setProperty(connectionService, Kafka3ConnectionService.BOOTSTRAP_SERVERS, kafkaContainer.getBootstrapServers());
+        runner.setProperty(connectionService, Kafka3ConnectionService.SECURITY_PROTOCOL, SecurityProtocol.PLAINTEXT.name());
         runner.setProperty(connectionService, Kafka3ConnectionService.MAX_POLL_RECORDS, "1000");
         runner.setProperty(connectionService, DYNAMIC_PROPERTY_KEY_PUBLISH, DYNAMIC_PROPERTY_VALUE_PUBLISH);
         runner.setProperty(connectionService, DYNAMIC_PROPERTY_KEY_CONSUME, DYNAMIC_PROPERTY_VALUE_CONSUME);

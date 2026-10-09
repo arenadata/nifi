@@ -30,6 +30,7 @@ import org.apache.nifi.controller.ProcessScheduler;
 import org.apache.nifi.controller.ProcessorNode;
 import org.apache.nifi.controller.StandardProcessorNode;
 import org.apache.nifi.controller.metrics.ComponentMetricReporter;
+import org.apache.nifi.controller.metrics.ProcessSessionEvent;
 import org.apache.nifi.controller.queue.FlowFileQueue;
 import org.apache.nifi.controller.queue.PollStrategy;
 import org.apache.nifi.controller.queue.StandardFlowFileQueue;
@@ -65,7 +66,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
-import org.mockito.Mockito;
+import org.mockito.ArgumentCaptor;
 import org.mockito.invocation.InvocationOnMock;
 import org.mockito.stubbing.Answer;
 
@@ -91,6 +92,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
@@ -116,14 +118,20 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.notNull;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 public class StandardProcessSessionIT {
     private static final Relationship FAKE_RELATIONSHIP = new Relationship.Builder().name("FAKE").build();
+
+    private static final String CONNECTABLE_ID = "connectable-1";
+
+    private static final String CONNECTOR_ID = "connector-1";
 
     private StandardProcessSession session;
     private MockContentRepository contentRepo;
@@ -177,32 +185,33 @@ public class StandardProcessSessionIT {
         resourceClaimManager = new StandardResourceClaimManager();
 
         System.setProperty(NiFiProperties.PROPERTIES_FILE_PATH, StandardProcessSessionIT.class.getResource("/conf/nifi.properties").getFile());
+        componentMetricReporter = mock(ComponentMetricReporter.class);
         flowFileEventRepository = new RingBufferEventRepository(1);
         counterRepository = new StandardCounterRepository();
         provenanceRepo = new MockProvenanceRepository();
-        componentMetricReporter = mock(ComponentMetricReporter.class);
 
         final Connection connection = createConnection();
 
         final List<Connection> connList = new ArrayList<>();
         connList.add(connection);
 
-        final ProcessGroup procGroup = Mockito.mock(ProcessGroup.class);
+        final ProcessGroup procGroup = mock(ProcessGroup.class);
         when(procGroup.getIdentifier()).thenReturn("proc-group-identifier-1");
         when(procGroup.getLoggingAttributes()).thenReturn(Map.of());
+        when(procGroup.findOwningConnectorIdentifier()).thenReturn(Optional.of(CONNECTOR_ID));
 
-        connectable = Mockito.mock(Connectable.class);
+        connectable = mock(Connectable.class);
         when(connectable.hasIncomingConnection()).thenReturn(true);
         when(connectable.getIncomingConnections()).thenReturn(connList);
         when(connectable.getProcessGroup()).thenReturn(procGroup);
-        when(connectable.getIdentifier()).thenReturn("connectable-1");
+        when(connectable.getIdentifier()).thenReturn(CONNECTABLE_ID);
         when(connectable.getConnectableType()).thenReturn(ConnectableType.INPUT_PORT);
         when(connectable.getComponentType()).thenReturn("Unit Test Component");
         when(connectable.getBackoffMechanism()).thenReturn(BackoffMechanism.PENALIZE_FLOWFILE);
         when(connectable.getMaxBackoffPeriod()).thenReturn("1 sec");
         when(connectable.getFlowFileActivity()).thenReturn(new ConnectableFlowFileActivity());
 
-        Mockito.doAnswer((Answer<Set<Connection>>) invocation -> {
+        doAnswer((Answer<Set<Connection>>) invocation -> {
             final Object[] arguments = invocation.getArguments();
             final Relationship relationship = (Relationship) arguments[0];
             if (relationship == Relationship.SELF) {
@@ -212,7 +221,7 @@ public class StandardProcessSessionIT {
             } else {
                 return new HashSet<>(connList);
             }
-        }).when(connectable).getConnections(Mockito.any(Relationship.class));
+        }).when(connectable).getConnections(any(Relationship.class));
 
         when(connectable.getConnections()).thenReturn(new HashSet<>(connList));
         when(connectable.getFlowFileActivity()).thenReturn(new ConnectableFlowFileActivity());
@@ -224,7 +233,7 @@ public class StandardProcessSessionIT {
         stateManager.setIgnoreAnnotations(true);
 
         context = new StandardRepositoryContext(connectable, new AtomicLong(0L), contentRepo, flowFileRepo, flowFileEventRepository,
-            counterRepository, componentMetricReporter, provenanceRepo, stateManager, 50_000L);
+            counterRepository, componentMetricReporter, provenanceRepo, stateManager);
         session = new StandardProcessSession(context, () -> false, new NopPerformanceTracker());
     }
 
@@ -237,17 +246,17 @@ public class StandardProcessSessionIT {
     }
 
     private FlowFileQueue createFlowFileQueueSpy(Connection connection) {
-        final FlowFileSwapManager swapManager = Mockito.mock(FlowFileSwapManager.class);
-        final ProcessScheduler processScheduler = Mockito.mock(ProcessScheduler.class);
+        final FlowFileSwapManager swapManager = mock(FlowFileSwapManager.class);
+        final ProcessScheduler processScheduler = mock(ProcessScheduler.class);
 
         final StandardFlowFileQueue actualQueue = new StandardFlowFileQueue("1", flowFileRepo, provenanceRepo,
                 processScheduler, swapManager, null, 10000, "0 sec", 0L, "0 B");
-        return Mockito.spy(actualQueue);
+        return spy(actualQueue);
     }
 
     @SuppressWarnings("unchecked")
     private Connection createConnection(AtomicReference<FlowFileQueue> flowFileQueueReference) {
-        final Connection connection = Mockito.mock(Connection.class);
+        final Connection connection = mock(Connection.class);
 
         FlowFileQueue flowFileQueueFromReference = flowFileQueueReference.get();
 
@@ -262,26 +271,26 @@ public class StandardProcessSessionIT {
 
         when(connection.getFlowFileQueue()).thenReturn(localFlowFileQueue);
 
-        Mockito.doAnswer((Answer<Object>) invocation -> {
+        doAnswer((Answer<Object>) invocation -> {
             localFlowFileQueue.put((FlowFileRecord) invocation.getArguments()[0]);
             return null;
-        }).when(connection).enqueue(Mockito.any(FlowFileRecord.class));
+        }).when(connection).enqueue(any(FlowFileRecord.class));
 
-        Mockito.doAnswer((Answer<Object>) invocation -> {
+        doAnswer((Answer<Object>) invocation -> {
             localFlowFileQueue.putAll((Collection<FlowFileRecord>) invocation.getArguments()[0]);
             return null;
-        }).when(connection).enqueue(Mockito.any(Collection.class));
+        }).when(connection).enqueue(any(Collection.class));
 
-        final Connectable dest = Mockito.mock(Connectable.class);
+        final Connectable dest = mock(Connectable.class);
         when(connection.getDestination()).thenReturn(dest);
         when(connection.getSource()).thenReturn(dest);
 
-        Mockito.doAnswer((Answer<FlowFile>) invocation -> localFlowFileQueue.poll(invocation.getArgument(0))).when(connection).poll(any(Set.class));
+        doAnswer((Answer<FlowFile>) invocation -> localFlowFileQueue.poll(invocation.getArgument(0))).when(connection).poll(any(Set.class));
 
-        Mockito.doAnswer((Answer<List<FlowFileRecord>>) invocation ->
+        doAnswer((Answer<List<FlowFileRecord>>) invocation ->
                 localFlowFileQueue.poll((FlowFileFilter) invocation.getArgument(0), invocation.getArgument(1))).when(connection).poll(any(FlowFileFilter.class), any(Set.class));
 
-        Mockito.when(connection.getIdentifier()).thenReturn("conn-uuid");
+        when(connection.getIdentifier()).thenReturn("conn-uuid");
         return connection;
     }
 
@@ -549,6 +558,25 @@ public class StandardProcessSessionIT {
     }
 
     @Test
+    public void testProcessSessionEventRecorded() {
+        final Relationship relationship = new Relationship.Builder().name("A").build();
+
+        FlowFile flowFile = session.create();
+        session.transfer(flowFile, relationship);
+        session.checkpoint();
+
+        flowFile = session.create();
+        session.transfer(flowFile, relationship);
+        session.commit();
+
+        final ArgumentCaptor<ProcessSessionEvent> eventCaptor = ArgumentCaptor.forClass(ProcessSessionEvent.class);
+        verify(componentMetricReporter, times(2)).recordProcessSessionEvent(eventCaptor.capture());
+
+        final ProcessSessionEvent event = eventCaptor.getValue();
+        assertEquals(2, event.getFlowFilesIn());
+    }
+
+    @Test
     public void testReadCountCorrectWhenSkippingWithReadCallback() throws IOException {
         final byte[] content = "This and that and the other.".getBytes(StandardCharsets.UTF_8);
 
@@ -607,7 +635,7 @@ public class StandardProcessSessionIT {
     private byte[] readContents(final FlowFile flowFile) throws IOException {
         try (final InputStream in = session.read(flowFile);
              final ByteArrayOutputStream baos = new ByteArrayOutputStream()) {
-            StreamUtils.copy(in, baos);
+            in.transferTo(baos);
             return baos.toByteArray();
         }
     }
@@ -668,12 +696,12 @@ public class StandardProcessSessionIT {
         session.commit();
 
         final RepositoryStatusReport report = flowFileEventRepository.reportTransferEvents(0L);
-        final FlowFileEvent queueFlowFileEvent = report.getReportEntry("conn-uuid");
+        final ProcessSessionEvent queueFlowFileEvent = report.getReportEntry("conn-uuid");
         assertNotNull(queueFlowFileEvent);
         assertEquals(2, queueFlowFileEvent.getFlowFilesOut());
         assertEquals(0L, queueFlowFileEvent.getContentSizeOut());
 
-        final FlowFileEvent componentFlowFileEvent = report.getReportEntry("connectable-1");
+        final ProcessSessionEvent componentFlowFileEvent = report.getReportEntry("connectable-1");
         final Map<String, Long> counters = componentFlowFileEvent.getCounters();
         assertNotNull(counters);
         assertEquals(1, counters.size());
@@ -1233,11 +1261,11 @@ public class StandardProcessSessionIT {
         // should be OK
         ByteArrayOutputStream os = new ByteArrayOutputStream();
         session.exportTo(flowFile, os);
-        assertEquals("Hello World", new String(os.toByteArray()));
+        assertEquals("Hello World", os.toString());
         os.close();
 
         // should throw ProcessException because of IOException (from processor code)
-        FileOutputStream mock = Mockito.mock(FileOutputStream.class);
+        FileOutputStream mock = mock(FileOutputStream.class);
         doThrow(new IOException()).when(mock).write(notNull(), any(Integer.class), any(Integer.class));
 
         final FlowFile finalFlowfile = flowFile;
@@ -1646,7 +1674,7 @@ public class StandardProcessSessionIT {
         // Read the content back and ensure that it is correct
         final byte[] buff;
         try (final ByteArrayOutputStream baos = new ByteArrayOutputStream()) {
-            newSession.read(toUpdate, in -> StreamUtils.copy(in, baos));
+            newSession.read(toUpdate, in -> in.transferTo(baos));
             buff = baos.toByteArray();
         }
 
@@ -1681,7 +1709,7 @@ public class StandardProcessSessionIT {
                 .contentClaim(contentClaim)
                 .build();
 
-        Mockito.doAnswer(new Answer<List<FlowFileRecord>>() {
+        doAnswer(new Answer<List<FlowFileRecord>>() {
             int iterations = 0;
 
             @Override
@@ -1693,7 +1721,7 @@ public class StandardProcessSessionIT {
 
                 return null;
             }
-        }).when(flowFileQueue).poll(Mockito.any(FlowFileFilter.class), Mockito.any(Set.class), Mockito.any(PollStrategy.class));
+        }).when(flowFileQueue).poll(any(FlowFileFilter.class), any(Set.class), any(PollStrategy.class));
 
         session.expireFlowFiles();
         session.commit(); // if the content claim count is decremented to less than 0, an exception will be thrown.
@@ -2102,7 +2130,7 @@ public class StandardProcessSessionIT {
             StreamUtils.fillBuffer(in, buffer);
         }
 
-        assertEquals(new String(buffer), "hello, world");
+        assertEquals("hello, world", new String(buffer));
     }
 
     @Test
@@ -2252,7 +2280,7 @@ public class StandardProcessSessionIT {
         session.commit();
 
         RepositoryStatusReport report = flowFileEventRepository.reportTransferEvents(start - 1);
-        FlowFileEvent event = report.getReportEntries().values().iterator().next();
+        ProcessSessionEvent event = report.getReportEntries().values().iterator().next();
         assertEquals(0, event.getFlowFilesRemoved());
         assertEquals(0, event.getContentSizeRemoved());
         assertEquals(0, event.getFlowFilesOut());
@@ -2332,6 +2360,80 @@ public class StandardProcessSessionIT {
         assertEquals(RepositoryRecordType.CLEANUP_TRANSIENT_CLAIMS, record.getType());
         final List<ContentClaim> transientClaims = record.getTransientClaims();
         assertEquals(5, transientClaims.size());
+    }
+
+    @Test
+    public void testContentClaimCreationContextIdentifiesComponentAndConnector() {
+        FlowFile flowFile = session.create();
+        flowFile = session.importFrom(new ByteArrayInputStream("imported".getBytes(StandardCharsets.UTF_8)), flowFile);
+        flowFile = session.write(flowFile, out -> out.write("written".getBytes(StandardCharsets.UTF_8)));
+
+        session.transfer(flowFile, new Relationship.Builder().name("success").build());
+        session.commit();
+
+        // The first claim is created directly by the import; the second is obtained from the session's write cache.
+        final List<ContentClaimCreationContext> creationContexts = contentRepo.getCreationContexts();
+        assertEquals(2, creationContexts.size());
+
+        for (final ContentClaimCreationContext creationContext : creationContexts) {
+            assertEquals(CONNECTABLE_ID, creationContext.getComponentIdentifier());
+            assertEquals(CONNECTOR_ID, creationContext.getConnectorIdentifier());
+            assertEquals(LossTolerance.LOSS_INTOLERANT, creationContext.getLossTolerance());
+        }
+    }
+
+    @Test
+    public void testContentClaimCreationContextLossToleranceMatchesComponent() {
+        when(connectable.isLossTolerant()).thenReturn(true);
+
+        final StandardRepositoryContext lossTolerantContext = new StandardRepositoryContext(connectable, new AtomicLong(0L), contentRepo, flowFileRepo,
+            flowFileEventRepository, counterRepository, componentMetricReporter, provenanceRepo, stateManager);
+        final StandardProcessSession lossTolerantSession = new StandardProcessSession(lossTolerantContext, () -> false, new NopPerformanceTracker());
+
+        try {
+            FlowFile flowFile = lossTolerantSession.create();
+            flowFile = lossTolerantSession.importFrom(new ByteArrayInputStream("imported".getBytes(StandardCharsets.UTF_8)), flowFile);
+            lossTolerantSession.write(flowFile, out -> out.write("written".getBytes(StandardCharsets.UTF_8)));
+        } finally {
+            lossTolerantSession.rollback();
+        }
+
+        final List<ContentClaimCreationContext> creationContexts = contentRepo.getCreationContexts();
+        assertEquals(2, creationContexts.size());
+
+        for (final ContentClaimCreationContext creationContext : creationContexts) {
+            assertEquals(LossTolerance.LOSS_TOLERANT, creationContext.getLossTolerance());
+        }
+    }
+
+    @Test
+    public void testFlowFileUpdateContextIdentifiesComponentAndConnectorOnCommit() {
+        flowFileQueue.put(new MockFlowFileRecord(1L));
+
+        final FlowFile flowFile = session.get();
+        session.transfer(flowFile, new Relationship.Builder().name("success").build());
+        session.commit();
+
+        final List<FlowFileUpdateContext> updateContexts = flowFileRepo.getUpdateContexts();
+        assertEquals(1, updateContexts.size());
+        assertEquals(CONNECTABLE_ID, updateContexts.getFirst().getComponentIdentifier());
+        assertEquals(CONNECTOR_ID, updateContexts.getFirst().getConnectorIdentifier());
+    }
+
+    @Test
+    public void testFlowFileUpdateContextIdentifiesComponentAndConnectorOnRollback() {
+        flowFileQueue.put(new MockFlowFileRecord(1L));
+
+        FlowFile flowFile = session.get();
+        flowFile = session.write(flowFile, out -> out.write("content".getBytes(StandardCharsets.UTF_8)));
+        assertNotNull(flowFile);
+
+        session.rollback();
+
+        final List<FlowFileUpdateContext> updateContexts = flowFileRepo.getUpdateContexts();
+        assertEquals(1, updateContexts.size());
+        assertEquals(CONNECTABLE_ID, updateContexts.getFirst().getComponentIdentifier());
+        assertEquals(CONNECTOR_ID, updateContexts.getFirst().getConnectorIdentifier());
     }
 
     @Test
@@ -3052,7 +3154,7 @@ public class StandardProcessSessionIT {
         when(connectable.getComponentType()).thenReturn("Unit Test Component");
         when(connectable.getFlowFileActivity()).thenReturn(new ConnectableFlowFileActivity());
 
-        Mockito.doAnswer((Answer<Set<Connection>>) invocation -> {
+        doAnswer((Answer<Set<Connection>>) invocation -> {
             final Object[] arguments = invocation.getArguments();
             final Relationship relationship = (Relationship) arguments[0];
             if (relationship == Relationship.SELF) {
@@ -3064,7 +3166,7 @@ public class StandardProcessSessionIT {
             } else {
                 return new HashSet<>(connList);
             }
-        }).when(connectable).getConnections(Mockito.any(Relationship.class));
+        }).when(connectable).getConnections(any(Relationship.class));
 
         when(connectable.getConnections()).thenReturn(new HashSet<>(connList));
 
@@ -3085,8 +3187,7 @@ public class StandardProcessSessionIT {
                 counterRepository,
                 componentMetricReporter,
                 provenanceRepo,
-                stateManager,
-                50_000L);
+                stateManager);
         return new StandardProcessSession(context, () -> false, new NopPerformanceTracker());
 
     }
@@ -3096,6 +3197,7 @@ public class StandardProcessSessionIT {
         private boolean failOnUpdate = false;
         private final AtomicLong idGenerator = new AtomicLong(0L);
         private final List<RepositoryRecord> updates = new ArrayList<>();
+        private final List<FlowFileUpdateContext> updateContexts = new ArrayList<>();
         private final ContentRepository contentRepo;
 
         public MockFlowFileRepository(final ContentRepository contentRepo) {
@@ -3142,8 +3244,18 @@ public class StandardProcessSessionIT {
             }
         }
 
+        @Override
+        public void updateRepository(final Collection<RepositoryRecord> records, final FlowFileUpdateContext context) throws IOException {
+            updateContexts.add(context);
+            FlowFileRepository.super.updateRepository(records, context);
+        }
+
         public List<RepositoryRecord> getUpdates() {
             return updates;
+        }
+
+        public List<FlowFileUpdateContext> getUpdateContexts() {
+            return updateContexts;
         }
 
         @Override
@@ -3198,6 +3310,7 @@ public class StandardProcessSessionIT {
 
         private final AtomicLong idGenerator = new AtomicLong(0L);
         private final AtomicLong claimsRemoved = new AtomicLong(0L);
+        private final List<ContentClaimCreationContext> creationContexts = Collections.synchronizedList(new ArrayList<>());
         private ResourceClaimManager claimManager;
         private boolean disableRead = false;
 
@@ -3232,6 +3345,16 @@ public class StandardProcessSessionIT {
             }
             Files.createFile(getPath(contentClaim));
             return contentClaim;
+        }
+
+        @Override
+        public ContentClaim create(final ContentClaimCreationContext context) throws IOException {
+            creationContexts.add(context);
+            return ContentRepository.super.create(context);
+        }
+
+        public List<ContentClaimCreationContext> getCreationContexts() {
+            return creationContexts;
         }
 
         public ContentClaim create(byte[] content) throws IOException {
@@ -3346,7 +3469,7 @@ public class StandardProcessSessionIT {
         public long importFrom(InputStream content, ContentClaim claim) throws IOException {
             final long size;
             try (final OutputStream out = write(claim)) {
-                size = StreamUtils.copy(content, out);
+                size = content.transferTo(out);
             }
             ((StandardContentClaim) claim).setLength(size);
             return size;
@@ -3365,7 +3488,7 @@ public class StandardProcessSessionIT {
         @Override
         public long exportTo(ContentClaim claim, OutputStream destination) throws IOException {
             try (final InputStream in = read(claim)) {
-                return StreamUtils.copy(in, destination);
+                return in.transferTo(destination);
             }
         }
 

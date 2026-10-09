@@ -26,7 +26,6 @@ import org.apache.nifi.processors.aws.AbstractAwsProcessor;
 import org.apache.nifi.processors.aws.ObsoleteAbstractAwsProcessorProperties;
 import org.apache.nifi.processors.aws.credentials.provider.AwsCredentialsProviderService;
 import org.apache.nifi.processors.aws.credentials.provider.service.AWSCredentialsProviderControllerService;
-import org.apache.nifi.processors.aws.region.RegionUtil;
 import org.apache.nifi.proxy.ProxyConfigurationService;
 import org.apache.nifi.reporting.InitializationException;
 import org.apache.nifi.serialization.record.RecordFieldType;
@@ -325,7 +324,7 @@ public class TestConsumeKinesisStream {
         mockConsumeKinesisStreamRunner.setProperty(ConsumeKinesisStream.GRACEFUL_SHUTDOWN_TIMEOUT, "50 millis");
         mockConsumeKinesisStreamRunner.setProperty(ConsumeKinesisStream.KINESIS_STREAM_NAME, "test-stream");
         mockConsumeKinesisStreamRunner.setProperty(ConsumeKinesisStream.APPLICATION_NAME, "test-application");
-        mockConsumeKinesisStreamRunner.setProperty(RegionUtil.REGION, Region.EU_WEST_2.id());
+        mockConsumeKinesisStreamRunner.setProperty(REGION, Region.EU_WEST_2.id());
         mockConsumeKinesisStreamRunner.setProperty(ConsumeKinesisStream.TIMEOUT, "5 secs");
         mockConsumeKinesisStreamRunner.setProperty(ConsumeKinesisStream.INITIAL_STREAM_POSITION, "TRIM_HORIZON");
 
@@ -356,7 +355,7 @@ public class TestConsumeKinesisStream {
 
         assertSchedulerConfigs(processor.scheduler, hostname);
         assertConfigsBuilder(processor.configsBuilder);
-        assertEquals(processor.scheduler.applicationName(), "test-application");
+        assertEquals("test-application", processor.scheduler.applicationName());
 
         if (!waitForFailure) {
             // re-trigger the processor to ensure the Worker isn't re-initialised when already running
@@ -386,11 +385,11 @@ public class TestConsumeKinesisStream {
 
     private void assertSchedulerConfigs(final Scheduler scheduler, final String hostname) {
         assertTrue(scheduler.leaseManagementConfig().workerIdentifier().startsWith(hostname));
-        assertEquals(scheduler.coordinatorConfig().applicationName(), "test-application");
-        assertEquals(scheduler.leaseManagementConfig().streamName(), "test-stream");
-        assertEquals(scheduler.retrievalConfig().streamTracker().streamConfigList().getFirst().initialPositionInStreamExtended().getInitialPositionInStream(),
-                InitialPositionInStream.TRIM_HORIZON);
-        assertEquals(scheduler.coordinatorConfig().parentShardPollIntervalMillis(), 1);
+        assertEquals("test-application", scheduler.coordinatorConfig().applicationName());
+        assertEquals("test-stream", scheduler.leaseManagementConfig().streamName());
+        assertEquals(InitialPositionInStream.TRIM_HORIZON,
+                scheduler.retrievalConfig().streamTracker().streamConfigList().getFirst().initialPositionInStreamExtended().getInitialPositionInStream());
+        assertEquals(1, scheduler.coordinatorConfig().parentShardPollIntervalMillis());
     }
 
     // public so TestRunners is able to see and instantiate the class for the tests

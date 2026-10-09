@@ -72,7 +72,7 @@ public class TestPutS3Object {
     @BeforeEach
     public void setUp() {
         mockS3Client = mock(S3Client.class);
-        Mockito.when(mockS3Client.utilities()).thenReturn(S3Utilities.builder().region(Region.US_WEST_2).build());
+        when(mockS3Client.utilities()).thenReturn(S3Utilities.builder().region(Region.US_WEST_2).build());
         putS3Object = new PutS3Object() {
             @Override
             protected S3Client getClient(final ProcessContext context, final Map<String, String> attributes) {
@@ -108,7 +108,7 @@ public class TestPutS3Object {
         ArgumentCaptor<RequestBody> captureRequestBody = ArgumentCaptor.forClass(RequestBody.class);
         verify(mockS3Client).putObject(captureRequest.capture(), captureRequestBody.capture());
         PutObjectRequest putObjectRequest = captureRequest.getValue();
-        assertEquals(putObjectRequest.contentLength(), contentLength);
+        assertEquals(contentLength, putObjectRequest.contentLength());
 
         runner.assertAllFlowFilesTransferred(PutS3Object.REL_SUCCESS, 1);
     }

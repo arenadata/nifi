@@ -38,7 +38,7 @@ public class NiFiProjectTableScanRule extends RelRule<NiFiProjectTableScanRule.C
         final Project project = call.rel(0);
 
         // Attempt to locate NiFiTableScan as immediate input
-        if (!(project.getInput() instanceof NiFiTableScan scan)) {
+        if (!(project.getInput() instanceof final NiFiTableScan scan)) {
             return;
         }
 
@@ -57,8 +57,8 @@ public class NiFiProjectTableScanRule extends RelRule<NiFiProjectTableScanRule.C
         for (int i = 0; i < expressions.size(); i++) {
             final RexNode exp = expressions.get(i);
 
-            if (exp instanceof RexInputRef) {
-                fields[i] = ((RexInputRef) exp).getIndex();
+            if (exp instanceof final RexInputRef rexInputRef) {
+                fields[i] = rexInputRef.getIndex();
             } else {
                 // not a simple projection
                 return null;

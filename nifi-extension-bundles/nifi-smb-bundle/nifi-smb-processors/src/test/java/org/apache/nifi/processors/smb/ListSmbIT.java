@@ -28,7 +28,6 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 
 import java.time.Instant;
-import java.util.Arrays;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
@@ -47,9 +46,9 @@ import static org.apache.nifi.processors.smb.ListSmb.INITIAL_LISTING_TIMESTAMP;
 import static org.apache.nifi.processors.smb.ListSmb.MINIMUM_AGE;
 import static org.apache.nifi.processors.smb.ListSmb.MINIMUM_SIZE;
 import static org.apache.nifi.processors.smb.ListSmb.PATH_FILTER;
-import static org.apache.nifi.services.smb.SmbjClientProviderService.HOSTNAME;
-import static org.apache.nifi.services.smb.SmbjClientProviderService.PORT;
-import static org.apache.nifi.services.smb.SmbjClientProviderService.SHARE;
+import static org.apache.nifi.smb.common.SmbProperties.HOSTNAME;
+import static org.apache.nifi.smb.common.SmbProperties.PORT;
+import static org.apache.nifi.smb.common.SmbProperties.SHARE;
 import static org.apache.nifi.util.TestRunners.newTestRunner;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
@@ -167,7 +166,7 @@ public class ListSmbIT extends SambaTestContainers {
                 .map(attributes -> attributes.get("filename"))
                 .collect(toSet());
 
-        assertEquals(new HashSet<>(Arrays.asList("file_name")), fileNames);
+        assertEquals(Set.of("file_name"), fileNames);
 
         testRunner.assertValid();
         testRunner.disableControllerService(smbjClientProviderService);

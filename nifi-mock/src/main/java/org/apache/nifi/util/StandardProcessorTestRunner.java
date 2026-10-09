@@ -428,7 +428,7 @@ public class StandardProcessorTestRunner implements TestRunner {
 
     @Override
     public List<ConfigVerificationResult> verify(final Map<String, String> variables) {
-        if (processor instanceof VerifiableProcessor vProcessor) {
+        if (processor instanceof final VerifiableProcessor vProcessor) {
             return vProcessor.verify(context, logger, variables);
         } else {
             throw new IllegalStateException("The Processor does not implement the VerifiableProcessor interface");
@@ -579,8 +579,18 @@ public class StandardProcessorTestRunner implements TestRunner {
     }
 
     @Override
+    public Long getCounterValue(final String name, final Map<String, String> attributes) {
+        return sharedState.getCounterValue(name, attributes);
+    }
+
+    @Override
     public List<Double> getGaugeValues(final String name) {
         return sharedState.getGaugeValues(name);
+    }
+
+    @Override
+    public List<Double> getGaugeValues(final String name, final Map<String, String> attributes) {
+        return sharedState.getGaugeValues(name, attributes);
     }
 
     @Override
@@ -756,7 +766,7 @@ public class StandardProcessorTestRunner implements TestRunner {
 
     @Override
     public List<ConfigVerificationResult> verify(final ControllerService service, final Map<String, String> variables) {
-        if (service instanceof VerifiableControllerService vService) {
+        if (service instanceof final VerifiableControllerService vService) {
             final StateManager serviceStateManager = controllerServiceStateManagers.get(service.getIdentifier());
             if (serviceStateManager == null) {
                 throw new IllegalStateException("Controller Service has not been added to this TestRunner via the #addControllerService method");
@@ -1162,8 +1172,8 @@ public class StandardProcessorTestRunner implements TestRunner {
                 enableControllerService(serviceImpl);
             } catch (final Exception e) {
                 if (serviceCreationException == null) {
-                    if (e instanceof RuntimeException) {
-                        serviceCreationException = (RuntimeException) e;
+                    if (e instanceof final RuntimeException runtimeException) {
+                        serviceCreationException = runtimeException;
                     } else {
                         serviceCreationException = new RuntimeException(e);
                     }

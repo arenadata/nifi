@@ -40,7 +40,6 @@ import org.apache.nifi.registry.flow.FlowAlreadyExistsException;
 import org.apache.nifi.registry.flow.FlowLocation;
 import org.apache.nifi.registry.flow.FlowRegistryBranch;
 import org.apache.nifi.registry.flow.FlowRegistryBucket;
-import org.apache.nifi.registry.flow.FlowRegistryClient;
 import org.apache.nifi.registry.flow.FlowRegistryClientConfigurationContext;
 import org.apache.nifi.registry.flow.FlowRegistryClientInitializationContext;
 import org.apache.nifi.registry.flow.FlowRegistryException;
@@ -162,6 +161,7 @@ public abstract class AbstractGitFlowRegistryClient extends AbstractFlowRegistry
         combinedPropertyDescriptors.add(PARAMETER_CONTEXT_VALUES);
         combinedPropertyDescriptors.add(COMMIT_AUTHOR_SOURCE);
         combinedPropertyDescriptors.add(SSL_CONTEXT_SERVICE);
+        combinedPropertyDescriptors.add(SYNCHRONIZATION_INTERVAL);
         propertyDescriptors = Collections.unmodifiableList(combinedPropertyDescriptors);
 
         flowSnapshotSerializer = createFlowSnapshotSerializer();
@@ -829,7 +829,7 @@ public abstract class AbstractGitFlowRegistryClient extends AbstractFlowRegistry
                 try {
                     String branch = context.getProperty(REPOSITORY_BRANCH).getValue();
                     if (StringUtils.isBlank(branch)) {
-                        branch = FlowRegistryClient.DEFAULT_BRANCH_NAME;
+                        branch = DEFAULT_BRANCH_NAME;
                     }
 
                     final String exclusionPatternValue = context.getProperty(DIRECTORY_FILTER_EXCLUDE).getValue();

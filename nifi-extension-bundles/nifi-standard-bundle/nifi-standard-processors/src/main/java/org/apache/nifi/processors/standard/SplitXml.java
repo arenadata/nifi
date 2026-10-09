@@ -45,6 +45,7 @@ import org.xml.sax.InputSource;
 import org.xml.sax.Locator;
 import org.xml.sax.SAXException;
 
+import java.io.BufferedInputStream;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
@@ -77,7 +78,7 @@ import static org.apache.nifi.flowfile.attributes.FragmentAttributes.copyAttribu
                 description = "A one-up number that indicates the ordering of the split FlowFiles that were created from a single parent FlowFile"),
         @WritesAttribute(attribute = "fragment.count",
                 description = "The number of split FlowFiles generated from the parent FlowFile"),
-        @WritesAttribute(attribute = "segment.original.filename ", description = "The filename of the parent FlowFile")
+        @WritesAttribute(attribute = "segment.original.filename", description = "The filename of the parent FlowFile")
 })
 @SystemResourceConsideration(resource = SystemResource.MEMORY, description = "The entirety of the FlowFile's content (as a Document object) is read into memory, " +
         "in addition to all of the generated FlowFiles representing the split XML. A Document object can take approximately 10 times as much memory as the size of " +
@@ -153,7 +154,7 @@ public class SplitXml extends AbstractProcessor {
 
         final AtomicBoolean failed = new AtomicBoolean(false);
         session.read(original, rawIn -> {
-            try (final InputStream in = new java.io.BufferedInputStream(rawIn)) {
+            try (final InputStream in = new BufferedInputStream(rawIn)) {
                 try {
                     final StandardInputSourceParser inputSourceParser = new StandardInputSourceParser();
                     inputSourceParser.setNamespaceAware(true);

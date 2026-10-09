@@ -376,8 +376,7 @@ public class InvokeScriptedProcessor extends AbstractSessionFactoryProcessor {
             }
             // get the engine and ensure its invocable
             ScriptEngine scriptEngine = scriptRunner.getScriptEngine();
-            if (scriptEngine instanceof Invocable) {
-                final Invocable invocable = (Invocable) scriptEngine;
+            if (scriptEngine instanceof final Invocable invocable) {
 
                 // evaluate the script
                 scriptRunner.run(scriptEngine.getBindings(ScriptContext.ENGINE_SCOPE));
@@ -621,8 +620,7 @@ public class InvokeScriptedProcessor extends AbstractSessionFactoryProcessor {
         // Run the scripted processor's method here, if it exists
         if (scriptRunner != null) {
             final ScriptEngine scriptEngine = scriptRunner.getScriptEngine();
-            if (scriptEngine instanceof Invocable) {
-                final Invocable invocable = (Invocable) scriptEngine;
+            if (scriptEngine instanceof final Invocable invocable) {
                 final Object obj = scriptEngine.get("processor");
                 if (obj != null) {
 
@@ -636,8 +634,8 @@ public class InvokeScriptedProcessor extends AbstractSessionFactoryProcessor {
                     } catch (final Exception e) {
                         // An error occurred during onScheduled, propagate it up
                         logger.error("Error while executing the scripted processor's method {}", methodName, e);
-                        if (e instanceof ProcessException) {
-                            throw (ProcessException) e;
+                        if (e instanceof final ProcessException processException) {
+                            throw processException;
                         }
                         throw new ProcessException(e);
                     }

@@ -77,18 +77,17 @@ public class InMemoryGraphClient extends AbstractControllerService implements Gr
             throw new ProcessException(ex);
         }
 
-        if (response instanceof Map) {
+        if (response instanceof final Map resultMap) {
             //The below logic helps with the handling of complex Map<String, Object> relationships
-            Map resultMap = (Map) response;
             if (!resultMap.isEmpty()) {
-                // Convertex a resultMap to an entrySet iterator
+                // Convert a resultMap to an entrySet iterator
                 Iterator outerResultSet = resultMap.entrySet().iterator();
                 // this loops over the outermost map
                 while (outerResultSet.hasNext()) {
                     Map.Entry<String, Object> innerResultSet = (Map.Entry<String, Object>) outerResultSet.next();
                     // this is for edge case handling where innerResultSet is also a Map
-                    if (innerResultSet.getValue() instanceof Map) {
-                        Iterator resultSet = ((Map) innerResultSet.getValue()).entrySet().iterator();
+                    if (innerResultSet.getValue() instanceof final Map map) {
+                        Iterator resultSet = map.entrySet().iterator();
                         // looping over each result in the inner map
                         while (resultSet.hasNext()) {
                             Map.Entry<String, Object> tempResult = (Map.Entry<String, Object>) resultSet.next();

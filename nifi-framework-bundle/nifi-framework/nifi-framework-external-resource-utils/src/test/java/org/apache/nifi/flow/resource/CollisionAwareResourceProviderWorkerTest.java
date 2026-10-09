@@ -87,7 +87,7 @@ public class CollisionAwareResourceProviderWorkerTest {
         runningTestSubject();
 
         assertOperationsAreFinished();
-        verifyConflictResulotionWasNotNeeded();
+        verifyConflictResolutionWasNotNeeded();
         assertTargetFolderIsEmpty();
     }
 
@@ -269,7 +269,7 @@ public class CollisionAwareResourceProviderWorkerTest {
 
         try (
             final FileOutputStream fileOutputStream = new FileOutputStream(file);
-            final BufferedOutputStream bufferedOutputStream = new BufferedOutputStream(fileOutputStream);
+            final BufferedOutputStream bufferedOutputStream = new BufferedOutputStream(fileOutputStream)
         ) {
             bufferedOutputStream.write(content.getBytes(StandardCharsets.UTF_8));
         }
@@ -317,7 +317,7 @@ public class CollisionAwareResourceProviderWorkerTest {
         Assertions.assertEquals(actions.numberOfFetches(), provider.getFetchCounter());
     }
 
-    private void verifyConflictResulotionWasNotNeeded() {
+    private void verifyConflictResolutionWasNotNeeded() {
         Mockito.verify(conflictResolutionStrategy, Mockito.never()).shouldBeFetched(Mockito.any(File.class), Mockito.any(ExternalResourceDescriptor.class));
     }
 

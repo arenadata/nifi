@@ -48,8 +48,7 @@ public class ToString extends RecordPathSegment {
                     Object value = fv.getValue();
                     final String stringValue;
 
-                    if (value instanceof Object[]) {
-                        Object[] o = (Object[]) value;
+                    if (value instanceof final Object[] o) {
                         if (o.length > 0) {
 
                             byte[] dest = new byte[o.length];
@@ -63,7 +62,7 @@ public class ToString extends RecordPathSegment {
                     } else if (!(fv.getValue() instanceof byte[])) {
                         stringValue = fv.getValue().toString();
                     } else {
-                        stringValue = DataTypeUtils.toString(fv.getValue(), (String) null, charset);
+                        stringValue = DataTypeUtils.toString(fv.getValue(), null, charset);
                     }
                     final RecordField originalField = fv.getField();
                     final RecordField stringField;

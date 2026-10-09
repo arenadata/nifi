@@ -31,6 +31,8 @@ import java.sql.ResultSet;
 import java.sql.ResultSetMetaData;
 import java.sql.SQLException;
 import java.sql.SQLFeatureNotSupportedException;
+import java.sql.Time;
+import java.sql.Timestamp;
 import java.sql.Types;
 import java.util.ArrayList;
 import java.util.Date;
@@ -164,12 +166,12 @@ public class ResultSetRecordSet implements RecordSet, Closeable {
             return null;
         }
 
-        if (value instanceof List) {
-            return ((List) value).toArray();
+        if (value instanceof final List list) {
+            return list.toArray();
         }
 
-        if (value instanceof Array) {
-            return ((Array) value).getArray();
+        if (value instanceof final Array array) {
+            return array.getArray();
         }
 
         return value;
@@ -234,7 +236,7 @@ public class ResultSetRecordSet implements RecordSet, Closeable {
                 }
 
                 final Object obj = rs.getObject(columnIndex);
-                if (!(obj instanceof Record)) {
+                if (!(obj instanceof final Record record)) {
                     final List<DataType> dataTypes = Stream.of(RecordFieldType.BIGINT, RecordFieldType.BOOLEAN, RecordFieldType.BYTE, RecordFieldType.CHAR, RecordFieldType.DATE,
                             RecordFieldType.DECIMAL, RecordFieldType.DOUBLE, RecordFieldType.FLOAT, RecordFieldType.INT, RecordFieldType.LONG, RecordFieldType.SHORT, RecordFieldType.STRING,
                             RecordFieldType.TIME, TIMESTAMP)
@@ -244,7 +246,6 @@ public class ResultSetRecordSet implements RecordSet, Closeable {
                     return RecordFieldType.CHOICE.getChoiceDataType(dataTypes);
                 }
 
-                final Record record = (Record) obj;
                 final RecordSchema recordSchema = record.getSchema();
                 return RecordFieldType.RECORD.getRecordDataType(recordSchema);
             }
@@ -382,8 +383,7 @@ public class ResultSetRecordSet implements RecordSet, Closeable {
         if (arrayValue instanceof char[]) {
             return RecordFieldType.CHAR.getDataType();
         }
-        if (arrayValue instanceof Object[]) {
-            final Object[] values = (Object[]) arrayValue;
+        if (arrayValue instanceof final Object[] values) {
             if (values.length == 0) {
                 return RecordFieldType.STRING.getDataType();
             }
@@ -420,9 +420,8 @@ public class ResultSetRecordSet implements RecordSet, Closeable {
             if (valueToLookAt instanceof Double) {
                 return RecordFieldType.DOUBLE.getDataType();
             }
-            if (valueToLookAt instanceof BigDecimal) {
+            if (valueToLookAt instanceof final BigDecimal bigDecimal) {
                 if (useLogicalTypes) {
-                    final BigDecimal bigDecimal = (BigDecimal) valueToLookAt;
                     return RecordFieldType.DECIMAL.getDecimalDataType(bigDecimal.precision(), bigDecimal.scale());
                 } else {
                     return RecordFieldType.STRING.getDataType();
@@ -437,17 +436,16 @@ public class ResultSetRecordSet implements RecordSet, Closeable {
             if (valueToLookAt instanceof BigInteger) {
                 return RecordFieldType.BIGINT.getDataType();
             }
-            if (valueToLookAt instanceof java.sql.Time) {
+            if (valueToLookAt instanceof Time) {
                 return getDataType(RecordFieldType.TIME, useLogicalTypes);
             }
             if (valueToLookAt instanceof java.sql.Date) {
                 return getDataType(RecordFieldType.DATE, useLogicalTypes);
             }
-            if (valueToLookAt instanceof java.sql.Timestamp) {
+            if (valueToLookAt instanceof Timestamp) {
                 return getDataType(TIMESTAMP, useLogicalTypes);
             }
-            if (valueToLookAt instanceof Record) {
-                final Record record = (Record) valueToLookAt;
+            if (valueToLookAt instanceof final Record record) {
                 return RecordFieldType.RECORD.getRecordDataType(record.getSchema());
             }
         }

@@ -29,7 +29,6 @@ import org.apache.nifi.components.ConfigVerificationResult;
 import org.apache.nifi.components.PropertyDescriptor;
 import org.apache.nifi.parameter.Parameter;
 import org.apache.nifi.parameter.ParameterGroup;
-import org.apache.nifi.parameter.VerifiableParameterProvider;
 import org.apache.nifi.reporting.InitializationException;
 import org.apache.nifi.util.MockComponentLog;
 import org.apache.nifi.util.MockConfigurationContext;
@@ -133,10 +132,8 @@ public class TestGcpSecretManagerParameterProvider {
                 when(listSecretsPagedResponse.getPage()).thenReturn(currentPage);
                 mockedFirstPage = true;
             }
-            final List<Secret> values = new ArrayList<>();
-            values.addAll(group.getParameters().stream()
-                    .map(parameter -> mockSecret(secretManager, group.getGroupName(), parameter))
-                    .collect(Collectors.toList()));
+            final List<Secret> values = group.getParameters().stream()
+                    .map(parameter -> mockSecret(secretManager, group.getGroupName(), parameter)).collect(Collectors.toList());
             when(currentPage.getValues()).thenReturn(values);
             if (it.hasNext()) {
                 when(currentPage.hasNextPage()).thenReturn(true);
@@ -192,7 +189,7 @@ public class TestGcpSecretManagerParameterProvider {
         }
 
         // Verify config verification
-        final List<ConfigVerificationResult> results = ((VerifiableParameterProvider) parameterProvider).verify(mockConfigurationContext, initContext.getLogger());
+        final List<ConfigVerificationResult> results = parameterProvider.verify(mockConfigurationContext, initContext.getLogger());
 
         assertEquals(1, results.size());
         assertEquals(expectedOutcome, results.get(0).getOutcome());

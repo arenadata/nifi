@@ -141,8 +141,7 @@ public class GrokRecordReader implements RecordReader {
                 final Object rawValue = entry.getValue();
 
                 final Object normalizedValue;
-                if (rawValue instanceof List) {
-                    final List<?> list = (List<?>) rawValue;
+                if (rawValue instanceof final List<?> list) {
                     List<?> nonNullElements = list.stream().filter(Objects::nonNull).collect(Collectors.toList());
                     if (nonNullElements.isEmpty()) {
                         normalizedValue = null;
@@ -270,7 +269,7 @@ public class GrokRecordReader implements RecordReader {
 
         // If string is empty then return an empty string if field type is STRING. If field type is
         // anything else, we can't really convert it so return null
-        final boolean fieldEmpty = rawValue instanceof String && ((String) rawValue).isEmpty();
+        final boolean fieldEmpty = rawValue instanceof final String string && string.isEmpty();
         if (fieldEmpty && fieldType.getFieldType() != RecordFieldType.STRING) {
             return null;
         }

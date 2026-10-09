@@ -41,7 +41,7 @@ public class Metric {
     }
 
     public void setCount(long value) {
-        this.count = (long) value;
+        this.count = value;
     }
     public void setCount(double value) {
         this.count = (long) value;
@@ -57,7 +57,7 @@ public class Metric {
     public String getComputer() {
         return computer;
     }
-    public void setCoumputer(String computer) {
+    public void setComputer(String computer) {
         this.computer = computer;
     }
 

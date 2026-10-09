@@ -17,6 +17,7 @@
 
 package org.apache.nifi.controller.flow;
 
+import org.apache.nifi.asset.Asset;
 import org.apache.nifi.components.connector.FlowContextFactory;
 import org.apache.nifi.components.connector.FrameworkFlowContext;
 import org.apache.nifi.components.connector.MutableConnectorConfigurationContext;
@@ -40,6 +41,7 @@ import org.apache.nifi.registry.flow.mapping.FlowMappingOptions;
 import org.apache.nifi.registry.flow.mapping.InstantiatedVersionedProcessGroup;
 import org.apache.nifi.registry.flow.mapping.VersionedComponentFlowMapper;
 import org.apache.nifi.registry.flow.mapping.VersionedComponentStateLookup;
+import org.apache.nifi.security.encryption.InternalPassThroughPropertyEncryptionProvider;
 
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
@@ -92,7 +94,7 @@ public class FlowControllerFlowContextFactory implements FlowContextFactory {
             .mapSensitiveConfiguration(true)
             .mapPropertyDescriptors(true)
             .stateLookup(VersionedComponentStateLookup.ENABLED_OR_DISABLED)
-            .sensitiveValueEncryptor(value -> value)
+            .propertyEncryptionProvider(new InternalPassThroughPropertyEncryptionProvider())
             .componentIdLookup(ComponentIdLookup.VERSIONED_OR_GENERATE)
             .mapInstanceIdentifiers(true)
             .mapControllerServiceReferencesToVersionedId(true)
@@ -126,12 +128,15 @@ public class FlowControllerFlowContextFactory implements FlowContextFactory {
     private List<ParameterValue> createParameterValues(final ParameterContext context) {
         final List<ParameterValue> parameterValues = new ArrayList<>();
         for (final Parameter parameter : context.getParameters().values()) {
+            final List<Asset> referencedAssets = parameter.getReferencedAssets();
             final ParameterValue.Builder parameterValueBuilder = new ParameterValue.Builder()
                 .name(parameter.getDescriptor().getName())
                 .sensitive(parameter.getDescriptor().isSensitive())
-                .value(parameter.getValue());
+                .value(referencedAssets == null || referencedAssets.isEmpty() ? parameter.getValue() : null);
 
-            parameter.getReferencedAssets().forEach(parameterValueBuilder::addReferencedAsset);
+            if (referencedAssets != null) {
+                referencedAssets.forEach(parameterValueBuilder::addReferencedAsset);
+            }
             parameterValues.add(parameterValueBuilder.build());
         }
 

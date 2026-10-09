@@ -42,6 +42,8 @@ import jakarta.ws.rs.core.Response;
 import jakarta.ws.rs.core.Response.Status;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.nifi.authorization.AccessDeniedException;
+import org.apache.nifi.authorization.AuthorizeFlowUpdate;
+import org.apache.nifi.authorization.AuthorizeFlowUpdate.UnresolvedReferences;
 import org.apache.nifi.authorization.ProcessGroupAuthorizable;
 import org.apache.nifi.authorization.RequestAction;
 import org.apache.nifi.authorization.resource.Authorizable;
@@ -67,6 +69,8 @@ import org.apache.nifi.web.api.entity.CreateActiveRequestEntity;
 import org.apache.nifi.web.api.entity.CreateFlowBranchRequestEntity;
 import org.apache.nifi.web.api.entity.Entity;
 import org.apache.nifi.web.api.entity.ProcessGroupEntity;
+import org.apache.nifi.web.api.entity.RebaseAnalysisEntity;
+import org.apache.nifi.web.api.entity.RebaseRequestEntity;
 import org.apache.nifi.web.api.entity.StartVersionControlRequestEntity;
 import org.apache.nifi.web.api.entity.VersionControlComponentMappingEntity;
 import org.apache.nifi.web.api.entity.VersionControlInformationEntity;
@@ -92,6 +96,8 @@ import java.util.concurrent.TimeUnit;
 @Tag(name = "Versions")
 public class VersionsResource extends FlowUpdateResource<VersionControlInformationEntity, VersionedFlowUpdateRequestEntity> {
     private static final Logger logger = LoggerFactory.getLogger(VersionsResource.class);
+
+    private static final String REBASE_REQUEST_TYPE = "rebase-requests";
 
     // We need to ensure that only a single Version Control Request can occur throughout the flow.
     // Otherwise, User 1 could log into Node 1 and choose to Version Control Group A.
@@ -873,7 +879,10 @@ public class VersionsResource extends FlowUpdateResource<VersionControlInformati
                     + NON_GUARANTEED_ENDPOINT,
             security = {
                     @SecurityRequirement(name = "Read - /process-groups/{uuid}"),
-                    @SecurityRequirement(name = "Write - /process-groups/{uuid}")
+                    @SecurityRequirement(name = "Write - /process-groups/{uuid}"),
+                    @SecurityRequirement(name = "Read - /{component-type}/{uuid} - For all encapsulated components"),
+                    @SecurityRequirement(name = "Write - /{component-type}/{uuid} - For all encapsulated components"),
+                    @SecurityRequirement(name = "Read - /parameter-contexts/{uuid} - For any Parameter Context that is referenced by a Property that is changed, added, or removed")
             }
     )
     public Response updateFlowVersion(
@@ -918,12 +927,7 @@ public class VersionsResource extends FlowUpdateResource<VersionControlInformati
                 serviceFacade,
                 requestEntity,
                 requestRevision,
-                lookup -> {
-                    final ProcessGroupAuthorizable groupAuthorizable = lookup.getProcessGroup(groupId);
-                    final Authorizable processGroup = groupAuthorizable.getAuthorizable();
-                    processGroup.authorize(authorizer, RequestAction.READ, NiFiUserUtils.getNiFiUser());
-                    processGroup.authorize(authorizer, RequestAction.WRITE, NiFiUserUtils.getNiFiUser());
-                },
+                lookup -> AuthorizeFlowUpdate.resolveAndAuthorizeFlowUpdate(groupId, requestFlowSnapshot, serviceFacade, authorizer, lookup, NiFiUserUtils.getNiFiUser()),
                 () -> {
                     // We do not enforce that the Process Group is 'not dirty' because at this point,
                     // the client has explicitly indicated the dataflow that the Process Group should
@@ -944,6 +948,106 @@ public class VersionsResource extends FlowUpdateResource<VersionControlInformati
                                     entity.getUpdateDescendantVersionedFlows());
 
                     final VersionControlInformationDTO updatedVci = updatedGroup.getComponent().getVersionControlInformation();
+
+                    // response to replication request is a version control entity with revision and versioning info
+                    final VersionControlInformationEntity responseEntity = new VersionControlInformationEntity();
+                    responseEntity.setProcessGroupRevision(updatedGroup.getRevision());
+                    responseEntity.setVersionControlInformation(updatedVci);
+
+                    return generateOkResponse(responseEntity).build();
+                });
+    }
+
+    @PUT
+    @Consumes(MediaType.APPLICATION_JSON)
+    @Produces(MediaType.APPLICATION_JSON)
+    @Path("process-groups/{id}/rebase")
+    @Operation(
+            summary = "Applies a rebased flow to a Process Group with the given ID on this node",
+            responses = {
+                    @ApiResponse(responseCode = "200", content = @Content(schema = @Schema(implementation = VersionControlInformationEntity.class))),
+                    @ApiResponse(responseCode = "400", description = "NiFi was unable to complete the request because it was invalid. The request should not be retried without modification."),
+                    @ApiResponse(responseCode = "401", description = "Client could not be authenticated."),
+                    @ApiResponse(responseCode = "403", description = "Client is not authorized to make this request."),
+                    @ApiResponse(responseCode = "404", description = "The specified resource could not be found."),
+                    @ApiResponse(responseCode = "409", description = "The request was valid but NiFi was not in the appropriate state to process it.")
+            },
+            description = "This endpoint is used internally to apply a rebase to a Process Group on each node of a cluster. It synchronizes the "
+                    + "flow to the supplied merged snapshot and then resets the Version Control Information to the clean target version so that "
+                    + "the preserved local changes are detected as local modifications. "
+                    + NON_GUARANTEED_ENDPOINT,
+            security = {
+                    @SecurityRequirement(name = "Read - /process-groups/{uuid}"),
+                    @SecurityRequirement(name = "Write - /process-groups/{uuid}"),
+                    @SecurityRequirement(name = "Read - /{component-type}/{uuid} - For all encapsulated components"),
+                    @SecurityRequirement(name = "Write - /{component-type}/{uuid} - For all encapsulated components"),
+                    @SecurityRequirement(name = "Read - /parameter-contexts/{uuid} - For any Parameter Context that is referenced by a Property that is changed, added, or removed")
+            }
+    )
+    public Response applyRebasedFlowVersion(
+            @Parameter(description = "The process group id.") @PathParam("id") final String groupId,
+            @Parameter(description = "The rebased versioned flow snapshot.", required = true) final VersionedFlowSnapshotEntity requestEntity) {
+
+        if (requestEntity == null) {
+            throw new IllegalArgumentException("Version control information must be specified.");
+        }
+
+        // Verify the request
+        final RevisionDTO revisionDto = requestEntity.getProcessGroupRevision();
+        if (revisionDto == null) {
+            throw new IllegalArgumentException("Process Group Revision must be specified.");
+        }
+
+        final RegisteredFlowSnapshot requestFlowSnapshot = requestEntity.getVersionedFlowSnapshot();
+        if (requestFlowSnapshot == null) {
+            throw new IllegalArgumentException("Versioned Flow Snapshot must be supplied.");
+        }
+
+        final RegisteredFlowSnapshotMetadata requestSnapshotMetadata = requestFlowSnapshot.getSnapshotMetadata();
+        if (requestSnapshotMetadata == null) {
+            throw new IllegalArgumentException("Snapshot Metadata must be supplied.");
+        }
+        if (requestSnapshotMetadata.getBucketIdentifier() == null) {
+            throw new IllegalArgumentException("The Bucket ID must be supplied.");
+        }
+        if (requestSnapshotMetadata.getFlowIdentifier() == null) {
+            throw new IllegalArgumentException("The Flow ID must be supplied.");
+        }
+
+        // Perform the request
+        if (isReplicateRequest()) {
+            return replicate(HttpMethod.PUT, requestEntity);
+        } else if (isDisconnectedFromCluster()) {
+            verifyDisconnectedNodeModification(requestEntity.isDisconnectedNodeAcknowledged());
+        }
+
+        final Revision requestRevision = getRevision(requestEntity.getProcessGroupRevision(), groupId);
+        return withWriteLock(
+                serviceFacade,
+                requestEntity,
+                requestRevision,
+                lookup -> AuthorizeFlowUpdate.resolveAndAuthorizeFlowUpdate(groupId, requestFlowSnapshot, serviceFacade, authorizer, lookup, NiFiUserUtils.getNiFiUser()),
+                () -> {
+                    // We do not enforce that the Process Group is 'not dirty' because a rebase intentionally applies
+                    // over locally modified flows.
+                    serviceFacade.verifyCanUpdate(groupId, requestFlowSnapshot, true, false);
+                },
+                (revision, entity) -> {
+                    // prepare an entity similar to initial request to pass registry id to performUpdateFlow
+                    final VersionControlInformationDTO versionControlInfoDto = new VersionControlInformationDTO();
+                    versionControlInfoDto.setRegistryId(entity.getRegistryId());
+                    final VersionControlInformationEntity versionControlInfo = new VersionControlInformationEntity();
+                    versionControlInfo.setVersionControlInformation(versionControlInfoDto);
+
+                    final ProcessGroupEntity updatedGroup =
+                            performUpdateFlow(groupId, revision, versionControlInfo, entity.getVersionedFlowSnapshot(),
+                                    getIdGenerationSeed().orElse(null), false,
+                                    entity.getUpdateDescendantVersionedFlows());
+
+                    // Reset the Version Control Information to the clean target version on this node
+                    postProcessFlowUpdate(groupId, REBASE_REQUEST_TYPE);
+
+                    final VersionControlInformationDTO updatedVci = serviceFacade.getVersionControlInformation(groupId).getVersionControlInformation();
 
                     // response to replication request is a version control entity with revision and versioning info
                     final VersionControlInformationEntity responseEntity = new VersionControlInformationEntity();
@@ -1072,6 +1176,187 @@ public class VersionsResource extends FlowUpdateResource<VersionControlInformati
             @Parameter(description = "The ID of the Revert Request") @PathParam("id") final String revertRequestId) {
 
         return deleteFlowUpdateRequest("revert-requests", revertRequestId, disconnectedNodeAcknowledged);
+    }
+
+    @GET
+    @Consumes(MediaType.WILDCARD)
+    @Produces(MediaType.APPLICATION_JSON)
+    @Path("rebase-analysis/process-groups/{id}")
+    @Operation(
+            summary = "Gets a Rebase Analysis for a Process Group",
+            responses = {
+                    @ApiResponse(responseCode = "200", content = @Content(schema = @Schema(implementation = RebaseAnalysisEntity.class))),
+                    @ApiResponse(responseCode = "400", description = "NiFi was unable to complete the request because it was invalid. The request should not be retried without modification."),
+                    @ApiResponse(responseCode = "401", description = "Client could not be authenticated."),
+                    @ApiResponse(responseCode = "403", description = "Client is not authorized to make this request."),
+                    @ApiResponse(responseCode = "404", description = "The specified resource could not be found."),
+                    @ApiResponse(responseCode = "409", description = "The request was valid but NiFi was not in the appropriate state to process it.")
+            },
+            description = """
+                    For a Process Group that is under Version Control, this will perform a rebase analysis by comparing \
+                    local modifications against upstream changes between the current version and the specified target version. \
+                    The analysis determines whether a rebase is allowed or if there are conflicts.""",
+            security = {
+                    @SecurityRequirement(name = "Read - /process-groups/{uuid}")
+            }
+    )
+    public Response getRebaseAnalysis(
+            @Parameter(description = "The process group id.") @PathParam("id") final String processGroupId,
+            @Parameter(description = "The target version to rebase to.", required = true) @QueryParam("targetVersion") final String targetVersion) {
+
+        if (targetVersion == null) {
+            throw new IllegalArgumentException("The target version must be specified.");
+        }
+
+        serviceFacade.authorizeAccess(lookup -> {
+            final ProcessGroupAuthorizable groupAuthorizable = lookup.getProcessGroup(processGroupId);
+            authorizeProcessGroup(groupAuthorizable, authorizer, lookup, RequestAction.READ, true,
+                    false, false, false, true);
+        });
+
+        if (isReplicateRequest()) {
+            return replicate(HttpMethod.GET);
+        }
+
+        final RebaseAnalysisEntity entity = serviceFacade.getRebaseAnalysis(processGroupId, targetVersion);
+        return generateOkResponse(entity).build();
+    }
+
+    @POST
+    @Consumes(MediaType.APPLICATION_JSON)
+    @Produces(MediaType.APPLICATION_JSON)
+    @Path("rebase-requests/process-groups/{id}")
+    @Operation(
+            summary = "Initiate a Rebase Request for a Process Group with the given ID",
+            responses = {
+                    @ApiResponse(responseCode = "200", content = @Content(schema = @Schema(implementation = VersionedFlowUpdateRequestEntity.class))),
+                    @ApiResponse(responseCode = "400", description = "NiFi was unable to complete the request because it was invalid. The request should not be retried without modification."),
+                    @ApiResponse(responseCode = "401", description = "Client could not be authenticated."),
+                    @ApiResponse(responseCode = "403", description = "Client is not authorized to make this request."),
+                    @ApiResponse(responseCode = "404", description = "The specified resource could not be found."),
+                    @ApiResponse(responseCode = "409", description = "The request was valid but NiFi was not in the appropriate state to process it.")
+            },
+            description = """
+                    For a Process Group that is already under Version Control, this will initiate the action of rebasing \
+                    the flow to a different version while preserving compatible local changes. This can be a lengthy \
+                    process, as it will stop any Processors and disable any Controller Services necessary to perform the action and then restart them. As a result, \
+                    the endpoint will immediately return a VersionedFlowUpdateRequestEntity, and the process of rebasing the flow will occur \
+                    asynchronously in the background. The client may then periodically poll the status of the request by issuing a GET request to \
+                    /versions/rebase-requests/{requestId}. Once the request is completed, the client is expected to issue a DELETE request to \
+                    /versions/rebase-requests/{requestId}.\s""" + NON_GUARANTEED_ENDPOINT,
+            security = {
+                    @SecurityRequirement(name = "Read - /process-groups/{uuid}"),
+                    @SecurityRequirement(name = "Write - /process-groups/{uuid}"),
+                    @SecurityRequirement(name = "Read - /{component-type}/{uuid} - For all encapsulated components"),
+                    @SecurityRequirement(name = "Write - /{component-type}/{uuid} - For all encapsulated components"),
+                    @SecurityRequirement(name = "Read - /parameter-contexts/{uuid} - For any Parameter Context that is referenced by a Property that is changed, added, or removed")
+            }
+    )
+    public Response initiateRebase(
+            @Parameter(description = "The process group id.") @PathParam("id") final String groupId,
+            @Parameter(description = "The rebase request details.", required = true) final RebaseRequestEntity requestEntity) {
+
+        if (requestEntity == null) {
+            throw new IllegalArgumentException("Rebase request must be specified.");
+        }
+
+        final String analysisFingerprint = requestEntity.getAnalysisFingerprint();
+        if (analysisFingerprint == null) {
+            throw new IllegalArgumentException("The analysis fingerprint must be supplied.");
+        }
+
+        final VersionControlInformationEntity vciEntity = requestEntity.getVersionControlInformationEntity();
+        if (vciEntity == null) {
+            throw new IllegalArgumentException("Version Control Information must be supplied.");
+        }
+
+        final VersionControlInformationDTO requestVersionControlInfoDto = vciEntity.getVersionControlInformation();
+        if (requestVersionControlInfoDto == null) {
+            throw new IllegalArgumentException("Version Control Information must be supplied.");
+        }
+        if (requestVersionControlInfoDto.getGroupId() == null) {
+            throw new IllegalArgumentException("The Process Group ID must be supplied.");
+        }
+        if (!requestVersionControlInfoDto.getGroupId().equals(groupId)) {
+            throw new IllegalArgumentException("The Process Group ID in the request body does not match the Process Group ID of the requested resource.");
+        }
+        if (requestVersionControlInfoDto.getBucketId() == null) {
+            throw new IllegalArgumentException("The Bucket ID must be supplied.");
+        }
+        if (requestVersionControlInfoDto.getFlowId() == null) {
+            throw new IllegalArgumentException("The Flow ID must be supplied.");
+        }
+        if (requestVersionControlInfoDto.getRegistryId() == null) {
+            throw new IllegalArgumentException("The Registry ID must be supplied.");
+        }
+        if (requestVersionControlInfoDto.getVersion() == null) {
+            throw new IllegalArgumentException("The Version of the flow must be supplied.");
+        }
+
+        final String targetVersion = requestVersionControlInfoDto.getVersion();
+
+        return initiateFlowUpdate(groupId, vciEntity, true, REBASE_REQUEST_TYPE,
+                "/nifi-api/versions/process-groups/" + groupId + "/rebase",
+                () -> serviceFacade.getRebasedFlowSnapshot(groupId, targetVersion, analysisFingerprint)
+        );
+    }
+
+    @GET
+    @Consumes(MediaType.WILDCARD)
+    @Produces(MediaType.APPLICATION_JSON)
+    @Path("rebase-requests/{id}")
+    @Operation(
+            summary = "Returns the Rebase Request with the given ID",
+            responses = {
+                    @ApiResponse(responseCode = "200", content = @Content(schema = @Schema(implementation = VersionedFlowUpdateRequestEntity.class))),
+                    @ApiResponse(responseCode = "400", description = "NiFi was unable to complete the request because it was invalid. The request should not be retried without modification."),
+                    @ApiResponse(responseCode = "401", description = "Client could not be authenticated."),
+                    @ApiResponse(responseCode = "403", description = "Client is not authorized to make this request."),
+                    @ApiResponse(responseCode = "404", description = "The specified resource could not be found."),
+                    @ApiResponse(responseCode = "409", description = "The request was valid but NiFi was not in the appropriate state to process it.")
+            },
+            description = "Returns the Rebase Request with the given ID. Once a Rebase Request has been created by performing a POST to /versions/rebase-requests/process-groups/{id}, "
+                    + "that request can subsequently be retrieved via this endpoint, and the request that is fetched will contain the updated state, such as percent complete, the "
+                    + "current state of the request, and any failures. "
+                    + NON_GUARANTEED_ENDPOINT,
+            security = {
+                    @SecurityRequirement(name = "Only the user that submitted the request can get it")
+            }
+    )
+    public Response getRebaseRequest(@Parameter(description = "The ID of the Rebase Request") @PathParam("id") final String rebaseRequestId) {
+        return retrieveFlowUpdateRequest(REBASE_REQUEST_TYPE, rebaseRequestId);
+    }
+
+    @DELETE
+    @Consumes(MediaType.WILDCARD)
+    @Produces(MediaType.APPLICATION_JSON)
+    @Path("rebase-requests/{id}")
+    @Operation(
+            summary = "Deletes the Rebase Request with the given ID",
+            responses = {
+                    @ApiResponse(responseCode = "200", content = @Content(schema = @Schema(implementation = VersionedFlowUpdateRequestEntity.class))),
+                    @ApiResponse(responseCode = "400", description = "NiFi was unable to complete the request because it was invalid. The request should not be retried without modification."),
+                    @ApiResponse(responseCode = "401", description = "Client could not be authenticated."),
+                    @ApiResponse(responseCode = "403", description = "Client is not authorized to make this request."),
+                    @ApiResponse(responseCode = "404", description = "The specified resource could not be found."),
+                    @ApiResponse(responseCode = "409", description = "The request was valid but NiFi was not in the appropriate state to process it.")
+            },
+            description = "Deletes the Rebase Request with the given ID. After a request is created via a POST to /versions/rebase-requests/process-groups/{id}, it is expected "
+                    + "that the client will properly clean up the request by DELETE'ing it, once the Rebase process has completed. If the request is deleted before the request "
+                    + "completes, then the Rebase request will finish the step that it is currently performing and then will cancel any subsequent steps. "
+                    + NON_GUARANTEED_ENDPOINT,
+            security = {
+                    @SecurityRequirement(name = "Only the user that submitted the request can remove it")
+            }
+    )
+    public Response deleteRebaseRequest(
+            @Parameter(
+                    description = "Acknowledges that this node is disconnected to allow for mutable requests to proceed."
+            )
+            @QueryParam(DISCONNECTED_NODE_ACKNOWLEDGED) @DefaultValue("false") final Boolean disconnectedNodeAcknowledged,
+            @Parameter(description = "The ID of the Rebase Request") @PathParam("id") final String rebaseRequestId) {
+
+        return deleteFlowUpdateRequest(REBASE_REQUEST_TYPE, rebaseRequestId, disconnectedNodeAcknowledged.booleanValue());
     }
 
     @POST
@@ -1223,17 +1508,7 @@ public class VersionsResource extends FlowUpdateResource<VersionControlInformati
         // Step 0: Get the Versioned Flow Snapshot from the Flow Registry
         final FlowSnapshotContainer flowSnapshotContainer = serviceFacade.getVersionedFlowSnapshot(requestEntity.getVersionControlInformation(), true);
         final RegisteredFlowSnapshot flowSnapshot = flowSnapshotContainer.getFlowSnapshot();
-
-        // The flow in the registry may not contain the same versions of components that we have in our flow. As a result, we need to update
-        // the flow snapshot to contain compatible bundles.
-        serviceFacade.discoverCompatibleBundles(flowSnapshot.getFlowContents());
-        serviceFacade.discoverCompatibleBundles(flowSnapshot.getParameterProviders());
-
-        // If there are any Controller Services referenced that are inherited from the parent group, resolve those to point to the appropriate Controller Service, if we are able to.
-        final Set<String> unresolvedControllerServices = serviceFacade.resolveInheritedControllerServices(flowSnapshotContainer, groupId, NiFiUserUtils.getNiFiUser());
-
-        // If there are any Parameter Providers referenced by Parameter Contexts, resolve these to point to the appropriate Parameter Provider, if we are able to.
-        final Set<String> unresolvedParameterProviders = serviceFacade.resolveParameterProviders(flowSnapshot, NiFiUserUtils.getNiFiUser());
+        final UnresolvedReferences unresolvedReferences = AuthorizeFlowUpdate.resolveReferences(groupId, flowSnapshotContainer, serviceFacade, user);
 
         // Step 1: Determine which components will be affected by updating the version
         final Set<AffectedComponentEntity> affectedComponents = serviceFacade.getComponentsAffectedByFlowUpdate(groupId, flowSnapshot);
@@ -1248,7 +1523,7 @@ public class VersionsResource extends FlowUpdateResource<VersionControlInformati
                 serviceFacade,
                 requestWrapper,
                 requestRevision,
-                lookup -> authorizeFlowUpdate(lookup, user, groupId, flowSnapshot, unresolvedControllerServices, unresolvedParameterProviders),
+                lookup -> AuthorizeFlowUpdate.authorizeFlowUpdate(groupId, flowSnapshot, unresolvedReferences, serviceFacade, authorizer, lookup, user),
                 () -> {
                     // Step 3: Verify that all components in the snapshot exist on all nodes
                     // Step 4: Verify that Process Group is already under version control. If not, must start Version Control instead of updating flow
@@ -1315,6 +1590,17 @@ public class VersionsResource extends FlowUpdateResource<VersionControlInformati
 
         return serviceFacade.updateProcessGroupContents(revision, groupId, versionControlInfo, flowSnapshot, idGenerationSeed,
                 verifyNotModified, false, updateDescendantVersionedFlows);
+    }
+
+    @Override
+    protected void postProcessFlowUpdate(final String groupId, final String requestType) {
+        // After a rebase, the flow was synchronized to the merged snapshot. Reset the Version Control Information to the
+        // clean target version so the preserved local changes are detected as local modifications. This runs on every
+        // node that applies the rebase (this node for the standalone case, each node via the replicated rebase endpoint
+        // for the clustered case), so no cross-node shared state is required.
+        if (REBASE_REQUEST_TYPE.equals(requestType)) {
+            serviceFacade.resetVersionControlSnapshotToCleanTarget(groupId);
+        }
     }
 
     /**

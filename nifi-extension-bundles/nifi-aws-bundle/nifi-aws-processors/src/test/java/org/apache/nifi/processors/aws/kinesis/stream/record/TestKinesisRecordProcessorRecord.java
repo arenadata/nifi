@@ -45,7 +45,6 @@ import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.mockito.Mock;
-import org.mockito.Mockito;
 import software.amazon.kinesis.exceptions.InvalidStateException;
 import software.amazon.kinesis.exceptions.ShutdownException;
 import software.amazon.kinesis.lifecycle.events.ProcessRecordsInput;
@@ -151,7 +150,7 @@ public class TestKinesisRecordProcessorRecord {
     }
 
     private static Stream<Arguments.ArgumentSet> testProcessRecordsArgs() {
-        final List<Pair<String, Boolean>> endpointOverriden = List.of(
+        final List<Pair<String, Boolean>> endpointOverridden = List.of(
                 Pair.of("Overriden Endpoint", true),
                 Pair.of("Default Endpoint", false)
         );
@@ -162,7 +161,7 @@ public class TestKinesisRecordProcessorRecord {
         final List<Pair<String, SchemaDifferenceHandlingStrategy>> schemaChangeStrategy = Arrays.stream(SchemaDifferenceHandlingStrategy.values())
                 .map(strategy -> Pair.of(strategy.name(), strategy))
                 .toList();
-        return endpointOverriden.stream()
+        return endpointOverridden.stream()
                 .flatMap(endpoint -> schemaChangeStrategy.stream()
                         .flatMap(strategy -> usingWrapper.stream()
                                 .map(wrapper -> Arguments.argumentSet(
@@ -356,7 +355,7 @@ public class TestKinesisRecordProcessorRecord {
                 .peek(it -> {
                     parsableRecord1.data().rewind();
                     parsableRecord3.data().rewind();
-                    Mockito.reset(unparsableRecordMock);
+                    reset(unparsableRecordMock);
                 });
     }
 

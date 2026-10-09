@@ -149,7 +149,7 @@ public abstract class AbstractListenEventBatchingProcessor<E extends Event> exte
 
     /**
      * Batches together up to the batchSize events. Events are grouped together based on a batch key which
-     * by default is the sender of the event, but can be overriden by sub-classes.
+     * by default is the sender of the event, but can be overridden by subclasses.
      *
      * This method will return when batchSize has been reached, or when no more events are available on the queue.
      *
@@ -228,7 +228,7 @@ public abstract class AbstractListenEventBatchingProcessor<E extends Event> exte
     protected final class FlowFileEventBatch {
 
         private FlowFile flowFile;
-        private List<E> events;
+        private final List<E> events;
 
         public FlowFileEventBatch(final FlowFile flowFile, final List<E> events) {
             this.flowFile = flowFile;

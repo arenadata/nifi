@@ -153,7 +153,17 @@ public class StandardConnectorConfigurationContext implements MutableConnectorCo
             final StepConfiguration existingConfig = propertyConfigurations.get(stepName);
             final Map<String, ConnectorValueReference> existingProperties = existingConfig != null ? existingConfig.getPropertyValues() : new HashMap<>();
             final Map<String, ConnectorValueReference> mergedProperties = new HashMap<>(existingProperties);
-            mergedProperties.putAll(configuration.getPropertyValues());
+
+            // A null value reference is an explicit instruction to remove the property from the step rather than to
+            // store a null value. This matches the "null value removes the property" contract of the migration
+            // setProperties(...) and setValueReference(s)(...) APIs and of createWithOverrides(...).
+            for (final Map.Entry<String, ConnectorValueReference> entry : configuration.getPropertyValues().entrySet()) {
+                if (entry.getValue() == null) {
+                    mergedProperties.remove(entry.getKey());
+                } else {
+                    mergedProperties.put(entry.getKey(), entry.getValue());
+                }
+            }
 
             final StepConfiguration resolvedConfig = resolvePropertyValues(mergedProperties);
 
@@ -174,7 +184,7 @@ public class StandardConnectorConfigurationContext implements MutableConnectorCo
     private StepConfiguration resolvePropertyValues(final Map<String, ConnectorValueReference> propertyValues) {
         final Set<SecretReference> secretReferences = new HashSet<>();
         for (final ConnectorValueReference ref : propertyValues.values()) {
-            if (ref instanceof SecretReference secretRef) {
+            if (ref instanceof final SecretReference secretRef) {
                 secretReferences.add(secretRef);
             }
         }
@@ -221,9 +231,20 @@ public class StandardConnectorConfigurationContext implements MutableConnectorCo
     public ConfigurationUpdateResult replaceProperties(final String stepName, final StepConfiguration configuration) {
         writeLock.lock();
         try {
-            final StepConfiguration resolvedConfig = resolvePropertyValues(configuration.getPropertyValues());
+            // A null value reference removes the property rather than storing a null value, so the replacement never
+            // retains a property whose value reference is null.
+            final Map<String, ConnectorValueReference> replacementProperties = new HashMap<>();
+            for (final Map.Entry<String, ConnectorValueReference> entry : configuration.getPropertyValues().entrySet()) {
+                if (entry.getValue() == null) {
+                    continue;
+                }
 
-            final StepConfiguration updatedStepConfig = new StepConfiguration(new HashMap<>(configuration.getPropertyValues()));
+                replacementProperties.put(entry.getKey(), entry.getValue());
+            }
+
+            final StepConfiguration resolvedConfig = resolvePropertyValues(replacementProperties);
+
+            final StepConfiguration updatedStepConfig = new StepConfiguration(new HashMap<>(replacementProperties));
             final StepConfiguration existingStepConfig = this.propertyConfigurations.put(stepName, updatedStepConfig);
             final StepConfiguration existingResolvedStepConfig = this.resolvedPropertyConfigurations.put(stepName, resolvedConfig);
 
@@ -244,7 +265,7 @@ public class StandardConnectorConfigurationContext implements MutableConnectorCo
             final Set<SecretReference> allSecretReferences = new HashSet<>();
             for (final StepConfiguration stepConfig : propertyConfigurations.values()) {
                 for (final ConnectorValueReference ref : stepConfig.getPropertyValues().values()) {
-                    if (ref instanceof SecretReference secretRef) {
+                    if (ref instanceof final SecretReference secretRef) {
                         allSecretReferences.add(secretRef);
                     }
                 }

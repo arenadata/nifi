@@ -44,7 +44,7 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 public class TestLinkService {
 
     private static final String BASE_URI = "http://localhost:18080/nifi-registry-api";
-    private URI baseUri = UriBuilder.fromUri(BASE_URI).build();
+    private final URI baseUri = UriBuilder.fromUri(BASE_URI).build();
 
     private LinkService linkService;
 
@@ -347,7 +347,7 @@ public class TestLinkService {
     }
 
     @Test
-    public void testPopulateExtensionRepoExtensionMetdataFullLinks() {
+    public void testPopulateExtensionRepoExtensionMetadataFullLinks() {
         extensionRepoExtensionMetadata.forEach(i -> assertNull(i.getLink()));
         extensionRepoExtensionMetadata.forEach(i -> assertNull(i.getLinkDocs()));
 

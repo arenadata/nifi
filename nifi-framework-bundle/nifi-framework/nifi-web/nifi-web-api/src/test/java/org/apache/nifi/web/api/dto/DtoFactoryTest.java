@@ -50,6 +50,7 @@ import org.apache.nifi.processor.Relationship;
 import org.apache.nifi.registry.flow.FlowRegistryClientNode;
 import org.apache.nifi.registry.flow.diff.DifferenceType;
 import org.apache.nifi.registry.flow.diff.FlowDifference;
+import org.apache.nifi.web.ResourceNotFoundException;
 import org.apache.nifi.web.api.entity.AllowableValueEntity;
 import org.apache.nifi.web.api.entity.ParameterContextReferenceEntity;
 import org.apache.nifi.web.revision.RevisionManager;
@@ -62,6 +63,7 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -286,7 +288,7 @@ public class DtoFactoryTest {
         when(serviceNode.isSupportsSensitiveDynamicProperties()).thenReturn(false);
         when(serviceNode.isDeprecated()).thenReturn(false);
         when(serviceNode.isExtensionMissing()).thenReturn(true); // ghost component
-        when(serviceNode.getVersionedComponentId()).thenReturn(java.util.Optional.empty());
+        when(serviceNode.getVersionedComponentId()).thenReturn(Optional.empty());
         when(serviceNode.getRawPropertyValues()).thenReturn(Collections.emptyMap());
         final ControllerService controllerService = mock(ControllerService.class);
         when(controllerService.getPropertyDescriptors()).thenReturn(Collections.emptyList());
@@ -325,7 +327,7 @@ public class DtoFactoryTest {
         when(serviceNode.isSupportsSensitiveDynamicProperties()).thenReturn(false);
         when(serviceNode.isDeprecated()).thenReturn(false);
         when(serviceNode.isExtensionMissing()).thenReturn(false); // not ghost
-        when(serviceNode.getVersionedComponentId()).thenReturn(java.util.Optional.empty());
+        when(serviceNode.getVersionedComponentId()).thenReturn(Optional.empty());
         when(serviceNode.getRawPropertyValues()).thenReturn(Collections.emptyMap());
         final ControllerService controllerService = mock(ControllerService.class);
         when(controllerService.getPropertyDescriptors()).thenReturn(Collections.emptyList());
@@ -365,7 +367,7 @@ public class DtoFactoryTest {
         when(serviceNode.isSupportsSensitiveDynamicProperties()).thenReturn(false);
         when(serviceNode.isDeprecated()).thenReturn(false);
         when(serviceNode.isExtensionMissing()).thenReturn(false); // not ghost
-        when(serviceNode.getVersionedComponentId()).thenReturn(java.util.Optional.empty());
+        when(serviceNode.getVersionedComponentId()).thenReturn(Optional.empty());
         when(serviceNode.getRawPropertyValues()).thenReturn(Collections.emptyMap());
         final ControllerService controllerService = mock(ControllerService.class);
         when(controllerService.getPropertyDescriptors()).thenReturn(Collections.emptyList());
@@ -469,7 +471,7 @@ public class DtoFactoryTest {
         when(connection.getBendPoints()).thenReturn(Collections.emptyList());
         when(connection.getLabelIndex()).thenReturn(0);
         when(connection.getZIndex()).thenReturn(0L);
-        when(connection.getVersionedComponentId()).thenReturn(java.util.Optional.empty());
+        when(connection.getVersionedComponentId()).thenReturn(Optional.empty());
 
         // Create the DTO factory
         final DtoFactory dtoFactory = new DtoFactory();
@@ -544,7 +546,7 @@ public class DtoFactoryTest {
         when(connection.getBendPoints()).thenReturn(Collections.emptyList());
         when(connection.getLabelIndex()).thenReturn(0);
         when(connection.getZIndex()).thenReturn(0L);
-        when(connection.getVersionedComponentId()).thenReturn(java.util.Optional.empty());
+        when(connection.getVersionedComponentId()).thenReturn(Optional.empty());
 
         // Create the DTO factory
         final DtoFactory dtoFactory = new DtoFactory();
@@ -619,7 +621,7 @@ public class DtoFactoryTest {
         when(connection.getBendPoints()).thenReturn(Collections.emptyList());
         when(connection.getLabelIndex()).thenReturn(0);
         when(connection.getZIndex()).thenReturn(0L);
-        when(connection.getVersionedComponentId()).thenReturn(java.util.Optional.empty());
+        when(connection.getVersionedComponentId()).thenReturn(Optional.empty());
 
         // Create the DTO factory
         final DtoFactory dtoFactory = new DtoFactory();
@@ -877,6 +879,7 @@ public class DtoFactoryTest {
                 .build();
 
         final ParameterContextLookup lookup = mock(ParameterContextLookup.class);
+        when(lookup.hasParameterContext(externalId)).thenReturn(true);
         when(lookup.getParameterContext(externalId)).thenReturn(externalContext);
 
         final DtoFactory dtoFactory = newDtoFactoryForParameters();
@@ -885,6 +888,7 @@ public class DtoFactoryTest {
         assertTrue(dto.getInherited());
         assertEquals(externalId, dto.getParameterContext().getId());
 
+        verify(lookup).hasParameterContext(externalId);
         verify(lookup).getParameterContext(externalId);
     }
 
@@ -906,6 +910,60 @@ public class DtoFactoryTest {
 
         assertFalse(dto.getInherited());
         assertEquals(contextId, dto.getParameterContext().getId());
+    }
+
+    @Test
+    void testCreateParameterDtoFallsBackToCurrentContextWhenLookupReportsMissingSourceWithoutCallingGetter() {
+        final String contextId = "context-1";
+        final String missingSourceId = "context-missing";
+        final String parameterName = "param-name";
+
+        final ParameterContext parameterContext = createMockParameterContext(contextId, "context-1-name", Collections.emptyList());
+        final Parameter parameter = new Parameter.Builder()
+                .name(parameterName)
+                .value("param-value")
+                .parameterContextId(missingSourceId)
+                .build();
+
+        final ParameterContextLookup lookup = mock(ParameterContextLookup.class);
+        when(lookup.hasParameterContext(missingSourceId)).thenReturn(false);
+        when(lookup.getParameterContext(missingSourceId)).thenThrow(new AssertionError("Lookup getter should not be called for a missing source context"));
+
+        final DtoFactory dtoFactory = newDtoFactoryForParameters();
+        final ParameterDTO dto = dtoFactory.createParameterDto(parameterContext, parameter, mock(RevisionManager.class), lookup);
+
+        assertFalse(dto.getInherited());
+        assertEquals(contextId, dto.getParameterContext().getId());
+
+        verify(lookup).hasParameterContext(missingSourceId);
+        verify(lookup, never()).getParameterContext(missingSourceId);
+    }
+
+    @Test
+    void testCreateParameterDtoFallsBackToCurrentContextWhenSourceDisappearsDuringLookup() {
+        final String contextId = "context-1";
+        final String missingSourceId = "context-missing";
+        final String parameterName = "param-name";
+
+        final ParameterContext parameterContext = createMockParameterContext(contextId, "context-1-name", Collections.emptyList());
+        final Parameter parameter = new Parameter.Builder()
+                .name(parameterName)
+                .value("param-value")
+                .parameterContextId(missingSourceId)
+                .build();
+
+        final ParameterContextLookup lookup = mock(ParameterContextLookup.class);
+        when(lookup.hasParameterContext(missingSourceId)).thenReturn(true);
+        when(lookup.getParameterContext(missingSourceId)).thenThrow(new ResourceNotFoundException("Source context was removed"));
+
+        final DtoFactory dtoFactory = newDtoFactoryForParameters();
+        final ParameterDTO dto = dtoFactory.createParameterDto(parameterContext, parameter, mock(RevisionManager.class), lookup);
+
+        assertFalse(dto.getInherited());
+        assertEquals(contextId, dto.getParameterContext().getId());
+
+        verify(lookup).hasParameterContext(missingSourceId);
+        verify(lookup).getParameterContext(missingSourceId);
     }
 
     @Test
@@ -954,6 +1012,7 @@ public class DtoFactoryTest {
 
         final ParameterContext fallbackContext = createMockParameterContext(missingId, "missing", Collections.emptyList());
         final ParameterContextLookup lookup = mock(ParameterContextLookup.class);
+        when(lookup.hasParameterContext(missingId)).thenReturn(true);
         when(lookup.getParameterContext(missingId)).thenReturn(fallbackContext);
 
         final DtoFactory dtoFactory = newDtoFactoryForParameters();
@@ -962,6 +1021,7 @@ public class DtoFactoryTest {
         assertTrue(dto.getInherited());
         assertEquals(missingId, dto.getParameterContext().getId());
 
+        verify(lookup).hasParameterContext(missingId);
         verify(lookup).getParameterContext(missingId);
     }
 
@@ -1001,4 +1061,5 @@ public class DtoFactoryTest {
         when(context.getName()).thenReturn(name);
         when(context.getParameterReferenceManager()).thenReturn(ParameterReferenceManager.EMPTY);
     }
+
 }

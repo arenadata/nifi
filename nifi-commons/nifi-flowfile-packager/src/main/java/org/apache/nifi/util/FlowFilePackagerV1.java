@@ -26,6 +26,7 @@ import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.Map;
 
+@Deprecated(since = "2.12.0", forRemoval = true)
 public class FlowFilePackagerV1 implements FlowFilePackager {
 
     public static final String FILENAME_ATTRIBUTES = "flowfile.attributes";
@@ -49,8 +50,6 @@ public class FlowFilePackagerV1 implements FlowFilePackager {
             writeAttributesEntry(attributes, tout);
             writeContentEntry(tout, in, fileSize);
             tout.finish();
-            tout.flush();
-            tout.close();
         }
     }
 

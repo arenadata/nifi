@@ -63,8 +63,8 @@ public class ArrayIndexFieldValue extends StandardFieldValue {
     @Override
     public void remove() {
         getParent().ifPresent(parent -> {
-            if (parent.getValue() instanceof Object[]) {
-                parent.updateValue(ArrayUtils.remove((Object[]) parent.getValue(), index));
+            if (parent.getValue() instanceof final Object[] objects) {
+                parent.updateValue(ArrayUtils.remove(objects, index));
             }
         });
     }
@@ -82,11 +82,10 @@ public class ArrayIndexFieldValue extends StandardFieldValue {
         if (obj == null) {
             return false;
         }
-        if (!(obj instanceof ArrayIndexFieldValue)) {
+        if (!(obj instanceof final ArrayIndexFieldValue other)) {
             return false;
         }
 
-        final ArrayIndexFieldValue other = (ArrayIndexFieldValue) obj;
         return Objects.equals(getValue(), other.getValue()) && Objects.equals(getField(), other.getField())
             && Objects.equals(getParent(), other.getParent()) && getArrayIndex() == other.getArrayIndex();
     }

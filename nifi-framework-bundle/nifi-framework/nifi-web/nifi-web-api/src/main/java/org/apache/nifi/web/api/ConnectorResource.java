@@ -16,6 +16,7 @@
  */
 package org.apache.nifi.web.api;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.media.Content;
@@ -23,6 +24,8 @@ import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.annotation.PostConstruct;
+import jakarta.annotation.PreDestroy;
 import jakarta.servlet.ServletContext;
 import jakarta.ws.rs.Consumes;
 import jakarta.ws.rs.DELETE;
@@ -42,8 +45,11 @@ import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
 import jakarta.ws.rs.core.StreamingOutput;
 import org.apache.commons.lang3.StringUtils;
+import org.apache.commons.lang3.exception.ExceptionUtils;
 import org.apache.nifi.asset.Asset;
+import org.apache.nifi.authorization.AuthorizeConnectorConfigReferences;
 import org.apache.nifi.authorization.Authorizer;
+import org.apache.nifi.authorization.ProcessGroupAuthorizable;
 import org.apache.nifi.authorization.RequestAction;
 import org.apache.nifi.authorization.resource.Authorizable;
 import org.apache.nifi.authorization.resource.DataAuthorizable;
@@ -59,6 +65,7 @@ import org.apache.nifi.cluster.manager.NodeResponse;
 import org.apache.nifi.cluster.protocol.NodeIdentifier;
 import org.apache.nifi.controller.ScheduledState;
 import org.apache.nifi.processor.DataUnit;
+import org.apache.nifi.registry.flow.RegisteredFlowSnapshot;
 import org.apache.nifi.stream.io.MaxLengthInputStream;
 import org.apache.nifi.ui.extension.UiExtension;
 import org.apache.nifi.ui.extension.UiExtensionMapping;
@@ -74,16 +81,24 @@ import org.apache.nifi.web.api.concurrent.StandardAsynchronousWebRequest;
 import org.apache.nifi.web.api.concurrent.StandardUpdateStep;
 import org.apache.nifi.web.api.concurrent.UpdateStep;
 import org.apache.nifi.web.api.dto.AssetDTO;
+import org.apache.nifi.web.api.dto.BacklogDTO;
+import org.apache.nifi.web.api.dto.BacklogRequestDTO;
 import org.apache.nifi.web.api.dto.BundleDTO;
 import org.apache.nifi.web.api.dto.ComponentStateDTO;
 import org.apache.nifi.web.api.dto.ConfigVerificationResultDTO;
 import org.apache.nifi.web.api.dto.ConfigurationStepConfigurationDTO;
 import org.apache.nifi.web.api.dto.ConnectorDTO;
 import org.apache.nifi.web.api.dto.DropRequestDTO;
+import org.apache.nifi.web.api.dto.MigrationPayloadDTO;
+import org.apache.nifi.web.api.dto.MigrationRequestDTO;
+import org.apache.nifi.web.api.dto.MigrationRequestLocalSourceDTO;
+import org.apache.nifi.web.api.dto.MigrationUpdateStepDTO;
 import org.apache.nifi.web.api.dto.VerifyConnectorConfigStepRequestDTO;
 import org.apache.nifi.web.api.dto.search.SearchResultsDTO;
 import org.apache.nifi.web.api.entity.AssetEntity;
 import org.apache.nifi.web.api.entity.AssetsEntity;
+import org.apache.nifi.web.api.entity.BacklogEntity;
+import org.apache.nifi.web.api.entity.BacklogRequestEntity;
 import org.apache.nifi.web.api.entity.ComponentStateEntity;
 import org.apache.nifi.web.api.entity.ConfigurationStepEntity;
 import org.apache.nifi.web.api.entity.ConfigurationStepNamesEntity;
@@ -93,12 +108,16 @@ import org.apache.nifi.web.api.entity.ConnectorRunStatusEntity;
 import org.apache.nifi.web.api.entity.ControllerServiceEntity;
 import org.apache.nifi.web.api.entity.ControllerServicesEntity;
 import org.apache.nifi.web.api.entity.DropRequestEntity;
+import org.apache.nifi.web.api.entity.MigrationPayloadEntity;
+import org.apache.nifi.web.api.entity.MigrationRequestEntity;
 import org.apache.nifi.web.api.entity.ParameterContextEntity;
 import org.apache.nifi.web.api.entity.ProcessGroupFlowEntity;
 import org.apache.nifi.web.api.entity.ProcessGroupStatusEntity;
 import org.apache.nifi.web.api.entity.SearchResultsEntity;
 import org.apache.nifi.web.api.entity.SecretsEntity;
+import org.apache.nifi.web.api.entity.StatusHistoryEntity;
 import org.apache.nifi.web.api.entity.VerifyConnectorConfigStepRequestEntity;
+import org.apache.nifi.web.api.entity.VersionedFlowMigrationSourcesEntity;
 import org.apache.nifi.web.api.request.ClientIdParameter;
 import org.apache.nifi.web.api.request.LongParameter;
 import org.apache.nifi.web.client.api.HttpResponseStatus;
@@ -117,6 +136,10 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
 
 /**
@@ -128,12 +151,22 @@ import java.util.function.Consumer;
 public class ConnectorResource extends ApplicationResource {
 
     private static final Logger logger = LoggerFactory.getLogger(ConnectorResource.class);
+    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
     private static final String VERIFICATION_REQUEST_TYPE = "verification-request";
+    private static final String MIGRATION_REQUEST_TYPE = "migration-request";
     private static final String PURGE_REQUEST_TYPE = "purge-request";
+    private static final String BACKLOG_REQUEST_TYPE = "backlog-request";
     private static final String FILENAME_HEADER = "Filename";
     private static final String CONTENT_TYPE_HEADER = "Content-Type";
     private static final String UPLOAD_CONTENT_TYPE = "application/octet-stream";
     private static final long MAX_ASSET_SIZE_BYTES = (long) DataUnit.GB.toB(1);
+    // Exported flow snapshots are typically a few megabytes; cap uploads well below the 1 GB asset limit because the
+    // deserialized payload is held in memory for the payload TTL and a malformed or hostile upload should not be able
+    // to exhaust heap.
+    private static final long MAX_MIGRATION_PAYLOAD_SIZE_BYTES = (long) DataUnit.MB.toB(100);
+    private static final long MIGRATION_REQUEST_TTL_MILLIS = TimeUnit.MINUTES.toMillis(1L);
+    private static final long MIGRATION_PAYLOAD_TTL_MILLIS = TimeUnit.MINUTES.toMillis(10L);
+    private static final long MIGRATION_PAYLOAD_SWEEP_INTERVAL_SECONDS = 30L;
 
     private NiFiServiceFacade serviceFacade;
     private Authorizer authorizer;
@@ -142,9 +175,41 @@ public class ConnectorResource extends ApplicationResource {
     private UploadRequestReplicator uploadRequestReplicator;
 
     private final RequestManager<VerifyConnectorConfigStepRequestEntity, List<ConfigVerificationResultDTO>> configVerificationRequestManager =
-            new AsyncRequestManager<>(100, 1L, "Connector Configuration Step Verification");
+            new AsyncRequestManager<>(100, TimeUnit.MINUTES.toMillis(1L), "Connector Configuration Step Verification");
+    private final RequestManager<MigrationRequestEntity, ConnectorEntity> migrationRequestManager =
+            new AsyncRequestManager<>(100, MIGRATION_REQUEST_TTL_MILLIS, "Connector Migration");
 
-    private final RequestManager<ConnectorEntity, Void> purgeRequestManager = new AsyncRequestManager<>(100, 1L, "Connector FlowFile Purge");
+    private final RequestManager<ConnectorEntity, Void> purgeRequestManager = new AsyncRequestManager<>(100, TimeUnit.MINUTES.toMillis(1L), "Connector FlowFile Purge");
+
+    /**
+     * Uploaded migration payloads keyed by their server-assigned identifier. Each entry's age is tracked alongside
+     * the payload so that an upload that is never associated with a started migration request is evicted after
+     * {@link #MIGRATION_PAYLOAD_TTL_MILLIS}. A scheduled sweeper purges expired entries on a fixed cadence so that
+     * single-upload sessions do not leak payload state indefinitely.
+     */
+    private final Map<String, MigrationPayloadEntry> migrationPayloadsById = new ConcurrentHashMap<>();
+
+    private final ScheduledExecutorService migrationPayloadEvictionExecutor = Executors.newSingleThreadScheduledExecutor(runnable -> {
+        final Thread thread = new Thread(runnable, "Connector Migration Payload Eviction");
+        thread.setDaemon(true);
+        return thread;
+    });
+
+    private final RequestManager<String, BacklogDTO> backlogRequestManager = new AsyncRequestManager<>(100, TimeUnit.MINUTES.toMillis(1L), "Connector Backlog Thread");
+
+    private record MigrationPayloadEntry(RegisteredFlowSnapshot snapshot, long uploadedAtMillis) {
+    }
+
+    @PostConstruct
+    public void startMigrationPayloadEviction() {
+        migrationPayloadEvictionExecutor.scheduleWithFixedDelay(this::evictExpiredMigrationPayloads,
+                MIGRATION_PAYLOAD_SWEEP_INTERVAL_SECONDS, MIGRATION_PAYLOAD_SWEEP_INTERVAL_SECONDS, TimeUnit.SECONDS);
+    }
+
+    @PreDestroy
+    public void stopMigrationPayloadEviction() {
+        migrationPayloadEvictionExecutor.shutdownNow();
+    }
 
     @Context
     private ServletContext servletContext;
@@ -1340,7 +1405,9 @@ public class ConnectorResource extends ApplicationResource {
                     @ApiResponse(responseCode = "409", description = "The request was valid but NiFi was not in the appropriate state to process it.")
             },
             security = {
-                    @SecurityRequirement(name = "Write - /connectors/{uuid}")
+                    @SecurityRequirement(name = "Write - /connectors/{uuid}"),
+                    @SecurityRequirement(name = "Read - any referenced Parameter Providers - /parameter-providers/{uuid}"),
+                    @SecurityRequirement(name = "Read - /connectors/{uuid} when referencing Assets owned by the connector")
             }
     )
     public Response updateConnectorConfigurationStep(
@@ -1395,10 +1462,7 @@ public class ConnectorResource extends ApplicationResource {
                 serviceFacade,
                 requestConfigurationStepEntity,
                 requestRevision,
-                lookup -> {
-                    final Authorizable connector = lookup.getConnector(id);
-                    connector.authorize(authorizer, RequestAction.WRITE, NiFiUserUtils.getNiFiUser());
-                },
+                lookup -> AuthorizeConnectorConfigReferences.authorize(authorizer, lookup, id, requestConfigurationStep),
                 () -> {
                     // Verify the connector exists and the configuration step exists
                     serviceFacade.getConnectorConfigurationStep(id, configurationStepName);
@@ -1444,7 +1508,9 @@ public class ConnectorResource extends ApplicationResource {
                     "/connectors/{connectorId}/configuration-steps/{stepName}/verify-config/{requestId}. Once the request is completed, the client is expected to issue a DELETE request to " +
                     "/connectors/{connectorId}/configuration-steps/{stepName}/verify-config/{requestId}.",
             security = {
-                    @SecurityRequirement(name = "Write - /connectors/{uuid}")
+                    @SecurityRequirement(name = "Write - /connectors/{uuid}"),
+                    @SecurityRequirement(name = "Read - any referenced Parameter Providers - /parameter-providers/{uuid}"),
+                    @SecurityRequirement(name = "Read - /connectors/{uuid} when referencing Assets owned by the connector")
             }
     )
     public Response submitConfigurationStepVerificationRequest(
@@ -1489,10 +1555,7 @@ public class ConnectorResource extends ApplicationResource {
         return withWriteLock(
                 serviceFacade,
                 requestEntity,
-                lookup -> {
-                    final Authorizable connector = lookup.getConnector(id);
-                    connector.authorize(authorizer, RequestAction.WRITE, NiFiUserUtils.getNiFiUser());
-                },
+                lookup -> AuthorizeConnectorConfigReferences.authorize(authorizer, lookup, id, requestDto.getConfigurationStep()),
                 () -> {
                     serviceFacade.verifyCanVerifyConnectorConfigurationStep(id, configurationStepName);
                 },
@@ -2164,6 +2227,545 @@ public class ConnectorResource extends ApplicationResource {
         return generateOkResponse(entity).build();
     }
 
+    // -----------------
+    // Status History
+    // -----------------
+
+    /**
+     * Gets the status history for a Processor inside the Connector's managed flow. The status history is available
+     * regardless of whether the Connector is in Troubleshooting mode.
+     *
+     * @param connectorId the connector id
+     * @param processorId the processor id within the connector's managed flow
+     * @return A statusHistoryEntity.
+     * @throws InterruptedException if interrupted
+     */
+    @GET
+    @Consumes(MediaType.WILDCARD)
+    @Produces(MediaType.APPLICATION_JSON)
+    @Path("{id}/processors/{processorId}/status/history")
+    @Operation(
+            summary = "Gets the status history for a processor within a connector",
+            responses = {
+                    @ApiResponse(responseCode = "200", content = @Content(schema = @Schema(implementation = StatusHistoryEntity.class))),
+                    @ApiResponse(responseCode = "400", description = "NiFi was unable to complete the request because it was invalid. The request should not be retried without modification."),
+                    @ApiResponse(responseCode = "401", description = "Client could not be authenticated."),
+                    @ApiResponse(responseCode = "403", description = "Client is not authorized to make this request."),
+                    @ApiResponse(responseCode = "404", description = "The specified resource could not be found."),
+                    @ApiResponse(responseCode = "409", description = "The request was valid but NiFi was not in the appropriate state to process it.")
+            },
+            security = {
+                    @SecurityRequirement(name = "Read - /connectors/{uuid}")
+            }
+    )
+    public Response getConnectorProcessorStatusHistory(
+            @Parameter(description = "The connector id.", required = true)
+            @PathParam("id") final String connectorId,
+            @Parameter(description = "The processor id.", required = true)
+            @PathParam("processorId") final String processorId) throws InterruptedException {
+
+        if (isReplicateRequest()) {
+            return replicate(HttpMethod.GET);
+        }
+
+        serviceFacade.authorizeAccess(lookup -> {
+            final Authorizable connector = lookup.getConnector(connectorId);
+            connector.authorize(authorizer, RequestAction.READ, NiFiUserUtils.getNiFiUser());
+        });
+
+        final StatusHistoryEntity entity = serviceFacade.getConnectorProcessorStatusHistory(connectorId, processorId);
+        return generateOkResponse(entity).build();
+    }
+
+    /**
+     * Gets the status history for a Connection inside the Connector's managed flow. The status history is available
+     * regardless of whether the Connector is in Troubleshooting mode.
+     *
+     * @param connectorId the connector id
+     * @param connectionId the connection id within the connector's managed flow
+     * @return A statusHistoryEntity.
+     * @throws InterruptedException if interrupted
+     */
+    @GET
+    @Consumes(MediaType.WILDCARD)
+    @Produces(MediaType.APPLICATION_JSON)
+    @Path("{id}/connections/{connectionId}/status/history")
+    @Operation(
+            summary = "Gets the status history for a connection within a connector",
+            responses = {
+                    @ApiResponse(responseCode = "200", content = @Content(schema = @Schema(implementation = StatusHistoryEntity.class))),
+                    @ApiResponse(responseCode = "400", description = "NiFi was unable to complete the request because it was invalid. The request should not be retried without modification."),
+                    @ApiResponse(responseCode = "401", description = "Client could not be authenticated."),
+                    @ApiResponse(responseCode = "403", description = "Client is not authorized to make this request."),
+                    @ApiResponse(responseCode = "404", description = "The specified resource could not be found."),
+                    @ApiResponse(responseCode = "409", description = "The request was valid but NiFi was not in the appropriate state to process it.")
+            },
+            security = {
+                    @SecurityRequirement(name = "Read - /connectors/{uuid}")
+            }
+    )
+    public Response getConnectorConnectionStatusHistory(
+            @Parameter(description = "The connector id.", required = true)
+            @PathParam("id") final String connectorId,
+            @Parameter(description = "The connection id.", required = true)
+            @PathParam("connectionId") final String connectionId) throws InterruptedException {
+
+        if (isReplicateRequest()) {
+            return replicate(HttpMethod.GET);
+        }
+
+        serviceFacade.authorizeAccess(lookup -> {
+            final Authorizable connector = lookup.getConnector(connectorId);
+            connector.authorize(authorizer, RequestAction.READ, NiFiUserUtils.getNiFiUser());
+        });
+
+        final StatusHistoryEntity entity = serviceFacade.getConnectorConnectionStatusHistory(connectorId, connectionId);
+        return generateOkResponse(entity).build();
+    }
+
+    /**
+     * Gets the status history for a Process Group inside the Connector's managed flow. The status history is available
+     * regardless of whether the Connector is in Troubleshooting mode.
+     *
+     * @param connectorId the connector id
+     * @param processGroupId the process group id within the connector's managed flow
+     * @return A statusHistoryEntity.
+     * @throws InterruptedException if interrupted
+     */
+    @GET
+    @Consumes(MediaType.WILDCARD)
+    @Produces(MediaType.APPLICATION_JSON)
+    @Path("{id}/process-groups/{processGroupId}/status/history")
+    @Operation(
+            summary = "Gets the status history for a process group within a connector",
+            responses = {
+                    @ApiResponse(responseCode = "200", content = @Content(schema = @Schema(implementation = StatusHistoryEntity.class))),
+                    @ApiResponse(responseCode = "400", description = "NiFi was unable to complete the request because it was invalid. The request should not be retried without modification."),
+                    @ApiResponse(responseCode = "401", description = "Client could not be authenticated."),
+                    @ApiResponse(responseCode = "403", description = "Client is not authorized to make this request."),
+                    @ApiResponse(responseCode = "404", description = "The specified resource could not be found."),
+                    @ApiResponse(responseCode = "409", description = "The request was valid but NiFi was not in the appropriate state to process it.")
+            },
+            security = {
+                    @SecurityRequirement(name = "Read - /connectors/{uuid}")
+            }
+    )
+    public Response getConnectorProcessGroupStatusHistory(
+            @Parameter(description = "The connector id.", required = true)
+            @PathParam("id") final String connectorId,
+            @Parameter(description = "The process group id.", required = true)
+            @PathParam("processGroupId") final String processGroupId) throws InterruptedException {
+
+        if (isReplicateRequest()) {
+            return replicate(HttpMethod.GET);
+        }
+
+        serviceFacade.authorizeAccess(lookup -> {
+            final Authorizable connector = lookup.getConnector(connectorId);
+            connector.authorize(authorizer, RequestAction.READ, NiFiUserUtils.getNiFiUser());
+        });
+
+        final StatusHistoryEntity entity = serviceFacade.getConnectorProcessGroupStatusHistory(connectorId, processGroupId);
+        return generateOkResponse(entity).build();
+    }
+
+    /**
+     * Gets the status history for a Remote Process Group inside the Connector's managed flow. The status history is
+     * available regardless of whether the Connector is in Troubleshooting mode.
+     *
+     * @param connectorId the connector id
+     * @param remoteProcessGroupId the remote process group id within the connector's managed flow
+     * @return A statusHistoryEntity.
+     * @throws InterruptedException if interrupted
+     */
+    @GET
+    @Consumes(MediaType.WILDCARD)
+    @Produces(MediaType.APPLICATION_JSON)
+    @Path("{id}/remote-process-groups/{remoteProcessGroupId}/status/history")
+    @Operation(
+            summary = "Gets the status history for a remote process group within a connector",
+            responses = {
+                    @ApiResponse(responseCode = "200", content = @Content(schema = @Schema(implementation = StatusHistoryEntity.class))),
+                    @ApiResponse(responseCode = "400", description = "NiFi was unable to complete the request because it was invalid. The request should not be retried without modification."),
+                    @ApiResponse(responseCode = "401", description = "Client could not be authenticated."),
+                    @ApiResponse(responseCode = "403", description = "Client is not authorized to make this request."),
+                    @ApiResponse(responseCode = "404", description = "The specified resource could not be found."),
+                    @ApiResponse(responseCode = "409", description = "The request was valid but NiFi was not in the appropriate state to process it.")
+            },
+            security = {
+                    @SecurityRequirement(name = "Read - /connectors/{uuid}")
+            }
+    )
+    public Response getConnectorRemoteProcessGroupStatusHistory(
+            @Parameter(description = "The connector id.", required = true)
+            @PathParam("id") final String connectorId,
+            @Parameter(description = "The remote process group id.", required = true)
+            @PathParam("remoteProcessGroupId") final String remoteProcessGroupId) throws InterruptedException {
+
+        if (isReplicateRequest()) {
+            return replicate(HttpMethod.GET);
+        }
+
+        serviceFacade.authorizeAccess(lookup -> {
+            final Authorizable connector = lookup.getConnector(connectorId);
+            connector.authorize(authorizer, RequestAction.READ, NiFiUserUtils.getNiFiUser());
+        });
+
+        final StatusHistoryEntity entity = serviceFacade.getConnectorRemoteProcessGroupStatusHistory(connectorId, remoteProcessGroupId);
+        return generateOkResponse(entity).build();
+    }
+
+    @GET
+    @Consumes(MediaType.WILDCARD)
+    @Produces(MediaType.APPLICATION_JSON)
+    @Path("{id}/migration-sources")
+    @Operation(
+            summary = "Lists the Versioned Process Groups that the Connector can be migrated from",
+            responses = {
+                    @ApiResponse(responseCode = "200", content = @Content(schema = @Schema(implementation = VersionedFlowMigrationSourcesEntity.class))),
+                    @ApiResponse(responseCode = "400", description = "NiFi was unable to complete the request because it was invalid. The request should not be retried without modification."),
+                    @ApiResponse(responseCode = "401", description = "Client could not be authenticated."),
+                    @ApiResponse(responseCode = "403", description = "Client is not authorized to make this request."),
+                    @ApiResponse(responseCode = "404", description = "The specified resource could not be found."),
+                    @ApiResponse(responseCode = "409", description = "The request was valid but NiFi was not in the appropriate state to process it.")
+            },
+            security = {
+                    @SecurityRequirement(name = "Read - /connectors/{uuid}"),
+                    @SecurityRequirement(name = "Read - /process-groups/{uuid} - For each Process Group returned")
+            }
+    )
+    public Response getMigrationSources(@PathParam("id") final String connectorId) {
+        authorizeReadConnector(connectorId);
+
+        if (isReplicateRequest()) {
+            return replicate(HttpMethod.GET);
+        }
+
+        final VersionedFlowMigrationSourcesEntity entity = serviceFacade.getConnectorMigrationSources(connectorId);
+        return generateOkResponse(entity).build();
+    }
+
+    @POST
+    @Consumes(MediaType.APPLICATION_OCTET_STREAM)
+    @Produces(MediaType.APPLICATION_JSON)
+    @Path("{id}/migration-payloads")
+    @Operation(
+            summary = "Uploads a flow snapshot payload for a later Connector migration request",
+            responses = {
+                    @ApiResponse(responseCode = "200", content = @Content(schema = @Schema(implementation = MigrationPayloadEntity.class))),
+                    @ApiResponse(responseCode = "400", description = "NiFi was unable to complete the request because it was invalid. The request should not be retried without modification."),
+                    @ApiResponse(responseCode = "401", description = "Client could not be authenticated."),
+                    @ApiResponse(responseCode = "403", description = "Client is not authorized to make this request."),
+                    @ApiResponse(responseCode = "404", description = "The specified resource could not be found."),
+                    @ApiResponse(responseCode = "409", description = "The request was valid but NiFi was not in the appropriate state to process it.")
+            },
+            security = {
+                    @SecurityRequirement(name = "Write - /connectors/{uuid}")
+            }
+    )
+    public Response createMigrationPayload(
+            @PathParam("id") final String connectorId,
+            @Parameter(description = "The migration payload snapshot", required = true) final InputStream payloadContents) throws IOException {
+        if (payloadContents == null) {
+            throw new IllegalArgumentException("Migration payload contents must be specified.");
+        }
+
+        final NiFiUser currentUser = NiFiUserUtils.getNiFiUser();
+        serviceFacade.authorizeAccess(lookup -> {
+            final Authorizable connector = lookup.getConnector(connectorId);
+            connector.authorize(authorizer, RequestAction.WRITE, currentUser);
+        });
+
+        if (isReplicateRequest()) {
+            final String uploadRequestId = UUID.randomUUID().toString();
+            final UploadRequest<MigrationPayloadEntity> uploadRequest = new UploadRequest.Builder<MigrationPayloadEntity>()
+                    .user(currentUser)
+                    .filename("migration-payload.json")
+                    .identifier(uploadRequestId)
+                    .contents(payloadContents)
+                    .forwardRequestHeaders(getHeaders())
+                    .header(CONTENT_TYPE_HEADER, UPLOAD_CONTENT_TYPE)
+                    .header(RequestReplicationHeader.CLUSTER_ID_GENERATION_SEED.getHeader(), uploadRequestId)
+                    .exampleRequestUri(getAbsolutePath())
+                    .responseClass(MigrationPayloadEntity.class)
+                    .successfulResponseStatus(HttpResponseStatus.OK.getCode())
+                    .build();
+            final MigrationPayloadEntity entity = uploadRequestReplicator.upload(uploadRequest);
+            return generateOkResponse(entity).build();
+        }
+
+        // Cap the upload so a malformed or hostile payload cannot exhaust heap; the deserialized snapshot is pinned
+        // in memory for the payload TTL. MaxLengthInputStream throws once the limit is exceeded during deserialization.
+        final RegisteredFlowSnapshot flowSnapshot;
+        try {
+            flowSnapshot = OBJECT_MAPPER.readValue(new MaxLengthInputStream(payloadContents, MAX_MIGRATION_PAYLOAD_SIZE_BYTES), RegisteredFlowSnapshot.class);
+        } catch (final IOException e) {
+            throw new IllegalArgumentException("Deserialization of uploaded migration payload failed", e);
+        }
+
+        // Bundle discovery is deferred to the asynchronous migration task in performAsyncMigration so that
+        // the upload thread does not block on extension-manager work.
+        final String payloadId = getIdGenerationSeed().orElseGet(this::generateUuid);
+        migrationPayloadsById.put(payloadId, new MigrationPayloadEntry(flowSnapshot, System.currentTimeMillis()));
+        final MigrationPayloadDTO migrationPayload = new MigrationPayloadDTO();
+        migrationPayload.setPayloadId(payloadId);
+
+        final MigrationPayloadEntity entity = new MigrationPayloadEntity();
+        entity.setPayload(migrationPayload);
+        return generateOkResponse(entity).build();
+    }
+
+    @POST
+    @Consumes(MediaType.APPLICATION_JSON)
+    @Produces(MediaType.APPLICATION_JSON)
+    @Path("/{id}/migration-requests")
+    @Operation(
+            summary = "Creates a Connector migration request",
+            responses = {
+                    @ApiResponse(responseCode = "200", content = @Content(schema = @Schema(implementation = MigrationRequestEntity.class))),
+                    @ApiResponse(responseCode = "400", description = "NiFi was unable to complete the request because it was invalid. The request should not be retried without modification."),
+                    @ApiResponse(responseCode = "401", description = "Client could not be authenticated."),
+                    @ApiResponse(responseCode = "403", description = "Client is not authorized to make this request."),
+                    @ApiResponse(responseCode = "404", description = "The specified resource could not be found."),
+                    @ApiResponse(responseCode = "409", description = "The request was valid but NiFi was not in the appropriate state to process it.")
+            },
+            security = {
+                    @SecurityRequirement(name = "Write - /connectors/{uuid}"),
+                    @SecurityRequirement(name = "Write - /process-groups/{uuid} - For a migration from a local Process Group")
+            }
+    )
+    public Response createMigrationRequest(@PathParam("id") final String connectorId, final MigrationRequestEntity requestEntity) {
+        if (requestEntity == null || requestEntity.getRequest() == null) {
+            throw new IllegalArgumentException("Migration request must be specified.");
+        }
+
+        final MigrationRequestDTO request = requestEntity.getRequest();
+        if (!connectorId.equals(request.getConnectorId())) {
+            throw new IllegalArgumentException("Connector identifier in the request must match the identifier provided in the URL.");
+        }
+
+        final boolean hasLocalSource = request.getLocalSource() != null && StringUtils.isNotBlank(request.getLocalSource().getProcessGroupId());
+        final boolean hasPayload = StringUtils.isNotBlank(request.getPayloadId());
+        if (hasLocalSource == hasPayload) {
+            throw new IllegalArgumentException("Migration request must specify exactly one source: either a local Process Group or an uploaded payload identifier.");
+        }
+
+        if (hasPayload && !migrationPayloadsById.containsKey(request.getPayloadId())) {
+            throw new ResourceNotFoundException("No uploaded migration payload exists with identifier " + request.getPayloadId());
+        }
+
+        // Reject the request when not all cluster nodes are connected, mirroring the asset-upload guard,
+        // because component state and assets cannot be synchronized to disconnected nodes after migration.
+        final ClusterCoordinator clusterCoordinator = getClusterCoordinator();
+        if (clusterCoordinator != null) {
+            final Set<NodeIdentifier> disconnectedNodes = clusterCoordinator.getNodeIdentifiers(NodeConnectionState.CONNECTING, NodeConnectionState.DISCONNECTED, NodeConnectionState.DISCONNECTING);
+            if (!disconnectedNodes.isEmpty()) {
+                throw new IllegalStateException("Cannot start a Connector migration because the following %s nodes are not currently connected: %s"
+                        .formatted(disconnectedNodes.size(), disconnectedNodes));
+            }
+        }
+
+        if (isReplicateRequest()) {
+            return replicate(HttpMethod.POST, requestEntity);
+        }
+
+        final NiFiUser user = NiFiUserUtils.getNiFiUser();
+        return withWriteLock(
+                serviceFacade,
+                requestEntity,
+                lookup -> {
+                    final Authorizable connector = lookup.getConnector(connectorId);
+                    connector.authorize(authorizer, RequestAction.WRITE, user);
+                    if (hasLocalSource) {
+                        final ProcessGroupAuthorizable sourceGroupAuthorizable = lookup.getProcessGroup(request.getLocalSource().getProcessGroupId());
+                        authorizeProcessGroup(sourceGroupAuthorizable, authorizer, lookup, RequestAction.WRITE, true, false, false, false, true);
+                    }
+                },
+                () -> {
+                    // Verify the target Connector is ready (stopped and unmodified from its initial flow) for every
+                    // source type, so an unready Connector is reported on submission rather than only after the
+                    // asynchronous migration task runs. The uploaded-payload path has no source Process Group to
+                    // verify, so this is the only synchronous readiness check it receives.
+                    serviceFacade.verifyConnectorReadyForMigration(connectorId);
+                    if (hasLocalSource) {
+                        serviceFacade.verifyCanMigrateConnector(connectorId, request.getLocalSource().getProcessGroupId());
+                    }
+                },
+                entity -> performAsyncMigration(entity, user)
+        );
+    }
+
+    @GET
+    @Consumes(MediaType.WILDCARD)
+    @Produces(MediaType.APPLICATION_JSON)
+    @Path("/{id}/migration-requests/{requestId}")
+    @Operation(
+            summary = "Gets the Connector migration request with the given ID",
+            responses = {
+                    @ApiResponse(responseCode = "200", content = @Content(schema = @Schema(implementation = MigrationRequestEntity.class))),
+                    @ApiResponse(responseCode = "400", description = "NiFi was unable to complete the request because it was invalid. The request should not be retried without modification."),
+                    @ApiResponse(responseCode = "401", description = "Client could not be authenticated."),
+                    @ApiResponse(responseCode = "403", description = "Client is not authorized to make this request."),
+                    @ApiResponse(responseCode = "404", description = "The specified resource could not be found."),
+                    @ApiResponse(responseCode = "409", description = "The request was valid but NiFi was not in the appropriate state to process it.")
+            }
+    )
+    public Response getMigrationRequest(@PathParam("id") final String connectorId, @PathParam("requestId") final String requestId) {
+        if (isReplicateRequest()) {
+            return replicate(HttpMethod.GET);
+        }
+
+        final NiFiUser user = NiFiUserUtils.getNiFiUser();
+        final AsynchronousWebRequest<MigrationRequestEntity, ConnectorEntity> asyncRequest = migrationRequestManager.getRequest(MIGRATION_REQUEST_TYPE, requestId, user);
+        return generateOkResponse(createMigrationRequestEntity(asyncRequest, connectorId, requestId)).build();
+    }
+
+    @DELETE
+    @Consumes(MediaType.WILDCARD)
+    @Produces(MediaType.APPLICATION_JSON)
+    @Path("/{id}/migration-requests/{requestId}")
+    @Operation(
+            summary = "Deletes the Connector migration request with the given ID",
+            responses = {
+                    @ApiResponse(responseCode = "200", content = @Content(schema = @Schema(implementation = MigrationRequestEntity.class))),
+                    @ApiResponse(responseCode = "400", description = "NiFi was unable to complete the request because it was invalid. The request should not be retried without modification."),
+                    @ApiResponse(responseCode = "401", description = "Client could not be authenticated."),
+                    @ApiResponse(responseCode = "403", description = "Client is not authorized to make this request."),
+                    @ApiResponse(responseCode = "404", description = "The specified resource could not be found."),
+                    @ApiResponse(responseCode = "409", description = "The request was valid but NiFi was not in the appropriate state to process it.")
+            }
+    )
+    public Response deleteMigrationRequest(@PathParam("id") final String connectorId, @PathParam("requestId") final String requestId) {
+        if (isReplicateRequest()) {
+            return replicate(HttpMethod.DELETE);
+        }
+
+        final NiFiUser user = NiFiUserUtils.getNiFiUser();
+        final boolean twoPhaseRequest = isTwoPhaseRequest(httpServletRequest);
+        final boolean executionPhase = isExecutionPhase(httpServletRequest);
+
+        if (!twoPhaseRequest || executionPhase) {
+            final AsynchronousWebRequest<MigrationRequestEntity, ConnectorEntity> asyncRequest =
+                    migrationRequestManager.removeRequest(MIGRATION_REQUEST_TYPE, requestId, user);
+            if (!asyncRequest.isComplete()) {
+                asyncRequest.cancel();
+            }
+
+            final MigrationRequestDTO request = asyncRequest.getRequest().getRequest();
+            if (StringUtils.isNotBlank(request.getPayloadId())) {
+                migrationPayloadsById.remove(request.getPayloadId());
+            }
+
+            return generateOkResponse(createMigrationRequestEntity(asyncRequest, connectorId, requestId)).build();
+        }
+
+        if (isValidationPhase(httpServletRequest)) {
+            migrationRequestManager.getRequest(MIGRATION_REQUEST_TYPE, requestId, user);
+            return generateContinueResponse().build();
+        } else if (isCancellationPhase(httpServletRequest)) {
+            return generateOkResponse().build();
+        } else {
+            throw new IllegalStateException("This request does not appear to be part of the two phase commit.");
+        }
+    }
+
+    private Response performAsyncMigration(final MigrationRequestEntity requestEntity, final NiFiUser user) {
+        final String requestId = generateUuid();
+        final MigrationRequestDTO migrationRequest = requestEntity.getRequest();
+        final List<UpdateStep> updateSteps = Collections.singletonList(new StandardUpdateStep("Migrate Versioned Flow"));
+
+        final AsynchronousWebRequest<MigrationRequestEntity, ConnectorEntity> request =
+                new StandardAsynchronousWebRequest<>(requestId, requestEntity, migrationRequest.getConnectorId(), user, updateSteps);
+
+        final Consumer<AsynchronousWebRequest<MigrationRequestEntity, ConnectorEntity>> updateTask = asyncRequest -> {
+            final String payloadId = migrationRequest.getPayloadId();
+            try {
+                final RegisteredFlowSnapshot flowSnapshot = getMigrationSnapshot(migrationRequest);
+                final String processGroupId = migrationRequest.getLocalSource() == null ? null : migrationRequest.getLocalSource().getProcessGroupId();
+                final ConnectorEntity migratedConnector = serviceFacade.migrateConnector(migrationRequest.getConnectorId(), processGroupId, flowSnapshot, asyncRequest::isCancelled);
+                asyncRequest.markStepComplete(migratedConnector);
+            } catch (final Exception e) {
+                logger.error("Failed to migrate Connector {}", migrationRequest.getConnectorId(), e);
+                asyncRequest.fail("Failed to migrate Connector due to " + e);
+            } finally {
+                if (StringUtils.isNotBlank(payloadId)) {
+                    migrationPayloadsById.remove(payloadId);
+                }
+            }
+        };
+
+        request.setCancelCallback(() -> {
+            final String payloadId = migrationRequest.getPayloadId();
+            if (StringUtils.isNotBlank(payloadId)) {
+                migrationPayloadsById.remove(payloadId);
+            }
+        });
+
+        migrationRequestManager.submitRequest(MIGRATION_REQUEST_TYPE, requestId, request, updateTask);
+        final MigrationRequestEntity resultsEntity = createMigrationRequestEntity(request, migrationRequest.getConnectorId(), requestId);
+        return generateOkResponse(resultsEntity).build();
+    }
+
+    private RegisteredFlowSnapshot getMigrationSnapshot(final MigrationRequestDTO migrationRequest) {
+        final MigrationRequestLocalSourceDTO localSource = migrationRequest.getLocalSource();
+        if (localSource != null && StringUtils.isNotBlank(localSource.getProcessGroupId())) {
+            // The local-source path uses the framework's snapshot facility, which already returns a snapshot
+            // whose bundles match this NiFi instance. discoverCompatibleBundles is intentionally not invoked
+            // here because it is reserved for snapshots that originate from external sources (uploaded payloads).
+            // Asset references are mapped because the migration must carry them so the target Connector can copy
+            // the referenced assets; this is the only caller of this path that maps asset references.
+            return serviceFacade.getCurrentFlowSnapshotByGroupId(localSource.getProcessGroupId(), true, true, true);
+        }
+
+        final String payloadId = migrationRequest.getPayloadId();
+        final MigrationPayloadEntry entry = migrationPayloadsById.get(payloadId);
+        if (entry == null) {
+            throw new ResourceNotFoundException("No uploaded migration payload exists with identifier " + payloadId);
+        }
+
+        // Bundle discovery is performed once when the migration task picks up the uploaded payload, not on
+        // the upload thread, so that a slow extension manager does not block the upload-replication path.
+        final RegisteredFlowSnapshot flowSnapshot = entry.snapshot();
+        serviceFacade.discoverCompatibleBundles(flowSnapshot.getFlowContents());
+        serviceFacade.discoverCompatibleBundles(flowSnapshot.getParameterProviders());
+        return flowSnapshot;
+    }
+
+    private void evictExpiredMigrationPayloads() {
+        final long cutoffMillis = System.currentTimeMillis() - MIGRATION_PAYLOAD_TTL_MILLIS;
+        migrationPayloadsById.entrySet().removeIf(entry -> entry.getValue().uploadedAtMillis() < cutoffMillis);
+    }
+
+    private MigrationRequestEntity createMigrationRequestEntity(
+            final AsynchronousWebRequest<MigrationRequestEntity, ConnectorEntity> asyncRequest,
+            final String connectorId,
+            final String requestId) {
+        final MigrationRequestDTO requestedMigration = asyncRequest.getRequest().getRequest();
+
+        final MigrationRequestDTO migrationRequest = new MigrationRequestDTO();
+        migrationRequest.setConnectorId(requestedMigration.getConnectorId());
+        migrationRequest.setLocalSource(requestedMigration.getLocalSource());
+        migrationRequest.setPayloadId(requestedMigration.getPayloadId());
+        migrationRequest.setComplete(asyncRequest.isComplete());
+        migrationRequest.setFailureReason(asyncRequest.getFailureReason());
+        migrationRequest.setLastUpdated(asyncRequest.getLastUpdated());
+        migrationRequest.setPercentCompleted(asyncRequest.getPercentComplete());
+        migrationRequest.setRequestId(requestId);
+        migrationRequest.setState(asyncRequest.getState());
+        migrationRequest.setUri(generateResourceUri("connectors", connectorId, "migration-requests", requestId));
+        migrationRequest.setUpdateSteps(asyncRequest.getUpdateSteps().stream().map(updateStep -> {
+            final MigrationUpdateStepDTO migrationUpdateStep = new MigrationUpdateStepDTO();
+            migrationUpdateStep.setDescription(updateStep.getDescription());
+            migrationUpdateStep.setComplete(updateStep.isComplete());
+            migrationUpdateStep.setFailureReason(updateStep.getFailureReason());
+            return migrationUpdateStep;
+        }).toList());
+
+        final MigrationRequestEntity entity = new MigrationRequestEntity();
+        entity.setRequest(migrationRequest);
+        return entity;
+    }
+
     @POST
     @Consumes(MediaType.APPLICATION_OCTET_STREAM)
     @Produces(MediaType.APPLICATION_JSON)
@@ -2499,6 +3101,66 @@ public class ConnectorResource extends ApplicationResource {
     }
 
     // -----------------
+    // Controller Services
+    // -----------------
+
+    /**
+     * Gets a controller service within a connector. Available regardless of whether the Connector is in Troubleshooting mode.
+     *
+     * @param connectorId         the connector id
+     * @param controllerServiceId the controller service id
+     * @param uiOnly              whether to strip non-UI-relevant fields from the response
+     * @return a ControllerServiceEntity
+     */
+    @GET
+    @Consumes(MediaType.WILDCARD)
+    @Produces(MediaType.APPLICATION_JSON)
+    @Path("{id}/controller-services/{controllerServiceId}")
+    @Operation(
+            summary = "Gets a controller service within a connector",
+            responses = {
+                    @ApiResponse(responseCode = "200", content = @Content(schema = @Schema(implementation = ControllerServiceEntity.class))),
+                    @ApiResponse(responseCode = "400", description = "NiFi was unable to complete the request because it was invalid. The request should not be retried without modification."),
+                    @ApiResponse(responseCode = "401", description = "Client could not be authenticated."),
+                    @ApiResponse(responseCode = "403", description = "Client is not authorized to make this request."),
+                    @ApiResponse(responseCode = "404", description = "The specified resource could not be found."),
+                    @ApiResponse(responseCode = "409", description = "The request was valid but NiFi was not in the appropriate state to process it.")
+            },
+            security = {
+                    @SecurityRequirement(name = "Read - /connectors/{uuid}")
+            },
+            description = "If the uiOnly query parameter is provided with a value of true, the returned entity may only contain " +
+                    "fields that are necessary for rendering the NiFi User Interface. As such, the selected fields may change " +
+                    "at any time, even during incremental releases, without warning. As a result, this parameter should not be " +
+                    "provided by any client other than the UI."
+    )
+    public Response getConnectorControllerService(
+            @Parameter(description = "The connector id.", required = true)
+            @PathParam("id") final String connectorId,
+            @Parameter(description = "The controller service id.", required = true)
+            @PathParam("controllerServiceId") final String controllerServiceId,
+            @QueryParam("uiOnly") @DefaultValue("false") final boolean uiOnly) {
+
+        if (isReplicateRequest()) {
+            return replicate(HttpMethod.GET);
+        }
+
+        serviceFacade.authorizeAccess(lookup -> {
+            final Authorizable connector = lookup.getConnector(connectorId);
+            connector.authorize(authorizer, RequestAction.READ, NiFiUserUtils.getNiFiUser());
+        });
+
+        // Resolve the controller service from the managed Process Group tree so the Troubleshooting access gate does not apply.
+        final ControllerServiceEntity entity = serviceFacade.getConnectorControllerService(connectorId, controllerServiceId, true);
+        if (uiOnly) {
+            stripNonUiRelevantFields(entity);
+        }
+        controllerServiceResource.populateRemainingControllerServiceEntityContent(entity);
+
+        return generateOkResponse(entity).build();
+    }
+
+    // -----------------
     // Controller Service State
     // -----------------
 
@@ -2615,6 +3277,251 @@ public class ConnectorResource extends ApplicationResource {
                     return generateOkResponse(entity).build();
                 }
         );
+    }
+
+    // -----------------
+    // Backlog
+    // -----------------
+
+    /**
+     * Initiates an asynchronous request to determine the current backlog for the specified Connector.
+     *
+     * <p>Determining backlog typically requires the Connector to issue a request to an external source system,
+     * which may take an indeterminate amount of time or may never complete if the source system is unavailable.
+     * Rather than blocking the HTTP request thread, this endpoint immediately returns a {@link BacklogRequestEntity}
+     * and performs the determination in the background. The client should poll
+     * {@code GET /connectors/{id}/backlog-requests/{requestId}} until the request completes, and then issue a
+     * {@code DELETE} to the same URI. Deleting the request before it completes cancels the background
+     * determination.</p>
+     *
+     * @param connectorId the connector id
+     * @return a BacklogRequestEntity describing the newly created request
+     */
+    @POST
+    @Consumes(MediaType.WILDCARD)
+    @Produces(MediaType.APPLICATION_JSON)
+    @Path("/{id}/backlog-requests")
+    @Operation(
+            summary = "Initiates a request to determine the current backlog for a Connector",
+            responses = {
+                    @ApiResponse(responseCode = "200", content = @Content(schema = @Schema(implementation = BacklogRequestEntity.class))),
+                    @ApiResponse(responseCode = "400", description = "NiFi was unable to complete the request because it was invalid. The request should not be retried without modification."),
+                    @ApiResponse(responseCode = "401", description = "Client could not be authenticated."),
+                    @ApiResponse(responseCode = "403", description = "Client is not authorized to make this request."),
+                    @ApiResponse(responseCode = "404", description = "The specified resource could not be found."),
+                    @ApiResponse(responseCode = "409", description = "The request was valid but NiFi was not in the appropriate state to process it.")
+            },
+            description = "This will initiate the process of determining the backlog for a Connector. This may be a long-running task. As a result, this endpoint will immediately return a " +
+                    "BacklogRequestEntity, and the process of determining the backlog will occur asynchronously in the background. The client may then periodically poll the status of the " +
+                    "request by issuing a GET request to /connectors/{id}/backlog-requests/{requestId}. Once the request is completed, the client is expected to issue a DELETE " +
+                    "request to /connectors/{id}/backlog-requests/{requestId}.",
+            security = {
+                    @SecurityRequirement(name = "Write - /connectors/{uuid}")
+            }
+    )
+    public Response submitConnectorBacklogRequest(
+            @Parameter(description = "The connector id.", required = true)
+            @PathParam("id") final String connectorId) {
+
+        if (isReplicateRequest()) {
+            return replicate(HttpMethod.POST);
+        }
+
+        final ConnectorEntity requestConnectorEntity = new ConnectorEntity();
+        requestConnectorEntity.setId(connectorId);
+
+        // A replicated write request is a two-phase commit: the framework replicates the same POST to every
+        // node once for validation and again for execution. withWriteLock() only invokes the action below
+        // during the execution phase (or immediately, when not part of a two-phase commit), so the backlog
+        // request is submitted exactly once per node instead of once during validation and once during
+        // execution, which would otherwise create two requests and cause the second submission to conflict
+        // with the first.
+        return withWriteLock(
+                serviceFacade,
+                requestConnectorEntity,
+                lookup -> {
+                    final Authorizable connector = lookup.getConnector(connectorId);
+                    connector.authorize(authorizer, RequestAction.WRITE, NiFiUserUtils.getNiFiUser());
+                },
+                () -> serviceFacade.verifyCanReportConnectorBacklog(connectorId),
+                (connectorEntity) -> performAsyncBacklog(connectorEntity.getId(), NiFiUserUtils.getNiFiUser())
+        );
+    }
+
+    /**
+     * Returns the current status of the specified backlog request.
+     *
+     * @param connectorId the connector id
+     * @param requestId the backlog request id
+     * @return a BacklogRequestEntity describing the current status of the request
+     */
+    @GET
+    @Consumes(MediaType.WILDCARD)
+    @Produces(MediaType.APPLICATION_JSON)
+    @Path("/{id}/backlog-requests/{requestId}")
+    @Operation(
+            summary = "Returns the Backlog Request with the given ID",
+            responses = {
+                    @ApiResponse(responseCode = "200", content = @Content(schema = @Schema(implementation = BacklogRequestEntity.class))),
+                    @ApiResponse(responseCode = "400", description = "NiFi was unable to complete the request because it was invalid. The request should not be retried without modification."),
+                    @ApiResponse(responseCode = "401", description = "Client could not be authenticated."),
+                    @ApiResponse(responseCode = "403", description = "Client is not authorized to make this request."),
+                    @ApiResponse(responseCode = "404", description = "The specified resource could not be found."),
+                    @ApiResponse(responseCode = "409", description = "The request was valid but NiFi was not in the appropriate state to process it.")
+            },
+            description = "Returns the Backlog Request with the given ID. Once a Backlog Request has been created by performing a POST to /connectors/{id}/backlog-requests, "
+                    + "that request can subsequently be retrieved via this endpoint, and the request that is fetched will contain the updated state, such as percent complete, the "
+                    + "current state of the request, and the backlog once the request is complete.",
+            security = {
+                    @SecurityRequirement(name = "Only the user that submitted the request can get it")
+            }
+    )
+    public Response getConnectorBacklogRequest(
+            @Parameter(description = "The connector id.", required = true)
+            @PathParam("id") final String connectorId,
+            @Parameter(description = "The ID of the Backlog Request") @PathParam("requestId") final String requestId) {
+
+        if (isReplicateRequest()) {
+            return replicate(HttpMethod.GET);
+        }
+
+        final NiFiUser user = NiFiUserUtils.getNiFiUser();
+
+        // request manager will ensure that the current user is the user that submitted this request
+        final AsynchronousWebRequest<String, BacklogDTO> asyncRequest = backlogRequestManager.getRequest(BACKLOG_REQUEST_TYPE, requestId, user);
+        final BacklogRequestEntity entity = createBacklogRequestEntity(asyncRequest, requestId);
+        return generateOkResponse(entity).build();
+    }
+
+    /**
+     * Cancels and/or removes the specified backlog request.
+     *
+     * @param connectorId the connector id
+     * @param requestId the backlog request id
+     * @return a BacklogRequestEntity describing the final status of the request
+     */
+    @DELETE
+    @Consumes(MediaType.WILDCARD)
+    @Produces(MediaType.APPLICATION_JSON)
+    @Path("/{id}/backlog-requests/{requestId}")
+    @Operation(
+            summary = "Deletes the Backlog Request with the given ID",
+            responses = {
+                    @ApiResponse(responseCode = "200", content = @Content(schema = @Schema(implementation = BacklogRequestEntity.class))),
+                    @ApiResponse(responseCode = "400", description = "NiFi was unable to complete the request because it was invalid. The request should not be retried without modification."),
+                    @ApiResponse(responseCode = "401", description = "Client could not be authenticated."),
+                    @ApiResponse(responseCode = "403", description = "Client is not authorized to make this request."),
+                    @ApiResponse(responseCode = "404", description = "The specified resource could not be found."),
+                    @ApiResponse(responseCode = "409", description = "The request was valid but NiFi was not in the appropriate state to process it.")
+            },
+            description = "Deletes the Backlog Request with the given ID. After a request is created, it is expected that the client will properly clean up the request by DELETE'ing "
+                    + "it once the backlog determination has completed. If the request is deleted before it completes, the background determination is cancelled.",
+            security = {
+                    @SecurityRequirement(name = "Only the user that submitted the request can remove it")
+            }
+    )
+    public Response deleteConnectorBacklogRequest(
+            @Parameter(description = "The connector id.", required = true)
+            @PathParam("id") final String connectorId,
+            @Parameter(description = "The ID of the Backlog Request") @PathParam("requestId") final String requestId) {
+
+        if (isReplicateRequest()) {
+            return replicate(HttpMethod.DELETE);
+        }
+
+        final NiFiUser user = NiFiUserUtils.getNiFiUser();
+        final boolean twoPhaseRequest = isTwoPhaseRequest(httpServletRequest);
+        final boolean executionPhase = isExecutionPhase(httpServletRequest);
+
+        if (!twoPhaseRequest || executionPhase) {
+            // request manager will ensure that the current user is the user that submitted this request
+            final AsynchronousWebRequest<String, BacklogDTO> asyncRequest = backlogRequestManager.removeRequest(BACKLOG_REQUEST_TYPE, requestId, user);
+
+            if (!asyncRequest.isComplete()) {
+                asyncRequest.cancel();
+            }
+
+            final BacklogRequestEntity entity = createBacklogRequestEntity(asyncRequest, requestId);
+            return generateOkResponse(entity).build();
+        }
+
+        if (isValidationPhase(httpServletRequest)) {
+            backlogRequestManager.getRequest(BACKLOG_REQUEST_TYPE, requestId, user);
+            return generateContinueResponse().build();
+        } else if (isCancellationPhase(httpServletRequest)) {
+            return generateOkResponse().build();
+        } else {
+            throw new IllegalStateException("This request does not appear to be part of the two phase commit.");
+        }
+    }
+
+    private Response performAsyncBacklog(final String connectorId, final NiFiUser user) {
+        final String requestId = generateUuid();
+        logger.debug("Generated Backlog Request with ID {} for Connector {}", requestId, connectorId);
+
+        final List<UpdateStep> updateSteps = Collections.singletonList(new StandardUpdateStep("Determining Backlog"));
+        final AsynchronousWebRequest<String, BacklogDTO> request = new StandardAsynchronousWebRequest<>(requestId, connectorId, connectorId, user, updateSteps);
+
+        final Consumer<AsynchronousWebRequest<String, BacklogDTO>> backlogTask = asyncRequest -> {
+            final Thread currentThread = Thread.currentThread();
+            asyncRequest.setCancelCallback(currentThread::interrupt);
+
+            try {
+                final BacklogEntity backlogEntity = serviceFacade.getConnectorBacklog(connectorId);
+                asyncRequest.markStepComplete(backlogEntity.getBacklog());
+            } catch (final Exception e) {
+                logger.error("Failed to determine backlog for Connector {}", connectorId, e);
+                asyncRequest.fail(describeBacklogFailure(e));
+            }
+        };
+
+        backlogRequestManager.submitRequest(BACKLOG_REQUEST_TYPE, requestId, request, backlogTask);
+
+        final BacklogRequestEntity resultsEntity = createBacklogRequestEntity(request, requestId);
+        return generateOkResponse(resultsEntity).build();
+    }
+
+    /**
+     * Builds a failure explanation for a backlog determination that includes both the top-level exception
+     * message and, when it differs, the message of the deepest cause in the exception chain. The top-level
+     * message alone is often a generic wrapper while the root cause carries the actionable detail (for
+     * example a Kafka {@code TimeoutException} explaining which call timed out), so both are surfaced to
+     * the user.
+     *
+     * @param e the exception raised while determining backlog
+     * @return an explanation combining the top-level message with the root cause message, when they differ
+     */
+    private static String describeBacklogFailure(final Exception e) {
+        final String topLevelMessage = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
+        if (e.getCause() == null) {
+            return topLevelMessage;
+        }
+
+        final String rootCauseMessage = ExceptionUtils.getRootCauseMessage(e);
+        if (rootCauseMessage == null || rootCauseMessage.isBlank()) {
+            return topLevelMessage;
+        }
+        return topLevelMessage + " (" + rootCauseMessage + ")";
+    }
+
+    private BacklogRequestEntity createBacklogRequestEntity(final AsynchronousWebRequest<String, BacklogDTO> asyncRequest, final String requestId) {
+        final String connectorId = asyncRequest.getRequest();
+
+        final BacklogRequestDTO dto = new BacklogRequestDTO();
+        dto.setComponentId(connectorId);
+        dto.setRequestId(requestId);
+        dto.setUri(generateResourceUri("connectors", connectorId, "backlog-requests", requestId));
+        dto.setSubmissionTime(asyncRequest.getLastUpdated());
+        dto.setLastUpdated(asyncRequest.getLastUpdated());
+        dto.setComplete(asyncRequest.isComplete());
+        dto.setFailureReason(asyncRequest.getFailureReason());
+        dto.setPercentCompleted(asyncRequest.getPercentComplete());
+        dto.setState(asyncRequest.getState());
+        dto.setBacklog(asyncRequest.getResults());
+
+        final BacklogRequestEntity entity = new BacklogRequestEntity();
+        entity.setRequest(dto);
+        return entity;
     }
 
     // -----------------

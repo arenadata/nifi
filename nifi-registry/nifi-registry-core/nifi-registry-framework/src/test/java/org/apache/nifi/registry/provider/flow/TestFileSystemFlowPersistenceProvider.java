@@ -16,6 +16,7 @@
  */
 package org.apache.nifi.registry.provider.flow;
 
+import org.apache.commons.io.FileUtils;
 import org.apache.commons.io.IOUtils;
 import org.apache.nifi.registry.flow.FlowPersistenceProvider;
 import org.apache.nifi.registry.flow.FlowSnapshotContext;
@@ -69,7 +70,7 @@ public class TestFileSystemFlowPersistenceProvider {
     public void setup() throws IOException {
         flowStorageDir = new File(FLOW_STORAGE_DIR);
         if (flowStorageDir.exists()) {
-            org.apache.commons.io.FileUtils.cleanDirectory(flowStorageDir);
+            FileUtils.cleanDirectory(flowStorageDir);
             assertTrue(flowStorageDir.delete());
         }
 
@@ -175,6 +176,18 @@ public class TestFileSystemFlowPersistenceProvider {
 
         // delete a bucket that doesn't exist
         fileSystemFlowProvider.deleteFlowContent(SECOND_BUCKET_ID, FLOW_ID, 1);
+    }
+
+    @Test
+    public void testSaveRejectsParentDirectoryIdentifiers() {
+        final FlowSnapshotContext context = Mockito.mock(FlowSnapshotContext.class);
+        when(context.getBucketId()).thenReturn("..");
+        when(context.getFlowId()).thenReturn(FLOW_ID);
+        when(context.getVersion()).thenReturn(1);
+
+        assertThrows(IllegalArgumentException.class, () -> fileSystemFlowProvider.saveFlowContent(context, FIRST_VERSION.getBytes(StandardCharsets.UTF_8)));
+        assertTrue(flowStorageDir.exists());
+        assertFalse(new File(flowStorageDir.getParentFile(), FLOW_ID).exists());
     }
 
     private void createAndSaveSnapshot(final FlowPersistenceProvider flowPersistenceProvider, final int version, final String contentString) {

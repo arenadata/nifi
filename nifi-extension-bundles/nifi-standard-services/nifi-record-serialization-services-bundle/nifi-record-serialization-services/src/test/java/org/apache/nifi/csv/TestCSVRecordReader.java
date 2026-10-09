@@ -37,6 +37,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
+import java.sql.Date;
 import java.sql.Time;
 import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
@@ -108,7 +109,7 @@ public class TestCSVRecordReader {
 
                 final Record record = reader.nextRecord(coerceTypes, false);
                 final Object date = record.getValue("date");
-                assertEquals(java.sql.Date.valueOf(dateValue), date);
+                assertEquals(Date.valueOf(dateValue), date);
             }
         }
     }
@@ -134,7 +135,7 @@ public class TestCSVRecordReader {
     }
 
     @Test
-    public void testDateNoCoersionExpectedFormat() throws IOException, MalformedRecordException {
+    public void testDateNoCoercionExpectedFormat() throws IOException, MalformedRecordException {
         final String dateValue = "1983-11-30";
         final String text = "date\n11/30/1983";
 
@@ -148,12 +149,12 @@ public class TestCSVRecordReader {
 
             final Record record = reader.nextRecord(false, false);
             final Object date = record.getValue("date");
-            assertEquals(java.sql.Date.valueOf(dateValue), date);
+            assertEquals(Date.valueOf(dateValue), date);
         }
     }
 
     @Test
-    public void testDateNoCoersionUnexpectedFormat() throws IOException, MalformedRecordException {
+    public void testDateNoCoercionUnexpectedFormat() throws IOException, MalformedRecordException {
         final String text = "date\n11/30/1983";
 
         final List<RecordField> fields = new ArrayList<>();
@@ -205,7 +206,7 @@ public class TestCSVRecordReader {
     }
 
     @Test
-    public void testTimeNoCoersionExpectedFormat() throws IOException, MalformedRecordException {
+    public void testTimeNoCoercionExpectedFormat() throws IOException, MalformedRecordException {
         final String timeFormat = "HH!mm!ss";
         final DateTimeFormatter dateTimeFormatter = DateTimeFormatter.ofPattern(timeFormat);
         final String timeVal = "19!02!03";
@@ -220,7 +221,7 @@ public class TestCSVRecordReader {
                      RecordFieldType.DATE.getDefaultFormat(), timeFormat, RecordFieldType.TIMESTAMP.getDefaultFormat(), "UTF-8")) {
 
             final Record record = reader.nextRecord(false, false);
-            final java.sql.Time time = (Time) record.getValue("time");
+            final Time time = (Time) record.getValue("time");
 
             final LocalTime localTime = LocalTime.parse(timeVal, dateTimeFormatter);
             assertEquals(Time.valueOf(localTime), time);
@@ -228,7 +229,7 @@ public class TestCSVRecordReader {
     }
 
     @Test
-    public void testTimeNoCoersionUnexpectedFormat() throws IOException, MalformedRecordException {
+    public void testTimeNoCoercionUnexpectedFormat() throws IOException, MalformedRecordException {
         final String text = "time\n01:02:03";
 
         final List<RecordField> fields = new ArrayList<>();
@@ -279,7 +280,7 @@ public class TestCSVRecordReader {
     }
 
     @Test
-    public void testTimestampNoCoersionUnexpectedFormat() throws IOException, MalformedRecordException {
+    public void testTimestampNoCoercionUnexpectedFormat() throws IOException, MalformedRecordException {
         final String text = "timestamp\n01:02:03";
 
         final List<RecordField> fields = new ArrayList<>();

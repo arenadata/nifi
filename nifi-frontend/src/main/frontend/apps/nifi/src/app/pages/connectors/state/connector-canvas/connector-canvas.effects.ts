@@ -34,7 +34,15 @@ import {
     tap,
     throttleTime
 } from 'rxjs/operators';
-import { ComponentType, ComponentTypeNamePipe, LARGE_DIALOG, MEDIUM_DIALOG, NiFiCommon, XL_DIALOG } from '@nifi/shared';
+import {
+    ComponentType,
+    ComponentTypeNamePipe,
+    LARGE_DIALOG,
+    MEDIUM_DIALOG,
+    NiFiCommon,
+    sanitizePosition,
+    XL_DIALOG
+} from '@nifi/shared';
 import { selectCurrentUser } from '../../../../state/current-user/current-user.selectors';
 import { selectPrioritizerTypes } from '../../../../state/extension-types/extension-types.selectors';
 import {
@@ -57,6 +65,7 @@ import { EditRemoteProcessGroup } from '../../../../ui/common/component-dialogs/
 import * as ConnectorCanvasActions from './connector-canvas.actions';
 import * as ConnectorControllerServicesActions from '../connector-controller-services/connector-controller-services.actions';
 import { bindConnectorParameterContext } from './bind-connector-parameter-context';
+import { bindGoToService } from './bind-go-to-service';
 import { SelectedComponent } from './connector-canvas.actions';
 import * as EmptyQueueActions from '../../../../state/empty-queue/empty-queue.actions';
 import {
@@ -94,6 +103,12 @@ export class ConnectorCanvasEffects {
      */
     private lastReload = 0;
 
+    /**
+     * Warn-once dedupe state for position sanitization: emits at most one
+     * console.warn per component id for the lifetime of this effects instance.
+     */
+    private readonly warnedPositionIds = new Set<string>();
+
     constructor() {
         // When the document becomes visible after having been hidden long enough
         // for the polling interval to be skipped, trigger a reload so the canvas
@@ -123,14 +138,16 @@ export class ConnectorCanvasEffects {
                     map((flowResponse) => {
                         const processGroupFlow = flowResponse.processGroupFlow;
                         const flow = processGroupFlow?.flow;
-                        const labels = flow?.labels || [];
-                        const funnels = flow?.funnels || [];
-                        const inputPorts = flow?.inputPorts || [];
-                        const outputPorts = flow?.outputPorts || [];
-                        const remoteProcessGroups = flow?.remoteProcessGroups || [];
-                        const processGroups = flow?.processGroups || [];
-                        const processors = flow?.processors || [];
-                        const connections = flow?.connections || [];
+                        const {
+                            labels,
+                            funnels,
+                            inputPorts,
+                            outputPorts,
+                            remoteProcessGroups,
+                            processGroups,
+                            processors,
+                            connections
+                        } = this.sanitizeConnectorFlowPositions(flow);
 
                         // Extract process group IDs for navigation
                         const processGroupId = processGroupFlow?.id ?? null;
@@ -704,7 +721,14 @@ export class ConnectorCanvasEffects {
         instance.createNewProperty = () => NEVER;
         instance.createNewService = () => NEVER;
         instance.convertToParameter = () => NEVER;
-        instance.goToService = () => undefined;
+        instance.goToService = bindGoToService(
+            this.store,
+            this.connectorService,
+            this.errorHelper,
+            dialogRef,
+            this.store.select(selectConnectorIdFromRoute),
+            ErrorContextKey.CONNECTOR_CANVAS
+        );
 
         // EditProcessor only exposes `parameterContext`; the underlying property table
         // disables parameter affordances on its own when parameterContext is undefined.
@@ -780,5 +804,61 @@ export class ConnectorCanvasEffects {
             data: request
         });
         dialogRef.componentInstance.saving$ = of(false);
+    }
+
+    /**
+     * Sanitize all positions in a connector flow snapshot before they enter NgRx state.
+     * Even though the connector canvas is read-only, it renders via the same reusable canvas
+     * component, so out-of-range coordinates must be clamped here to prevent SVG overflow.
+     */
+    private sanitizeConnectorFlowPositions(flow: any): {
+        labels: any[];
+        funnels: any[];
+        inputPorts: any[];
+        outputPorts: any[];
+        remoteProcessGroups: any[];
+        processGroups: any[];
+        processors: any[];
+        connections: any[];
+    } {
+        const sanitize = (entity: any, kind: string) => ({
+            ...entity,
+            position: sanitizePosition(entity.position, {
+                componentId: entity.id,
+                componentKind: kind,
+                warnedIds: this.warnedPositionIds
+            })
+        });
+        const sanitizeConnection = (entity: any) => ({
+            ...entity,
+            position: sanitizePosition(entity.position, {
+                componentId: entity.id,
+                componentKind: 'Connection',
+                warnedIds: this.warnedPositionIds
+            }),
+            component: entity.component
+                ? {
+                      ...entity.component,
+                      bends: entity.component.bends?.map((bend: any, index: number) =>
+                          sanitizePosition(bend, {
+                              componentId: `${entity.id}:bend:${index}`,
+                              componentKind: 'Connection bend',
+                              warnedIds: this.warnedPositionIds
+                          })
+                      )
+                  }
+                : entity.component
+        });
+
+        return {
+            labels: (flow?.labels || []).map((e: any) => sanitize(e, 'Label')),
+            funnels: (flow?.funnels || []).map((e: any) => sanitize(e, 'Funnel')),
+            inputPorts: (flow?.inputPorts || []).map((e: any) => sanitize(e, 'Input Port')),
+            outputPorts: (flow?.outputPorts || []).map((e: any) => sanitize(e, 'Output Port')),
+            remoteProcessGroups: (flow?.remoteProcessGroups || []).map((e: any) => sanitize(e, 'Remote Process Group')),
+            processGroups: (flow?.processGroups || []).map((e: any) => sanitize(e, 'Process Group')),
+            processors: (flow?.processors || []).map((e: any) => sanitize(e, 'Processor')),
+            connections: (flow?.connections || []).map(sanitizeConnection)
+        };
     }
 }

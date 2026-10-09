@@ -41,9 +41,6 @@ import org.apache.nifi.controller.scheduling.StatelessProcessScheduler;
 import org.apache.nifi.controller.scheduling.StatelessProcessSchedulerInitializationContext;
 import org.apache.nifi.controller.service.ControllerServiceProvider;
 import org.apache.nifi.controller.service.StandardControllerServiceProvider;
-import org.apache.nifi.encrypt.PropertyEncryptionMethod;
-import org.apache.nifi.encrypt.PropertyEncryptor;
-import org.apache.nifi.encrypt.PropertyEncryptorBuilder;
 import org.apache.nifi.engine.FlowEngine;
 import org.apache.nifi.events.BulletinFactory;
 import org.apache.nifi.events.EventReporter;
@@ -154,6 +151,7 @@ public class StandardStatelessDataflowFactory implements StatelessDataflowFactor
             };
             assetManager.initialize(assetManagerInitializationContext);
 
+            final ComponentMetricReporter componentMetricReporter = new DefaultComponentMetricReporter();
             flowFileEventRepo = new RingBufferEventRepository(5);
 
             final StatelessStateManagerProvider stateManagerProvider = new StatelessStateManagerProvider();
@@ -182,33 +180,7 @@ public class StandardStatelessDataflowFactory implements StatelessDataflowFactor
             final ExtensionRepository extensionRepository = new FileSystemExtensionRepository(extensionManager, engineConfiguration, narClassLoaders, extensionClients);
             extensionRepository.initialize();
 
-            final PropertyEncryptor lazyInitializedEncryptor = new PropertyEncryptor() {
-                private PropertyEncryptor created = null;
-
-                @Override
-                public String encrypt(final String property) {
-                    return getEncryptor().encrypt(property);
-                }
-
-                @Override
-                public String decrypt(final String encryptedProperty) {
-                    return getEncryptor().decrypt(encryptedProperty);
-                }
-
-                private synchronized PropertyEncryptor getEncryptor() {
-                    if (created != null) {
-                        return created;
-                    }
-
-                    created = new PropertyEncryptorBuilder(engineConfiguration.getSensitivePropsKey())
-                            .setAlgorithm(PropertyEncryptionMethod.NIFI_PBKDF2_AES_GCM_256.toString())
-                            .build();
-                    return created;
-                }
-            };
-
             final CounterRepository counterRepo = new StandardCounterRepository();
-            final ComponentMetricReporter componentMetricReporter = new DefaultComponentMetricReporter();
 
             final File krb5File = engineConfiguration.getKrb5File();
             final KerberosConfig kerberosConfig = new KerberosConfig(null, null, krb5File);
@@ -219,7 +191,6 @@ public class StandardStatelessDataflowFactory implements StatelessDataflowFactor
 
             final StatelessEngine statelessEngine = new StandardStatelessEngine.Builder()
                     .bulletinRepository(bulletinRepository)
-                    .encryptor(lazyInitializedEncryptor)
                     .extensionManager(extensionManager)
                     .assetManager(assetManager)
                     .stateManagerProvider(stateManagerProvider)

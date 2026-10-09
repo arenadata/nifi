@@ -219,7 +219,7 @@ public abstract class AbstractSiteToSiteReportingTask extends AbstractReportingT
 
     private class JsonRecordReader implements RecordReader {
 
-        private RecordSchema recordSchema;
+        private final RecordSchema recordSchema;
         private final JsonParser jsonParser;
         private final boolean array;
         private final JsonNode firstJsonNode;
@@ -415,8 +415,8 @@ public abstract class AbstractSiteToSiteReportingTask extends AbstractReportingT
                 case RECORD: {
                     if (fieldNode.isObject()) {
                         RecordSchema childSchema;
-                        if (desiredType instanceof RecordDataType) {
-                            childSchema = ((RecordDataType) desiredType).getChildSchema();
+                        if (desiredType instanceof final RecordDataType recordDataType) {
+                            childSchema = recordDataType.getChildSchema();
                         } else {
                             return null;
                         }

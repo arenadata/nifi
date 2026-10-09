@@ -25,6 +25,7 @@ import java.io.Reader;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.SQLException;
+import java.sql.Timestamp;
 import java.sql.Types;
 
 /***
@@ -40,22 +41,21 @@ public class OSql extends Sql {
     @Override
     protected void setObject(PreparedStatement statement, int i, Object value) throws SQLException {
         try {
-            if (value instanceof InParameter) {
-                InParameter p = (InParameter) value;
-                if (p.getType() == Types.BLOB && p.getValue() instanceof InputStream) {
-                    statement.setBlob(i, (InputStream) p.getValue());
+            if (value instanceof final InParameter p) {
+                if (p.getType() == Types.BLOB && p.getValue() instanceof final InputStream inputStream) {
+                    statement.setBlob(i, inputStream);
                     return;
                 }
-                if (p.getType() == Types.CLOB && p.getValue() instanceof Reader) {
-                    statement.setClob(i, (Reader) p.getValue());
+                if (p.getType() == Types.CLOB && p.getValue() instanceof final Reader reader) {
+                    statement.setClob(i, reader);
                     return;
                 }
-                if (p.getType() == Types.DATE && p.getValue() instanceof java.util.Date && !(p.getValue() instanceof java.sql.Date)) {
-                    statement.setDate(i, new java.sql.Date(((java.util.Date) p.getValue()).getTime()));
+                if (p.getType() == Types.DATE && p.getValue() instanceof final java.util.Date date && !(p.getValue() instanceof java.sql.Date)) {
+                    statement.setDate(i, new java.sql.Date(date.getTime()));
                     return;
                 }
-                if (p.getType() == Types.TIMESTAMP && p.getValue() instanceof java.util.Date && !(p.getValue() instanceof java.sql.Timestamp)) {
-                    statement.setTimestamp(i, new java.sql.Timestamp(((java.util.Date) p.getValue()).getTime()));
+                if (p.getType() == Types.TIMESTAMP && p.getValue() instanceof final java.util.Date date && !(p.getValue() instanceof Timestamp)) {
+                    statement.setTimestamp(i, new Timestamp(date.getTime()));
                     return;
                 }
             }

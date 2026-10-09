@@ -691,12 +691,12 @@ public class TestAttributesToCSV {
         final byte[] contentData = testRunner.getContentAsByteArray(flowFile);
 
         final String contentDataString = new String(contentData, StandardCharsets.UTF_8);
-        assertEquals(contentDataString.split(newline)[0], "beach-name,beach-location");
-        assertEquals(contentDataString.split(newline)[1], "Malibu Beach,\"California, US\"");
+        assertEquals("beach-name,beach-location", contentDataString.split(newline)[0]);
+        assertEquals("Malibu Beach,\"California, US\"", contentDataString.split(newline)[1]);
     }
 
     @Test
-    public void testSchemaWithCoreAttribuesToAttribute() {
+    public void testSchemaWithCoreAttributesToAttribute() {
         testRunner.setProperty(AttributesToCSV.DESTINATION, OUTPUT_NEW_ATTRIBUTE);
         testRunner.setProperty(AttributesToCSV.INCLUDE_CORE_ATTRIBUTES, "true");
         testRunner.setProperty(AttributesToCSV.NULL_VALUE_FOR_EMPTY_STRING, "false");
@@ -727,7 +727,7 @@ public class TestAttributesToCSV {
     }
 
     @Test
-    public void testSchemaWithCoreAttribuesToContent() {
+    public void testSchemaWithCoreAttributesToContent() {
         //set the destination of the csv string to be an attribute
         testRunner.setProperty(AttributesToCSV.DESTINATION, OUTPUT_OVERWRITE_CONTENT);
         testRunner.setProperty(AttributesToCSV.INCLUDE_CORE_ATTRIBUTES, "true");
@@ -757,8 +757,8 @@ public class TestAttributesToCSV {
         final byte[] contentData = testRunner.getContentAsByteArray(flowFile);
 
         final String contentDataString = new String(contentData, StandardCharsets.UTF_8);
-        assertEquals(contentDataString.split(newline)[0], "beach-name,beach-location,path,filename,uuid");
-        assertEquals(contentDataString.split(newline)[1], "Malibu Beach,\"California, US\"," + path + "," + filename + "," + uuid);
+        assertEquals("beach-name,beach-location,path,filename,uuid", contentDataString.split(newline)[0]);
+        assertEquals("Malibu Beach,\"California, US\"," + path + "," + filename + "," + uuid, contentDataString.split(newline)[1]);
     }
 
     @Test

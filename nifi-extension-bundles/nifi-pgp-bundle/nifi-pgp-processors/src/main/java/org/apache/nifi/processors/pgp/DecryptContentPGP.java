@@ -42,7 +42,6 @@ import org.apache.nifi.processor.util.StandardValidators;
 import org.apache.nifi.processors.pgp.attributes.DecryptionStrategy;
 import org.apache.nifi.processors.pgp.exception.PGPDecryptionException;
 import org.apache.nifi.processors.pgp.exception.PGPProcessException;
-import org.apache.nifi.stream.io.StreamUtils;
 import org.apache.nifi.util.StringUtils;
 import org.bouncycastle.bcpg.KeyIdentifier;
 import org.bouncycastle.openpgp.PGPCompressedData;
@@ -280,7 +279,7 @@ public class DecryptContentPGP extends AbstractProcessor {
             if (DecryptionStrategy.PACKAGED == decryptionStrategy) {
                 try {
                     final InputStream decryptedDataStream = getDecryptedDataStream(encryptedData);
-                    StreamUtils.copy(decryptedDataStream, outputStream);
+                    decryptedDataStream.transferTo(outputStream);
                 } catch (final PGPException e) {
                     final String message = String.format("PGP Decryption Failed [%s]", getEncryptedDataType(encryptedData));
                     throw new PGPDecryptionException(message, e);
@@ -291,7 +290,7 @@ public class DecryptContentPGP extends AbstractProcessor {
                 attributes.put(PGPAttributeKey.LITERAL_DATA_MODIFIED, Long.toString(literalData.getModificationTime().getTime()));
 
                 getLogger().debug("PGP Decrypted File Name [{}] Modified [{}]", literalData.getFileName(), literalData.getModificationTime());
-                StreamUtils.copy(literalData.getInputStream(), outputStream);
+                literalData.getInputStream().transferTo(outputStream);
             }
 
             if (isVerified(encryptedData)) {
@@ -312,10 +311,10 @@ public class DecryptContentPGP extends AbstractProcessor {
                     supportedEncryptedData = encryptedData;
                 }
 
-                if (encryptedData instanceof PGPPBEEncryptedData) {
-                    passwordBasedEncrypted.add((PGPPBEEncryptedData) encryptedData);
-                } else if (encryptedData instanceof PGPPublicKeyEncryptedData) {
-                    publicKeyEncrypted.add((PGPPublicKeyEncryptedData) encryptedData);
+                if (encryptedData instanceof final PGPPBEEncryptedData pgppbeEncryptedData) {
+                    passwordBasedEncrypted.add(pgppbeEncryptedData);
+                } else if (encryptedData instanceof final PGPPublicKeyEncryptedData pgpPublicKeyEncryptedData) {
+                    publicKeyEncrypted.add(pgpPublicKeyEncryptedData);
                 }
             }
             getLogger().debug("PGP Encrypted Data Password-Based Tags [{}] Public Key Tags [{}]", passwordBasedEncrypted.size(), publicKeyEncrypted.size());
@@ -367,13 +366,13 @@ public class DecryptContentPGP extends AbstractProcessor {
             PGPLiteralData literalData = null;
 
             for (final Object object : objectFactory) {
-                if (object instanceof PGPCompressedData compressedData) {
+                if (object instanceof final PGPCompressedData compressedData) {
                     getLogger().debug("PGP Compressed Data Algorithm [{}] Found", compressedData.getAlgorithm());
                     final PGPObjectFactory compressedObjectFactory = new JcaPGPObjectFactory(compressedData.getDataStream());
                     literalData = getLiteralData(compressedObjectFactory);
                     break;
-                } else if (object instanceof PGPLiteralData) {
-                    literalData = (PGPLiteralData) object;
+                } else if (object instanceof final PGPLiteralData pgpLiteralData) {
+                    literalData = pgpLiteralData;
                     break;
                 }
             }
@@ -388,10 +387,10 @@ public class DecryptContentPGP extends AbstractProcessor {
         private InputStream getDecryptedDataStream(final PGPEncryptedData encryptedData) throws PGPException {
             getLogger().debug("PGP Encrypted Data [{}] Found", getEncryptedDataType(encryptedData));
 
-            if (encryptedData instanceof PGPPBEEncryptedData) {
-                return getDecryptedDataStream((PGPPBEEncryptedData) encryptedData);
-            } else if (encryptedData instanceof PGPPublicKeyEncryptedData) {
-                return getDecryptedDataStream((PGPPublicKeyEncryptedData) encryptedData);
+            if (encryptedData instanceof final PGPPBEEncryptedData pgppbeEncryptedData) {
+                return getDecryptedDataStream(pgppbeEncryptedData);
+            } else if (encryptedData instanceof final PGPPublicKeyEncryptedData pgpPublicKeyEncryptedData) {
+                return getDecryptedDataStream(pgpPublicKeyEncryptedData);
             } else {
                 final String message = String.format("PGP Encrypted Data [%s] Not Supported", getEncryptedDataType(encryptedData));
                 throw new UnsupportedOperationException(message);
@@ -475,8 +474,8 @@ public class DecryptContentPGP extends AbstractProcessor {
             final PGPObjectFactory objectFactory = new JcaPGPObjectFactory(inputStream);
             for (final Object object : objectFactory) {
                 getLogger().debug("PGP Object Read [{}]", object.getClass().getSimpleName());
-                if (object instanceof PGPEncryptedDataList) {
-                    encryptedDataList = (PGPEncryptedDataList) object;
+                if (object instanceof final PGPEncryptedDataList pgpEncryptedDataList) {
+                    encryptedDataList = pgpEncryptedDataList;
                     break;
                 }
             }

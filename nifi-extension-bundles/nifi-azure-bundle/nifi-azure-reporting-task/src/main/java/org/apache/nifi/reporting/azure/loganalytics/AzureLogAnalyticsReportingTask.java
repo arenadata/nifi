@@ -125,7 +125,7 @@ public class AzureLogAnalyticsReportingTask extends AbstractAzureLogAnalyticsRep
      * @param linuxPrimaryKey your azure log analytics workspace key
      * @param allMetrics      collected metrics to be sent
      * @throws IOException              when there is an error in https url
-     *                                  connection or read/write to the onnection
+     *                                  connection or read/write to the connection
      * @throws IllegalArgumentException when there a exception in converting metrics
      *                                  to json string with Gson.toJson
      * @throws RuntimeException         when httpPost fails with none 200 status
@@ -155,10 +155,9 @@ public class AzureLogAnalyticsReportingTask extends AbstractAzureLogAnalyticsRep
      */
     protected List<Metric> collectMetrics(final String instanceId, final ProcessGroupStatus status,
             final String processGroupName, final boolean jvmMetricsCollected) {
-        List<Metric> allMetrics = new ArrayList<>();
 
         // dataflow process group level metrics
-        allMetrics.addAll(AzureLogAnalyticsMetricsFactory.getDataFlowMetrics(status, instanceId));
+        List<Metric> allMetrics = new ArrayList<>(AzureLogAnalyticsMetricsFactory.getDataFlowMetrics(status, instanceId));
 
         // connections process group level metrics
         final List<ConnectionStatus> connectionStatuses = new ArrayList<>();

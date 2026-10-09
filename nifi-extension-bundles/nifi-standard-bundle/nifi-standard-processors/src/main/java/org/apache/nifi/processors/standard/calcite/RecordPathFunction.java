@@ -51,14 +51,14 @@ public class RecordPathFunction {
         }
 
         try {
-            if (record instanceof Record) {
-                return eval((Record) record, recordPath, transform);
-            } else if (record instanceof Record[]) {
-                return eval((Record[]) record, recordPath, transform);
+            if (record instanceof final Record recordObj) {
+                return eval(recordObj, recordPath, transform);
+            } else if (record instanceof final Record[] records) {
+                return eval(records, recordPath, transform);
             } else if (record instanceof Iterable) {
                 return eval((Iterable<Record>) record, recordPath, transform);
-            } else if (record instanceof Map) {
-                return eval((Map<?, ?>) record, recordPath, transform);
+            } else if (record instanceof final Map<?, ?> map) {
+                return eval(map, recordPath, transform);
             }
         } catch (IllegalArgumentException e) {
             throw new RuntimeException("Cannot evaluate RecordPath " + recordPath + " against " + record, e);
@@ -80,7 +80,7 @@ public class RecordPathFunction {
 
     private <T> T eval(final Record record, final String recordPath, final Function<Object, T> transform) {
         final RecordPath compiled = RECORD_PATH_CACHE.getCompiled(recordPath);
-        final RecordPathResult result = compiled.evaluate((Record) record);
+        final RecordPathResult result = compiled.evaluate(record);
 
         return evalResults(result.getSelectedFields(), transform,
             () -> "RecordPath " + recordPath + " evaluated against " + record + " resulted in more than one return value. The RecordPath must be further constrained.");

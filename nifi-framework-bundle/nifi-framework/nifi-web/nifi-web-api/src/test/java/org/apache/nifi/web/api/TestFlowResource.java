@@ -137,7 +137,7 @@ public class TestFlowResource {
     private static final String SECOND_SERVICE_ID = "00000000-0000-0000-0000-000000000002";
 
     @InjectMocks
-    private FlowResource resource = new FlowResource();
+    private final FlowResource resource = new FlowResource();
 
     @Mock
     private NiFiServiceFacade serviceFacade;
@@ -834,7 +834,7 @@ public class TestFlowResource {
 
         clusterMetricsRegistry.setDataPoint(1, "IS_CLUSTERED", "B1Id");
         clusterMetricsRegistry.setDataPoint(1, "IS_CONNECTED_TO_CLUSTER", "B1Id");
-        clusterMetricsRegistry.setDataPoint(2, "CONNECTED_NODE_COUNT", "B1Id", "2 / 3");
+        clusterMetricsRegistry.setDataPoint(2, "CONNECTED_NODE_COUNT", "B1Id");
         clusterMetricsRegistry.setDataPoint(3, "TOTAL_NODE_COUNT", "B1Id");
 
         return clusterMetricsRegistry.getRegistry();

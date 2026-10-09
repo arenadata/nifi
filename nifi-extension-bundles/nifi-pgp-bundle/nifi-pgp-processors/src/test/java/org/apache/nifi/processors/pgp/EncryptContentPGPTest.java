@@ -24,7 +24,6 @@ import org.apache.nifi.processors.pgp.attributes.DecryptionStrategy;
 import org.apache.nifi.processors.pgp.attributes.FileEncoding;
 import org.apache.nifi.processors.pgp.attributes.SymmetricKeyAlgorithm;
 import org.apache.nifi.reporting.InitializationException;
-import org.apache.nifi.stream.io.StreamUtils;
 import org.apache.nifi.util.MockFlowFile;
 import org.apache.nifi.util.TestRunner;
 import org.apache.nifi.util.TestRunners;
@@ -336,11 +335,11 @@ public class EncryptContentPGPTest {
     private byte[] getDecryptedData(final InputStream decryptedDataStream, final DecryptionStrategy decryptionStrategy) throws PGPException, IOException {
         final ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
         if (DecryptionStrategy.PACKAGED == decryptionStrategy) {
-            StreamUtils.copy(decryptedDataStream, outputStream);
+            decryptedDataStream.transferTo(outputStream);
         } else {
             final PGPObjectFactory objectFactory = new JcaPGPObjectFactory(decryptedDataStream);
             final PGPLiteralData literalData = getLiteralData(objectFactory);
-            StreamUtils.copy(literalData.getDataStream(), outputStream);
+            literalData.getDataStream().transferTo(outputStream);
         }
         return outputStream.toByteArray();
     }
@@ -348,10 +347,10 @@ public class EncryptContentPGPTest {
     private PGPLiteralData getLiteralData(final PGPObjectFactory objectFactory) throws PGPException {
         PGPLiteralData literalData = null;
         for (final Object object : objectFactory) {
-            if (object instanceof PGPLiteralData) {
-                literalData = (PGPLiteralData) object;
+            if (object instanceof final PGPLiteralData pgpLiteralData) {
+                literalData = pgpLiteralData;
                 break;
-            } else if (object instanceof PGPCompressedData compressedData) {
+            } else if (object instanceof final PGPCompressedData compressedData) {
                 final PGPObjectFactory compressedObjectFactory = new JcaPGPObjectFactory(compressedData.getDataStream());
                 literalData = getLiteralData(compressedObjectFactory);
                 break;

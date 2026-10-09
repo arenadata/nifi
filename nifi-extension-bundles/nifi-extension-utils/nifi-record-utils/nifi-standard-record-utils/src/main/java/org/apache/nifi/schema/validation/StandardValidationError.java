@@ -75,9 +75,8 @@ public class StandardValidationError implements ValidationError {
         if (fieldName.isPresent()) {
             if (inputValue.isPresent()) {
                 final Object input = inputValue.get();
-                if (input instanceof Object[]) {
+                if (input instanceof final Object[] array) {
                     final StringBuilder sb = new StringBuilder("[");
-                    final Object[] array = (Object[]) input;
                     for (int i = 0; i < array.length; i++) {
 
                         final Object arrayValue = array[i];
@@ -93,7 +92,11 @@ public class StandardValidationError implements ValidationError {
                     }
                     sb.append("]");
 
-                    return sb.toString() + " is not a valid value for " + fieldName.get() + ": " + explanation;
+                    return sb.append(" is not a valid value for ")
+                            .append(fieldName.get())
+                            .append(": ")
+                            .append(explanation)
+                            .toString();
                 } else {
                     return inputValue.get() + " is not a valid value for " + fieldName.get() + ": " + explanation;
                 }
@@ -118,11 +121,10 @@ public class StandardValidationError implements ValidationError {
         if (obj == this) {
             return true;
         }
-        if (!(obj instanceof ValidationError)) {
+        if (!(obj instanceof final ValidationError other)) {
             return false;
         }
 
-        final ValidationError other = (ValidationError) obj;
         return getFieldName().equals(other.getFieldName()) && getInputValue().equals(other.getInputValue()) && getExplanation().equals(other.getExplanation());
     }
 }

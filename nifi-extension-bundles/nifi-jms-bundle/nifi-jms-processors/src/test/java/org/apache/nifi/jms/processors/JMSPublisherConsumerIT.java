@@ -104,7 +104,7 @@ public class JMSPublisherConsumerIT {
         byte[] expected;
         try (
             ByteArrayOutputStream byteArrayOutputStream = new ByteArrayOutputStream();
-            DataOutputStream dataOutputStream = new DataOutputStream(byteArrayOutputStream);
+            DataOutputStream dataOutputStream = new DataOutputStream(byteArrayOutputStream)
         ) {
             dataOutputStream.writeBoolean(true);
             dataOutputStream.writeByte(1);
@@ -286,7 +286,7 @@ public class JMSPublisherConsumerIT {
             /*
              * https://github.com/spring-projects/spring-framework/issues/24144
              * Suggests we cannot rely on the value being specifically what was set
-             * and on a per message level so instead checking experitation is set
+             * and on a per message level so instead checking expiration is set
              * rather than a specific value
              */
             assertTrue(receivedMessage.getJMSExpiration() > 0);

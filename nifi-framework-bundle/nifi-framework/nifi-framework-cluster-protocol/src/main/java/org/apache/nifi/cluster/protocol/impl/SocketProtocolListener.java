@@ -151,8 +151,7 @@ public class SocketProtocolListener extends SocketListener implements ProtocolLi
             try {
                 request = unmarshaller.unmarshal(wrappedInStream);
             } finally {
-                if (logger.isDebugEnabled() && wrappedInStream instanceof CopyingInputStream) {
-                    final CopyingInputStream copyingInputStream = (CopyingInputStream) wrappedInStream;
+                if (logger.isDebugEnabled() && wrappedInStream instanceof final CopyingInputStream copyingInputStream) {
                     byte[] receivedMessage = copyingInputStream.getBytesRead();
                     logger.debug("Received message: {}", new String(receivedMessage));
                 }
@@ -261,8 +260,8 @@ public class SocketProtocolListener extends SocketListener implements ProtocolLi
     }
 
     private Set<String> getCertificateIdentities(final Socket socket) throws IOException {
-        if (socket instanceof SSLSocket) {
-            final SSLSession sslSession = ((SSLSocket) socket).getSession();
+        if (socket instanceof final SSLSocket sslSocket) {
+            final SSLSession sslSession = sslSocket.getSession();
             final Certificate[] peerCertificates = sslSession.getPeerCertificates();
             return peerIdentityProvider.getIdentities(peerCertificates);
         } else {

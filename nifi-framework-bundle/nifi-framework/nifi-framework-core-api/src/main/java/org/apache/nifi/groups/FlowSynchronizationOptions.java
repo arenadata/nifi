@@ -18,6 +18,7 @@
 package org.apache.nifi.groups;
 
 import org.apache.nifi.flow.VersionedComponent;
+import org.apache.nifi.security.encryption.PropertyEncryptionProvider;
 
 import java.time.Duration;
 import java.util.function.Function;
@@ -26,11 +27,13 @@ public class FlowSynchronizationOptions {
     private final ComponentIdGenerator componentIdGenerator;
     private final Function<VersionedComponent, String> componentComparisonIdLookup;
     private final ComponentScheduler componentScheduler;
-    private final PropertyDecryptor propertyDecryptor;
+    private final boolean dropEncryptedValues;
+    private final PropertyEncryptionProvider propertyEncryptionProvider;
     private final boolean ignoreLocalModifications;
     private final boolean updateSettings;
     private final boolean updateDescendantVersionedFlows;
     private final boolean updateRpgUrls;
+    private final boolean preservePublicPortNames;
     private final Duration componentStopTimeout;
     private final ComponentStopTimeoutAction timeoutAction;
     private final ScheduledStateChangeListener scheduledStateChangeListener;
@@ -40,11 +43,13 @@ public class FlowSynchronizationOptions {
         this.componentIdGenerator = builder.componentIdGenerator;
         this.componentComparisonIdLookup = builder.componentComparisonIdLookup;
         this.componentScheduler = builder.componentScheduler;
-        this.propertyDecryptor = builder.propertyDecryptor;
+        this.dropEncryptedValues = builder.dropEncryptedValues;
+        this.propertyEncryptionProvider = builder.propertyEncryptionProvider;
         this.ignoreLocalModifications = builder.ignoreLocalModifications;
         this.updateSettings = builder.updateSettings;
         this.updateDescendantVersionedFlows = builder.updateDescendantVersionedFlows;
         this.updateRpgUrls = builder.updateRpgUrls;
+        this.preservePublicPortNames = builder.preservePublicPortNames;
         this.componentStopTimeout = builder.componentStopTimeout;
         this.timeoutAction = builder.timeoutAction;
         this.scheduledStateChangeListener = builder.scheduledStateChangeListener;
@@ -79,8 +84,27 @@ public class FlowSynchronizationOptions {
         return updateRpgUrls;
     }
 
-    public PropertyDecryptor getPropertyDecryptor() {
-        return propertyDecryptor;
+    public boolean isPreservePublicPortNames() {
+        return preservePublicPortNames;
+    }
+
+    /**
+     * Indicates whether encrypted values in the proposed flow are dropped rather than decrypted. Dropping resolves an
+     * encrypted value to null, which leaves the corresponding sensitive property unset.
+     *
+     * @return true when encrypted values are dropped
+     */
+    public boolean isDropEncryptedValues() {
+        return dropEncryptedValues;
+    }
+
+    /**
+     * Get the Property Encryption Provider used to decrypt sensitive values in the proposed flow
+     *
+     * @return Property Encryption Provider, or null when encrypted values are dropped
+     */
+    public PropertyEncryptionProvider getPropertyEncryptionProvider() {
+        return propertyEncryptionProvider;
     }
 
     public Duration getComponentStopTimeout() {
@@ -107,8 +131,10 @@ public class FlowSynchronizationOptions {
         private boolean updateSettings = true;
         private boolean updateDescendantVersionedFlows = true;
         private boolean updateRpgUrls = false;
+        private boolean preservePublicPortNames = false;
         private ScheduledStateChangeListener scheduledStateChangeListener;
-        private PropertyDecryptor propertyDecryptor = value -> value;
+        private boolean dropEncryptedValues = false;
+        private PropertyEncryptionProvider propertyEncryptionProvider;
         private Duration componentStopTimeout = Duration.ofSeconds(30);
         private ComponentStopTimeoutAction timeoutAction = ComponentStopTimeoutAction.THROW_TIMEOUT_EXCEPTION;
         private String topLevelGroupId;
@@ -189,13 +215,41 @@ public class FlowSynchronizationOptions {
         }
 
         /**
-         * Specifies the decryptor to use for sensitive properties
+         * Specifies whether the local name of a public port (an input/output port that allows remote access) should be preserved when synchronizing,
+         * rather than being overwritten with the name from the proposed flow. This is used for registry version-control updates, where a user may have
+         * renamed a public port locally to avoid a name collision, and that local name must survive the update. It should remain false for cluster
+         * reconnection and startup flow inheritance, where the node must adopt the incoming flow's port names verbatim.
          *
-         * @param decryptor the decryptor to use
+         * @param preservePublicPortNames whether to preserve local public-port names
          * @return the builder
          */
-        public Builder propertyDecryptor(final PropertyDecryptor decryptor) {
-            this.propertyDecryptor = decryptor;
+        public Builder preservePublicPortNames(final boolean preservePublicPortNames) {
+            this.preservePublicPortNames = preservePublicPortNames;
+            return this;
+        }
+
+        /**
+         * Specifies that encrypted values in the proposed flow are dropped rather than decrypted, which leaves the
+         * corresponding sensitive properties unset. This is used when the proposed flow carries sensitive values that
+         * must not be copied to the components being synchronized, such as a flow retrieved from a Flow Registry.
+         *
+         * @param dropEncryptedValues whether to drop encrypted values
+         * @return the builder
+         */
+        public Builder dropEncryptedValues(final boolean dropEncryptedValues) {
+            this.dropEncryptedValues = dropEncryptedValues;
+            return this;
+        }
+
+        /**
+         * Specifies the Property Encryption Provider to use for decrypting sensitive properties. The Provider must be
+         * set unless {@link #dropEncryptedValues(boolean) dropEncryptedValues} is set.
+         *
+         * @param propertyEncryptionProvider the Property Encryption Provider to use
+         * @return the builder
+         */
+        public Builder propertyEncryptionProvider(final PropertyEncryptionProvider propertyEncryptionProvider) {
+            this.propertyEncryptionProvider = propertyEncryptionProvider;
             return this;
         }
 
@@ -239,6 +293,12 @@ public class FlowSynchronizationOptions {
             if (componentScheduler == null) {
                 throw new IllegalStateException("Must set Component Scheduler");
             }
+            if (dropEncryptedValues && propertyEncryptionProvider != null) {
+                throw new IllegalStateException("Must not set Property Encryption Provider when dropping encrypted values");
+            }
+            if (!dropEncryptedValues && propertyEncryptionProvider == null) {
+                throw new IllegalStateException("Must set Property Encryption Provider or drop encrypted values");
+            }
             if (scheduledStateChangeListener == null) {
                 scheduledStateChangeListener = ScheduledStateChangeListener.EMPTY;
             }
@@ -265,7 +325,9 @@ public class FlowSynchronizationOptions {
             builder.updateSettings = options.isUpdateSettings();
             builder.updateDescendantVersionedFlows = options.isUpdateDescendantVersionedFlows();
             builder.updateRpgUrls = options.isUpdateRpgUrls();
-            builder.propertyDecryptor = options.getPropertyDecryptor();
+            builder.preservePublicPortNames = options.isPreservePublicPortNames();
+            builder.dropEncryptedValues = options.isDropEncryptedValues();
+            builder.propertyEncryptionProvider = options.getPropertyEncryptionProvider();
             builder.componentStopTimeout = options.getComponentStopTimeout();
             builder.timeoutAction = options.getComponentStopTimeoutAction();
             builder.scheduledStateChangeListener = options.getScheduledStateChangeListener();
@@ -285,6 +347,6 @@ public class FlowSynchronizationOptions {
          * If a timeout occurs when stopping a processor, the Processor should be terminated and no Exception should be thrown.
          * If a Controller Service or Reporting Task fails to stop/disable in time, a {@link java.util.concurrent.TimeoutException} will still be thrown.
          */
-        TERMINATE;
+        TERMINATE
     }
 }

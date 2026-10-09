@@ -75,7 +75,7 @@ public class ExecuteGraphQuery extends AbstractGraphExecutor {
 
     public static final String EXECUTION_TIME = "query.took";
 
-    protected ObjectMapper mapper = new ObjectMapper();
+    protected final ObjectMapper mapper = new ObjectMapper();
 
     @Override
     public Set<Relationship> getRelationships() {
@@ -170,7 +170,7 @@ public class ExecuteGraphQuery extends AbstractGraphExecutor {
                 session.exportTo(input, out);
                 out.close();
 
-                query = new String(out.toByteArray());
+                query = out.toString();
             } catch (Exception ex) {
                 throw new ProcessException(ex);
             }

@@ -18,7 +18,7 @@
     <parent>
         <artifactId>nifi-registry-ranger</artifactId>
         <groupId>org.apache.nifi.registry</groupId>
-        <version>2.10.0.1</version>
+        <version>2.12.0.1</version>
     </parent>
     <modelVersion>4.0.0</modelVersion>
 
@@ -29,7 +29,7 @@
         <dependency>
             <groupId>org.apache.nifi.registry</groupId>
             <artifactId>nifi-registry-data-model</artifactId>
-            <version>2.10.0.1</version>
+            <version>2.12.0.1</version>
             <!--
             Since using the one in the war causes class loading issue between war and ranger/lib,
             this needs to be in ranger/lib.
@@ -50,12 +50,12 @@
         <dependency>
             <groupId>org.apache.nifi</groupId>
             <artifactId>nifi-xml-processing</artifactId>
-            <version>2.10.0.1</version>
+            <version>2.12.0.1</version>
         </dependency>
         <dependency>
             <groupId>org.apache.nifi.registry</groupId>
             <artifactId>nifi-registry-ranger-jersey-bundle</artifactId>
-            <version>2.10.0.1</version>
+            <version>2.12.0.1</version>
             <exclusions>
                 <exclusion>
                     <groupId>com.sun.jersey</groupId>
@@ -79,7 +79,7 @@
         <dependency>
             <groupId>org.apache.nifi</groupId>
             <artifactId>nifi-deprecation-log</artifactId>
-            <version>2.10.0.1</version>
+            <version>2.12.0.1</version>
         </dependency>
 
         <!-- Ranger dependencies -->

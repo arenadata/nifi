@@ -17,6 +17,7 @@
 
 package org.apache.nifi.controller.repository.claim;
 
+import org.apache.nifi.controller.repository.ContentClaimCreationContext;
 import org.apache.nifi.controller.repository.ContentRepository;
 import org.apache.nifi.controller.repository.io.ContentClaimOutputStream;
 import org.apache.nifi.controller.repository.metrics.PerformanceTracker;
@@ -35,13 +36,13 @@ public class StandardContentClaimWriteCache implements ContentClaimWriteCache {
     private final Map<ResourceClaim, MappedOutputStream> streamMap = new ConcurrentHashMap<>();
     private final Queue<ContentClaim> queue = new LinkedList<>();
     private final PerformanceTracker performanceTracker;
-    private final long maxAppendableClaimBytes;
+    private final ContentClaimCreationContext creationContext;
     private final int bufferSize;
 
-    public StandardContentClaimWriteCache(final ContentRepository contentRepo, final PerformanceTracker performanceTracker, final long maxAppendableClaimBytes, final int bufferSize) {
+    public StandardContentClaimWriteCache(final ContentRepository contentRepo, final PerformanceTracker performanceTracker, final ContentClaimCreationContext creationContext, final int bufferSize) {
         this.contentRepo = contentRepo;
         this.performanceTracker = performanceTracker;
-        this.maxAppendableClaimBytes = maxAppendableClaimBytes;
+        this.creationContext = creationContext;
         this.bufferSize = bufferSize;
     }
 
@@ -64,13 +65,13 @@ public class StandardContentClaimWriteCache implements ContentClaimWriteCache {
             final MappedOutputStream mappedOutputStream = streamMap.get(contentClaim.getResourceClaim());
             if (mappedOutputStream != null) {
                 final OutputStream contentRepoStream = mappedOutputStream.getContentRepoStream();
-                if (contentRepoStream instanceof ContentClaimOutputStream) {
-                    return ((ContentClaimOutputStream) contentRepoStream).newContentClaim();
+                if (contentRepoStream instanceof final ContentClaimOutputStream contentClaimOutputStream) {
+                    return contentClaimOutputStream.newContentClaim();
                 }
             }
         }
 
-        final ContentClaim claim = contentRepo.create(false);
+        final ContentClaim claim = contentRepo.create(creationContext);
         registerStream(claim);
         return claim;
     }
@@ -101,13 +102,12 @@ public class StandardContentClaimWriteCache implements ContentClaimWriteCache {
             out = registerStream(claim);
         }
 
-        if (!(claim instanceof StandardContentClaim)) {
+        if (!(claim instanceof final StandardContentClaim scc)) {
             // we know that we will only create Content Claims that are of type StandardContentClaim, so if we get anything
             // else, just throw an Exception because it is not valid for this Repository
             throw new IllegalArgumentException("Cannot write to " + claim + " because that Content Claim does belong to this Claim Cache");
         }
 
-        final StandardContentClaim scc = (StandardContentClaim) claim;
         final long initialLength = Math.max(0L, scc.getLength());
 
         final OutputStream bcos = out;
@@ -153,7 +153,7 @@ public class StandardContentClaimWriteCache implements ContentClaimWriteCache {
                 }
 
                 // Add the claim back to the queue if it is still writable
-                if ((scc.getOffset() + scc.getLength()) < maxAppendableClaimBytes) {
+                if ((scc.getOffset() + scc.getLength()) < contentRepo.getMaxAppendableClaimBytes()) {
                     queue.offer(claim);
                 }
             }

@@ -21,16 +21,25 @@ import org.apache.nifi.components.state.Scope;
 import org.apache.nifi.components.state.StateManager;
 import org.apache.nifi.components.state.StateManagerProvider;
 import org.apache.nifi.components.state.StateMap;
+import org.apache.nifi.connectable.Connectable;
+import org.apache.nifi.connectable.ConnectableType;
+import org.apache.nifi.connectable.Connection;
 import org.apache.nifi.controller.ClusterTopologyProvider;
 import org.apache.nifi.controller.NodeTypeProvider;
 import org.apache.nifi.controller.ProcessScheduler;
 import org.apache.nifi.controller.ReloadComponent;
 import org.apache.nifi.controller.flow.FlowManager;
+import org.apache.nifi.controller.queue.DropFlowFileRequest;
+import org.apache.nifi.controller.queue.DropFlowFileState;
+import org.apache.nifi.controller.queue.DropFlowFileStatus;
+import org.apache.nifi.controller.queue.FlowFileQueue;
+import org.apache.nifi.controller.queue.QueueSize;
 import org.apache.nifi.controller.service.ControllerServiceProvider;
-import org.apache.nifi.encrypt.PropertyEncryptor;
+import org.apache.nifi.flow.ExecutionEngine;
 import org.apache.nifi.nar.ExtensionManager;
 import org.apache.nifi.registry.flow.VersionControlInformation;
 import org.apache.nifi.registry.flow.VersionedFlowStatus;
+import org.apache.nifi.security.encryption.PropertyEncryptionProvider;
 import org.apache.nifi.util.NiFiProperties;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -40,13 +49,21 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.io.IOException;
 import java.util.Map;
+import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -74,7 +91,7 @@ class StandardProcessGroupTest {
     private ProcessScheduler processScheduler;
 
     @Mock
-    private PropertyEncryptor propertyEncryptor;
+    private PropertyEncryptionProvider propertyEncryptionProvider;
 
     @Mock
     private ExtensionManager extensionManager;
@@ -129,7 +146,7 @@ class StandardProcessGroupTest {
                 ID,
                 controllerServiceProvider,
                 processScheduler,
-                propertyEncryptor,
+                propertyEncryptionProvider,
                 extensionManager,
                 stateManagerProvider,
                 flowManager,
@@ -141,6 +158,26 @@ class StandardProcessGroupTest {
                 assetManager,
                 null
         );
+    }
+
+    @Test
+    void testStartAndStopProcessingDoNothingWhenParentIsStateless() throws Exception {
+        // Callers that resolve a component's owning stateless group rely on this no-op: only the top-most stateless
+        // group may be started or stopped directly. It is also what terminates the recursive stopComponents() walk,
+        // so making it throw or delegate upward would break stateless shutdown.
+        when(parentProcessGroup.getExecutionEngine()).thenReturn(ExecutionEngine.STATELESS);
+        when(parentProcessGroup.resolveExecutionEngine()).thenReturn(ExecutionEngine.STATELESS);
+        processGroup.setParent(parentProcessGroup);
+        processGroup.setExecutionEngine(ExecutionEngine.STATELESS);
+
+        processGroup.startProcessing();
+
+        final CompletableFuture<Void> stopFuture = processGroup.stopProcessing();
+
+        assertTrue(stopFuture.isDone());
+        assertNull(stopFuture.get());
+        verify(processScheduler, never()).startStatelessGroup(any());
+        verify(processScheduler, never()).stopStatelessGroup(any());
     }
 
     @Test
@@ -327,12 +364,128 @@ class StandardProcessGroupTest {
         assertFalse(loggingAttributes.containsKey("customKey"));
     }
 
+    @Test
+    void shouldPropagateLoggingAttributesChangesToChildren() {
+        final String rootId = "root";
+        final String rootName = "RootGroup";
+
+        final String middleId = "middle";
+        final String middleName = "MiddleGroup";
+
+        final String leafId = "leaf";
+        final String leafName = "LeafGroup";
+
+        final StandardProcessGroup leaf = createStandardProcessGroup(leafId);
+        leaf.setName(leafName);
+
+        final StandardProcessGroup middle = createStandardProcessGroup(middleId);
+        middle.setName(middleName);
+
+        final StandardProcessGroup versionedRoot = createStandardProcessGroup(rootId);
+        versionedRoot.setName(rootName);
+
+        when(flowManager.getFlowAnalyzer()).thenReturn(Optional.empty());
+        versionedRoot.addProcessGroup(middle);
+        middle.addProcessGroup(leaf);
+
+        when(versionControlInformation.getFlowIdentifier()).thenReturn(REGISTERED_FLOW_IDENTIFIER);
+        when(versionControlInformation.getVersion()).thenReturn(REGISTERED_FLOW_VERSION);
+        when(versionControlInformation.getStatus()).thenReturn(versionedFlowStatus);
+        versionedRoot.setVersionControlInformation(versionControlInformation, Map.of());
+
+        final Map<String, String> expected = Map.of(
+                StandardProcessGroup.LoggingAttribute.PROCESS_GROUP_ID.getAttribute(), leafId,
+                StandardProcessGroup.LoggingAttribute.PROCESS_GROUP_NAME.getAttribute(), leafName,
+                StandardProcessGroup.LoggingAttribute.PROCESS_GROUP_ID_PATH.getAttribute(), "/" + rootId + "/" + middleId + "/" + leafId,
+                StandardProcessGroup.LoggingAttribute.PROCESS_GROUP_NAME_PATH.getAttribute(), "/" + rootName + "/" + middleName + "/" + leafName,
+                StandardProcessGroup.LoggingAttribute.REGISTERED_FLOW_IDENTIFIER_PATH.getAttribute(), "/" + REGISTERED_FLOW_IDENTIFIER + ":" + REGISTERED_FLOW_VERSION + "/UNREGISTERED/UNREGISTERED"
+        );
+
+        assertEquals(expected, leaf.getLoggingAttributes());
+    }
+
+    @Test
+    void testFindOwningConnectorIdentifierWalksParentHierarchy() {
+        final StandardProcessGroup connectorGroup = createStandardProcessGroup("connector-group", "connector-1");
+        final StandardProcessGroup child = createStandardProcessGroup("child");
+        final StandardProcessGroup grandchild = createStandardProcessGroup("grandchild");
+
+        child.setParent(connectorGroup);
+        grandchild.setParent(child);
+
+        assertEquals(Optional.of("connector-1"), connectorGroup.findOwningConnectorIdentifier());
+        assertEquals(Optional.of("connector-1"), child.findOwningConnectorIdentifier());
+        assertEquals(Optional.of("connector-1"), grandchild.findOwningConnectorIdentifier());
+        assertEquals(Optional.empty(), processGroup.findOwningConnectorIdentifier());
+    }
+
+    @Test
+    void testFindOwningConnectorIdentifierResolvesHierarchyOnlyOnce() {
+        when(parentProcessGroup.getConnectorIdentifier()).thenReturn(Optional.of("connector-1"));
+        processGroup.setParent(parentProcessGroup);
+
+        assertEquals(Optional.of("connector-1"), processGroup.findOwningConnectorIdentifier());
+        assertEquals(Optional.of("connector-1"), processGroup.findOwningConnectorIdentifier());
+        assertEquals(Optional.of("connector-1"), processGroup.findOwningConnectorIdentifier());
+        verify(parentProcessGroup, times(1)).getConnectorIdentifier();
+
+        final ProcessGroup unmanagedParent = mock(ProcessGroup.class);
+        final StandardProcessGroup unmanagedGroup = createStandardProcessGroup("unmanaged-group");
+        unmanagedGroup.setParent(unmanagedParent);
+
+        assertEquals(Optional.empty(), unmanagedGroup.findOwningConnectorIdentifier());
+        assertEquals(Optional.empty(), unmanagedGroup.findOwningConnectorIdentifier());
+
+        verify(unmanagedParent, times(1)).getConnectorIdentifier();
+    }
+
+    @Test
+    void testFindOwningConnectorIdentifierResolvedAgainAfterParentAssigned() {
+        assertEquals(Optional.empty(), processGroup.findOwningConnectorIdentifier());
+
+        when(parentProcessGroup.getConnectorIdentifier()).thenReturn(Optional.of("connector-1"));
+        processGroup.setParent(parentProcessGroup);
+
+        assertEquals(Optional.of("connector-1"), processGroup.findOwningConnectorIdentifier());
+    }
+
+    @Test
+    void testDropAllFlowFilesCompletionWaitsForEveryConnection() {
+        when(flowManager.getFlowAnalyzer()).thenReturn(Optional.empty());
+
+        final DropFlowFileRequest emptyDrop = new DropFlowFileRequest("drop-all");
+        emptyDrop.setOriginalSize(new QueueSize(0, 0L));
+        emptyDrop.setCurrentSize(new QueueSize(0, 0L));
+        emptyDrop.setState(DropFlowFileState.COMPLETE);
+
+        final DropFlowFileRequest pendingDrop = new DropFlowFileRequest("drop-all");
+        pendingDrop.setOriginalSize(new QueueSize(300, 300L));
+        pendingDrop.setCurrentSize(new QueueSize(300, 300L));
+        pendingDrop.setState(DropFlowFileState.DROPPING_FLOWFILES);
+
+        addConnectionWithDropStatus("empty-connection", emptyDrop);
+        addConnectionWithDropStatus("queued-connection", pendingDrop);
+
+        final DropFlowFileStatus dropStatus = processGroup.dropAllFlowFiles("drop-all", "test-user");
+        final CompletableFuture<Void> completionFuture = dropStatus.getCompletionFuture();
+
+        assertFalse(completionFuture.isDone());
+
+        pendingDrop.setState(DropFlowFileState.COMPLETE);
+
+        assertTrue(completionFuture.isDone());
+    }
+
     private StandardProcessGroup createStandardProcessGroup(final String id) {
+        return createStandardProcessGroup(id, null);
+    }
+
+    private StandardProcessGroup createStandardProcessGroup(final String id, final String connectorId) {
         return new StandardProcessGroup(
                 id,
                 controllerServiceProvider,
                 processScheduler,
-                propertyEncryptor,
+                propertyEncryptionProvider,
                 extensionManager,
                 stateManagerProvider,
                 flowManager,
@@ -342,8 +495,29 @@ class StandardProcessGroupTest {
                 properties,
                 statelessGroupNodeFactory,
                 assetManager,
-                null
+                connectorId
         );
+    }
+
+    private void addConnectionWithDropStatus(final String connectionId, final DropFlowFileStatus dropStatus) {
+        final Connectable source = mock(Connectable.class);
+        final Connectable destination = mock(Connectable.class);
+        when(source.getConnectableType()).thenReturn(ConnectableType.PROCESSOR);
+        when(destination.getConnectableType()).thenReturn(ConnectableType.PROCESSOR);
+        when(source.getProcessGroup()).thenReturn(processGroup);
+        when(destination.getProcessGroup()).thenReturn(processGroup);
+
+        final FlowFileQueue flowFileQueue = mock(FlowFileQueue.class);
+        when(flowFileQueue.dropFlowFiles(eq("drop-all"), eq("test-user"))).thenReturn(dropStatus);
+
+        final Connection connection = mock(Connection.class);
+        when(connection.getIdentifier()).thenReturn(connectionId);
+        when(connection.getSource()).thenReturn(source);
+        when(connection.getDestination()).thenReturn(destination);
+        when(connection.getFlowFileQueue()).thenReturn(flowFileQueue);
+        when(connection.getVersionedComponentId()).thenReturn(Optional.empty());
+
+        processGroup.addConnection(connection);
     }
 
 }

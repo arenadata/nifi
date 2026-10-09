@@ -416,7 +416,7 @@ public class TestMergeContent {
     }
 
     private Map<String, GenericRecord> getGenericRecordMap(byte[] data, Schema schema, String key) throws IOException {
-        // create a reader for the merged contet
+        // create a reader for the merged content
         DatumReader<GenericRecord> datumReader = new GenericDatumReader<>(schema);
         SeekableByteArrayInput input = new SeekableByteArrayInput(data);
         DataFileReader<GenericRecord> dataFileReader = new DataFileReader<>(input, datumReader);
@@ -597,7 +597,7 @@ public class TestMergeContent {
 
         Collection<ValidationResult> results = new HashSet<>();
         ProcessContext context = runner.getProcessContext();
-        if (context instanceof MockProcessContext mockContext) {
+        if (context instanceof final MockProcessContext mockContext) {
             results = mockContext.validate();
         }
 
@@ -619,7 +619,7 @@ public class TestMergeContent {
 
         Collection<ValidationResult> results = new HashSet<>();
         ProcessContext context = runner.getProcessContext();
-        if (context instanceof MockProcessContext mockContext) {
+        if (context instanceof final MockProcessContext mockContext) {
             results = mockContext.validate();
         }
 

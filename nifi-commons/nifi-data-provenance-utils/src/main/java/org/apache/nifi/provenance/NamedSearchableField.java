@@ -41,7 +41,7 @@ public class NamedSearchableField implements SearchableField {
         this.identifier = requireNonNull(identifier);
         this.searchableName = requireNonNull(searchableName);
         this.friendlyName = requireNonNull(friendlyName);
-        this.attribute = requireNonNull(attribute);
+        this.attribute = attribute;
         this.fieldType = requireNonNull(fieldType);
         this.hash = 298347 + searchableName.hashCode() + (attribute ? 1 : 0);
     }
@@ -90,11 +90,10 @@ public class NamedSearchableField implements SearchableField {
             return false;
         }
 
-        if (!(obj instanceof SearchableField)) {
+        if (!(obj instanceof final SearchableField other)) {
             return false;
         }
 
-        final SearchableField other = (SearchableField) obj;
         return attribute == other.isAttribute() && this.searchableName.equals(other.getSearchableFieldName());
     }
 }

@@ -135,7 +135,7 @@ public class TestFileSystemRepository {
 
         final long mb = bytesToWrite / (1024 * 1024);
         final long seconds = millis / 1000L;
-        final double mbps = (double) mb / (double) seconds;
+        final double mbps = (double) mb / seconds;
         logger.info("Took {} millis to write {} bytes {} times (total of {} bytes) for a write rate of {} MB/s",
                 millis, contentSize, iterations, NumberFormat.getNumberInstance(Locale.US).format(bytesToWrite), mbps);
     }
@@ -493,21 +493,21 @@ public class TestFileSystemRepository {
 
         final ByteArrayOutputStream baos = new ByteArrayOutputStream();
         try (final InputStream in = repository.read(claim1)) {
-            StreamUtils.copy(in, baos);
+            in.transferTo(baos);
         }
 
         assertEquals("Hello", baos.toString());
 
         baos.reset();
         try (final InputStream in = repository.read(claim2)) {
-            StreamUtils.copy(in, baos);
+            in.transferTo(baos);
         }
         assertEquals("", baos.toString());
         assertEquals(0, baos.size());
 
         baos.reset();
         try (final InputStream in = repository.read(claim3)) {
-            StreamUtils.copy(in, baos);
+            in.transferTo(baos);
         }
         assertEquals(" World", baos.toString());
     }
@@ -576,7 +576,7 @@ public class TestFileSystemRepository {
 
         final ByteArrayOutputStream baos = new ByteArrayOutputStream();
         try (final InputStream in = repository.read(claim)) {
-            StreamUtils.copy(in, baos);
+            in.transferTo(baos);
         }
 
         assertArrayEquals(expected, baos.toByteArray());
@@ -964,7 +964,7 @@ public class TestFileSystemRepository {
         ContentClaim offsetZeroClaim = null;
         for (int i = 0; i < 20; i++) {
             final ContentClaim candidate = repository.create(false);
-            if (candidate instanceof StandardContentClaim standardContentClaim && standardContentClaim.getOffset() == 0) {
+            if (candidate instanceof final StandardContentClaim standardContentClaim && standardContentClaim.getOffset() == 0) {
                 // Write large data that exceeds maxAppendableClaimLength
                 try (final OutputStream out = repository.write(candidate)) {
                     out.write(new byte[(int) maxClaimLength + 1024]);

@@ -273,25 +273,22 @@ public class NarThreadContextClassLoader extends URLClassLoader {
             return bundleClassLoader;
         }
 
-        final Set<URL> instanceUrls = new LinkedHashSet<>();
         final Set<File> narNativeLibDirs = new LinkedHashSet<>();
 
         final NarClassLoader narBundleClassLoader = (NarClassLoader) bundleClassLoader;
         narNativeLibDirs.add(narBundleClassLoader.getNARNativeLibDir());
-        instanceUrls.addAll(Arrays.asList(narBundleClassLoader.getURLs()));
+        final Set<URL> instanceUrls = new LinkedHashSet<>(Arrays.asList(narBundleClassLoader.getURLs()));
 
         ClassLoader ancestorClassLoader = narBundleClassLoader.getParent();
 
         if (instanceClassLoadingAnnotation.cloneAncestorResources()) {
-            while (ancestorClassLoader instanceof NarClassLoader) {
+            while (ancestorClassLoader instanceof final NarClassLoader ancestorNarClassLoader) {
                 final Bundle ancestorNarBundle = extensionManager.getBundle(ancestorClassLoader);
 
                 // stop including ancestor resources when we reach one of the APIs, or when we hit the Jetty NAR
                 if (ancestorNarBundle == null || ancestorNarBundle.getBundleDetails().getCoordinate().getId().equals(NarClassLoaders.JETTY_NAR_ID)) {
                     break;
                 }
-
-                final NarClassLoader ancestorNarClassLoader = (NarClassLoader) ancestorClassLoader;
 
                 narNativeLibDirs.add(ancestorNarClassLoader.getNARNativeLibDir());
                 Collections.addAll(instanceUrls, ancestorNarClassLoader.getURLs());

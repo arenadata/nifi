@@ -18,6 +18,12 @@ package org.apache.nifi.processors.standard;
 
 import org.apache.nifi.components.state.Scope;
 import org.apache.nifi.components.state.StateManager;
+import org.apache.nifi.controller.AbstractControllerService;
+import org.apache.nifi.database.dialect.service.api.DatabaseDialectService;
+import org.apache.nifi.database.dialect.service.api.StatementRequest;
+import org.apache.nifi.database.dialect.service.api.StatementResponse;
+import org.apache.nifi.database.dialect.service.api.StatementType;
+import org.apache.nifi.reporting.InitializationException;
 import org.apache.nifi.util.MockFlowFile;
 import org.apache.nifi.util.MockProcessSession;
 import org.apache.nifi.util.MockSessionFactory;
@@ -37,12 +43,16 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+import static org.apache.nifi.processors.standard.AbstractDatabaseFetchProcessor.DB_TYPE;
 import static org.apache.nifi.processors.standard.AbstractDatabaseFetchProcessor.FRAGMENT_COUNT;
 import static org.apache.nifi.processors.standard.AbstractDatabaseFetchProcessor.FRAGMENT_ID;
 import static org.apache.nifi.processors.standard.AbstractDatabaseFetchProcessor.FRAGMENT_INDEX;
 import static org.apache.nifi.processors.standard.AbstractDatabaseFetchProcessor.REL_SUCCESS;
+import static org.apache.nifi.processors.standard.AbstractDatabaseFetchProcessor.SQL_QUERY;
+import static org.apache.nifi.processors.standard.AbstractDatabaseFetchProcessor.WHERE_CLAUSE;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 class TestGenerateTableFetch extends AbstractDatabaseConnectionServiceTest {
 
@@ -381,8 +391,8 @@ class TestGenerateTableFetch extends AbstractDatabaseConnectionServiceTest {
         runner.setProperty(GenerateTableFetch.PARTITION_SIZE, "0");
 
         runner.run();
-        runner.assertAllFlowFilesTransferred(GenerateTableFetch.REL_SUCCESS, 1);
-        MockFlowFile flowFile = runner.getFlowFilesForRelationship(GenerateTableFetch.REL_SUCCESS).getFirst();
+        runner.assertAllFlowFilesTransferred(REL_SUCCESS, 1);
+        MockFlowFile flowFile = runner.getFlowFilesForRelationship(REL_SUCCESS).getFirst();
         flowFile.assertContentEquals("SELECT * FROM TEST_QUERY_DB_TABLE WHERE ID <= 2");
         flowFile.assertAttributeExists("generatetablefetch.limit");
         flowFile.assertAttributeEquals("generatetablefetch.limit", null);
@@ -402,13 +412,13 @@ class TestGenerateTableFetch extends AbstractDatabaseConnectionServiceTest {
         runner.setProperty(GenerateTableFetch.OUTPUT_EMPTY_FLOWFILE_ON_ZERO_RESULTS, "false");
 
         runner.run();
-        runner.assertAllFlowFilesTransferred(GenerateTableFetch.REL_SUCCESS, 0);
+        runner.assertAllFlowFilesTransferred(REL_SUCCESS, 0);
         runner.clearTransferState();
 
         runner.setProperty(GenerateTableFetch.OUTPUT_EMPTY_FLOWFILE_ON_ZERO_RESULTS, "true");
         runner.run();
-        runner.assertAllFlowFilesTransferred(GenerateTableFetch.REL_SUCCESS, 1);
-        MockFlowFile flowFile = runner.getFlowFilesForRelationship(GenerateTableFetch.REL_SUCCESS).getFirst();
+        runner.assertAllFlowFilesTransferred(REL_SUCCESS, 1);
+        MockFlowFile flowFile = runner.getFlowFilesForRelationship(REL_SUCCESS).getFirst();
         assertEquals("TEST_QUERY_DB_TABLE", flowFile.getAttribute("generatetablefetch.tableName"));
         assertEquals("ID,BUCKET", flowFile.getAttribute("generatetablefetch.columnNames"));
         assertEquals("1=1", flowFile.getAttribute("generatetablefetch.whereClause"));
@@ -432,30 +442,30 @@ class TestGenerateTableFetch extends AbstractDatabaseConnectionServiceTest {
         runner.setProperty(GenerateTableFetch.PARTITION_SIZE, "1");
 
         runner.run();
-        runner.assertAllFlowFilesTransferred(GenerateTableFetch.REL_SUCCESS, 2);
+        runner.assertAllFlowFilesTransferred(REL_SUCCESS, 2);
         runner.clearTransferState();
 
         // Add a new row in the same bucket
         executeSql("insert into TEST_QUERY_DB_TABLE (id, bucket) VALUES (2, 0)");
         runner.run();
-        runner.assertAllFlowFilesTransferred(GenerateTableFetch.REL_SUCCESS, 1);
+        runner.assertAllFlowFilesTransferred(REL_SUCCESS, 1);
         runner.clearTransferState();
 
         // Add a new row in a new bucket
         executeSql("insert into TEST_QUERY_DB_TABLE (id, bucket) VALUES (3, 1)");
         runner.run();
-        runner.assertAllFlowFilesTransferred(GenerateTableFetch.REL_SUCCESS, 1);
+        runner.assertAllFlowFilesTransferred(REL_SUCCESS, 1);
         runner.clearTransferState();
 
         // Add a new row in an old bucket, it should not be transferred
         executeSql("insert into TEST_QUERY_DB_TABLE (id, bucket) VALUES (4, 0)");
         runner.run();
-        runner.assertTransferCount(GenerateTableFetch.REL_SUCCESS, 0);
+        runner.assertTransferCount(REL_SUCCESS, 0);
 
         // Add a new row in the second bucket, only the new row should be transferred
         executeSql("insert into TEST_QUERY_DB_TABLE (id, bucket) VALUES (5, 1)");
         runner.run();
-        runner.assertAllFlowFilesTransferred(GenerateTableFetch.REL_SUCCESS, 1);
+        runner.assertAllFlowFilesTransferred(REL_SUCCESS, 1);
         runner.clearTransferState();
     }
 
@@ -480,16 +490,16 @@ class TestGenerateTableFetch extends AbstractDatabaseConnectionServiceTest {
         runner.enqueue("".getBytes(), Map.of("tableName", "TEST_QUERY_DB_TABLE3", "partSize", "1"));
 
         runner.run(3);
-        runner.assertTransferCount(AbstractDatabaseFetchProcessor.REL_SUCCESS, 3);
+        runner.assertTransferCount(REL_SUCCESS, 3);
 
         // Two records from table 1
         assertEquals(2,
-                runner.getFlowFilesForRelationship(AbstractDatabaseFetchProcessor.REL_SUCCESS).stream().filter(
+                runner.getFlowFilesForRelationship(REL_SUCCESS).stream().filter(
                         (ff) -> "TEST_QUERY_DB_TABLE1".equals(ff.getAttribute("tableName"))).count());
 
         // One record from table 2
         assertEquals(1,
-                runner.getFlowFilesForRelationship(AbstractDatabaseFetchProcessor.REL_SUCCESS).stream().filter(
+                runner.getFlowFilesForRelationship(REL_SUCCESS).stream().filter(
                         (ff) -> "TEST_QUERY_DB_TABLE2".equals(ff.getAttribute("tableName"))).count());
 
         // Table 3 doesn't exist, should be routed to failure
@@ -826,7 +836,7 @@ class TestGenerateTableFetch extends AbstractDatabaseConnectionServiceTest {
         executeSql("insert into TEST_QUERY_DB_TABLE (id, type, name, scale, created_on) VALUES (2, NULL, NULL, 2.0, '2010-01-01 00:00:00')");
 
         runner.setProperty(GenerateTableFetch.TABLE_NAME, "TEST_QUERY_DB_TABLE");
-        runner.setProperty(GenerateTableFetch.WHERE_CLAUSE, "type = 'male' OR type IS NULL");
+        runner.setProperty(WHERE_CLAUSE, "type = 'male' OR type IS NULL");
         runner.setIncomingConnection(false);
         runner.setProperty(GenerateTableFetch.MAX_VALUE_COLUMN_NAMES, "ID");
 
@@ -1102,9 +1112,9 @@ class TestGenerateTableFetch extends AbstractDatabaseConnectionServiceTest {
     @Test
     void testMigrateProperties() {
         final Map<String, String> expectedRenamed = Map.ofEntries(
-                Map.entry("db-fetch-db-type", AbstractDatabaseFetchProcessor.DB_TYPE.getName()),
-                Map.entry("db-fetch-where-clause", AbstractDatabaseFetchProcessor.WHERE_CLAUSE.getName()),
-                Map.entry("db-fetch-sql-query", AbstractDatabaseFetchProcessor.SQL_QUERY.getName()),
+                Map.entry("db-fetch-db-type", DB_TYPE.getName()),
+                Map.entry("db-fetch-where-clause", WHERE_CLAUSE.getName()),
+                Map.entry("db-fetch-sql-query", SQL_QUERY.getName()),
                 Map.entry("gen-table-fetch-partition-size", GenerateTableFetch.PARTITION_SIZE.getName()),
                 Map.entry("gen-table-column-for-val-partitioning", GenerateTableFetch.COLUMN_FOR_VALUE_PARTITIONING.getName()),
                 Map.entry("gen-table-output-flowfile-on-zero-results", GenerateTableFetch.OUTPUT_EMPTY_FLOWFILE_ON_ZERO_RESULTS.getName()),
@@ -1113,6 +1123,53 @@ class TestGenerateTableFetch extends AbstractDatabaseConnectionServiceTest {
 
         final PropertyMigrationResult propertyMigrationResult = runner.migrateProperties();
         assertEquals(expectedRenamed, propertyMigrationResult.getPropertiesRenamed());
+    }
+
+    @Test
+    void testUncheckedDialectFailureRollsBackIncomingFlowFile() throws InitializationException {
+        final DatabaseDialectService dialectService = new FailingDatabaseDialectService();
+        runner.addControllerService("failing-dialect", dialectService);
+        runner.enableControllerService(dialectService);
+        runner.setProperty(DB_TYPE, "Database Dialect Service");
+        runner.setProperty(GenerateTableFetch.DATABASE_DIALECT_SERVICE, "failing-dialect");
+        runner.setProperty(GenerateTableFetch.TABLE_NAME, "${tableName}");
+        runner.setIncomingConnection(true);
+        runner.enqueue("", Map.of("tableName", "TEST_QUERY_DB_TABLE"));
+
+        final AssertionError error = assertThrows(AssertionError.class, runner::run);
+        assertEquals(IllegalArgumentException.class, error.getCause().getClass());
+
+        final MockProcessSession session = ((MockSessionFactory) runner.getProcessSessionFactory()).getCreatedSessions().iterator().next();
+        session.assertRolledBack();
+        runner.assertQueueNotEmpty();
+    }
+
+    @Test
+    void testInvalidFlowFilePropertyRollsBackIncomingFlowFile() {
+        runner.setProperty(GenerateTableFetch.TABLE_NAME, "${tableName}");
+        runner.setProperty(GenerateTableFetch.PARTITION_SIZE, "${partSize}");
+        runner.setIncomingConnection(true);
+        runner.enqueue("", Map.of("tableName", "TEST_QUERY_DB_TABLE", "partSize", "invalid"));
+
+        assertThrows(AssertionError.class, runner::run);
+
+        final MockProcessSession session = ((MockSessionFactory) runner.getProcessSessionFactory()).getCreatedSessions().iterator().next();
+        session.assertRolledBack();
+        runner.assertQueueNotEmpty();
+    }
+
+    @Test
+    void testStateReadFailureRollsBackIncomingFlowFile() {
+        runner.setProperty(GenerateTableFetch.TABLE_NAME, "${tableName}");
+        runner.setIncomingConnection(true);
+        runner.enqueue("", Map.of("tableName", "TEST_QUERY_DB_TABLE"));
+        runner.getStateManager().setFailOnStateGet(Scope.CLUSTER, true);
+
+        runner.run();
+
+        final MockProcessSession session = ((MockSessionFactory) runner.getProcessSessionFactory()).getCreatedSessions().iterator().next();
+        session.assertRolledBack();
+        runner.assertQueueNotEmpty();
     }
 
     private void assertResultsFound(final String query, final int results) throws SQLException {
@@ -1127,5 +1184,17 @@ class TestGenerateTableFetch extends AbstractDatabaseConnectionServiceTest {
             }
         }
         assertEquals(results, resultsFound);
+    }
+
+    private static class FailingDatabaseDialectService extends AbstractControllerService implements DatabaseDialectService {
+        @Override
+        public StatementResponse getStatement(final StatementRequest statementRequest) {
+            throw new IllegalArgumentException("Order By is required when paging is specified");
+        }
+
+        @Override
+        public Set<StatementType> getSupportedStatementTypes() {
+            return Set.of(StatementType.SELECT);
+        }
     }
 }

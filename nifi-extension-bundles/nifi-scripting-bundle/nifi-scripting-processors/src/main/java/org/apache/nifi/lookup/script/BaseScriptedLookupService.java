@@ -86,8 +86,7 @@ public class BaseScriptedLookupService extends AbstractScriptedControllerService
             }
         }
         List<PropertyDescriptor> supportedPropertyDescriptors = new ArrayList<>();
-        List<PropertyDescriptor> descriptors = new ArrayList<>();
-        descriptors.addAll(scriptingComponentHelper.getDescriptors());
+        List<PropertyDescriptor> descriptors = new ArrayList<>(scriptingComponentHelper.getDescriptors());
         descriptors.remove(scriptingComponentHelper.scriptEngine);
 
         PropertyDescriptor.Builder engineProp = new PropertyDescriptor
@@ -361,8 +360,7 @@ public class BaseScriptedLookupService extends AbstractScriptedControllerService
 
             // get the engine and ensure its invocable
             ScriptEngine scriptEngine = scriptRunner.getScriptEngine();
-            if (scriptEngine instanceof Invocable) {
-                final Invocable invocable = (Invocable) scriptEngine;
+            if (scriptEngine instanceof final Invocable invocable) {
 
                 // evaluate the script
                 scriptRunner.run(scriptEngine.getBindings(ScriptContext.ENGINE_SCOPE));

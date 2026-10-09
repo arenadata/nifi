@@ -40,7 +40,7 @@ import java.util.stream.Stream;
 
 public class IdentityAuthenticationProvider implements AuthenticationProvider {
 
-    protected Authorizer authorizer;
+    protected final Authorizer authorizer;
     protected final IdentityProvider identityProvider;
     protected final IdentityMapper identityMapper;
 
@@ -101,8 +101,8 @@ public class IdentityAuthenticationProvider implements AuthenticationProvider {
     }
 
     protected boolean checkTokenOriginatedFromThisIdentityProvider(Authentication authentication) {
-        return (authentication instanceof AuthenticationRequestToken
-                && identityProvider.getClass().equals(((AuthenticationRequestToken) authentication).getAuthenticationRequestOrigin()));
+        return (authentication instanceof final AuthenticationRequestToken authenticationRequestToken
+                && identityProvider.getClass().equals(authenticationRequestToken.getAuthenticationRequestOrigin()));
     }
 
     protected String mapIdentity(final String identity) {
@@ -120,8 +120,7 @@ public class IdentityAuthenticationProvider implements AuthenticationProvider {
     }
 
     private static Set<String> getUserGroups(final Authorizer authorizer, final String userIdentity) {
-        if (authorizer instanceof ManagedAuthorizer) {
-            final ManagedAuthorizer managedAuthorizer = (ManagedAuthorizer) authorizer;
+        if (authorizer instanceof final ManagedAuthorizer managedAuthorizer) {
             final UserGroupProvider userGroupProvider = managedAuthorizer.getAccessPolicyProvider().getUserGroupProvider();
             final UserAndGroups userAndGroups = userGroupProvider.getUserAndGroups(userIdentity);
             final Set<Group> userGroups = userAndGroups.getGroups();

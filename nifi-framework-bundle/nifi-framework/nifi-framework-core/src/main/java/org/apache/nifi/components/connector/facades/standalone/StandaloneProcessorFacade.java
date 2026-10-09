@@ -22,6 +22,8 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.apache.nifi.asset.AssetManager;
+import org.apache.nifi.components.Backlog;
+import org.apache.nifi.components.BacklogReportingException;
 import org.apache.nifi.components.ConfigVerificationResult;
 import org.apache.nifi.components.ValidationContext;
 import org.apache.nifi.components.ValidationResult;
@@ -49,6 +51,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 
 public class StandaloneProcessorFacade implements ProcessorFacade {
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper()
@@ -176,6 +179,16 @@ public class StandaloneProcessorFacade implements ProcessorFacade {
         return null;
     }
 
+    @Override
+    public boolean reportsBacklog() {
+        return processorNode.supportsBacklogReporting();
+    }
+
+    @Override
+    public Optional<Backlog> getBacklog() throws BacklogReportingException {
+        final ProcessContext processContext = componentContextProvider.createProcessContext(processorNode, parameterContext);
+        return processorNode.getReportedBacklog(processContext);
+    }
 
     @Override
     public Object invokeConnectorMethod(final String methodName, final Map<String, Object> arguments) throws InvocationFailedException {

@@ -75,7 +75,7 @@ import static org.apache.nifi.flowfile.attributes.FragmentAttributes.copyAttribu
                 description = "A one-up number that indicates the ordering of the split FlowFiles that were created from a single parent FlowFile"),
         @WritesAttribute(attribute = "fragment.count",
                 description = "The number of split FlowFiles generated from the parent FlowFile"),
-        @WritesAttribute(attribute = "segment.original.filename ", description = "The filename of the parent FlowFile")
+        @WritesAttribute(attribute = "segment.original.filename", description = "The filename of the parent FlowFile")
 })
 @SystemResourceConsideration(resource = SystemResource.MEMORY, description = "The entirety of the FlowFile's content (as a JsonNode object) is read into memory, " +
         "in addition to all of the generated FlowFiles representing the split JSON. If many splits are generated due to the size of the JSON, or how the JSON is " +
@@ -195,13 +195,11 @@ public class SplitJson extends AbstractJsonPathProcessor {
             return;
         }
 
-        if (!(jsonPathResult instanceof List)) {
+        if (!(jsonPathResult instanceof final List<?> resultList)) {
             logger.error("The evaluated value {} of {} was not a JSON Array compatible type and cannot be split.", jsonPathResult, jsonPath.getPath());
             processSession.transfer(original, REL_FAILURE);
             return;
         }
-
-        List resultList = (List) jsonPathResult;
 
         Map<String, String> attributes = new HashMap<>();
         final String fragmentId = UUID.randomUUID().toString();

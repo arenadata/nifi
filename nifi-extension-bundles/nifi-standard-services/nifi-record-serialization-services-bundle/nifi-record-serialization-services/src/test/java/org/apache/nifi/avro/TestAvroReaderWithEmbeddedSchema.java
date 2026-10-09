@@ -42,6 +42,8 @@ import java.io.InputStream;
 import java.math.BigDecimal;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
+import java.sql.Time;
+import java.sql.Timestamp;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -109,10 +111,10 @@ public class TestAvroReaderWithEmbeddedSchema {
             assertEquals(RecordFieldType.DECIMAL, recordSchema.getDataType("decimal").get().getFieldType());
 
             final Record record = reader.nextRecord();
-            assertEquals(new java.sql.Time(millisSinceMidnight), record.getValue("timeMillis"));
-            assertEquals(new java.sql.Time(millisSinceMidnight), record.getValue("timeMicros"));
-            assertEquals(new java.sql.Timestamp(timeLong), record.getValue("timestampMillis"));
-            assertEquals(new java.sql.Timestamp(timeLong), record.getValue("timestampMicros"));
+            assertEquals(new Time(millisSinceMidnight), record.getValue("timeMillis"));
+            assertEquals(new Time(millisSinceMidnight), record.getValue("timeMicros"));
+            assertEquals(new Timestamp(timeLong), record.getValue("timestampMillis"));
+            assertEquals(new Timestamp(timeLong), record.getValue("timestampMicros"));
 
             final Object date = record.getValue("date");
             assertEquals(LocalDate.ofEpochDay(epochDay).toString(), date.toString());
@@ -123,43 +125,43 @@ public class TestAvroReaderWithEmbeddedSchema {
     @Test
     public void testDataTypes() throws IOException, MalformedRecordException {
         final List<Field> accountFields = new ArrayList<>();
-        accountFields.add(new Field("accountId", Schema.create(Type.LONG), null, (Object) null));
-        accountFields.add(new Field("accountName", Schema.create(Type.STRING), null, (Object) null));
+        accountFields.add(new Field("accountId", Schema.create(Type.LONG), null, null));
+        accountFields.add(new Field("accountName", Schema.create(Type.STRING), null, null));
         final Schema accountSchema = Schema.createRecord("account", null, null, false);
         accountSchema.setFields(accountFields);
 
         final List<Field> catFields = new ArrayList<>();
-        catFields.add(new Field("catTailLength", Schema.create(Type.INT), null, (Object) null));
-        catFields.add(new Field("catName", Schema.create(Type.STRING), null, (Object) null));
+        catFields.add(new Field("catTailLength", Schema.create(Type.INT), null, null));
+        catFields.add(new Field("catName", Schema.create(Type.STRING), null, null));
         final Schema catSchema = Schema.createRecord("cat", null, null, false);
         catSchema.setFields(catFields);
 
         final List<Field> dogFields = new ArrayList<>();
-        dogFields.add(new Field("dogTailLength", Schema.create(Type.INT), null, (Object) null));
-        dogFields.add(new Field("dogName", Schema.create(Type.STRING), null, (Object) null));
+        dogFields.add(new Field("dogTailLength", Schema.create(Type.INT), null, null));
+        dogFields.add(new Field("dogName", Schema.create(Type.STRING), null, null));
         final Schema dogSchema = Schema.createRecord("dog", null, null, false);
         dogSchema.setFields(dogFields);
 
         final List<Field> fields = new ArrayList<>();
-        fields.add(new Field("name", Schema.create(Type.STRING), null, (Object) null));
-        fields.add(new Field("age", Schema.create(Type.INT), null, (Object) null));
-        fields.add(new Field("balance", Schema.create(Type.DOUBLE), null, (Object) null));
-        fields.add(new Field("rate", Schema.create(Type.FLOAT), null, (Object) null));
-        fields.add(new Field("debt", Schema.create(Type.BOOLEAN), null, (Object) null));
-        fields.add(new Field("nickname", Schema.create(Type.NULL), null, (Object) null));
-        fields.add(new Field("binary", Schema.create(Type.BYTES), null, (Object) null));
-        fields.add(new Field("fixed", Schema.createFixed("fixed", null, null, 5), null, (Object) null));
-        fields.add(new Field("map", Schema.createMap(Schema.create(Type.STRING)), null, (Object) null));
-        fields.add(new Field("array", Schema.createArray(Schema.create(Type.LONG)), null, (Object) null));
-        fields.add(new Field("account", accountSchema, null, (Object) null));
+        fields.add(new Field("name", Schema.create(Type.STRING), null, null));
+        fields.add(new Field("age", Schema.create(Type.INT), null, null));
+        fields.add(new Field("balance", Schema.create(Type.DOUBLE), null, null));
+        fields.add(new Field("rate", Schema.create(Type.FLOAT), null, null));
+        fields.add(new Field("debt", Schema.create(Type.BOOLEAN), null, null));
+        fields.add(new Field("nickname", Schema.create(Type.NULL), null, null));
+        fields.add(new Field("binary", Schema.create(Type.BYTES), null, null));
+        fields.add(new Field("fixed", Schema.createFixed("fixed", null, null, 5), null, null));
+        fields.add(new Field("map", Schema.createMap(Schema.create(Type.STRING)), null, null));
+        fields.add(new Field("array", Schema.createArray(Schema.create(Type.LONG)), null, null));
+        fields.add(new Field("account", accountSchema, null, null));
         fields.add(new Field("desiredbalance", Schema.createUnion(// test union of NULL and other type with no value
             Arrays.asList(Schema.create(Type.NULL), Schema.create(Type.DOUBLE))),
-            null, (Object) null));
+            null, null));
         fields.add(new Field("dreambalance", Schema.createUnion(// test union of NULL and other type with a value
             Arrays.asList(Schema.create(Type.NULL), Schema.create(Type.DOUBLE))),
-            null, (Object) null));
-        fields.add(new Field("favAnimal", Schema.createUnion(Arrays.asList(catSchema, dogSchema)), null, (Object) null));
-        fields.add(new Field("otherFavAnimal", Schema.createUnion(Arrays.asList(catSchema, dogSchema)), null, (Object) null));
+            null, null));
+        fields.add(new Field("favAnimal", Schema.createUnion(Arrays.asList(catSchema, dogSchema)), null, null));
+        fields.add(new Field("otherFavAnimal", Schema.createUnion(Arrays.asList(catSchema, dogSchema)), null, null));
 
         final Schema schema = Schema.createRecord("record", null, null, false);
         schema.setFields(fields);

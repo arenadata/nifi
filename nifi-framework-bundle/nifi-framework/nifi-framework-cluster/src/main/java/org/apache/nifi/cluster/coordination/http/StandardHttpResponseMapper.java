@@ -19,6 +19,7 @@ package org.apache.nifi.cluster.coordination.http;
 import jakarta.ws.rs.core.StreamingOutput;
 import org.apache.nifi.cluster.coordination.http.endpoints.AccessPolicyEndpointMerger;
 import org.apache.nifi.cluster.coordination.http.endpoints.AssetsEndpointMerger;
+import org.apache.nifi.cluster.coordination.http.endpoints.BacklogRequestEndpointMerger;
 import org.apache.nifi.cluster.coordination.http.endpoints.BulletinBoardEndpointMerger;
 import org.apache.nifi.cluster.coordination.http.endpoints.ClearBulletinsEndpointMerger;
 import org.apache.nifi.cluster.coordination.http.endpoints.ClearBulletinsForGroupEndpointMerger;
@@ -30,6 +31,7 @@ import org.apache.nifi.cluster.coordination.http.endpoints.ConnectorEndpointMerg
 import org.apache.nifi.cluster.coordination.http.endpoints.ConnectorFlowEndpointMerger;
 import org.apache.nifi.cluster.coordination.http.endpoints.ConnectorPropertyGroupEndpointMerger;
 import org.apache.nifi.cluster.coordination.http.endpoints.ConnectorPropertyGroupNamesEndpointMerger;
+import org.apache.nifi.cluster.coordination.http.endpoints.ConnectorPurgeRequestEndpointMerger;
 import org.apache.nifi.cluster.coordination.http.endpoints.ConnectorStatusEndpointMerger;
 import org.apache.nifi.cluster.coordination.http.endpoints.ConnectorsEndpointMerger;
 import org.apache.nifi.cluster.coordination.http.endpoints.ControllerBulletinsEndpointMerger;
@@ -63,6 +65,7 @@ import org.apache.nifi.cluster.coordination.http.endpoints.LabelEndpointMerger;
 import org.apache.nifi.cluster.coordination.http.endpoints.LabelsEndpointMerger;
 import org.apache.nifi.cluster.coordination.http.endpoints.LatestProvenanceEventsMerger;
 import org.apache.nifi.cluster.coordination.http.endpoints.ListFlowFilesEndpointMerger;
+import org.apache.nifi.cluster.coordination.http.endpoints.MigrationRequestEndpointMerger;
 import org.apache.nifi.cluster.coordination.http.endpoints.NarDetailsEndpointMerger;
 import org.apache.nifi.cluster.coordination.http.endpoints.NarSummariesEndpointMerger;
 import org.apache.nifi.cluster.coordination.http.endpoints.NarSummaryEndpointMerger;
@@ -152,6 +155,7 @@ public class StandardHttpResponseMapper implements HttpResponseMapper {
         endpointMergers.add(new ConnectorFlowEndpointMerger());
         endpointMergers.add(new ConnectorPropertyGroupEndpointMerger());
         endpointMergers.add(new ConnectorPropertyGroupNamesEndpointMerger());
+        endpointMergers.add(new MigrationRequestEndpointMerger());
         endpointMergers.add(new VerifyConnectorConfigStepEndpointMerger());
         endpointMergers.add(new ConnectionEndpointMerger());
         endpointMergers.add(new ConnectionsEndpointMerger());
@@ -179,6 +183,7 @@ public class StandardHttpResponseMapper implements HttpResponseMapper {
         endpointMergers.add(new RuleViolationEndpointMerger());
         endpointMergers.add(new DropRequestEndpointMerger());
         endpointMergers.add(new DropAllFlowFilesRequestEndpointMerger());
+        endpointMergers.add(new ConnectorPurgeRequestEndpointMerger());
         endpointMergers.add(new ListFlowFilesEndpointMerger());
         endpointMergers.add(new ComponentStateEndpointMerger());
         endpointMergers.add(new BulletinBoardEndpointMerger());
@@ -206,6 +211,7 @@ public class StandardHttpResponseMapper implements HttpResponseMapper {
         endpointMergers.add(new AccessPolicyEndpointMerger());
         endpointMergers.add(new SearchUsersEndpointMerger());
         endpointMergers.add(new ProcessorDiagnosticsEndpointMerger(snapshotMillis));
+        endpointMergers.add(new BacklogRequestEndpointMerger());
         endpointMergers.add(new ParameterContextValidationMerger());
         endpointMergers.add(new ParameterContextsEndpointMerger());
         endpointMergers.add(new ParameterContextEndpointMerger());

@@ -120,17 +120,17 @@ public final class SNMPUtils {
         boolean result = false;
         try {
             for (Map.Entry<String, String> attributeEntry : attributes.entrySet()) {
-                if (attributeEntry.getKey().startsWith(SNMPUtils.SNMP_PROP_PREFIX)) {
-                    final String[] splits = attributeEntry.getKey().split("\\" + SNMPUtils.SNMP_PROP_DELIMITER);
+                if (attributeEntry.getKey().startsWith(SNMP_PROP_PREFIX)) {
+                    final String[] splits = attributeEntry.getKey().split("\\" + SNMP_PROP_DELIMITER);
                     final String snmpPropName = splits[1];
                     final String snmpPropValue = attributeEntry.getValue();
-                    if (SNMPUtils.OID_PATTERN.matcher(snmpPropName).matches()) {
+                    if (OID_PATTERN.matcher(snmpPropName).matches()) {
                         final Optional<Variable> snmpVar;
                         if (splits.length == 2) { // no SMI syntax defined
                             snmpVar = Optional.of(new OctetString(snmpPropValue));
                         } else {
                             final int smiSyntax = Integer.parseInt(splits[2]);
-                            snmpVar = SNMPUtils.stringToVariable(snmpPropValue, smiSyntax);
+                            snmpVar = stringToVariable(snmpPropValue, smiSyntax);
                         }
                         if (snmpVar.isPresent()) {
                             final VariableBinding varBind = new VariableBinding(new OID(snmpPropName), snmpVar.get());
@@ -150,10 +150,10 @@ public final class SNMPUtils {
         Set<VariableBinding> variableBindings = new HashSet<>();
         try {
             for (Map.Entry<String, String> attributeEntry : attributes.entrySet()) {
-                if (attributeEntry.getKey().startsWith(SNMPUtils.SNMP_PROP_PREFIX)) {
-                    final String[] splits = attributeEntry.getKey().split("\\" + SNMPUtils.SNMP_PROP_DELIMITER);
+                if (attributeEntry.getKey().startsWith(SNMP_PROP_PREFIX)) {
+                    final String[] splits = attributeEntry.getKey().split("\\" + SNMP_PROP_DELIMITER);
                     final String snmpPropName = splits[1];
-                    if (SNMPUtils.OID_PATTERN.matcher(snmpPropName).matches()) {
+                    if (OID_PATTERN.matcher(snmpPropName).matches()) {
                         variableBindings.add(new VariableBinding(new OID(snmpPropName)));
                     }
                 }
@@ -168,10 +168,10 @@ public final class SNMPUtils {
         List<OID> oids = new ArrayList<>();
         try {
             for (Map.Entry<String, String> attributeEntry : attributes.entrySet()) {
-                if (attributeEntry.getKey().startsWith(SNMPUtils.SNMP_PROP_PREFIX)) {
-                    final String[] splits = attributeEntry.getKey().split("\\" + SNMPUtils.SNMP_PROP_DELIMITER);
+                if (attributeEntry.getKey().startsWith(SNMP_PROP_PREFIX)) {
+                    final String[] splits = attributeEntry.getKey().split("\\" + SNMP_PROP_DELIMITER);
                     final String snmpPropName = splits[1];
-                    if (SNMPUtils.OID_PATTERN.matcher(snmpPropName).matches()) {
+                    if (OID_PATTERN.matcher(snmpPropName).matches()) {
                         oids.add(new OID(snmpPropName));
                     }
                 }
@@ -189,12 +189,12 @@ public final class SNMPUtils {
     private static Optional<Variable> stringToVariable(final String value, final int smiSyntax) {
         Variable variable = AbstractVariable.createFromSyntax(smiSyntax);
         try {
-            if (variable instanceof AssignableFromString) {
-                ((AssignableFromString) variable).setValue(value);
-            } else if (variable instanceof AssignableFromInteger) {
-                ((AssignableFromInteger) variable).setValue(Integer.parseInt(value));
-            } else if (variable instanceof AssignableFromLong) {
-                ((AssignableFromLong) variable).setValue(Long.parseLong(value));
+            if (variable instanceof final AssignableFromString assignableFromString) {
+                assignableFromString.setValue(value);
+            } else if (variable instanceof final AssignableFromInteger assignableFromInteger) {
+                assignableFromInteger.setValue(Integer.parseInt(value));
+            } else if (variable instanceof final AssignableFromLong assignableFromLong) {
+                assignableFromLong.setValue(Long.parseLong(value));
             } else {
                 logger.error("Unsupported conversion of [ {} ] to ", variable.getSyntaxString());
                 variable = null;

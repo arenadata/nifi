@@ -44,7 +44,6 @@ import org.apache.nifi.state.MockStateManager;
 import org.apache.nifi.util.MockFlowFile;
 import org.apache.nifi.util.MockPropertyValue;
 import org.junit.jupiter.api.Test;
-import org.mockito.Mockito;
 import org.mockito.stubbing.Answer;
 
 import java.io.ByteArrayInputStream;
@@ -63,6 +62,9 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.Mockito.any;
+import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 public class TestSiteToSiteStatusReportingTask {
@@ -77,23 +79,23 @@ public class TestSiteToSiteStatusReportingTask {
         }
         properties.putAll(customProperties);
 
-        context = Mockito.mock(ReportingContext.class);
-        Mockito.when(context.getStateManager())
+        context = mock(ReportingContext.class);
+        when(context.getStateManager())
                 .thenReturn(new MockStateManager(task));
-        Mockito.doAnswer((Answer<PropertyValue>) invocation -> {
+        doAnswer((Answer<PropertyValue>) invocation -> {
             final PropertyDescriptor descriptor = invocation.getArgument(0, PropertyDescriptor.class);
             return new MockPropertyValue(properties.get(descriptor));
-        }).when(context).getProperty(Mockito.any(PropertyDescriptor.class));
+        }).when(context).getProperty(any(PropertyDescriptor.class));
 
-        final EventAccess eventAccess = Mockito.mock(EventAccess.class);
+        final EventAccess eventAccess = mock(EventAccess.class);
 
-        Mockito.when(context.getEventAccess()).thenReturn(eventAccess);
-        Mockito.when(eventAccess.getControllerStatus()).thenReturn(pgStatus);
+        when(context.getEventAccess()).thenReturn(eventAccess);
+        when(eventAccess.getControllerStatus()).thenReturn(pgStatus);
 
-        final ComponentLog logger = Mockito.mock(ComponentLog.class);
-        final ReportingInitializationContext initContext = Mockito.mock(ReportingInitializationContext.class);
-        Mockito.when(initContext.getIdentifier()).thenReturn(UUID.randomUUID().toString());
-        Mockito.when(initContext.getLogger()).thenReturn(logger);
+        final ComponentLog logger = mock(ComponentLog.class);
+        final ReportingInitializationContext initContext = mock(ReportingInitializationContext.class);
+        when(initContext.getIdentifier()).thenReturn(UUID.randomUUID().toString());
+        when(initContext.getLogger()).thenReturn(logger);
         task.initialize(initContext);
 
         return task;
@@ -121,6 +123,20 @@ public class TestSiteToSiteStatusReportingTask {
         assertEquals(1, terminatedThreads.longValue());
         JsonString versionedFlowState = firstElement.getJsonString("versionedFlowState");
         assertEquals("UP_TO_DATE", versionedFlowState.getString());
+    }
+
+    @Test
+    public void testNullControllerStatus() throws IOException, InitializationException {
+        final Map<PropertyDescriptor, String> properties = new HashMap<>();
+        properties.put(SiteToSiteUtils.BATCH_SIZE, "4");
+        properties.put(SiteToSiteStatusReportingTask.COMPONENT_NAME_FILTER_REGEX, "Awesome.*");
+        properties.put(SiteToSiteStatusReportingTask.COMPONENT_TYPE_FILTER_REGEX, ".*");
+
+        // The controller status is not yet available (e.g. during startup before the flow is initialized)
+        MockSiteToSiteStatusReportingTask task = initTask(properties, null);
+        assertDoesNotThrow(() -> task.onTrigger(context));
+
+        assertTrue(task.dataSent.isEmpty());
     }
 
     @Test
@@ -169,6 +185,27 @@ public class TestSiteToSiteStatusReportingTask {
     }
 
     @Test
+    public void testConnectionStatusWithNullName() throws IOException, InitializationException {
+        final ProcessGroupStatus pgStatus = generateProcessGroupStatus("root", "Awesome", 1, 0);
+        // A connection may carry no name in the status snapshot, e.g. an unnamed
+        // connection from a port or funnel whose relationship list is empty
+        pgStatus.getConnectionStatus().iterator().next().setName(null);
+
+        final Map<PropertyDescriptor, String> properties = new HashMap<>();
+        properties.put(SiteToSiteUtils.BATCH_SIZE, "100");
+        properties.put(SiteToSiteStatusReportingTask.COMPONENT_NAME_FILTER_REGEX, ".*");
+        properties.put(SiteToSiteStatusReportingTask.COMPONENT_TYPE_FILTER_REGEX, "(Connection)");
+
+        MockSiteToSiteStatusReportingTask task = initTask(properties, pgStatus);
+        assertDoesNotThrow(() -> task.onTrigger(context));
+
+        // All 12 connections are reported, including the one without a name
+        final String msg = new String(task.dataSent.getFirst(), StandardCharsets.UTF_8);
+        JsonReader jsonReader = Json.createReader(new ByteArrayInputStream(msg.getBytes()));
+        assertEquals(12, jsonReader.readArray().size());
+    }
+
+    @Test
     public void testConnectionStatusWithNullValues() throws IOException, InitializationException {
         final ProcessGroupStatus pgStatus = generateProcessGroupStatus("root", "Awesome", 1, 0);
 
@@ -185,7 +222,7 @@ public class TestSiteToSiteStatusReportingTask {
         JsonReader jsonReader = Json.createReader(new ByteArrayInputStream(msg.getBytes()));
         JsonObject object = jsonReader.readArray().getJsonObject(0);
         JsonValue destination = object.get("destinationName");
-        assertEquals(destination, JsonValue.NULL);
+        assertEquals(JsonValue.NULL, destination);
 
     }
 
@@ -268,7 +305,7 @@ public class TestSiteToSiteStatusReportingTask {
         JsonReader jsonReader = Json.createReader(new ByteArrayInputStream(msg.getBytes()));
         JsonObject object = jsonReader.readArray().getJsonObject(0);
         JsonValue activeThreadCount = object.get("activeThreadCount");
-        assertEquals(activeThreadCount, JsonValue.NULL);
+        assertEquals(JsonValue.NULL, activeThreadCount);
     }
 
     @Test
@@ -311,7 +348,7 @@ public class TestSiteToSiteStatusReportingTask {
         JsonReader jsonReader = Json.createReader(new ByteArrayInputStream(msg.getBytes()));
         JsonObject firstElement = jsonReader.readArray().getJsonObject(0);
         JsonValue targetURI = firstElement.get("targetURI");
-        assertEquals(targetURI, JsonValue.NULL);
+        assertEquals(JsonValue.NULL, targetURI);
     }
 
     @Test
@@ -361,7 +398,7 @@ public class TestSiteToSiteStatusReportingTask {
         JsonReader jsonReader = Json.createReader(new ByteArrayInputStream(msg.getBytes()));
         JsonObject object = jsonReader.readArray().getJsonObject(0);
         JsonValue type = object.get("processorType");
-        assertEquals(type, JsonValue.NULL);
+        assertEquals(JsonValue.NULL, type);
     }
 
     /***********************************
@@ -531,17 +568,17 @@ public class TestSiteToSiteStatusReportingTask {
         @Override
         public void setup(PropertyContext reportContext) {
             if (siteToSiteClient == null) {
-                final SiteToSiteClient client = Mockito.mock(SiteToSiteClient.class);
-                final Transaction transaction = Mockito.mock(Transaction.class);
+                final SiteToSiteClient client = mock(SiteToSiteClient.class);
+                final Transaction transaction = mock(Transaction.class);
 
                 assertDoesNotThrow(() -> {
-                    Mockito.doAnswer((Answer<Object>) invocation -> {
+                    doAnswer((Answer<Object>) invocation -> {
                         final byte[] data = invocation.getArgument(0, byte[].class);
                         dataSent.add(data);
                         return null;
-                    }).when(transaction).send(Mockito.any(byte[].class), Mockito.any(Map.class));
+                    }).when(transaction).send(any(byte[].class), any(Map.class));
 
-                    when(client.createTransaction(Mockito.any(TransferDirection.class))).thenReturn(transaction);
+                    when(client.createTransaction(any(TransferDirection.class))).thenReturn(transaction);
                 });
                 siteToSiteClient = client;
             }

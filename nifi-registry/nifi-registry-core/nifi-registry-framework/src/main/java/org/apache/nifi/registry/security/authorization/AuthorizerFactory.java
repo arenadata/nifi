@@ -231,7 +231,7 @@ public class AuthorizerFactory implements UserGroupProviderLookup, AccessPolicyP
                             final ClassLoader authorizerClassLoader = authorizer.getClass().getClassLoader();
 
                             // install integrity checks
-                            authorizer = AuthorizerFactory.installIntegrityChecks(authorizer);
+                            authorizer = installIntegrityChecks(authorizer);
 
                             // load the configuration context for the selected authorizer
                             AuthorizerConfigurationContext authorizerConfigurationContext = null;
@@ -545,8 +545,7 @@ public class AuthorizerFactory implements UserGroupProviderLookup, AccessPolicyP
         @Override
         public AccessPolicyProvider getAccessPolicyProvider() {
             final AccessPolicyProvider baseAccessPolicyProvider = baseManagedAuthorizer.getAccessPolicyProvider();
-            if (baseAccessPolicyProvider instanceof ConfigurableAccessPolicyProvider) {
-                final ConfigurableAccessPolicyProvider baseConfigurableAccessPolicyProvider = (ConfigurableAccessPolicyProvider) baseAccessPolicyProvider;
+            if (baseAccessPolicyProvider instanceof final ConfigurableAccessPolicyProvider baseConfigurableAccessPolicyProvider) {
                 return new ConfigurableAccessPolicyProvider() {
                     @Override
                     public String getFingerprint() throws AuthorizationAccessException {
@@ -610,8 +609,7 @@ public class AuthorizerFactory implements UserGroupProviderLookup, AccessPolicyP
                     @Override
                     public UserGroupProvider getUserGroupProvider() {
                         final UserGroupProvider baseUserGroupProvider = baseConfigurableAccessPolicyProvider.getUserGroupProvider();
-                        if (baseUserGroupProvider instanceof ConfigurableUserGroupProvider) {
-                            final ConfigurableUserGroupProvider baseConfigurableUserGroupProvider = (ConfigurableUserGroupProvider) baseUserGroupProvider;
+                        if (baseUserGroupProvider instanceof final ConfigurableUserGroupProvider baseConfigurableUserGroupProvider) {
                             return new ConfigurableUserGroupProvider() {
                                 @Override
                                 public String getFingerprint() throws AuthorizationAccessException {
@@ -858,8 +856,8 @@ public class AuthorizerFactory implements UserGroupProviderLookup, AccessPolicyP
     }
 
     private static Authorizer installIntegrityChecks(final Authorizer baseAuthorizer) {
-        if (baseAuthorizer instanceof ManagedAuthorizer) {
-            return new ManagedAuthorizerWrapper((ManagedAuthorizer) baseAuthorizer);
+        if (baseAuthorizer instanceof final ManagedAuthorizer managedAuthorizer) {
+            return new ManagedAuthorizerWrapper(managedAuthorizer);
         } else {
             return new AuthorizerWrapper(baseAuthorizer);
         }
@@ -870,8 +868,8 @@ public class AuthorizerFactory implements UserGroupProviderLookup, AccessPolicyP
         // 1 - the authorizer supports auditing
         // 2 - the request is an access attempt
         // 3 - the result is either approved/denied, when resource is not found a subsequent request may be following with the parent resource
-        if (authorizer instanceof AuthorizationAuditor && request.isAccessAttempt() && !AuthorizationResult.Result.ResourceNotFound.equals(result.getResult())) {
-            ((AuthorizationAuditor) authorizer).auditAccessAttempt(request, result);
+        if (authorizer instanceof final AuthorizationAuditor authorizationAuditor && request.isAccessAttempt() && !AuthorizationResult.Result.ResourceNotFound.equals(result.getResult())) {
+            authorizationAuditor.auditAccessAttempt(request, result);
         }
     }
 

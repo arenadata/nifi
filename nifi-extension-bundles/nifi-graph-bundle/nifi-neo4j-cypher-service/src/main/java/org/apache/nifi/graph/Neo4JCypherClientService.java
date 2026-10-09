@@ -37,6 +37,9 @@ import org.neo4j.driver.GraphDatabase;
 import org.neo4j.driver.Record;
 import org.neo4j.driver.Result;
 import org.neo4j.driver.Session;
+import org.neo4j.driver.exceptions.ServiceUnavailableException;
+import org.neo4j.driver.exceptions.SessionExpiredException;
+import org.neo4j.driver.exceptions.TransientException;
 import org.neo4j.driver.internal.InternalNode;
 import org.neo4j.driver.summary.ResultSummary;
 import org.neo4j.driver.summary.SummaryCounters;
@@ -61,7 +64,7 @@ import static org.neo4j.driver.Config.TrustStrategy.trustCustomCertificateSigned
 public class Neo4JCypherClientService extends AbstractControllerService implements GraphClientService {
     public static final PropertyDescriptor CONNECTION_URL = new PropertyDescriptor.Builder()
             .name("Neo4j Connection URL")
-            .description("Neo4J endpoing to connect to.")
+            .description("Neo4J endpoint to connect to.")
             .required(true)
             .defaultValue("bolt://localhost:7687")
             .expressionLanguageSupported(ExpressionLanguageScope.ENVIRONMENT)
@@ -254,8 +257,8 @@ public class Neo4JCypherClientService extends AbstractControllerService implemen
         if (recordMap.size() == 1) {
             String key = recordMap.keySet().iterator().next();
             Object value = recordMap.get(key);
-            if (value instanceof InternalNode) {
-                return ((InternalNode) value).asMap();
+            if (value instanceof final InternalNode internalNode) {
+                return internalNode.asMap();
             }
         }
 
@@ -288,8 +291,23 @@ public class Neo4JCypherClientService extends AbstractControllerService implemen
 
             return resultAttributes;
         } catch (Exception ex) {
+            if (isTransientConnectivityFailure(ex)) {
+                throw new GraphClientTransientException("Transient query execution failure", ex);
+            }
             throw new ProcessException("Query execution failed", ex);
         }
+    }
+
+    private static boolean isTransientConnectivityFailure(final Throwable throwable) {
+        Throwable current = throwable;
+        while (current != null) {
+            if (current instanceof ServiceUnavailableException || current instanceof SessionExpiredException || current instanceof TransientException) {
+                return true;
+            }
+            current = current.getCause();
+        }
+
+        return false;
     }
 
     @Override

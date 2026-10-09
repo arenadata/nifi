@@ -28,11 +28,15 @@ import org.junit.jupiter.api.Test;
 
 import java.io.File;
 import java.io.IOException;
+import java.time.Duration;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.TimeoutException;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 public class CreateConnectorIT {
@@ -66,6 +70,19 @@ public class CreateConnectorIT {
     }
 
     @Test
+    public void testStopConnectorWithTimeoutStopsRunningConnector() throws IOException, TimeoutException {
+        try (final ConnectorTestRunner testRunner = new StandardConnectorTestRunner.Builder()
+                .connectorClassName("org.apache.nifi.mock.connectors.GenerateAndLog")
+                .narLibraryDirectory(new File("target/libDir"))
+                .build()) {
+
+            testRunner.startConnector();
+
+            testRunner.stopConnector(Duration.ofSeconds(120));
+        }
+    }
+
+    @Test
     public void testConnectorWithMissingBundleFailsValidate() throws IOException {
 
         try (final ConnectorTestRunner testRunner = new StandardConnectorTestRunner.Builder()
@@ -74,10 +91,26 @@ public class CreateConnectorIT {
                 .build()) {
 
             final List<ValidationResult> results = testRunner.validate();
-            assertEquals(results.size(), 1);
+            assertEquals(1, results.size());
             final String message = results.getFirst().getExplanation();
             assertTrue(message.contains("com.example.nonexistent:missing-nar:1.0.0"), "Expected exception message to contain missing bundle coordinates but was: " + message);
             assertTrue(message.contains("com.example.nonexistent.MissingProcessor"), "Expected exception message to contain missing processor type but was: " + message);
+        }
+    }
+
+    @Test
+    public void testConnectorWithMissingBundleFailsStart() throws IOException {
+        try (final ConnectorTestRunner testRunner = new StandardConnectorTestRunner.Builder()
+                .connectorClassName("org.apache.nifi.mock.connectors.MissingBundleConnector")
+                .narLibraryDirectory(new File("target/libDir"))
+                .build()) {
+
+            final IllegalStateException exception = assertThrows(IllegalStateException.class, testRunner::startConnector);
+            assertEquals("Failed to start Connector", exception.getMessage());
+
+            final IllegalStateException cause = assertInstanceOf(IllegalStateException.class, exception.getCause());
+            assertTrue(cause.getMessage().contains("com.example.nonexistent:missing-nar:1.0.0"));
+            assertTrue(cause.getMessage().contains("com.example.nonexistent.MissingProcessor"));
         }
     }
 

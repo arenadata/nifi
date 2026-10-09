@@ -313,8 +313,8 @@ public class WriteXMLResult extends AbstractRecordSetWriter implements RecordSet
             }
             case ARRAY: {
                 final Object[] arrayValues;
-                if (coercedValue instanceof Object[]) {
-                    arrayValues = (Object[]) coercedValue;
+                if (coercedValue instanceof final Object[] objects) {
+                    arrayValues = objects;
                 } else {
                     arrayValues = new Object[]{coercedValue.toString()};
                 }
@@ -506,8 +506,7 @@ public class WriteXMLResult extends AbstractRecordSetWriter implements RecordSet
 
     private boolean writeUnknownField(Deque<String> tagsToOpen, Object value, String fieldName) throws XMLStreamException {
 
-        if (value instanceof Record) {
-            Record valueAsRecord = (Record) value;
+        if (value instanceof final Record valueAsRecord) {
             tagsToOpen.addLast(fieldName);
 
             boolean hasWritten = iterateThroughRecordWithoutSchema(tagsToOpen, valueAsRecord);
@@ -527,8 +526,7 @@ public class WriteXMLResult extends AbstractRecordSetWriter implements RecordSet
             }
         }
 
-        if (value instanceof Object[]) {
-            Object[] valueAsArray = (Object[]) value;
+        if (value instanceof final Object[] valueAsArray) {
 
             final String elementName;
             final String wrapperName;

@@ -25,8 +25,8 @@ import org.apache.nifi.controller.service.ControllerServiceState;
 import org.apache.nifi.flow.ExecutionEngine;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.mockito.Mockito;
 
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
@@ -176,6 +176,30 @@ class RetainExistingStateComponentSchedulerTest {
     }
 
     @Test
+    void testAddedServiceEnabledWhenProcessGroupActive() {
+        final ProcessorNode runningProcessor = createMockProcessor("running-proc", ScheduledState.RUNNING);
+        final ProcessGroup group = createProcessGroup(Set.of(runningProcessor), Collections.emptySet(), Collections.emptySet());
+        final RetainExistingStateComponentScheduler scheduler = new RetainExistingStateComponentScheduler(group, delegate);
+        assertTrue(scheduler.isProcessGroupActive());
+
+        // A service newly added by the update, referenced only by an existing processor, must be enabled when the group is active.
+        final ControllerServiceNode addedService = createMockService("added-svc", ControllerServiceState.DISABLED);
+        scheduler.enableAddedControllerServicesAsync(List.of(addedService));
+        verify(delegate).enableControllerServicesAsync(Set.of(addedService));
+    }
+
+    @Test
+    void testAddedServiceNotEnabledWhenProcessGroupInactive() {
+        final ProcessGroup group = createProcessGroup(Collections.emptySet(), Collections.emptySet(), Collections.emptySet());
+        final RetainExistingStateComponentScheduler scheduler = new RetainExistingStateComponentScheduler(group, delegate);
+        assertFalse(scheduler.isProcessGroupActive());
+
+        final ControllerServiceNode addedService = createMockService("added-svc", ControllerServiceState.DISABLED);
+        scheduler.enableAddedControllerServicesAsync(List.of(addedService));
+        verify(delegate).enableControllerServicesAsync(Collections.emptySet());
+    }
+
+    @Test
     void testExistingEnabledServiceReEnabled() {
         final ControllerServiceNode enabledService = createMockService("enabled-svc", ControllerServiceState.ENABLED);
         final ProcessGroup group = createProcessGroup(Collections.emptySet(), Collections.emptySet(), Set.of(enabledService));
@@ -289,9 +313,9 @@ class RetainExistingStateComponentSchedulerTest {
     }
 
     private ProcessGroup createProcessGroup(final Set<ProcessorNode> processors, final Set<Port> inputPorts, final Set<ControllerServiceNode> services) {
-        final ProcessGroup group = Mockito.mock(ProcessGroup.class);
+        final ProcessGroup group = mock(ProcessGroup.class);
         when(group.getProcessors()).thenReturn(processors);
-        when(group.findAllProcessors()).thenReturn(new java.util.ArrayList<>(processors));
+        when(group.findAllProcessors()).thenReturn(new ArrayList<>(processors));
         when(group.getInputPorts()).thenReturn(inputPorts);
         when(group.getOutputPorts()).thenReturn(Collections.emptySet());
         when(group.getFunnels()).thenReturn(Collections.emptySet());

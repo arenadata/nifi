@@ -851,8 +851,8 @@ public class PutDatabaseRecord extends AbstractProcessor {
             }
         } catch (ProcessException pe) {
             // Unwrap the SQLException if one occurred
-            if (pe.getCause() instanceof SQLException) {
-                throw (SQLException) pe.getCause();
+            if (pe.getCause() instanceof final SQLException sqlException) {
+                throw sqlException;
             } else {
                 throw pe;
             }
@@ -977,7 +977,7 @@ public class PutDatabaseRecord extends AbstractProcessor {
                                 }
                                 if (targetDataType != null) {
                                     if (sqlType == Types.BLOB || sqlType == Types.BINARY || sqlType == Types.VARBINARY || sqlType == Types.LONGVARBINARY) {
-                                        if (currentValue instanceof Object[] src) {
+                                        if (currentValue instanceof final Object[] src) {
                                             // Convert Object[Byte] arrays to byte[]
                                             if (src.length > 0) {
                                                 if (!(src[0] instanceof Byte)) {
@@ -989,7 +989,7 @@ public class PutDatabaseRecord extends AbstractProcessor {
                                                 dest[j] = (Byte) src[j];
                                             }
                                             currentValue = dest;
-                                        } else if (currentValue instanceof String stringValue) {
+                                        } else if (currentValue instanceof final String stringValue) {
                                             if (BINARY_STRING_FORMAT_BASE64.getValue().equals(binaryStringFormat)) {
                                                 currentValue = Base64.getDecoder().decode(stringValue);
                                             } else if (BINARY_STRING_FORMAT_HEXADECIMAL.getValue().equals(binaryStringFormat)) {

@@ -24,7 +24,6 @@ import org.apache.commons.io.IOUtils;
 import org.apache.nifi.flowfile.attributes.CoreAttributes;
 import org.apache.nifi.reporting.InitializationException;
 import org.apache.nifi.services.smb.SmbjClientProviderService;
-import org.apache.nifi.smb.common.SmbProperties;
 import org.apache.nifi.util.MockFlowFile;
 import org.apache.nifi.util.TestRunner;
 import org.junit.jupiter.api.AfterEach;
@@ -44,12 +43,12 @@ import java.util.Map;
 
 import static org.apache.nifi.processor.util.list.AbstractListProcessor.NO_TRACKING;
 import static org.apache.nifi.processors.smb.ListSmb.SMB_CLIENT_PROVIDER_SERVICE;
-import static org.apache.nifi.services.smb.SmbjClientProviderService.HOSTNAME;
-import static org.apache.nifi.services.smb.SmbjClientProviderService.PASSWORD;
-import static org.apache.nifi.services.smb.SmbjClientProviderService.PORT;
-import static org.apache.nifi.services.smb.SmbjClientProviderService.SHARE;
-import static org.apache.nifi.services.smb.SmbjClientProviderService.USERNAME;
 import static org.apache.nifi.smb.common.SmbProperties.ENABLE_DFS;
+import static org.apache.nifi.smb.common.SmbProperties.HOSTNAME;
+import static org.apache.nifi.smb.common.SmbProperties.PASSWORD;
+import static org.apache.nifi.smb.common.SmbProperties.PORT;
+import static org.apache.nifi.smb.common.SmbProperties.SHARE;
+import static org.apache.nifi.smb.common.SmbProperties.USERNAME;
 import static org.apache.nifi.util.TestRunners.newTestRunner;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
@@ -162,12 +161,12 @@ class SmbDfsIT {
     @Test
     void testPutSmbFile() {
         TestRunner testRunner = newTestRunner(PutSmbFile.class);
-        testRunner.setProperty(PutSmbFile.HOSTNAME, sambaContainer.getHost());
-        testRunner.setProperty(PutSmbFile.SHARE, "dfs-share");
+        testRunner.setProperty(HOSTNAME, sambaContainer.getHost());
+        testRunner.setProperty(SHARE, "dfs-share");
         testRunner.setProperty(PutSmbFile.DIRECTORY, "dfs-link");
-        testRunner.setProperty(PutSmbFile.USERNAME, "myuser");
-        testRunner.setProperty(PutSmbFile.PASSWORD, "mypass");
-        testRunner.setProperty(SmbProperties.ENABLE_DFS, "true");
+        testRunner.setProperty(USERNAME, "myuser");
+        testRunner.setProperty(PASSWORD, "mypass");
+        testRunner.setProperty(ENABLE_DFS, "true");
 
         testRunner.enqueue("put_content", Map.of(CoreAttributes.FILENAME.key(), "put_file"));
         testRunner.run();
@@ -183,12 +182,12 @@ class SmbDfsIT {
         writeFile("get_file", "get_content");
 
         TestRunner testRunner = newTestRunner(GetSmbFile.class);
-        testRunner.setProperty(GetSmbFile.HOSTNAME, sambaContainer.getHost());
-        testRunner.setProperty(GetSmbFile.SHARE, "dfs-share");
+        testRunner.setProperty(HOSTNAME, sambaContainer.getHost());
+        testRunner.setProperty(SHARE, "dfs-share");
         testRunner.setProperty(GetSmbFile.DIRECTORY, "dfs-link");
-        testRunner.setProperty(GetSmbFile.USERNAME, "myuser");
-        testRunner.setProperty(GetSmbFile.PASSWORD, "mypass");
-        testRunner.setProperty(SmbProperties.ENABLE_DFS, "true");
+        testRunner.setProperty(USERNAME, "myuser");
+        testRunner.setProperty(PASSWORD, "mypass");
+        testRunner.setProperty(ENABLE_DFS, "true");
 
         testRunner.run();
 

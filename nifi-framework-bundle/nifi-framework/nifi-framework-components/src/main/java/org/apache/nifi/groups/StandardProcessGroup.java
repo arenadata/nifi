@@ -66,15 +66,10 @@ import org.apache.nifi.controller.service.ControllerServiceNode;
 import org.apache.nifi.controller.service.ControllerServiceProvider;
 import org.apache.nifi.controller.service.ControllerServiceState;
 import org.apache.nifi.controller.service.StandardConfigurationContext;
-import org.apache.nifi.encrypt.PropertyEncryptor;
 import org.apache.nifi.flow.ExecutionEngine;
-import org.apache.nifi.flow.ExternalControllerServiceReference;
 import org.apache.nifi.flow.VersionedComponent;
-import org.apache.nifi.flow.VersionedControllerService;
 import org.apache.nifi.flow.VersionedExternalFlow;
 import org.apache.nifi.flow.VersionedProcessGroup;
-import org.apache.nifi.flow.VersionedProcessor;
-import org.apache.nifi.flow.VersionedPropertyDescriptor;
 import org.apache.nifi.flow.synchronization.StandardVersionedComponentSynchronizer;
 import org.apache.nifi.flow.synchronization.VersionedFlowSynchronizationContext;
 import org.apache.nifi.lifecycle.ProcessorStopLifecycleMethods;
@@ -91,6 +86,7 @@ import org.apache.nifi.parameter.ParameterUpdate;
 import org.apache.nifi.parameter.StandardParameterUpdate;
 import org.apache.nifi.processor.DataUnit;
 import org.apache.nifi.processor.ProcessContext;
+import org.apache.nifi.processor.Processor;
 import org.apache.nifi.processor.StandardProcessContext;
 import org.apache.nifi.registry.flow.FlowLocation;
 import org.apache.nifi.registry.flow.FlowRegistryClientContextFactory;
@@ -118,6 +114,9 @@ import org.apache.nifi.registry.flow.mapping.VersionedComponentFlowMapper;
 import org.apache.nifi.registry.flow.mapping.VersionedComponentStateLookup;
 import org.apache.nifi.remote.PublicPort;
 import org.apache.nifi.remote.RemoteGroupPort;
+import org.apache.nifi.security.encryption.InternalPassThroughPropertyEncryptionProvider;
+import org.apache.nifi.security.encryption.PropertyEncryptionProvider;
+import org.apache.nifi.security.encryption.ProviderSensitiveValueDecryptor;
 import org.apache.nifi.util.FlowDifferenceFilters;
 import org.apache.nifi.util.FormatUtils;
 import org.apache.nifi.util.NiFiProperties;
@@ -181,6 +180,7 @@ public final class StandardProcessGroup implements ProcessGroup {
     private final AtomicReference<StandardVersionControlInformation> versionControlInfo = new AtomicReference<>();
     private static final SecureRandom randomGenerator = new SecureRandom();
     private final String connectorId;
+    private volatile Optional<String> owningConnectorIdentifier;
 
     private final ProcessScheduler scheduler;
     private final ControllerServiceProvider controllerServiceProvider;
@@ -198,7 +198,12 @@ public final class StandardProcessGroup implements ProcessGroup {
     private final Map<String, ProcessorNode> processors = new HashMap<>();
     private final Map<String, Funnel> funnels = new HashMap<>();
     private final Map<String, ControllerServiceNode> controllerServices = new ConcurrentHashMap<>();
-    private final PropertyEncryptor encryptor;
+    /**
+     * Provider that protects sensitive values when a flow is persisted and restored, and that recovers them for flow
+     * comparison. Null in the Stateless runtime, which neither restores a persisted flow nor places a group under
+     * version control, so no sensitive value passes through this group.
+     */
+    private final PropertyEncryptionProvider propertyEncryptionProvider;
     private final VersionControlFields versionControlFields = new VersionControlFields();
     private volatile ParameterContext parameterContext;
     private final NodeTypeProvider nodeTypeProvider;
@@ -218,6 +223,7 @@ public final class StandardProcessGroup implements ProcessGroup {
     private final DataValve dataValve;
     private final Long nifiPropertiesBackpressureCount;
     private final String nifiPropertiesBackpressureSize;
+    private final boolean autoResumeState;
 
     private final ReentrantReadWriteLock rwLock = new ReentrantReadWriteLock();
     private final Lock readLock = rwLock.readLock();
@@ -233,12 +239,13 @@ public final class StandardProcessGroup implements ProcessGroup {
     private static final String STANDARD_PROCESS_GROUP_NAME = "StandardProcessGroup";
     private static final String UNREGISTERED_PATH_SEGMENT = "UNREGISTERED";
 
-    private final Map<String, String> loggingAttributes = new ConcurrentHashMap<>();
+    private volatile Map<String, String> loggingAttributes = Map.of();
     private volatile Map<String, String> connectorLoggingAttributes = Map.of();
     private volatile String logFileSuffix;
 
     public StandardProcessGroup(final String id, final ControllerServiceProvider serviceProvider, final ProcessScheduler scheduler,
-                                final PropertyEncryptor encryptor, final ExtensionManager extensionManager,
+                                final PropertyEncryptionProvider propertyEncryptionProvider,
+                                final ExtensionManager extensionManager,
                                 final StateManagerProvider stateManagerProvider, final FlowManager flowManager,
                                 final ReloadComponent reloadComponent, final NodeTypeProvider nodeTypeProvider,
                                 final ClusterTopologyProvider clusterTopologyProvider,
@@ -250,7 +257,7 @@ public final class StandardProcessGroup implements ProcessGroup {
         this.parent = new AtomicReference<>();
         this.scheduler = scheduler;
         this.comments = new AtomicReference<>("");
-        this.encryptor = encryptor;
+        this.propertyEncryptionProvider = propertyEncryptionProvider;
         this.extensionManager = extensionManager;
         this.stateManagerProvider = stateManagerProvider;
         this.flowManager = flowManager;
@@ -272,6 +279,8 @@ public final class StandardProcessGroup implements ProcessGroup {
         this.logFileSuffix = null;
 
         // save only the nifi properties needed, and account for the possibility those properties are missing
+        this.autoResumeState = nifiProperties == null ? NiFiProperties.DEFAULT_AUTO_RESUME_STATE : nifiProperties.getAutoResumeState();
+
         if (nifiProperties == null) {
             nifiPropertiesBackpressureCount = DEFAULT_BACKPRESSURE_OBJECT;
             nifiPropertiesBackpressureSize = DEFAULT_BACKPRESSURE_DATA_SIZE;
@@ -309,13 +318,15 @@ public final class StandardProcessGroup implements ProcessGroup {
     @Override
     public void setParent(final ProcessGroup newParent) {
         parent.set(newParent);
+        // Forget a value resolved before this group was attached to its parent.
+        owningConnectorIdentifier = null;
         // Inherit connector-supplied MDC attributes from the parent so descendants of a connector's managed
         // flow carry the same connector metadata (attributing their logs and status metrics to the connector).
         // Runs on every re-parent (including initial attach), so PGs added later inherit automatically.
-        if (newParent instanceof StandardProcessGroup standardParent) {
+        if (newParent instanceof final StandardProcessGroup standardParent) {
             this.connectorLoggingAttributes = standardParent.connectorLoggingAttributes;
         }
-        setLoggingAttributes();
+        setLoggingAttributes(true);
     }
 
     @Override
@@ -355,7 +366,7 @@ public final class StandardProcessGroup implements ProcessGroup {
         }
 
         this.name.set(name);
-        setLoggingAttributes();
+        setLoggingAttributes(true);
     }
 
     @Override
@@ -364,19 +375,22 @@ public final class StandardProcessGroup implements ProcessGroup {
     }
 
     @Override
-    public Optional<ConnectorNode> findOwningConnector() {
-        ProcessGroup group = this;
-        while (group != null) {
-            final Optional<String> owningConnectorId = group.getConnectorIdentifier();
-            if (owningConnectorId.isPresent()) {
-                final ConnectorNode connectorNode = flowManager.getConnector(owningConnectorId.get());
-                return Optional.ofNullable(connectorNode);
-            }
-
-            group = group.getParent();
+    public Optional<String> findOwningConnectorIdentifier() {
+        Optional<String> identifier = owningConnectorIdentifier;
+        // Check-then-modify, but safe. The parent cannot change from one Connector to another; during initialization
+        // it may go from no Connector to some Connector. The only incorrect cached value is null (unresolved), and
+        // the next call looks it up again.
+        if (identifier == null) {
+            identifier = ProcessGroup.super.findOwningConnectorIdentifier();
+            owningConnectorIdentifier = identifier;
         }
 
-        return Optional.empty();
+        return identifier;
+    }
+
+    @Override
+    public Optional<ConnectorNode> findOwningConnector() {
+        return findOwningConnectorIdentifier().map(flowManager::getConnector);
     }
 
     @Override
@@ -1660,6 +1674,23 @@ public final class StandardProcessGroup implements ProcessGroup {
         aggregateDropFlowFileStatus.setOriginalSize(aggregateOriginalSize);
         aggregateDropFlowFileStatus.setDroppedSize(aggregateDroppedSize);
         aggregateDropFlowFileStatus.setCurrentSize(aggregateCurrentSize);
+
+        // Merging never moves the aggregate request into a COMPLETE state; only handleDropAllFlowFiles does that. The
+        // lifecycle is:
+        //   1. handleDropAllFlowFiles creates the aggregate request and merges each connection's drop request into it
+        //      by calling this method once per connection.
+        //   2. A drop request against an empty queue is already COMPLETE when it is created. Copying that state onto
+        //      the aggregate request would make DropFlowFileRequest.setState complete the aggregate's Future, which
+        //      callers treat as "every connection has been drained", even though the connections merged later may
+        //      still be dropping. The aggregate request is therefore held at DROPPING_FLOWFILES while merging.
+        //   3. Once every connection has been merged, handleDropAllFlowFiles sets the aggregate request to COMPLETE,
+        //      or to FAILURE, when the Futures of all of those connections finish. Those Futures are already finished
+        //      when each connection's queue was empty, in which case the aggregate request becomes COMPLETE without
+        //      ever waiting.
+        if (aggregateState == DropFlowFileState.COMPLETE) {
+            aggregateState = DropFlowFileState.DROPPING_FLOWFILES;
+        }
+
         aggregateDropFlowFileStatus.setState(aggregateState);
     }
 
@@ -2125,8 +2156,7 @@ public final class StandardProcessGroup implements ProcessGroup {
 
     @Override
     public boolean equals(final Object obj) {
-        if (obj instanceof StandardProcessGroup) {
-            final StandardProcessGroup other = (StandardProcessGroup) obj;
+        if (obj instanceof final StandardProcessGroup other) {
             return (getIdentifier().equals(other.getIdentifier()));
         } else {
             return false;
@@ -2909,8 +2939,7 @@ public final class StandardProcessGroup implements ProcessGroup {
 
     @Override
     public Set<Positionable> findAllPositionables() {
-        final Set<Positionable> positionables = new HashSet<>();
-        positionables.addAll(findAllConnectables(this, true));
+        final Set<Positionable> positionables = new HashSet<>(findAllConnectables(this, true));
         List<ProcessGroup> allProcessGroups = findAllProcessGroups();
         positionables.addAll(allProcessGroups);
         positionables.addAll(findAllRemoteProcessGroups());
@@ -3439,7 +3468,7 @@ public final class StandardProcessGroup implements ProcessGroup {
             }
         }
 
-        // For each Parameter that was in the previous parameter context that is not in the updated Paramter Context, add a ParameterUpdate to our map with `null` for the updated value
+        // For each Parameter that was in the previous parameter context that is not in the updated Parameter Context, add a ParameterUpdate to our map with `null` for the updated value
         for (final Map.Entry<ParameterDescriptor, Parameter> entry : previousParameterContext.getEffectiveParameters().entrySet()) {
             final ParameterDescriptor previousDescriptor = entry.getKey();
             final Parameter previousParameter = entry.getValue();
@@ -3695,7 +3724,7 @@ public final class StandardProcessGroup implements ProcessGroup {
                 parent.onComponentModified();
             }
 
-            setLoggingAttributes();
+            setLoggingAttributes(true);
             scheduler.submitFrameworkTask(() -> synchronizeWithFlowRegistry(flowManager));
         } finally {
             writeLock.unlock();
@@ -3770,7 +3799,7 @@ public final class StandardProcessGroup implements ProcessGroup {
         writeLock.lock();
         try {
             this.versionControlInfo.set(null);
-            setLoggingAttributes();
+            setLoggingAttributes(true);
         } finally {
             writeLock.unlock();
         }
@@ -3865,7 +3894,6 @@ public final class StandardProcessGroup implements ProcessGroup {
                 final FlowSnapshotContainer registrySnapshotContainer = flowRegistry.getFlowContents(
                         FlowRegistryClientContextFactory.getAnonymousContext(), flowVersionLocation, false);
                 final RegisteredFlowSnapshot registrySnapshot = registrySnapshotContainer.getFlowSnapshot();
-                resolveExternalServiceReferences(registrySnapshot);
                 final VersionedProcessGroup registryFlow = registrySnapshot.getFlowContents();
                 vci.setFlowSnapshot(registryFlow);
             } catch (final IOException | FlowRegistryException e) {
@@ -3925,7 +3953,7 @@ public final class StandardProcessGroup implements ProcessGroup {
                 .componentIdGenerator(idGenerator)
                 .componentComparisonIdLookup(VersionedComponent::getIdentifier)
                 .componentScheduler(ComponentScheduler.NOP_SCHEDULER)
-                .propertyDecryptor(value -> null)
+                .dropEncryptedValues(true)
                 .build();
 
         writeLock.lock();
@@ -3957,12 +3985,16 @@ public final class StandardProcessGroup implements ProcessGroup {
             .ignoreLocalModifications(!verifyNotDirty)
             .updateDescendantVersionedFlows(updateDescendantVersionedFlows)
             .updateGroupSettings(updateSettings)
-            .updateRpgUrls(false);
+            .updateRpgUrls(false)
+            // A user may rename a public port locally (e.g. to resolve a name collision when reusing a versioned group). That local name must
+            // survive a version-control update rather than being reverted to the name stored in the registry.
+            .preservePublicPortNames(true);
         // Connectors should not have encrypted values copied from versioned flow. However we do need to decrypt parameter references.
+        // A Connector flow is mapped in memory using the Pass Through Provider, so the same Provider recovers the original values.
         if (getConnectorIdentifier().isPresent()) {
-            flowSynchronizationBuilder.propertyDecryptor(value -> value);
+            flowSynchronizationBuilder.propertyEncryptionProvider(new InternalPassThroughPropertyEncryptionProvider());
         } else {
-            flowSynchronizationBuilder.propertyDecryptor(value -> null);
+            flowSynchronizationBuilder.dropEncryptedValues(true);
         }
 
         final FlowSynchronizationOptions synchronizationOptions = flowSynchronizationBuilder.build();
@@ -3971,7 +4003,7 @@ public final class StandardProcessGroup implements ProcessGroup {
             .mapSensitiveConfiguration(false)
             .mapPropertyDescriptors(true)
             .stateLookup(stateLookup)
-            .sensitiveValueEncryptor(null)
+            .propertyEncryptionProvider(null)
             .componentIdLookup(ComponentIdLookup.VERSIONED_OR_GENERATE)
             .mapInstanceIdentifiers(false)
             .mapControllerServiceReferencesToVersionedId(true)
@@ -3990,7 +4022,13 @@ public final class StandardProcessGroup implements ProcessGroup {
         // their Connections upon restore.
         final ComponentIdGenerator idGenerator = (proposedId, instanceId, destinationGroupId) -> instanceId;
         final VersionedComponentStateLookup stateLookup = VersionedComponentStateLookup.IDENTITY_LOOKUP;
-        final ComponentScheduler componentScheduler = new DefaultComponentScheduler(controllerServiceProvider, stateLookup);
+
+        // When nifi.flowcontroller.autoResumeState is false, restore the flow structure (so queued FlowFiles can be
+        // re-associated with their Connections) without resuming any component to its previously running or enabled
+        // state. Otherwise, restore each component to the running/enabled state captured in the persisted flow.
+        final ComponentScheduler componentScheduler = autoResumeState
+            ? new DefaultComponentScheduler(controllerServiceProvider, stateLookup)
+            : new NonStartingComponentScheduler(controllerServiceProvider, stateLookup);
 
         final FlowSynchronizationOptions synchronizationOptions = new FlowSynchronizationOptions.Builder()
             .componentIdGenerator(idGenerator)
@@ -4000,39 +4038,38 @@ public final class StandardProcessGroup implements ProcessGroup {
             .updateDescendantVersionedFlows(true)
             .updateGroupSettings(true)
             .updateRpgUrls(false)
-            .propertyDecryptor(encryptor::decrypt)
+            .propertyEncryptionProvider(propertyEncryptionProvider)
             .build();
 
-        // Sensitive property values in the proposed snapshot were encrypted using the same PropertyEncryptor when the snapshot
-        // was persisted (for example, when a Connector-managed flow is persisted in Troubleshooting mode). The currently loaded
-        // flow therefore must also be mapped with an equivalent SensitiveValueEncryptor so the comparison between "current" and
-        // "proposed" sensitive values operates on matching ciphertext; otherwise every sensitive property appears to differ and
-        // the decrypted value written back to the live component is the encrypted payload rather than the plaintext (or parameter
-        // reference) that was originally captured.
+        // Sensitive property values in the proposed snapshot were encrypted when the snapshot was persisted (for example, when a
+        // Connector-managed flow is persisted in Troubleshooting mode). The currently loaded flow therefore must also be mapped
+        // with encryption enabled so the comparison between "current" and "proposed" sensitive values operates on values that are
+        // decrypted the same way on both sides; otherwise every sensitive property appears to differ and the value written back to
+        // the live component is the encrypted payload rather than the plaintext (or parameter reference) originally captured.
         final FlowMappingOptions flowMappingOptions = new FlowMappingOptions.Builder()
             .mapSensitiveConfiguration(true)
             .mapPropertyDescriptors(true)
             .stateLookup(stateLookup)
-            .sensitiveValueEncryptor(encryptor::encrypt)
             .componentIdLookup(ComponentIdLookup.VERSIONED_OR_GENERATE)
             .mapInstanceIdentifiers(true)
             .mapControllerServiceReferencesToVersionedId(true)
             .mapFlowRegistryClientId(false)
             .mapAssetReferences(false)
+            .propertyEncryptionProvider(propertyEncryptionProvider)
             .build();
 
         synchronizeFlow(proposedSnapshot, synchronizationOptions, flowMappingOptions);
     }
 
     private ProcessContext createProcessContext(final ProcessorNode processorNode) {
-        final org.apache.nifi.processor.Processor processor = processorNode.getProcessor();
+        final Processor processor = processorNode.getProcessor();
         final Class<?> componentClass = processor == null ? null : processor.getClass();
         return new StandardProcessContext(processorNode, controllerServiceProvider,
             stateManagerProvider.getStateManager(processorNode.getIdentifier(), componentClass), () -> false, nodeTypeProvider);
     }
 
     private ConfigurationContext createConfigurationContext(final ComponentNode component) {
-        final String schedulingPeriod = (component instanceof ReportingTaskNode) ? ((ReportingTaskNode) component).getSchedulingPeriod() : null;
+        final String schedulingPeriod = (component instanceof final ReportingTaskNode reportingTaskNode) ? reportingTaskNode.getSchedulingPeriod() : null;
         return new StandardConfigurationContext(component, controllerServiceProvider, schedulingPeriod, component.getEffectivePropertyValues(), component.getAnnotationData());
     }
 
@@ -4067,8 +4104,8 @@ public final class StandardProcessGroup implements ProcessGroup {
         }
     }
 
-    private String generateUuid(final String propposedId, final String destinationGroupId, final String seed) {
-        long msb = UUID.nameUUIDFromBytes((propposedId + destinationGroupId).getBytes(StandardCharsets.UTF_8)).getMostSignificantBits();
+    private String generateUuid(final String proposedId, final String destinationGroupId, final String seed) {
+        long msb = UUID.nameUUIDFromBytes((proposedId + destinationGroupId).getBytes(StandardCharsets.UTF_8)).getMostSignificantBits();
 
         UUID uuid;
         if (StringUtils.isBlank(seed)) {
@@ -4076,86 +4113,11 @@ public final class StandardProcessGroup implements ProcessGroup {
             // since msb is extracted from type-one UUID, the type-one semantics will be preserved
             uuid = new UUID(msb, lsb);
         } else {
-            UUID seedId = UUID.nameUUIDFromBytes((propposedId + destinationGroupId + seed).getBytes(StandardCharsets.UTF_8));
+            UUID seedId = UUID.nameUUIDFromBytes((proposedId + destinationGroupId + seed).getBytes(StandardCharsets.UTF_8));
             uuid = new UUID(msb, seedId.getLeastSignificantBits());
         }
-        LOG.debug("Generating UUID {} from currentId={}, seed={}", uuid, propposedId, seed);
+        LOG.debug("Generating UUID {} from currentId={}, seed={}", uuid, proposedId, seed);
         return uuid.toString();
-    }
-
-    private void resolveExternalServiceReferences(final RegisteredFlowSnapshot snapshot) {
-        final Map<String, ExternalControllerServiceReference> externalRefs = snapshot.getExternalControllerServices();
-        if (externalRefs == null || externalRefs.isEmpty()) {
-            return;
-        }
-
-        final ProcessGroup parentGroup = getParent();
-        if (parentGroup == null) {
-            return;
-        }
-
-        final Map<String, String> serviceNameToVersionedId = new HashMap<>();
-        for (final ControllerServiceNode serviceNode : parentGroup.getControllerServices(true)) {
-            final String versionedId = serviceNode.getVersionedComponentId().orElse(
-                    VersionedComponentFlowMapper.generateVersionedComponentId(serviceNode.getIdentifier()));
-            serviceNameToVersionedId.put(serviceNode.getName(), versionedId);
-        }
-
-        final Map<String, String> foreignToLocalId = new HashMap<>();
-        for (final Map.Entry<String, ExternalControllerServiceReference> entry : externalRefs.entrySet()) {
-            final String foreignId = entry.getKey();
-            final String serviceName = entry.getValue().getName();
-            final String localId = serviceNameToVersionedId.get(serviceName);
-            if (localId != null && !localId.equals(foreignId)) {
-                foreignToLocalId.put(foreignId, localId);
-            }
-        }
-
-        if (!foreignToLocalId.isEmpty()) {
-            replaceExternalServiceIds(snapshot.getFlowContents(), foreignToLocalId);
-        }
-    }
-
-    private void replaceExternalServiceIds(final VersionedProcessGroup group, final Map<String, String> foreignToLocalId) {
-        if (group.getProcessors() != null) {
-            for (final VersionedProcessor processor : group.getProcessors()) {
-                replaceServicePropertyIds(processor.getProperties(), processor.getPropertyDescriptors(), foreignToLocalId);
-            }
-        }
-
-        if (group.getControllerServices() != null) {
-            for (final VersionedControllerService service : group.getControllerServices()) {
-                replaceServicePropertyIds(service.getProperties(), service.getPropertyDescriptors(), foreignToLocalId);
-            }
-        }
-
-        if (group.getProcessGroups() != null) {
-            for (final VersionedProcessGroup child : group.getProcessGroups()) {
-                replaceExternalServiceIds(child, foreignToLocalId);
-            }
-        }
-    }
-
-    private void replaceServicePropertyIds(final Map<String, String> properties, final Map<String, VersionedPropertyDescriptor> descriptors,
-                                           final Map<String, String> foreignToLocalId) {
-        if (properties == null || descriptors == null) {
-            return;
-        }
-
-        for (final Map.Entry<String, String> entry : properties.entrySet()) {
-            final String propertyValue = entry.getValue();
-            if (propertyValue == null) {
-                continue;
-            }
-
-            final VersionedPropertyDescriptor descriptor = descriptors.get(entry.getKey());
-            if (descriptor != null && descriptor.getIdentifiesControllerService()) {
-                final String localId = foreignToLocalId.get(propertyValue);
-                if (localId != null) {
-                    entry.setValue(localId);
-                }
-            }
-        }
     }
 
     private Set<FlowDifference> getModifications() {
@@ -4187,11 +4149,12 @@ public final class StandardProcessGroup implements ProcessGroup {
             final ComparableDataFlow snapshotFlow = new StandardComparableDataFlow("Versioned Flow", vci.getFlowSnapshot());
 
             final FlowComparator flowComparator = new StandardFlowComparator(snapshotFlow, currentFlow,
-                new EvolvingDifferenceDescriptor(), encryptor::decrypt, VersionedComponent::getIdentifier, FlowComparatorVersionedStrategy.SHALLOW);
+                new EvolvingDifferenceDescriptor(), new ProviderSensitiveValueDecryptor(propertyEncryptionProvider),
+                VersionedComponent::getIdentifier, FlowComparatorVersionedStrategy.SHALLOW);
             final FlowComparison comparison = flowComparator.compare();
             final Collection<FlowDifference> comparisonDifferences = comparison.getDifferences();
             final FlowDifferenceFilters.EnvironmentalChangeContext environmentalContext =
-                FlowDifferenceFilters.buildEnvironmentalChangeContext(comparisonDifferences, flowManager);
+                FlowDifferenceFilters.buildEnvironmentalChangeContext(comparisonDifferences, versionedGroup, flowManager);
 
             final Set<FlowDifference> differences = comparisonDifferences.stream()
                 .filter(difference -> !FlowDifferenceFilters.isEnvironmentalChange(difference, versionedGroup, flowManager, environmentalContext))
@@ -4579,7 +4542,7 @@ public final class StandardProcessGroup implements ProcessGroup {
      */
     @Override
     public Map<String, String> getLoggingAttributes() {
-        return Collections.unmodifiableMap(loggingAttributes);
+        return loggingAttributes;
     }
 
     @Override
@@ -4815,29 +4778,39 @@ public final class StandardProcessGroup implements ProcessGroup {
         }
     }
 
-    private void setLoggingAttributes() {
-        loggingAttributes.clear();
+    private void setLoggingAttributes(final boolean recursive) {
+        final Map<String, String> attributes = new HashMap<>();
 
-        loggingAttributes.put(LoggingAttribute.PROCESS_GROUP_ID.attribute, id);
+        attributes.put(LoggingAttribute.PROCESS_GROUP_ID.attribute, id);
 
         final String processGroupName = name.get();
         if (processGroupName == null) {
-            loggingAttributes.put(LoggingAttribute.PROCESS_GROUP_NAME.attribute, STANDARD_PROCESS_GROUP_NAME);
+            attributes.put(LoggingAttribute.PROCESS_GROUP_NAME.attribute, STANDARD_PROCESS_GROUP_NAME);
         } else {
-            loggingAttributes.put(LoggingAttribute.PROCESS_GROUP_NAME.attribute, processGroupName);
-            setGroupPath();
+            attributes.put(LoggingAttribute.PROCESS_GROUP_NAME.attribute, processGroupName);
+            setGroupPath(attributes);
         }
 
         final VersionControlInformation currentVersionControl = versionControlInfo.get();
         if (currentVersionControl != null) {
             final String registeredFlowIdentifier = currentVersionControl.getFlowIdentifier();
-            loggingAttributes.put(LoggingAttribute.REGISTERED_FLOW_IDENTIFIER.attribute, registeredFlowIdentifier);
+            attributes.put(LoggingAttribute.REGISTERED_FLOW_IDENTIFIER.attribute, registeredFlowIdentifier);
 
             final String registeredFlowVersion = currentVersionControl.getVersion();
-            loggingAttributes.put(LoggingAttribute.REGISTERED_FLOW_VERSION.attribute, registeredFlowVersion);
+            attributes.put(LoggingAttribute.REGISTERED_FLOW_VERSION.attribute, registeredFlowVersion);
         }
 
-        loggingAttributes.putAll(connectorLoggingAttributes);
+        attributes.putAll(connectorLoggingAttributes);
+
+        this.loggingAttributes = Map.copyOf(attributes);
+
+        if (recursive) {
+            for (final ProcessGroup childGroup : getProcessGroups()) {
+                if (childGroup instanceof final StandardProcessGroup standardChildGroup) {
+                    standardChildGroup.setLoggingAttributes(true);
+                }
+            }
+        }
     }
 
     /**
@@ -4859,10 +4832,10 @@ public final class StandardProcessGroup implements ProcessGroup {
             ? Map.of()
             : Map.copyOf(attributes);
         this.connectorLoggingAttributes = snapshot;
-        setLoggingAttributes();
+        setLoggingAttributes(false);
 
         for (final ProcessGroup child : getProcessGroups()) {
-            if (child instanceof StandardProcessGroup standardChild) {
+            if (child instanceof final StandardProcessGroup standardChild) {
                 standardChild.setConnectorLoggingAttributes(snapshot);
             }
         }
@@ -4879,7 +4852,7 @@ public final class StandardProcessGroup implements ProcessGroup {
         return connectorLoggingAttributes;
     }
 
-    private void setGroupPath() {
+    private void setGroupPath(final Map<String, String> attributes) {
         final StringBuilder namePathBuilder = new StringBuilder();
         namePathBuilder.append(PATH_SEPARATOR);
         namePathBuilder.append(name.get());
@@ -4910,14 +4883,14 @@ public final class StandardProcessGroup implements ProcessGroup {
         }
 
         final String idPath = idPathBuilder.toString();
-        loggingAttributes.put(LoggingAttribute.PROCESS_GROUP_ID_PATH.attribute, idPath);
+        attributes.put(LoggingAttribute.PROCESS_GROUP_ID_PATH.attribute, idPath);
 
         final String namePath = namePathBuilder.toString();
-        loggingAttributes.put(LoggingAttribute.PROCESS_GROUP_NAME_PATH.attribute, namePath);
+        attributes.put(LoggingAttribute.PROCESS_GROUP_NAME_PATH.attribute, namePath);
 
         if (versionControlFound) {
             final String registeredFlowIdentifierPath = registeredFlowIdentifierPathBuilder.toString();
-            loggingAttributes.put(LoggingAttribute.REGISTERED_FLOW_IDENTIFIER_PATH.attribute, registeredFlowIdentifierPath);
+            attributes.put(LoggingAttribute.REGISTERED_FLOW_IDENTIFIER_PATH.attribute, registeredFlowIdentifierPath);
         }
     }
 

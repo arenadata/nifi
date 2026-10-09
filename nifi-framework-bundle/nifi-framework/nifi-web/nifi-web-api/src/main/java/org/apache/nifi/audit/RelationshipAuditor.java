@@ -75,7 +75,7 @@ public class RelationshipAuditor extends NiFiAuditor {
      *
      * @param proceedingJoinPoint join point
      * @return connection
-     * @throws java.lang.Throwable ex
+     * @throws Throwable ex
      */
     @Around("within(org.apache.nifi.web.dao.ConnectionDAO+) && "
             + "execution(org.apache.nifi.connectable.Connection createConnection(java.lang.String, org.apache.nifi.web.api.dto.ConnectionDTO))")
@@ -246,7 +246,7 @@ public class RelationshipAuditor extends NiFiAuditor {
      */
     public ConnectDetails createConnectDetails(final Connection connection, final Connectable source, final Collection<Relationship> relationships, final Connectable destination) {
         final Component sourceType = determineConnectableType(source);
-        final Component destiantionType = determineConnectableType(destination);
+        final Component destinationType = determineConnectableType(destination);
 
         // format the relationship names
         Collection<String> relationshipNames = new HashSet<>(connection.getRelationships().size());
@@ -263,7 +263,7 @@ public class RelationshipAuditor extends NiFiAuditor {
         connectDetails.setRelationship(formattedRelationships);
         connectDetails.setDestinationId(destination.getIdentifier());
         connectDetails.setDestinationName(destination.getName());
-        connectDetails.setDestinationType(destiantionType);
+        connectDetails.setDestinationType(destinationType);
         return connectDetails;
     }
 
@@ -362,8 +362,7 @@ public class RelationshipAuditor extends NiFiAuditor {
         Component componentType = Component.Controller;
         if (connectable instanceof ProcessorNode) {
             componentType = Component.Processor;
-        } else if (connectable instanceof RemoteGroupPort) {
-            final RemoteGroupPort remoteGroupPort = (RemoteGroupPort) connectable;
+        } else if (connectable instanceof final RemoteGroupPort remoteGroupPort) {
             if (TransferDirection.RECEIVE.equals(remoteGroupPort.getTransferDirection())) {
                 if (remoteGroupPort.getRemoteProcessGroup() == null) {
                     componentType = Component.InputPort;

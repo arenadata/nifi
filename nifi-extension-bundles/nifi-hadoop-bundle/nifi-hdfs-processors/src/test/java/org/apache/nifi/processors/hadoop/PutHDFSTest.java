@@ -44,8 +44,6 @@ import org.apache.nifi.util.TestRunners;
 import org.ietf.jgss.GSSException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.condition.DisabledOnJre;
-import org.junit.jupiter.api.condition.JRE;
 import org.junit.jupiter.api.io.TempDir;
 import org.mockito.Mockito;
 
@@ -77,7 +75,6 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 
-@DisabledOnJre(value = { JRE.JAVA_25 }, disabledReason = "java.security.auth.Subject.getSubject() is not supported")
 public class PutHDFSTest {
     private static final String TARGET_DIRECTORY = "target/test-classes";
     private static final String AVRO_TARGET_DIRECTORY = TARGET_DIRECTORY + "/testdata-avro";
@@ -103,8 +100,8 @@ public class PutHDFSTest {
         results = new HashSet<>();
         runner.enqueue(new byte[0]);
         pc = runner.getProcessContext();
-        if (pc instanceof MockProcessContext) {
-            results = ((MockProcessContext) pc).validate();
+        if (pc instanceof final MockProcessContext mockProcessContext) {
+            results = mockProcessContext.validate();
         }
         assertEquals(1, results.size());
         for (ValidationResult vr : results) {
@@ -115,8 +112,8 @@ public class PutHDFSTest {
         runner.setProperty(PutHDFS.DIRECTORY, "target");
         runner.enqueue(new byte[0]);
         pc = runner.getProcessContext();
-        if (pc instanceof MockProcessContext) {
-            results = ((MockProcessContext) pc).validate();
+        if (pc instanceof final MockProcessContext mockProcessContext) {
+            results = mockProcessContext.validate();
         }
         assertEquals(0, results.size());
 
@@ -125,8 +122,8 @@ public class PutHDFSTest {
         runner.setProperty(PutHDFS.REPLICATION_FACTOR, "-1");
         runner.enqueue(new byte[0]);
         pc = runner.getProcessContext();
-        if (pc instanceof MockProcessContext) {
-            results = ((MockProcessContext) pc).validate();
+        if (pc instanceof final MockProcessContext mockProcessContext) {
+            results = mockProcessContext.validate();
         }
         assertEquals(1, results.size());
         for (ValidationResult vr : results) {
@@ -140,8 +137,8 @@ public class PutHDFSTest {
         runner.setProperty(PutHDFS.REPLICATION_FACTOR, "0");
         runner.enqueue(new byte[0]);
         pc = runner.getProcessContext();
-        if (pc instanceof MockProcessContext) {
-            results = ((MockProcessContext) pc).validate();
+        if (pc instanceof final MockProcessContext mockProcessContext) {
+            results = mockProcessContext.validate();
         }
         assertEquals(1, results.size());
         for (ValidationResult vr : results) {
@@ -155,8 +152,8 @@ public class PutHDFSTest {
         runner.setProperty(PutHDFS.UMASK, "-1");
         runner.enqueue(new byte[0]);
         pc = runner.getProcessContext();
-        if (pc instanceof MockProcessContext) {
-            results = ((MockProcessContext) pc).validate();
+        if (pc instanceof final MockProcessContext mockProcessContext) {
+            results = mockProcessContext.validate();
         }
         assertEquals(1, results.size());
         for (ValidationResult vr : results) {
@@ -170,8 +167,8 @@ public class PutHDFSTest {
         runner.setProperty(PutHDFS.UMASK, "18");
         runner.enqueue(new byte[0]);
         pc = runner.getProcessContext();
-        if (pc instanceof MockProcessContext) {
-            results = ((MockProcessContext) pc).validate();
+        if (pc instanceof final MockProcessContext mockProcessContext) {
+            results = mockProcessContext.validate();
         }
         assertEquals(1, results.size());
         for (ValidationResult vr : results) {
@@ -183,8 +180,8 @@ public class PutHDFSTest {
         runner.setProperty(PutHDFS.UMASK, "2000");
         runner.enqueue(new byte[0]);
         pc = runner.getProcessContext();
-        if (pc instanceof MockProcessContext) {
-            results = ((MockProcessContext) pc).validate();
+        if (pc instanceof final MockProcessContext mockProcessContext) {
+            results = mockProcessContext.validate();
         }
         assertEquals(1, results.size());
         for (ValidationResult vr : results) {
@@ -198,8 +195,8 @@ public class PutHDFSTest {
         runner.setProperty(PutHDFS.COMPRESSION_CODEC, CompressionCodec.class.getName());
         runner.enqueue(new byte[0]);
         pc = runner.getProcessContext();
-        if (pc instanceof MockProcessContext) {
-            results = ((MockProcessContext) pc).validate();
+        if (pc instanceof final MockProcessContext mockProcessContext) {
+            results = mockProcessContext.validate();
         }
         assertEquals(1, results.size());
         for (ValidationResult vr : results) {
@@ -213,13 +210,13 @@ public class PutHDFSTest {
         runner.setProperty(PutHDFS.COMPRESSION_CODEC, GZIP.name());
         runner.enqueue(new byte[0]);
         pc = runner.getProcessContext();
-        if (pc instanceof MockProcessContext) {
-            results = ((MockProcessContext) pc).validate();
+        if (pc instanceof final MockProcessContext mockProcessContext) {
+            results = mockProcessContext.validate();
         }
         assertEquals(1, results.size());
         for (ValidationResult vr : results) {
-            assertEquals(vr.getSubject(), "Codec");
-            assertEquals(vr.getExplanation(), "Compression codec cannot be set when used in 'append avro' mode");
+            assertEquals("Codec", vr.getSubject());
+            assertEquals("Compression codec cannot be set when used in 'append avro' mode", vr.getExplanation());
         }
 
         results = new HashSet<>();
@@ -229,8 +226,8 @@ public class PutHDFSTest {
         runner.setProperty(PutHDFS.COMPRESSION_CODEC, NONE.name());
         runner.enqueue(new byte[0]);
         pc = runner.getProcessContext();
-        if (pc instanceof MockProcessContext) {
-            results = ((MockProcessContext) pc).validate();
+        if (pc instanceof final MockProcessContext mockProcessContext) {
+            results = mockProcessContext.validate();
         }
         assertEquals(0, results.size());
     }

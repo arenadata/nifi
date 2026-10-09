@@ -20,19 +20,14 @@ import jakarta.ws.rs.HttpMethod;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
 import jakarta.ws.rs.core.Response.Status;
-import org.apache.nifi.authorization.AuthorizableLookup;
-import org.apache.nifi.authorization.AuthorizeControllerServiceReference;
-import org.apache.nifi.authorization.AuthorizeParameterProviders;
-import org.apache.nifi.authorization.AuthorizeParameterReference;
+import org.apache.nifi.authorization.AuthorizeFlowUpdate;
+import org.apache.nifi.authorization.AuthorizeFlowUpdate.UnresolvedReferences;
 import org.apache.nifi.authorization.Authorizer;
-import org.apache.nifi.authorization.ProcessGroupAuthorizable;
-import org.apache.nifi.authorization.RequestAction;
 import org.apache.nifi.authorization.user.NiFiUser;
 import org.apache.nifi.authorization.user.NiFiUserUtils;
 import org.apache.nifi.cluster.manager.NodeResponse;
 import org.apache.nifi.controller.ScheduledState;
 import org.apache.nifi.controller.service.ControllerServiceState;
-import org.apache.nifi.flow.VersionedParameterContext;
 import org.apache.nifi.registry.flow.FlowSnapshotContainer;
 import org.apache.nifi.registry.flow.RegisteredFlowSnapshot;
 import org.apache.nifi.web.NiFiServiceFacade;
@@ -99,7 +94,7 @@ public abstract class FlowUpdateResource<T extends ProcessGroupDescriptorEntity,
     protected ComponentLifecycle clusterComponentLifecycle;
     protected ComponentLifecycle localComponentLifecycle;
 
-    protected RequestManager<T, T> requestManager =
+    protected final RequestManager<T, T> requestManager =
             new AsyncRequestManager<>(100, TimeUnit.MINUTES.toMillis(1L),
                     "Process Group Update Thread");
 
@@ -109,6 +104,17 @@ public abstract class FlowUpdateResource<T extends ProcessGroupDescriptorEntity,
     protected abstract ProcessGroupEntity performUpdateFlow(final String groupId, final Revision revision, final T requestEntity,
                                                             final RegisteredFlowSnapshot flowSnapshot, final String idGenerationSeed,
                                                             final boolean verifyNotModified, final boolean updateDescendantVersionedFlows);
+
+    /**
+     * Invoked after a flow update has been successfully applied on this node, allowing subclasses to perform
+     * request-type-specific post-processing (for example, a rebase adjusting the Version Control Information). The
+     * default implementation does nothing.
+     *
+     * @param groupId     the id of the process group that was updated
+     * @param requestType the type of update request that was performed
+     */
+    protected void postProcessFlowUpdate(final String groupId, final String requestType) {
+    }
 
     /**
      * Create the entity that is passed for update flow replication
@@ -184,17 +190,7 @@ public abstract class FlowUpdateResource<T extends ProcessGroupDescriptorEntity,
         // Step 0: Obtain the versioned flow snapshot to use for the update
         final FlowSnapshotContainer flowSnapshotContainer = flowSnapshotContainerSupplier.get();
         final RegisteredFlowSnapshot flowSnapshot = flowSnapshotContainer.getFlowSnapshot();
-
-        // The new flow may not contain the same versions of components in existing flow. As a result, we need to update
-        // the flow snapshot to contain compatible bundles.
-        serviceFacade.discoverCompatibleBundles(flowSnapshot.getFlowContents());
-        serviceFacade.discoverCompatibleBundles(flowSnapshot.getParameterProviders());
-
-        // If there are any Controller Services referenced that are inherited from the parent group, resolve those to point to the appropriate Controller Service, if we are able to.
-        final Set<String> unresolvedControllerServices = serviceFacade.resolveInheritedControllerServices(flowSnapshotContainer, groupId, user);
-
-        // If there are any Parameter Providers referenced by Parameter Contexts, resolve these to point to the appropriate Parameter Provider, if we are able to.
-        final Set<String> unresolvedParameterProviders = serviceFacade.resolveParameterProviders(flowSnapshot, user);
+        final UnresolvedReferences unresolvedReferences = AuthorizeFlowUpdate.resolveReferences(groupId, flowSnapshotContainer, serviceFacade, user);
 
         // Step 1: Determine which components will be affected by updating the flow
         final Set<AffectedComponentEntity> affectedComponents = serviceFacade.getComponentsAffectedByFlowUpdate(groupId, flowSnapshot);
@@ -209,7 +205,7 @@ public abstract class FlowUpdateResource<T extends ProcessGroupDescriptorEntity,
                 serviceFacade,
                 requestWrapper,
                 requestRevision,
-                lookup -> authorizeFlowUpdate(lookup, user, groupId, flowSnapshot, unresolvedControllerServices, unresolvedParameterProviders),
+                lookup -> AuthorizeFlowUpdate.authorizeFlowUpdate(groupId, flowSnapshot, unresolvedReferences, serviceFacade, authorizer, lookup, user),
                 () -> {
                     // Step 3: Verify that all components in the snapshot exist on all nodes
                     // Step 4: Verify that Process Group can be updated. Only versioned flows care about the verifyNotDirty flag
@@ -217,38 +213,6 @@ public abstract class FlowUpdateResource<T extends ProcessGroupDescriptorEntity,
                 },
                 (revision, wrapper) -> submitFlowUpdateRequest(user, groupId, revision, wrapper, allowDirtyFlowUpdate)
         );
-    }
-
-    /**
-     * Authorize read/write permissions for the given user on every component of the given flow in support of flow update.
-     *
-     * @param lookup A lookup instance to use for retrieving components for authorization purposes
-     * @param user the user to authorize
-     * @param groupId the id of the process group being evaluated
-     * @param flowSnapshot the new flow contents to authorize
-     */
-    protected void authorizeFlowUpdate(final AuthorizableLookup lookup, final NiFiUser user, final String groupId,
-                                       final RegisteredFlowSnapshot flowSnapshot, final Set<String> unresolvedControllerServices,
-                                       final Set<String> unresolvedParameterProviders) {
-        // Step 2: Verify READ and WRITE permissions for user, for every component.
-        final ProcessGroupAuthorizable groupAuthorizable = lookup.getProcessGroup(groupId);
-        authorizeProcessGroup(groupAuthorizable, authorizer, lookup, RequestAction.READ, true,
-                false, true, false, true);
-        authorizeProcessGroup(groupAuthorizable, authorizer, lookup, RequestAction.WRITE, true,
-                false, true, false, false);
-
-        final Map<String, VersionedParameterContext> parameterContexts = flowSnapshot.getParameterContexts();
-        if (parameterContexts != null) {
-            parameterContexts.values().forEach(
-                    context -> AuthorizeParameterReference.authorizeParameterContextAddition(context, serviceFacade, authorizer, lookup, user)
-            );
-        }
-
-        // authorize parameter providers
-        AuthorizeParameterProviders.authorizeUnresolvedParameterProviders(unresolvedParameterProviders, authorizer, lookup, user);
-
-        // authorizer controller services
-        AuthorizeControllerServiceReference.authorizeUnresolvedControllerServiceReferences(groupId, unresolvedControllerServices, authorizer, lookup, user);
     }
 
     /**
@@ -282,7 +246,7 @@ public abstract class FlowUpdateResource<T extends ProcessGroupDescriptorEntity,
                         updateFlow(groupId, wrapper.getComponentLifecycle(), wrapper.getRequestUri(),
                                 wrapper.getAffectedComponents(), wrapper.isReplicateRequest(), wrapper.getReplicateUriPath(),
                                 revision, wrapper.getRequestEntity(), wrapper.getFlowSnapshot(), request,
-                                idGenerationSeed, allowDirtyFlowUpdate);
+                                idGenerationSeed, allowDirtyFlowUpdate, requestType);
 
                         // no need to store any result of above flow update because it's not used
                         vcur.markStepComplete();
@@ -323,7 +287,7 @@ public abstract class FlowUpdateResource<T extends ProcessGroupDescriptorEntity,
                             final Set<AffectedComponentEntity> affectedComponents, final boolean replicateRequest,
                             final String replicateUriPath, final Revision revision, final T requestEntity,
                             final RegisteredFlowSnapshot flowSnapshot, final AsynchronousWebRequest<T, T> asyncRequest,
-                            final String idGenerationSeed, final boolean allowDirtyFlowUpdate)
+                            final String idGenerationSeed, final boolean allowDirtyFlowUpdate, final String requestType)
             throws LifecycleManagementException, ResumeFlowException {
 
         // Steps 5-6: Determine which components must be stopped and stop them.
@@ -390,11 +354,7 @@ public abstract class FlowUpdateResource<T extends ProcessGroupDescriptorEntity,
 
             // Resolve compatible bundles, inherited controller services, and parameter providers for the rollback snapshot before any
             // replication occurs, ensuring that all nodes in the cluster receive the same resolved references.
-            serviceFacade.discoverCompatibleBundles(originalFlowSnapshot.getFlowContents());
-            serviceFacade.discoverCompatibleBundles(originalFlowSnapshot.getParameterProviders());
-            final NiFiUser user = NiFiUserUtils.getNiFiUser();
-            serviceFacade.resolveInheritedControllerServices(originalFlowSnapshotContainer, groupId, user);
-            serviceFacade.resolveParameterProviders(originalFlowSnapshot, user);
+            AuthorizeFlowUpdate.resolveReferences(groupId, originalFlowSnapshotContainer, serviceFacade, NiFiUserUtils.getNiFiUser());
         }
 
         try {
@@ -435,6 +395,7 @@ public abstract class FlowUpdateResource<T extends ProcessGroupDescriptorEntity,
                 // Each concrete class defines its own update flow functionality
                 try {
                     performUpdateFlow(groupId, currentGroupRevision, requestEntity, flowSnapshot, idGenerationSeed, !allowDirtyFlowUpdate, true);
+                    postProcessFlowUpdate(groupId, requestType);
                 } catch (final Exception e) {
                     // If clustered, just throw the original Exception.
                     // Otherwise, rollback the flow update. We do not perform the rollback if clustered because

@@ -43,7 +43,7 @@ import javax.xml.stream.XMLStreamWriter;
  */
 public class XmlBxmlNodeVisitor implements BxmlNodeVisitor {
     private final XMLStreamWriter xmlStreamWriter;
-    private List<VariantTypeNode> substitutions;
+    private final List<VariantTypeNode> substitutions;
 
     public XmlBxmlNodeVisitor(XMLStreamWriter xmlStreamWriter, RootNode rootNode) throws IOException {
         this.xmlStreamWriter = xmlStreamWriter;
@@ -143,8 +143,8 @@ public class XmlBxmlNodeVisitor implements BxmlNodeVisitor {
     @Override
     public void visit(VariantTypeNode variantTypeNode) throws IOException {
         try {
-            if (variantTypeNode instanceof BXmlTypeNode) {
-                ((BXmlTypeNode) variantTypeNode).getRootNode().accept(this);
+            if (variantTypeNode instanceof final BXmlTypeNode bXmlTypeNode) {
+                bXmlTypeNode.getRootNode().accept(this);
             } else {
                 xmlStreamWriter.writeCharacters(variantTypeNode.getValue());
             }

@@ -36,6 +36,7 @@ import {
     asyncScheduler,
     catchError,
     combineLatest,
+    exhaustMap,
     filter,
     from,
     interval,
@@ -51,6 +52,7 @@ import {
     throttleTime
 } from 'rxjs';
 import {
+    ComponentEntity,
     CreateConnectionDialogRequest,
     CreateProcessGroupDialogRequest,
     DeleteComponentResponse,
@@ -61,6 +63,8 @@ import {
     PasteRequest,
     PasteRequestContext,
     PasteRequestEntity,
+    ProcessGroupFlowEntity,
+    ProcessorBacklogDialogRequest,
     SaveVersionDialogRequest,
     SaveVersionRequest,
     SelectedComponent,
@@ -69,6 +73,7 @@ import {
     StopVersionControlResponse,
     VersionControlInformationEntity
 } from './index';
+import { Position } from '../shared';
 import { Action, Store } from '@ngrx/store';
 import {
     selectAnySelectedComponentIds,
@@ -101,6 +106,7 @@ import {
     EnableComponentRequest,
     OpenChangeComponentVersionDialogRequest,
     ParameterContextEntity,
+    PostUpdateNavigationState,
     RegistryClientEntity,
     StartComponentRequest,
     StopComponentRequest,
@@ -136,6 +142,7 @@ import {
     LARGE_DIALOG,
     MEDIUM_DIALOG,
     NiFiCommon,
+    sanitizePosition,
     SMALL_DIALOG,
     Storage,
     XL_DIALOG,
@@ -154,6 +161,7 @@ import { SaveVersionDialog } from '../../ui/canvas/items/flow/save-version-dialo
 import { ChangeVersionDialog } from '../../ui/canvas/items/flow/change-version-dialog/change-version-dialog';
 import { ChangeVersionProgressDialog } from '../../ui/canvas/items/flow/change-version-progress-dialog/change-version-progress-dialog';
 import { LocalChangesDialog } from '../../ui/canvas/items/flow/local-changes-dialog/local-changes-dialog';
+import { ProcessorBacklogDialog } from '../../ui/canvas/items/processor/backlog-dialog/backlog-dialog.component';
 import { ClusterConnectionService } from '../../../../service/cluster-connection.service';
 import { ExtensionTypesService } from '../../../../service/extension-types.service';
 import { ChangeComponentVersionDialog } from '../../../../ui/common/change-component-version-dialog/change-component-version-dialog';
@@ -173,6 +181,7 @@ import {
 } from '../../../../state/property-verification/property-verification.selectors';
 import { VerifyPropertiesRequestContext } from '../../../../state/property-verification';
 import { BackNavigation } from '../../../../state/navigation';
+import { extractParameterName } from '../../../../ui/common/utils/parameter.utils';
 import { resetPollingFlowAnalysis } from '../flow-analysis/flow-analysis.actions';
 import { selectDocumentVisibilityState } from '../../../../state/document-visibility/document-visibility.selectors';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
@@ -212,6 +221,13 @@ export class FlowEffects {
     private editProcessGroupDialogRef: MatDialogRef<EditProcessGroup, any> | undefined;
     private destroyRef = inject(DestroyRef);
     private lastReload = 0;
+
+    /**
+     * Warn-once dedupe state for position sanitization shared across every
+     * server-flow ingestion in this effect's lifetime, so a poisoned component
+     * logs at most one warning per id rather than one per poll.
+     */
+    private readonly warnedPositionIds = new Set<string>();
 
     constructor() {
         this.store
@@ -271,7 +287,7 @@ export class FlowEffects {
                         return FlowActions.loadProcessGroupSuccess({
                             response: {
                                 id: request.id,
-                                flow: flow,
+                                flow: this.sanitizeFlowPositions(flow),
                                 flowStatus: flowStatus,
                                 controllerBulletins: controllerBulletins,
                                 connectedStateChanged,
@@ -1550,7 +1566,12 @@ export class FlowEffects {
                         selectPropertyVerificationStatus
                     );
 
-                    const goTo = (commands: string[], commandBoundary: string[], destination: string): void => {
+                    const goTo = (
+                        commands: string[],
+                        commandBoundary: string[],
+                        destination: string,
+                        navigationState?: PostUpdateNavigationState
+                    ): void => {
                         if (editDialogReference.componentInstance.editProcessorForm.dirty) {
                             const saveChangesDialogReference = this.dialog.open(YesNoDialog, {
                                 ...SMALL_DIALOG,
@@ -1561,7 +1582,11 @@ export class FlowEffects {
                             });
 
                             saveChangesDialogReference.componentInstance.yes.pipe(take(1)).subscribe(() => {
-                                editDialogReference.componentInstance.submitForm(commands, commandBoundary);
+                                editDialogReference.componentInstance.submitForm(
+                                    commands,
+                                    commandBoundary,
+                                    navigationState
+                                );
                             });
 
                             saveChangesDialogReference.componentInstance.no.pipe(take(1)).subscribe(() => {
@@ -1577,7 +1602,8 @@ export class FlowEffects {
                                             ],
                                             routeBoundary: commandBoundary,
                                             context: 'Processor'
-                                        } as BackNavigation
+                                        } as BackNavigation,
+                                        ...navigationState
                                     }
                                 });
                             });
@@ -1594,7 +1620,8 @@ export class FlowEffects {
                                         ],
                                         routeBoundary: commandBoundary,
                                         context: 'Processor'
-                                    } as BackNavigation
+                                    } as BackNavigation,
+                                    ...navigationState
                                 }
                             });
                         }
@@ -1602,12 +1629,18 @@ export class FlowEffects {
 
                     if (parameterContext != null) {
                         editDialogReference.componentInstance.parameterContext = parameterContext;
-                        editDialogReference.componentInstance.goToParameter = () => {
+                        editDialogReference.componentInstance.goToParameter = (parameterValue: string) => {
                             this.storage.setItem<number>(NiFiCommon.EDIT_PARAMETER_CONTEXT_DIALOG_ID, 1);
 
+                            const parameterName = extractParameterName(parameterValue);
                             const commandBoundary: string[] = ['/parameter-contexts'];
                             const commands: string[] = [...commandBoundary, parameterContext.id, 'edit'];
-                            goTo(commands, commandBoundary, 'Parameter');
+                            goTo(
+                                commands,
+                                commandBoundary,
+                                'Parameter',
+                                parameterName ? { highlightedParameterName: parameterName } : undefined
+                            );
                         };
 
                         editDialogReference.componentInstance.convertToParameter =
@@ -2217,6 +2250,7 @@ export class FlowEffects {
                             type: request.type,
                             postUpdateNavigation: request.postUpdateNavigation,
                             postUpdateNavigationBoundary: request.postUpdateNavigationBoundary,
+                            postUpdateNavigationState: request.postUpdateNavigationState,
                             response
                         };
                         return FlowActions.updateProcessorSuccess({ response: updateProcessorResponse });
@@ -2256,7 +2290,8 @@ export class FlowEffects {
                                     ],
                                     routeBoundary: response.postUpdateNavigationBoundary,
                                     context: 'Processor'
-                                } as BackNavigation
+                                } as BackNavigation,
+                                ...response.postUpdateNavigationState
                             }
                         });
                     } else {
@@ -3158,6 +3193,35 @@ export class FlowEffects {
                         }
                     });
                 })
+            ),
+        { dispatch: false }
+    );
+
+    openProcessorBacklogDialog$ = createEffect(
+        () =>
+            this.actions$.pipe(
+                ofType(FlowActions.openProcessorBacklogDialog),
+                map((action) => action.id),
+                exhaustMap((id) =>
+                    this.flowService.submitProcessorBacklogRequest(id).pipe(
+                        map((requestEntity) => ({ processorId: id, requestEntity }) as ProcessorBacklogDialogRequest),
+                        catchError((errorResponse: HttpErrorResponse) =>
+                            of({
+                                processorId: id,
+                                errorMessage: this.errorHelper.getErrorString(errorResponse)
+                            } as ProcessorBacklogDialogRequest)
+                        ),
+                        tap((request) => {
+                            this.dialog.open(ProcessorBacklogDialog, {
+                                ...MEDIUM_DIALOG,
+                                minWidth: '36rem',
+                                maxWidth: '36rem',
+                                width: '36rem',
+                                data: request
+                            });
+                        })
+                    )
+                )
             ),
         { dispatch: false }
     );
@@ -4804,4 +4868,61 @@ export class FlowEffects {
             })
         )
     );
+
+    /**
+     * Sanitize all positioned entities in a server-provided flow before they
+     * enter NgRx state. Catastrophic-but-finite coordinates (e.g. the
+     * ~7.49e+307 values persisted when the backend lacked validation) are
+     * clamped to (0, 0) so the canvas pipeline never has to cope with values
+     * that overflow d3 transform arithmetic. A deduped console.warn names the
+     * affected component id so users know which entities to drag-and-save.
+     */
+    private sanitizeFlowPositions(flow: ProcessGroupFlowEntity): ProcessGroupFlowEntity {
+        const f = flow.processGroupFlow.flow;
+        const sanitize = (entity: ComponentEntity, kind: string): ComponentEntity => ({
+            ...entity,
+            position: sanitizePosition(entity.position, {
+                componentId: entity.id,
+                componentKind: kind,
+                warnedIds: this.warnedPositionIds
+            })
+        });
+        const sanitizeConnection = (entity: ComponentEntity): ComponentEntity => ({
+            ...entity,
+            position: sanitizePosition(entity.position, {
+                componentId: entity.id,
+                componentKind: 'Connection',
+                warnedIds: this.warnedPositionIds
+            }),
+            component: entity.component
+                ? {
+                      ...entity.component,
+                      bends: entity.component.bends?.map((bend: Position, index: number) =>
+                          sanitizePosition(bend, {
+                              componentId: `${entity.id}:bend:${index}`,
+                              componentKind: 'Connection bend',
+                              warnedIds: this.warnedPositionIds
+                          })
+                      )
+                  }
+                : entity.component
+        });
+
+        return {
+            ...flow,
+            processGroupFlow: {
+                ...flow.processGroupFlow,
+                flow: {
+                    processors: f.processors.map((e) => sanitize(e, 'Processor')),
+                    processGroups: f.processGroups.map((e) => sanitize(e, 'Process Group')),
+                    remoteProcessGroups: f.remoteProcessGroups.map((e) => sanitize(e, 'Remote Process Group')),
+                    inputPorts: f.inputPorts.map((e) => sanitize(e, 'Input Port')),
+                    outputPorts: f.outputPorts.map((e) => sanitize(e, 'Output Port')),
+                    labels: f.labels.map((e) => sanitize(e, 'Label')),
+                    funnels: f.funnels.map((e) => sanitize(e, 'Funnel')),
+                    connections: f.connections.map(sanitizeConnection)
+                }
+            }
+        };
+    }
 }

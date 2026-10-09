@@ -87,7 +87,7 @@ import java.util.stream.Stream;
             + "generated UUID added for this attribute"),
     @WritesAttribute(attribute = "fragment.index", description = "A one-up number that indicates the ordering of the partitioned FlowFiles that were created from a single parent FlowFile"),
     @WritesAttribute(attribute = "fragment.count", description = "The number of partitioned FlowFiles generated from the parent FlowFile"),
-    @WritesAttribute(attribute = "segment.original.filename ", description = "The filename of the parent FlowFile"),
+    @WritesAttribute(attribute = "segment.original.filename", description = "The filename of the parent FlowFile"),
     @WritesAttribute(attribute = "<dynamic property name>",
         description = "For each dynamic property that is added, an attribute may be added to the FlowFile. See the description for Dynamic Properties for more information.")
 })
@@ -355,8 +355,8 @@ public class PartitionRecord extends AbstractProcessor {
                 return 31;
             }
 
-            if (value instanceof Object[]) {
-                return 31 + Arrays.deepHashCode((Object[]) value);
+            if (value instanceof final Object[] objects) {
+                return 31 + Arrays.deepHashCode(objects);
             }
 
             return 31 + value.hashCode();
@@ -370,7 +370,7 @@ public class PartitionRecord extends AbstractProcessor {
             if (obj == null) {
                 return false;
             }
-            if (!(obj instanceof ValueWrapper other)) {
+            if (!(obj instanceof final ValueWrapper other)) {
                 return false;
             }
             if (value == null && other.value == null) {
@@ -379,8 +379,8 @@ public class PartitionRecord extends AbstractProcessor {
             if (value == null || other.value == null) {
                 return false;
             }
-            if (value instanceof Object[] && other.value instanceof Object[]) {
-                return Arrays.equals((Object[]) value, (Object[]) other.value);
+            if (value instanceof final Object[] objects && other.value instanceof final Object[] otherObjects) {
+                return Arrays.equals(objects, otherObjects);
             }
             return value.equals(other.value);
         }
@@ -444,7 +444,7 @@ public class PartitionRecord extends AbstractProcessor {
             if (obj == null) {
                 return false;
             }
-            if (!(obj instanceof RecordValueMap other)) {
+            if (!(obj instanceof final RecordValueMap other)) {
                 return false;
             }
             return values.equals(other.values);

@@ -113,8 +113,8 @@ public class GetMongoIT extends AbstractMongoIT {
         runner.enqueue(new byte[0]);
         pc = runner.getProcessContext();
         results = new HashSet<>();
-        if (pc instanceof MockProcessContext) {
-            results = ((MockProcessContext) pc).validate();
+        if (pc instanceof final MockProcessContext mockProcessContext) {
+            results = mockProcessContext.validate();
         }
         assertEquals(2, results.size());
         Iterator<ValidationResult> it = results.iterator();
@@ -127,8 +127,8 @@ public class GetMongoIT extends AbstractMongoIT {
         runner.enqueue(new byte[0]);
         pc = runner.getProcessContext();
         results = new HashSet<>();
-        if (pc instanceof MockProcessContext) {
-            results = ((MockProcessContext) pc).validate();
+        if (pc instanceof final MockProcessContext mockProcessContext) {
+            results = mockProcessContext.validate();
         }
         assertEquals(0, results.size());
 
@@ -150,8 +150,8 @@ public class GetMongoIT extends AbstractMongoIT {
         runner.enqueue(new byte[0]);
         pc = runner.getProcessContext();
         results = new HashSet<>();
-        if (pc instanceof MockProcessContext) {
-            results = ((MockProcessContext) pc).validate();
+        if (pc instanceof final MockProcessContext mockProcessContext) {
+            results = mockProcessContext.validate();
         }
         assertEquals(1, results.size());
         assertTrue(results.iterator().next().toString().contains("is invalid"));
@@ -162,8 +162,8 @@ public class GetMongoIT extends AbstractMongoIT {
         runner.enqueue(new byte[0]);
         pc = runner.getProcessContext();
         results = new HashSet<>();
-        if (pc instanceof MockProcessContext) {
-            results = ((MockProcessContext) pc).validate();
+        if (pc instanceof final MockProcessContext mockProcessContext) {
+            results = mockProcessContext.validate();
         }
         assertEquals(1, results.size());
         assertTrue(results.iterator().next().toString().contains("is invalid"));
@@ -182,7 +182,7 @@ public class GetMongoIT extends AbstractMongoIT {
         ObjectMapper mapper = new ObjectMapper();
         Map<String, Object> parsed = mapper.readValue(raw, Map.class);
 
-        assertSame(parsed.get("date_field").getClass(), String.class);
+        assertSame(String.class, parsed.get("date_field").getClass());
     }
 
     @Test
@@ -257,7 +257,7 @@ public class GetMongoIT extends AbstractMongoIT {
         runner.assertTransferCount(GetMongo.REL_ORIGINAL, 1);
         List<MockFlowFile> results = runner.getFlowFilesForRelationship(GetMongo.REL_SUCCESS);
         assertTrue(results.get(0).getSize() > 0, "Flowfile was empty");
-        assertEquals(results.get(0).getAttribute(CoreAttributes.MIME_TYPE.key()), "application/json", "Wrong mime type");
+        assertEquals("application/json", results.getFirst().getAttribute(CoreAttributes.MIME_TYPE.key()), "Wrong mime type");
     }
 
     @Test
@@ -272,7 +272,7 @@ public class GetMongoIT extends AbstractMongoIT {
         runner.assertTransferCount(GetMongo.REL_ORIGINAL, 1);
         List<MockFlowFile> results = runner.getFlowFilesForRelationship(GetMongo.REL_SUCCESS);
         assertTrue(results.get(0).getSize() > 0, "Flowfile was empty");
-        assertEquals(results.get(0).getAttribute(CoreAttributes.MIME_TYPE.key()), "application/json", "Wrong mime type");
+        assertEquals("application/json", results.getFirst().getAttribute(CoreAttributes.MIME_TYPE.key()), "Wrong mime type");
     }
 
     @Test

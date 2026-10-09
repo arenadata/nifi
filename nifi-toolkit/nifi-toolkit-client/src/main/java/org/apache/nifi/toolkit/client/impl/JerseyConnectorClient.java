@@ -27,16 +27,22 @@ import org.apache.nifi.toolkit.client.RequestConfig;
 import org.apache.nifi.web.api.dto.RevisionDTO;
 import org.apache.nifi.web.api.entity.AssetEntity;
 import org.apache.nifi.web.api.entity.AssetsEntity;
+import org.apache.nifi.web.api.entity.BacklogRequestEntity;
 import org.apache.nifi.web.api.entity.ComponentStateEntity;
 import org.apache.nifi.web.api.entity.ConfigurationStepEntity;
 import org.apache.nifi.web.api.entity.ConfigurationStepNamesEntity;
 import org.apache.nifi.web.api.entity.ConnectorEntity;
 import org.apache.nifi.web.api.entity.ConnectorPropertyAllowableValuesEntity;
 import org.apache.nifi.web.api.entity.ConnectorRunStatusEntity;
+import org.apache.nifi.web.api.entity.ControllerServiceEntity;
 import org.apache.nifi.web.api.entity.DropRequestEntity;
+import org.apache.nifi.web.api.entity.MigrationPayloadEntity;
+import org.apache.nifi.web.api.entity.MigrationRequestEntity;
 import org.apache.nifi.web.api.entity.ProcessGroupFlowEntity;
 import org.apache.nifi.web.api.entity.ProcessGroupStatusEntity;
+import org.apache.nifi.web.api.entity.StatusHistoryEntity;
 import org.apache.nifi.web.api.entity.VerifyConnectorConfigStepRequestEntity;
+import org.apache.nifi.web.api.entity.VersionedFlowMigrationSourcesEntity;
 
 import java.io.File;
 import java.io.FileInputStream;
@@ -461,6 +467,78 @@ public class JerseyConnectorClient extends AbstractJerseyClient implements Conne
     }
 
     @Override
+    public VersionedFlowMigrationSourcesEntity listMigrationSources(final String connectorId) throws NiFiClientException, IOException {
+        Objects.requireNonNull(connectorId, "Connector ID required");
+
+        return executeAction("Error retrieving connector migration sources", () -> {
+            final WebTarget target = connectorTarget
+                    .path("/migration-sources")
+                    .resolveTemplate("id", connectorId);
+            return getRequestBuilder(target).get(VersionedFlowMigrationSourcesEntity.class);
+        });
+    }
+
+    @Override
+    public MigrationPayloadEntity uploadMigrationPayload(final String connectorId, final File file) throws NiFiClientException, IOException {
+        Objects.requireNonNull(connectorId, "Connector ID required");
+        Objects.requireNonNull(file, "Migration payload file required");
+        if (!file.exists()) {
+            throw new FileNotFoundException(file.getAbsolutePath());
+        }
+
+        try (final InputStream payloadInputStream = new FileInputStream(file)) {
+            return executeAction("Error uploading connector migration payload", () -> {
+                final WebTarget target = connectorTarget
+                        .path("/migration-payloads")
+                        .resolveTemplate("id", connectorId);
+                return getRequestBuilder(target).post(Entity.entity(payloadInputStream, MediaType.APPLICATION_OCTET_STREAM_TYPE), MigrationPayloadEntity.class);
+            });
+        }
+    }
+
+    @Override
+    public MigrationRequestEntity startMigration(final MigrationRequestEntity requestEntity) throws NiFiClientException, IOException {
+        Objects.requireNonNull(requestEntity, "Migration request entity required");
+        Objects.requireNonNull(requestEntity.getRequest(), "Migration request required");
+        Objects.requireNonNull(requestEntity.getRequest().getConnectorId(), "Connector ID required");
+
+        return executeAction("Error creating connector migration request", () -> {
+            final WebTarget target = connectorTarget
+                    .path("/migration-requests")
+                    .resolveTemplate("id", requestEntity.getRequest().getConnectorId());
+            return getRequestBuilder(target).post(Entity.entity(requestEntity, MediaType.APPLICATION_JSON_TYPE), MigrationRequestEntity.class);
+        });
+    }
+
+    @Override
+    public MigrationRequestEntity getMigrationStatus(final String connectorId, final String requestId) throws NiFiClientException, IOException {
+        Objects.requireNonNull(connectorId, "Connector ID required");
+        Objects.requireNonNull(requestId, "Migration request ID required");
+
+        return executeAction("Error retrieving connector migration request", () -> {
+            final WebTarget target = connectorTarget
+                    .path("/migration-requests/{requestId}")
+                    .resolveTemplate("id", connectorId)
+                    .resolveTemplate("requestId", requestId);
+            return getRequestBuilder(target).get(MigrationRequestEntity.class);
+        });
+    }
+
+    @Override
+    public MigrationRequestEntity cancelMigration(final String connectorId, final String requestId) throws NiFiClientException, IOException {
+        Objects.requireNonNull(connectorId, "Connector ID required");
+        Objects.requireNonNull(requestId, "Migration request ID required");
+
+        return executeAction("Error deleting connector migration request", () -> {
+            final WebTarget target = connectorTarget
+                    .path("/migration-requests/{requestId}")
+                    .resolveTemplate("id", connectorId)
+                    .resolveTemplate("requestId", requestId);
+            return getRequestBuilder(target).delete(MigrationRequestEntity.class);
+        });
+    }
+
+    @Override
     public ConnectorEntity applyUpdate(final ConnectorEntity connectorEntity) throws NiFiClientException, IOException {
         if (connectorEntity == null) {
             throw new IllegalArgumentException("Connector entity cannot be null");
@@ -528,6 +606,82 @@ public class JerseyConnectorClient extends AbstractJerseyClient implements Conne
     }
 
     @Override
+    public StatusHistoryEntity getProcessorStatusHistory(final String connectorId, final String processorId) throws NiFiClientException, IOException {
+        if (StringUtils.isBlank(connectorId)) {
+            throw new IllegalArgumentException("Connector id cannot be null or blank");
+        }
+        if (StringUtils.isBlank(processorId)) {
+            throw new IllegalArgumentException("Processor id cannot be null or blank");
+        }
+
+        return executeAction("Error retrieving processor status history for Connector " + connectorId, () -> {
+            final WebTarget target = connectorTarget
+                    .path("/processors/{processorId}/status/history")
+                    .resolveTemplate("id", connectorId)
+                    .resolveTemplate("processorId", processorId);
+
+            return getRequestBuilder(target).get(StatusHistoryEntity.class);
+        });
+    }
+
+    @Override
+    public StatusHistoryEntity getConnectionStatusHistory(final String connectorId, final String connectionId) throws NiFiClientException, IOException {
+        if (StringUtils.isBlank(connectorId)) {
+            throw new IllegalArgumentException("Connector id cannot be null or blank");
+        }
+        if (StringUtils.isBlank(connectionId)) {
+            throw new IllegalArgumentException("Connection id cannot be null or blank");
+        }
+
+        return executeAction("Error retrieving connection status history for Connector " + connectorId, () -> {
+            final WebTarget target = connectorTarget
+                    .path("/connections/{connectionId}/status/history")
+                    .resolveTemplate("id", connectorId)
+                    .resolveTemplate("connectionId", connectionId);
+
+            return getRequestBuilder(target).get(StatusHistoryEntity.class);
+        });
+    }
+
+    @Override
+    public StatusHistoryEntity getProcessGroupStatusHistory(final String connectorId, final String processGroupId) throws NiFiClientException, IOException {
+        if (StringUtils.isBlank(connectorId)) {
+            throw new IllegalArgumentException("Connector id cannot be null or blank");
+        }
+        if (StringUtils.isBlank(processGroupId)) {
+            throw new IllegalArgumentException("Process group id cannot be null or blank");
+        }
+
+        return executeAction("Error retrieving process group status history for Connector " + connectorId, () -> {
+            final WebTarget target = connectorTarget
+                    .path("/process-groups/{processGroupId}/status/history")
+                    .resolveTemplate("id", connectorId)
+                    .resolveTemplate("processGroupId", processGroupId);
+
+            return getRequestBuilder(target).get(StatusHistoryEntity.class);
+        });
+    }
+
+    @Override
+    public StatusHistoryEntity getRemoteProcessGroupStatusHistory(final String connectorId, final String remoteProcessGroupId) throws NiFiClientException, IOException {
+        if (StringUtils.isBlank(connectorId)) {
+            throw new IllegalArgumentException("Connector id cannot be null or blank");
+        }
+        if (StringUtils.isBlank(remoteProcessGroupId)) {
+            throw new IllegalArgumentException("Remote process group id cannot be null or blank");
+        }
+
+        return executeAction("Error retrieving remote process group status history for Connector " + connectorId, () -> {
+            final WebTarget target = connectorTarget
+                    .path("/remote-process-groups/{remoteProcessGroupId}/status/history")
+                    .resolveTemplate("id", connectorId)
+                    .resolveTemplate("remoteProcessGroupId", remoteProcessGroupId);
+
+            return getRequestBuilder(target).get(StatusHistoryEntity.class);
+        });
+    }
+
+    @Override
     public AssetEntity createAsset(final String connectorId, final String assetName, final File file) throws NiFiClientException, IOException {
         if (StringUtils.isBlank(connectorId)) {
             throw new IllegalArgumentException("Connector id cannot be null or blank");
@@ -590,8 +744,7 @@ public class JerseyConnectorClient extends AbstractJerseyClient implements Conne
                 .accept(MediaType.APPLICATION_OCTET_STREAM_TYPE)
                 .get();
 
-            final String filename = getContentDispositionFilename(response);
-            final File assetFile = new File(outputDirectory, filename);
+            final File assetFile = getContentDispositionFile(response, outputDirectory);
 
             try (final InputStream responseInputStream = response.readEntity(InputStream.class)) {
                 Files.copy(responseInputStream, assetFile.toPath(), StandardCopyOption.REPLACE_EXISTING);
@@ -692,6 +845,25 @@ public class JerseyConnectorClient extends AbstractJerseyClient implements Conne
     }
 
     @Override
+    public ControllerServiceEntity getControllerService(final String connectorId, final String controllerServiceId) throws NiFiClientException, IOException {
+        if (StringUtils.isBlank(connectorId)) {
+            throw new IllegalArgumentException("Connector id cannot be null or blank");
+        }
+        if (StringUtils.isBlank(controllerServiceId)) {
+            throw new IllegalArgumentException("Controller service id cannot be null or blank");
+        }
+
+        return executeAction("Error retrieving controller service for Connector " + connectorId, () -> {
+            final WebTarget target = connectorTarget
+                .path("/controller-services/{controllerServiceId}")
+                .resolveTemplate("id", connectorId)
+                .resolveTemplate("controllerServiceId", controllerServiceId);
+
+            return getRequestBuilder(target).get(ControllerServiceEntity.class);
+        });
+    }
+
+    @Override
     public ComponentStateEntity getControllerServiceState(final String connectorId, final String controllerServiceId) throws NiFiClientException, IOException {
         if (StringUtils.isBlank(connectorId)) {
             throw new IllegalArgumentException("Connector id cannot be null or blank");
@@ -726,6 +898,59 @@ public class JerseyConnectorClient extends AbstractJerseyClient implements Conne
                 .resolveTemplate("controllerServiceId", controllerServiceId);
 
             return getRequestBuilder(target).post(null, ComponentStateEntity.class);
+        });
+    }
+
+    @Override
+    public BacklogRequestEntity submitConnectorBacklogRequest(final String connectorId) throws NiFiClientException, IOException {
+        if (StringUtils.isBlank(connectorId)) {
+            throw new IllegalArgumentException("Connector id cannot be null or blank");
+        }
+
+        return executeAction("Error submitting Backlog Request for Connector " + connectorId, () -> {
+            final WebTarget target = connectorTarget
+                    .path("/backlog-requests")
+                    .resolveTemplate("id", connectorId);
+
+            return getRequestBuilder(target).post(null, BacklogRequestEntity.class);
+        });
+    }
+
+    @Override
+    public BacklogRequestEntity getConnectorBacklogRequest(final String connectorId, final String requestId) throws NiFiClientException, IOException {
+        if (StringUtils.isBlank(connectorId)) {
+            throw new IllegalArgumentException("Connector id cannot be null or blank");
+        }
+        if (StringUtils.isBlank(requestId)) {
+            throw new IllegalArgumentException("Backlog Request id cannot be null or blank");
+        }
+
+        return executeAction("Error retrieving Backlog Request for Connector " + connectorId, () -> {
+            final WebTarget target = connectorTarget
+                    .path("/backlog-requests/{requestId}")
+                    .resolveTemplate("id", connectorId)
+                    .resolveTemplate("requestId", requestId);
+
+            return getRequestBuilder(target).get(BacklogRequestEntity.class);
+        });
+    }
+
+    @Override
+    public BacklogRequestEntity deleteConnectorBacklogRequest(final String connectorId, final String requestId) throws NiFiClientException, IOException {
+        if (StringUtils.isBlank(connectorId)) {
+            throw new IllegalArgumentException("Connector id cannot be null or blank");
+        }
+        if (StringUtils.isBlank(requestId)) {
+            throw new IllegalArgumentException("Backlog Request id cannot be null or blank");
+        }
+
+        return executeAction("Error deleting Backlog Request for Connector " + connectorId, () -> {
+            final WebTarget target = connectorTarget
+                    .path("/backlog-requests/{requestId}")
+                    .resolveTemplate("id", connectorId)
+                    .resolveTemplate("requestId", requestId);
+
+            return getRequestBuilder(target).delete(BacklogRequestEntity.class);
         });
     }
 }

@@ -342,11 +342,11 @@ Automatic refreshing of NiFi's web SSL context factory can be enabled using the 
 [options="header,footer"]
 |==================================================================================================================================================
 | Property Name | Description
-|`nifi.security.autoreload.enabled`|Specifies whether the SSL context factory should be automatically reloaded if updates to the keystore and truststore are detected. By default, it is set to `false`.
-|`nifi.security.autoreload.interval`|Specifies the interval at which the keystore and truststore are checked for updates. Only applies if `nifi.security.autoreload.enabled` is set to `true`. The default value is `10 secs`.
+|`nifi.security.autoreload.enabled`|Specifies whether the SSL context factory should be automatically reloaded if updates to the keystore and truststore are detected. NiFi polls the configured store paths and compares content digests, resolving symbolic links at read time so Kubernetes Secret and projected-volume mounts are detected. By default, it is set to `false`.
+|`nifi.security.autoreload.interval`|Specifies the interval at which the configured keystore and truststore paths are digested and compared for updates. Only applies if `nifi.security.autoreload.enabled` is set to `true`. The default value is `10 secs`.
 |==================================================================================================================================================
 
-Once the `nifi.security.autoreload.enabled` property is set to `true`, any valid changes to the configured keystore and truststore will cause NiFi's SSL context factory to be reloaded, allowing clients to pick up the changes.  This is intended to allow expired certificates to be updated in the keystore and new trusted certificates to be added in the truststore, all without having to restart the NiFi server.
+Once the `nifi.security.autoreload.enabled` property is set to `true`, NiFi polls the configured keystore and truststore paths at the configured interval and reloads the SSL context factory when a content digest changes. Symbolic links are resolved when the files are read, so updates delivered through Kubernetes Secret or projected-volume mounts are detected. This is intended to allow expired certificates to be updated in the keystore and new trusted certificates to be added in the truststore, all without having to restart the NiFi server.
 
 NOTE: Changes to any of the `nifi.security.keystore*` or `nifi.security.truststore*` properties will not be picked up by the auto-refreshing logic, which assumes the passwords and store paths will remain the same.
 
@@ -1923,6 +1923,55 @@ empty. NiFi writes the generated value to `nifi.properties` and logs a warning.
 
 Clustered installations of NiFi require the same value to be configured on all nodes.
 
+[[property-encryption-providers]]
+=== Property Encryption Providers
+
+A Property Encryption Provider is a framework extension, packaged in a NiFi Archive, for protecting sensitive values.
+NiFi loads and initializes the provider during startup using the class name configured in
+`nifi.security.property.encryption.provider.implementation`. When the property is empty or missing, NiFi loads the
+standard password-based implementation to support existing configurations.
+
+The standard distribution includes `org.apache.nifi.security.encryption.password.PasswordBasedPropertyEncryptionProvider`,
+which derives a secret key from `nifi.sensitive.props.key` using the Key Derivation Function selected in
+`nifi.sensitive.props.algorithm`. This provider reads and writes the encrypted representation described in
+<<property-encryption-algorithms>>.
+
+The configured provider protects the following values:
+
+* Sensitive component properties written to and read from the persisted flow configuration
+* Sensitive Parameter values written to and read from the persisted flow configuration
+* OpenID Connect authorized client tokens stored on behalf of authenticated users
+
+Because the standard password-based provider produces the representation described in
+<<property-encryption-algorithms>>, a flow configuration written by an earlier version of NiFi continues to load
+without additional migration.
+
+==== Sensitive Property Context
+
+NiFi supplies a Sensitive Property Context with every encryption and decryption operation. The context carries a
+category describing the kind of value being protected, together with attributes describing where the value is located.
+Component properties supply the component identifier, the component type, and the property name. Parameters supply the
+Parameter Context name and the Parameter name. Authorization tokens carry no attributes, because nothing describing the
+authenticated user is known before the stored token is decrypted.
+
+An implementation can supply the context to an external Key Management Service as encryption context, which binds the
+encrypted value to its location in the flow and records the location for auditing. NiFi supplies the same context when
+decrypting a value as it supplied when the value was encrypted. An implementation that binds the context to the
+encrypted value must therefore be prepared for a value to become unreadable if the component or the Parameter that owns
+it is renamed or recreated with a different identifier.
+
+==== Provider Configuration
+
+A provider can read additional configuration from properties that begin with
+`nifi.security.property.encryption.provider.properties.`. NiFi removes the prefix before supplying the properties to the
+provider, so `nifi.security.property.encryption.provider.properties.endpoint` is supplied to the provider as `endpoint`.
+Providers that call remote services, such as implementations backed by an external Key Management Service, can also
+use the TLS configuration that NiFi supplies during initialization.
+
+Changing the configured provider, or changing the key material that a provider uses, makes existing encrypted values
+unreadable. Sensitive values must be reentered after such a change unless the new configuration resolves to the same
+key material.
+
 [[admin-toolkit]]
 == NiFi Toolkit Administrative Tools
 The NiFi Toolkit also contains command line utilities for administrators to support NiFi maintenance in standalone and clustered environments.
@@ -2287,7 +2336,15 @@ Otherwise, NiFi will fail to startup.
 ==== Local State Provider
 
 By default, the Local State Provider is configured to be a `WriteAheadLocalStateProvider` that persists the data to the
-`$NIFI_HOME/state/local` directory.
+`$NIFI_HOME/state/local` directory. It writes each state update to a journal and periodically checkpoints, which writes a snapshot
+of all state and removes the journal that the snapshot now covers. The `Checkpoint Interval` property controls how much time passes
+between checkpoints.
+
+Because the journal grows with every state update, a long checkpoint interval combined with frequent state updates can consume a
+significant amount of disk space. The optional `Maximum Journal Size` property bounds this growth by triggering a checkpoint as soon
+as the journal reaches the configured size, such as `100 MB`. The value is a threshold that triggers a checkpoint rather than a strict
+limit on the size of the journal, because the update that reaches the threshold is written in full before the checkpoint is performed.
+If the property is not specified, checkpoints occur only on the `Checkpoint Interval`.
 
 ==== ZooKeeper Cluster State Provider
 
@@ -2732,7 +2789,12 @@ X-ProxyPort - the port the proxy is listening on
 X-ProxyContextPath - the path configured to map to the NiFi instance
 ....
 
-* If NiFi is running securely, any proxy needs to be authorized to proxy user requests. These can be configured in the NiFi UI through the Global Menu. Once these permissions are in place, proxies
+* NiFi expects a single host or host and port combination in `X-ProxyHost` or `X-Forwarded-Host` header values. When routing requests through multiple servers, some proxy servers append to existing
+values, producing a comma-separated string composed of multiple hosts. NiFi rejects comma-separated values with an `HTTP 421` status. Reverse proxy servers must be configured to disable appending to
+existing values, or unset input values before forwarding requests. Servers such as Apache HTTP link:https://httpd.apache.org/docs/2.4/mod/mod_proxy.html[mod_proxy] should set `ProxyAddHeaders` to
+`Off` to avoid producing invalid comma-separated values.
+
+* When running with HTTPS enabled, all proxy servers must be authorized to proxy user requests. These can be configured in the NiFi UI through the Global Menu. Once these permissions are in place, proxies
 can begin proxying user requests. The end user identity must be relayed in a HTTP header. For example, if the end user sent a request to the proxy, the proxy must authenticate the user. Following
 this the proxy can send the request to NiFi. In this request an HTTP header should be added as follows.
 
@@ -2884,9 +2946,9 @@ This cleanup mechanism takes into account only automatically created archived _f
 |`nifi.flow.configuration.archive.max.time`*|The lifespan of archived _flow.json_ files. NiFi will delete expired archive files when it updates _flow.json_ if this property is specified. Expiration is determined based on current system time and the last modified timestamp of an archived _flow.json_. If no archive limitation is specified in _nifi.properties_, NiFi removes archives older than `30 days`.
 |`nifi.flow.configuration.archive.max.storage`*|The total data size allowed for the archived _flow.json_ files. NiFi will delete the oldest archive files until the total archived file size becomes less than this configuration value, if this property is specified. If no archive limitation is specified in _nifi.properties_, NiFi uses `500 MB` for this.
 |`nifi.flow.configuration.archive.max.count`*|The number of archive files allowed. NiFi will delete the oldest archive files so that only N latest archives can be kept, if this property is specified.
-|`nifi.flowcontroller.autoResumeState`|Indicates whether -upon restart- the components on the NiFi graph should return to their last state. When running in cluster, all nodes should have the same value. The default value is `true`.
+|`nifi.flowcontroller.autoResumeState`|Indicates whether -upon restart- the components on the NiFi graph, including Processors, Controller Services, and other schedulable components, should return to their last state. When running in cluster, all nodes should have the same value. The default value is `true`.
 |`nifi.flowcontroller.graceful.shutdown.period`|Indicates the shutdown period. The default value is `10 secs`.
-|`nifi.flowcontroller.registry.sync.interval`|Specifies the recurring interval at which NiFi synchronizes the flow configuration with Flow Registry Clients. The default value is `30 min`.
+|`nifi.flowcontroller.registry.sync.interval`|Specifies the default recurring interval at which NiFi synchronizes the flow configuration with Flow Registry Clients. The default value is `30 min`. This value is used for any Flow Registry Client that does not configure its own `Synchronization Interval` property; a Flow Registry Client that sets that property is synchronized at its own interval instead.
 |`nifi.flowservice.writedelay.interval`|When many changes are made to the _flow.json_, this property specifies how long to wait before writing out the changes, so as to batch the changes into a single write. The default value is `500 ms`.
 |`nifi.administrative.yield.duration`|If a component allows an unexpected exception to escape, it is considered a bug. As a result, the framework will pause (or administratively yield) the component for this amount of time. This is done so that the component does not use up massive amounts of system resources, since it is known to have problems in the existing state. The default value is `30 secs`.
 |`nifi.bored.yield.duration`|When a component has no work to do (i.e., is "bored"), this is the amount of time it will wait before checking to see if it has new data to work on. This way, it does not use up CPU resources by checking for new work too often. When setting this property, be aware that it could add extra latency for components that do not constantly have work to do, as once they go into this "bored" state, they will wait this amount of time before checking for more work. The default value is `10 ms`.
@@ -2978,6 +3040,7 @@ NOTE: Switching repository implementations should only be done on an instance wi
 |*Property*|*Description*
 |`nifi.flowfile.repository.directory`*|The location of the FlowFile Repository. The default value is `./flowfile_repository`.
 |`nifi.flowfile.repository.checkpoint.interval`| The FlowFile Repository checkpoint interval. The default value is `20 secs`.
+|`nifi.flowfile.repository.checkpoint.max.journal.size`| The amount of storage that the repository's journal is allowed to consume before a checkpoint is performed, such as `100 MB`. This bounds the amount of disk space that the repository consumes between checkpoints, regardless of how many FlowFiles are updated. The value is a threshold that triggers a checkpoint rather than a strict limit on the size of the journal, because the update that reaches the threshold is written in full before the checkpoint is performed. If no value is specified, checkpoints occur only on the checkpoint interval. There is no default value.
 |`nifi.flowfile.repository.always.sync`|If set to `true`, any change to the repository will be synchronized to the disk, meaning that NiFi will ask the operating system not to cache the information. This is very expensive and can significantly reduce NiFi performance. However, if it is `false`, there could be the potential for data loss if either there is a sudden power loss or the operating system crashes. The default value is `false`.
 |====
 
@@ -3023,7 +3086,9 @@ FlowFile Repository, if also on that disk, could become corrupt. To avoid this s
 individual FlowFile as a separate file in the content repository. Doing so would be very detrimental to performance, if each 120 byte FlowFile, for instance, was written to its own file. Instead,
 we continue writing to the same file until it reaches some threshold. This property configures that threshold. Setting the value too small can result in poor performance due to reading from and
 writing to too many files. However, a file can only be deleted from the content repository once there are no longer any FlowFiles pointing to it. Therefore, setting the value too large can result
-in data remaining in the content repository for much longer, potentially leading to the content repository running out of disk space. The default value is `50 KB`.
+in data remaining in the content repository for much longer, potentially leading to the content repository running out of disk space. The default value is `50 KB`. Each Content Repository
+implementation reports the threshold that it wants the framework to use, so this property is honored only by the File System Content Repository. An alternate implementation may report a different
+threshold and ignore this property.
 |`nifi.content.repository.directory.default`*|The location of the Content Repository. The default value is `./content_repository`. +
 +
 *NOTE*: Multiple content repositories can be specified by using the `nifi.content.repository.directory.` prefix with unique suffixes and separate paths as values. +
@@ -3584,8 +3649,10 @@ These properties pertain to various security features in NiFi. Many of these pro
 |*Property*|*Description*
 |`nifi.sensitive.props.key`|This is the password used to encrypt any sensitive property values that are configured in processors. By default, it is blank, but the system administrator should provide a value for it. It can be a string of any length, although the recommended minimum length is 10 characters. Be aware that once this password is set and one or more sensitive processor properties have been configured, this password should not be changed.
 |`nifi.sensitive.props.algorithm`|The algorithm used to encrypt sensitive properties. The default value is `NIFI_PBKDF2_AES_GCM_256`.
-|`nifi.security.autoreload.enabled`|Specifies whether the SSL context factory should be automatically reloaded if updates to the keystore and truststore are detected. By default, it is set to `false`.
-|`nifi.security.autoreload.interval`|Specifies the interval at which the keystore and truststore are checked for updates. Only applies if `nifi.security.autoreload.enabled` is set to `true`. The default value is `10 secs`.
+|`nifi.security.property.encryption.provider.implementation`|The class name of the Property Encryption Provider loaded and initialized during application startup. The provider protects sensitive component properties, sensitive Parameter values, and OpenID Connect authorized client tokens. The default value is `org.apache.nifi.security.encryption.password.PasswordBasedPropertyEncryptionProvider`, which derives a secret key from `nifi.sensitive.props.key`. NiFi loads the default implementation when the value is blank. See <<property-encryption-providers>> for additional information.
+|`nifi.security.property.encryption.provider.properties.`|The prefix for properties supplied to the configured Property Encryption Provider. NiFi removes the prefix from the property name before supplying the property to the provider. No properties are configured by default.
+|`nifi.security.autoreload.enabled`|Specifies whether the SSL context factory should be automatically reloaded if updates to the keystore and truststore are detected. NiFi polls the configured store paths and compares content digests, resolving symbolic links at read time so Kubernetes Secret and projected-volume mounts are detected. By default, it is set to `false`.
+|`nifi.security.autoreload.interval`|Specifies the interval at which the configured keystore and truststore paths are digested and compared for updates. Only applies if `nifi.security.autoreload.enabled` is set to `true`. The default value is `10 secs`.
 |`nifi.security.keystore`*|The full path and name of the keystore. The default value is `./conf/keystore.p12`.
 |`nifi.security.keystoreType`|The keystore type. The default value is `PKCS12`.
 |`nifi.security.keystorePasswd`|The keystore password. It is blank by default.
@@ -3678,9 +3745,13 @@ by the `nifi.cluster.flow.election.max.candidates` property, the cluster will no
 |`nifi.cluster.flow.election.max.candidates`|Specifies the number of Nodes required in the cluster to cause early election of Flows. This allows the Nodes in the cluster to avoid having to wait a
 long time before starting processing if we reach at least this number of nodes in the cluster.
 |`nifi.cluster.load.balance.port`|Specifies the port to listen on for incoming connections for load balancing data across the cluster. The default value is `6342`.
-|`nifi.cluster.load.balance.host`|Specifies the hostname to listen on for incoming connections for load balancing data across the cluster. If not specified, will default to the value used by the
-`nifi.cluster.node.address` property. The value set here does not have to be a hostname/IP address that is addressable outside of the cluster. However, all nodes within the cluster must be able to
-connect to the node using this hostname/IP address.
+|`nifi.cluster.load.balance.host`|Specifies the hostname to listen on for incoming connections for load balancing data
+across the cluster. If not specified, will default to the value used by the `nifi.cluster.node.address` property. The
+value set here does not have to be a hostname address that is addressable outside of the cluster. However, all nodes
+within the cluster must be able to connect to the node using this hostname address.
+
+When TLS encryption is enabled for cluster communication, this value must be set to a hostname that aligns with DNS
+Subject Alternative Names included on the server certificate configured in the application key store.
 |`nifi.cluster.load.balance.connections.per.node`|The maximum number of connections to create between this node and each other node in the cluster. For example, if there are 5 nodes in the cluster and this value is set to 4, there will be up to 20 socket connections established for load-balancing purposes (5 x 4 = 20). The default value is `1`.
 |`nifi.cluster.load.balance.max.thread.count`|The maximum number of threads to use for transferring data from this node to other nodes in the cluster. While a given thread can only write to a single socket at a time, a single thread is capable of servicing multiple connections simultaneously because a given connection may not be available for reading/writing at any given time. The default value is `8`—i.e., up to 8 threads will be responsible for transferring data to other nodes, regardless of how many nodes are in the cluster.
 
@@ -3846,6 +3917,93 @@ The Secrets Manager delegates to Parameter Providers to retrieve secret values.
 |`nifi.secrets.manager.implementation`|The fully qualified class name of the Secrets Manager implementation. Defaults to `org.apache.nifi.components.connector.secrets.ParameterProviderSecretsManager`.
 |`nifi.secrets.manager.cache.duration`|The duration for which resolved secret values are cached before being refreshed from the underlying Parameter Providers. Accepts any NiFi time duration value such as `5 mins`, `30 secs`, etc. A value of `0 sec` disables caching entirely. Defaults to `5 mins`.
 |====
+
+== Migrating a Connector from a Versioned Process Group
+
+NiFi supports a one-time path that migrates a newly created Connector from a source Versioned Process Group.
+The source Versioned Process Group is used as a reference: the Connector reads it and updates its own managed flow to mirror the source's configuration, parameters, and component state.
+The source flow itself is not installed onto the Connector.
+Only Connectors that implement migration support can use this capability.
+
+=== Prerequisites for a local migration
+
+When the source is a local Process Group on the same NiFi instance, the Process Group must satisfy all of the following requirements before NiFi will allow the migration:
+
+- The source Process Group must be under version control.
+- The source Process Group must be `UP_TO_DATE` with the latest published version in Flow Registry.
+- All processors in the source Process Group must be stopped.
+- All controller services in the source Process Group must be disabled.
+- All queues in the source Process Group must be empty.
+- The source Process Group must not reference controller services outside of the Process Group.
+- The target Connector must be not yet configured, stopped, and not previously migrated.
+- The target Connector's active flow must be empty when migration begins. Connectors that ship a non-empty initial flow are not compatible with the migration path.
+
+If the source Process Group is not under version control, export it and use the uploaded payload path instead.
+
+=== Migration paths
+
+There are two ways to run the migration:
+
+- Local Process Group migration:
+  Select an eligible Process Group that already exists on the current NiFi canvas.
+  NiFi validates the prerequisites listed above before starting the migration.
+- Uploaded payload migration:
+  Export a Process Group definition, including component state if the source flow has any, and upload the resulting flow snapshot payload to the Connector migration endpoint.
+  This path is intended for non-version-controlled sources, sources exported from another NiFi instance, or any other source that cannot satisfy the local version-control requirements.
+
+For uploaded payloads, NiFi does not require the source flow to be under version control.
+The Connector's own migration support check determines whether the uploaded flow can be imported.
+
+=== Running a migration
+
+. Create a new Connector instance.
+. If the source Process Group is local and registry-backed, choose it from the Connector migration source list.
+. If the source Process Group is not eligible for the local path, export it with component state included and upload the payload to the Connector migration payload endpoint.
+. Start the Connector migration request.
+. Poll the request until it completes.
+. Open the Connector configuration and supply any missing secrets.
+. Verify the configuration and start the Connector.
+
+=== What NiFi migrates
+
+During migration, NiFi provides the Connector with the exported flow definition, parameter contexts, referenced assets, and any attached component state for `@Stateful` components.
+The Connector performs the flow translation and updates its own managed flow to mirror the source.
+
+For local migrations, a Connector can also copy referenced assets from the source Process Group into the Connector's own asset namespace.
+Uploaded payload migrations do not include live access to source assets, so any required asset content must be re-uploaded separately after the migration.
+
+Sensitive parameter values are not present in exported flow definitions.
+After migration, configure the Connector with any missing secret values before starting it.
+
+=== Cleanup after a successful migration
+
+After a successful local migration, NiFi disables the source Process Group and renames it with the `(Migrated) ` prefix.
+This makes it clear that the source flow has already been used as the basis for a Connector migration.
+
+Uploaded payloads and migration request state are kept only in memory for the lifetime of the request.
+When the request succeeds, fails, or is cancelled, NiFi removes the uploaded payload associated with that request.
+
+=== Cluster-topology rule for component state
+
+When the source flow being migrated includes LOCAL component state for a stateful component (for example a `@Stateful` Processor or Controller Service), the destination cluster must have at least as many connected nodes as the source flow's exported state references.
+The rule applied by the migration manager is:
+
+----
+size(component.localNodeStates) <= number of connected nodes in the destination cluster
+----
+
+This is the same rule that applies when importing a Versioned Process Group into a destination cluster.
+NiFi enforces it for both the local migration path and the uploaded payload path so that LOCAL state can be unambiguously distributed across the destination cluster.
+
+When the migration request fails with a message such as `Cannot import flow with component state: the flow definition contains local state from N source node(s) but the destination cluster has only M connected node(s)`, take one of the following actions:
+
+- Reconnect any disconnected cluster nodes so that the destination cluster has at least `N` connected nodes, then re-run the migration.
+- Re-export the source flow without component state (uncheck the "include component state" option) and re-upload the payload.
+  The Connector will start with empty LOCAL state on every destination node, which is appropriate when the LOCAL state is reproducible from the upstream system.
+- Migrate into a cluster that has at least `N` connected nodes.
+
+The migration request is also rejected when any cluster node is in the `CONNECTING`, `DISCONNECTED`, or `DISCONNECTING` state at the time the request is submitted, because component state and asset content cannot be synchronized to a node that is not currently connected.
+Reconnect the disconnected nodes and re-submit the request.
 
 [[upgrading_nifi]]
 == Upgrading NiFi

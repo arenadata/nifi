@@ -59,6 +59,7 @@ import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.BitSet;
 import java.util.Collection;
 import java.util.Comparator;
 import java.util.EnumMap;
@@ -338,8 +339,8 @@ public class DataTypeUtils {
 
         DataType subType;
         while ((subType = possibleSubTypes.poll()) != null) {
-            if (subType instanceof ChoiceDataType) {
-                possibleSubTypes.addAll(((ChoiceDataType) subType).getPossibleSubTypes());
+            if (subType instanceof final ChoiceDataType choiceDataType) {
+                possibleSubTypes.addAll(choiceDataType.getPossibleSubTypes());
             } else {
                 if (isCompatibleDataType(value, subType)) {
                     compatibleSimpleSubTypes.add(subType);
@@ -363,8 +364,8 @@ public class DataTypeUtils {
     }
 
     public static <T> Optional<T> findMostSuitableType(Object value, List<T> types, Function<T, DataType> dataTypeMapper) {
-        if (value instanceof String) {
-            return findMostSuitableTypeByStringValue((String) value, types, dataTypeMapper);
+        if (value instanceof final String string) {
+            return findMostSuitableTypeByStringValue(string, types, dataTypeMapper);
         } else {
             DataType inferredDataType = inferDataType(value, null);
 
@@ -517,7 +518,7 @@ public class DataTypeUtils {
             return null;
         }
 
-        if (value instanceof Record record) {
+        if (value instanceof final Record record) {
             if (recursive) {
                 record.getRawFieldNames().forEach(name -> {
                     final Object rawValue = record.getValue(name);
@@ -528,7 +529,7 @@ public class DataTypeUtils {
         }
 
         final List<RecordField> inferredFieldTypes = new ArrayList<>();
-        if (value instanceof Map<?, ?> map) {
+        if (value instanceof final Map<?, ?> map) {
             final Map<String, Object> coercedValues = new LinkedHashMap<>();
 
             for (final Map.Entry<?, ?> entry : map.entrySet()) {
@@ -655,7 +656,7 @@ public class DataTypeUtils {
             return RecordFieldType.ARRAY.getArrayDataType(mergedDataType);
         }
 
-        if (value instanceof Iterable<?> iterable) {
+        if (value instanceof final Iterable<?> iterable) {
 
             DataType mergedDataType = null;
             for (final Object arrayValue : iterable) {
@@ -710,8 +711,8 @@ public class DataTypeUtils {
         }
 
         if (strict) {
-            if (value instanceof Record) {
-                if (!schema.getFieldNames().containsAll(((Record) value).getRawFieldNames())) {
+            if (value instanceof final Record recordObj) {
+                if (!schema.getFieldNames().containsAll(recordObj.getRawFieldNames())) {
                     return false;
                 }
             }
@@ -787,7 +788,7 @@ public class DataTypeUtils {
         }
 
         try {
-            if (value instanceof Blob blob) {
+            if (value instanceof final Blob blob) {
                 long rawBlobLength = blob.length();
                 if (rawBlobLength > Integer.MAX_VALUE) {
                     throw new IllegalTypeConversionException("Value of type " + value.getClass() + " too large to convert to Object Array for field " + fieldName);
@@ -905,7 +906,7 @@ public class DataTypeUtils {
             chosenDataType = dataType;
         }
 
-        if (value instanceof Record record) {
+        if (value instanceof final Record record) {
             final RecordSchema recordSchema = record.getSchema();
             if (recordSchema == null) {
                 throw new IllegalTypeConversionException("Cannot convert value of type Record to Map because Record does not have an associated Schema");
@@ -1161,9 +1162,9 @@ public class DataTypeUtils {
             return true;
         }
 
-        if (value instanceof String) {
+        if (value instanceof final String string) {
             if (format == null) {
-                return isInteger((String) value);
+                return isInteger(string);
             }
 
             try {
@@ -1216,7 +1217,7 @@ public class DataTypeUtils {
             return array.length == 16;
         }
 
-        if (value instanceof String stringValue) {
+        if (value instanceof final String stringValue) {
             final String trimmed = stringValue.trim();
             if (trimmed.isEmpty()) {
                 return false;
@@ -1333,7 +1334,7 @@ public class DataTypeUtils {
             }
         }
 
-        if (value instanceof String string) {
+        if (value instanceof final String string) {
             try {
                 return string.isBlank() ? null : new BigDecimal(string);
             } catch (NumberFormatException nfe) {
@@ -1523,7 +1524,7 @@ public class DataTypeUtils {
     }
 
     public static boolean isIntegerTypeCompatible(final Object value) {
-        if (value instanceof Number number) {
+        if (value instanceof final Number number) {
             try {
                 Math.toIntExact(number.longValue());
                 return true;
@@ -1588,7 +1589,7 @@ public class DataTypeUtils {
     }
 
     public static boolean isCharacterTypeCompatible(final Object value) {
-        return (value instanceof Character || (value instanceof CharSequence && !((CharSequence) value).isEmpty()));
+        return (value instanceof Character || (value instanceof final CharSequence charSequence && !charSequence.isEmpty()));
     }
 
     public static RecordSchema merge(final RecordSchema thisSchema, final RecordSchema otherSchema) {
@@ -1603,14 +1604,7 @@ public class DataTypeUtils {
         }
 
         final List<RecordField> otherFields = otherSchema.getFields();
-        if (otherFields.isEmpty()) {
-            return thisSchema;
-        }
-
         final List<RecordField> thisFields = thisSchema.getFields();
-        if (thisFields.isEmpty()) {
-            return otherSchema;
-        }
 
         final Map<String, Integer> fieldIndices = new HashMap<>();
         final List<RecordField> fields = new ArrayList<>();
@@ -1627,6 +1621,7 @@ public class DataTypeUtils {
             fields.add(field);
         }
 
+        final BitSet matchedFieldIndices = new BitSet(thisFields.size());
         for (final RecordField otherField : otherFields) {
             Integer fieldIndex = fieldIndices.get(otherField.getFieldName());
 
@@ -1642,16 +1637,26 @@ public class DataTypeUtils {
             }
 
             // If there is no field with the same name then just add 'otherField'.
+            // Fields present in only one schema are nullable in the merged schema,
+            // since the merged schema is a superset of both inputs.
             if (fieldIndex == null) {
-                fields.add(otherField);
+                fields.add(makeNullable(otherField));
                 continue;
             }
+
+            matchedFieldIndices.set(fieldIndex);
 
             // Merge the two fields, if necessary
             final RecordField thisField = fields.get(fieldIndex);
             if (isMergeRequired(thisField, otherField)) {
                 final RecordField mergedField = merge(thisField, otherField);
                 fields.set(fieldIndex, mergedField);
+            }
+        }
+
+        for (int i = 0; i < thisFields.size(); i++) {
+            if (!matchedFieldIndices.get(i)) {
+                fields.set(i, makeNullable(fields.get(i)));
             }
         }
 
@@ -1667,7 +1672,19 @@ public class DataTypeUtils {
             return true;
         }
 
+        if (thisField.isNullable() != otherField.isNullable()) {
+            return true;
+        }
+
         return !Objects.equals(thisField.getDefaultValue(), otherField.getDefaultValue());
+    }
+
+    private static RecordField makeNullable(final RecordField field) {
+        if (field.isNullable()) {
+            return field;
+        }
+
+        return new RecordField(field.getFieldName(), field.getDataType(), field.getDefaultValue(), field.getAliases(), true);
     }
 
     public static RecordField merge(final RecordField thisField, final RecordField otherField) {
@@ -2086,7 +2103,7 @@ public class DataTypeUtils {
      * @return True in case of the value meets the conditions, false otherwise.
      */
     public static boolean isBigIntFitsToFloat(final Object value) {
-        if (!(value instanceof BigInteger bigIntValue)) {
+        if (!(value instanceof final BigInteger bigIntValue)) {
             return false;
         }
 
@@ -2102,7 +2119,7 @@ public class DataTypeUtils {
      * @return True in case of the value meets the conditions, false otherwise.
      */
     public static boolean isBigIntFitsToDouble(final Object value) {
-        if (!(value instanceof BigInteger bigIntValue)) {
+        if (!(value instanceof final BigInteger bigIntValue)) {
             return false;
         }
 
@@ -2123,7 +2140,7 @@ public class DataTypeUtils {
      */
     public static boolean isDoubleWithinFloatInterval(final Object value) {
 
-        if (!(value instanceof Double doubleValue)) {
+        if (!(value instanceof final Double doubleValue)) {
             return false;
         }
 

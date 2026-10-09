@@ -362,7 +362,7 @@ public class PutElasticsearchRecord extends AbstractPutElasticsearch {
         config.renameProperty("put-es-record-at-timestamp-date-format", DATE_FORMAT.getName());
         config.renameProperty("put-es-record-at-timestamp-time-format", TIME_FORMAT.getName());
         config.renameProperty("put-es-record-at-timestamp-timestamp-format", TIMESTAMP_FORMAT.getName());
-        config.renameProperty("put-es-record-not_found-is-error", AbstractPutElasticsearch.NOT_FOUND_IS_SUCCESSFUL.getName());
+        config.renameProperty("put-es-record-not_found-is-error", NOT_FOUND_IS_SUCCESSFUL.getName());
 
         if (config.getPropertyValue(RESULT_RECORD_WRITER).isEmpty()) {
             final String resultRecordWriterId = config.createControllerService("org.apache.nifi.json.JsonRecordSetWriter", Collections.emptyMap());
@@ -374,8 +374,8 @@ public class PutElasticsearchRecord extends AbstractPutElasticsearch {
     public void migrateRelationships(final RelationshipConfiguration config) {
         super.migrateRelationships(config);
 
-        config.renameRelationship("success", AbstractPutElasticsearch.REL_ORIGINAL.getName());
-        config.renameRelationship("successful_records", AbstractPutElasticsearch.REL_SUCCESSFUL.getName());
+        config.renameRelationship("success", REL_ORIGINAL.getName());
+        config.renameRelationship("successful_records", REL_SUCCESSFUL.getName());
     }
 
     @Override
@@ -796,24 +796,24 @@ public class PutElasticsearchRecord extends AbstractPutElasticsearch {
     }
 
     private Object cloneValue(final Object value) {
-        if (value instanceof Record recordValue) {
+        if (value instanceof final Record recordValue) {
             return cloneRecord(recordValue);
         }
-        if (value instanceof Map<?, ?> mapValue) {
+        if (value instanceof final Map<?, ?> mapValue) {
             final Map<Object, Object> clonedMap = new LinkedHashMap<>(mapValue.size());
             for (final Map.Entry<?, ?> entry : mapValue.entrySet()) {
                 clonedMap.put(entry.getKey(), cloneValue(entry.getValue()));
             }
             return clonedMap;
         }
-        if (value instanceof Collection<?> collectionValue) {
+        if (value instanceof final Collection<?> collectionValue) {
             final List<Object> clonedList = new ArrayList<>(collectionValue.size());
             for (final Object element : collectionValue) {
                 clonedList.add(cloneValue(element));
             }
             return clonedList;
         }
-        if (value instanceof Object[] arrayValue) {
+        if (value instanceof final Object[] arrayValue) {
             final Object[] clonedArray = new Object[arrayValue.length];
             for (int i = 0; i < arrayValue.length; i++) {
                 clonedArray[i] = cloneValue(arrayValue[i]);

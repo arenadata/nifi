@@ -29,6 +29,12 @@ import org.apache.nifi.components.DescribedValue;
 import org.apache.nifi.components.ValidationResult;
 import org.apache.nifi.components.connector.components.FlowContext;
 import org.apache.nifi.components.connector.components.ParameterContextFacade;
+import org.apache.nifi.components.connector.migration.ConnectorMigrationContext;
+import org.apache.nifi.components.connector.migration.MigratableConnector;
+import org.apache.nifi.components.state.Scope;
+import org.apache.nifi.components.state.StateManager;
+import org.apache.nifi.components.state.StateManagerProvider;
+import org.apache.nifi.components.state.StateMap;
 import org.apache.nifi.components.validation.DisabledServiceValidationResult;
 import org.apache.nifi.components.validation.ValidationState;
 import org.apache.nifi.components.validation.ValidationStatus;
@@ -54,6 +60,7 @@ import org.apache.nifi.groups.ProcessGroup;
 import org.apache.nifi.groups.RemoteProcessGroup;
 import org.apache.nifi.logging.ComponentLog;
 import org.apache.nifi.logging.GroupedComponent;
+import org.apache.nifi.migration.StandardConnectorPropertyConfiguration;
 import org.apache.nifi.nar.ExtensionManager;
 import org.apache.nifi.nar.NarCloseable;
 import org.apache.nifi.util.StringUtils;
@@ -70,6 +77,8 @@ import java.util.Collections;
 import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -79,9 +88,9 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Future;
-import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -94,6 +103,7 @@ public class StandardConnectorNode implements ConnectorNode, GroupedComponent {
     private final String identifier;
     private final FlowManager flowManager;
     private final ExtensionManager extensionManager;
+    private final StateManagerProvider stateManagerProvider;
     private final Authorizable parentAuthorizable;
     private final ConnectorDetails connectorDetails;
     private final String componentType;
@@ -111,25 +121,29 @@ public class StandardConnectorNode implements ConnectorNode, GroupedComponent {
     private final AtomicReference<CompletableFuture<Void>> drainFutureRef = new AtomicReference<>();
     private volatile ValidationResult unresolvedBundleValidationResult = null;
 
-    private volatile FrameworkFlowContext workingFlowContext;
+    private final Object workingFlowContextLock = new Object();
+    private volatile WorkingFlowContextState workingFlowContextState = new WorkingFlowContextState(null);
+    private boolean workingContextReplacementInProgress;
 
     private volatile String name;
     private volatile FrameworkConnectorInitializationContext initializationContext;
 
+    // Serializes Connector start and stop invocations so that a stop request cannot complete before an in-flight start invocation returns.
+    private final ReentrantLock componentLifecycleLock = new ReentrantLock();
     private final Object loggingAttributesLock = new Object();
     private volatile Map<String, String> customLoggingAttributes = Map.of();
     private volatile Map<String, String> mergedLoggingAttributes = Map.of();
 
-
     public StandardConnectorNode(final String identifier, final FlowManager flowManager, final ExtensionManager extensionManager,
-        final Authorizable parentAuthorizable, final ConnectorDetails connectorDetails, final String componentType, final String componentCanonicalClass,
-        final MutableConnectorConfigurationContext configurationContext,
+        final StateManagerProvider stateManagerProvider, final Authorizable parentAuthorizable, final ConnectorDetails connectorDetails,
+        final String componentType, final String componentCanonicalClass, final MutableConnectorConfigurationContext configurationContext,
         final ConnectorStateTransition stateTransition, final FlowContextFactory flowContextFactory,
         final ConnectorValidationTrigger validationTrigger, final boolean extensionMissing) {
 
         this.identifier = identifier;
         this.flowManager = flowManager;
         this.extensionManager = extensionManager;
+        this.stateManagerProvider = stateManagerProvider;
         this.parentAuthorizable = parentAuthorizable;
         this.connectorDetails = connectorDetails;
         this.componentType = componentType;
@@ -288,21 +302,88 @@ public class StandardConnectorNode implements ConnectorNode, GroupedComponent {
         }
 
         logger.debug("Preparing {} for update", this);
-        try (final NarCloseable ignored = NarCloseable.withComponentNarLoader(extensionManager, getConnector().getClass(), getIdentifier())) {
-            getConnector().prepareForUpdate(workingFlowContext, activeFlowContext);
-            stateTransition.setCurrentState(ConnectorState.UPDATING);
-            logger.debug("Successfully prepared {} for update", this);
-        } catch (final Throwable t) {
-            logger.error("Failed to prepare update for {}", this, t);
+        final WorkingFlowContextState workingContextState = acquireWorkingFlowContext();
+        final FrameworkFlowContext workingContext = workingContextState.getContext();
+        try {
+            try (final NarCloseable ignored = NarCloseable.withComponentNarLoader(extensionManager, getConnector().getClass(), getIdentifier())) {
+                getConnector().prepareForUpdate(workingContext, activeFlowContext);
+                stateTransition.setCurrentState(ConnectorState.UPDATING);
+                logger.debug("Successfully prepared {} for update", this);
+            } catch (final Throwable t) {
+                logger.error("Failed to prepare update for {}", this, t);
 
-            try {
-                abortUpdate(t);
-            } catch (final Throwable abortFailure) {
-                logger.error("Failed to abort update preparation for {}", this, abortFailure);
+                try {
+                    abortUpdate(t);
+                } catch (final Throwable abortFailure) {
+                    logger.error("Failed to abort update preparation for {}", this, abortFailure);
+                }
+
+                throw t;
             }
-
-            throw t;
+        } finally {
+            releaseWorkingFlowContext(workingContextState);
         }
+    }
+
+    @Override
+    public ConnectorConfiguration applyMigratedConfiguration(final MutableConnectorConfigurationContext mergedConfiguration) throws FlowUpdateException {
+        if (initializationContext == null) {
+            throw new IllegalStateException("Cannot apply migrated configuration because " + this + " has not been initialized yet.");
+        }
+        Objects.requireNonNull(mergedConfiguration, "Merged configuration is required");
+
+        logger.debug("Applying migrated configuration to {}", this);
+        // mergedConfiguration is the working configuration the connector mutated through the migration context. It was
+        // seeded with a clone of this connector's active configuration, so it already holds the fully-merged result of
+        // every setProperties/replaceProperties call the connector made. The clone is the working flow context that
+        // drives Connector.applyUpdate(working, active) below. The live active configuration is intentionally left
+        // untouched at this point: the framework only commits the merged configuration onto the active configuration
+        // after the state-migration phase has also succeeded (see commitMigratedConfiguration). This means a failure in
+        // migrateState(...) or in applying the staged component states can be rolled back simply by restoring the
+        // initial flow, without having to revert any active-configuration mutations.
+        mergedConfiguration.resolvePropertyValues();
+
+        final FrameworkFlowContext migrationWorkingContext = flowContextFactory.createWorkingFlowContext(
+                identifier, connectorDetails.getComponentLog(), mergedConfiguration, activeFlowContext.getBundle());
+
+        try (final NarCloseable ignored = NarCloseable.withComponentNarLoader(extensionManager, getConnector().getClass(), getIdentifier())) {
+            // Same applyUpdate(...) call signature the framework uses for regular working->active updates. The connector
+            // calls getInitializationContext().updateFlow(activeFlowContext, ...) inside applyUpdate(...); the
+            // activeFlowContext here is the real FrameworkFlowContext, so updateFlow(...) installs the rebuilt managed
+            // flow normally (it is only the migration-scoped wrapper handed to migrateConfiguration/migrateState that
+            // refuses updateFlow(...)).
+            getConnector().applyUpdate(migrationWorkingContext, activeFlowContext);
+        } catch (final FlowUpdateException e) {
+            throw e;
+        } catch (final Throwable t) {
+            throw new FlowUpdateException("Failed to apply migrated configuration for " + this, t);
+        }
+
+        logger.info("Applied migrated configuration to {}; managed Process Group has been rebuilt and the merged"
+                + " configuration is pending commit", this);
+        return mergedConfiguration.toConnectorConfiguration();
+    }
+
+    @Override
+    public void commitMigratedConfiguration(final ConnectorConfiguration mergedConfiguration) {
+        if (initializationContext == null) {
+            throw new IllegalStateException("Cannot commit migrated configuration because " + this + " has not been initialized yet.");
+        }
+        Objects.requireNonNull(mergedConfiguration, "Merged configuration is required");
+
+        // Write the merged configuration onto the active configuration so the migration outcome is persisted to
+        // flow.json.gz. Each step is written via replaceProperties so the resulting active configuration matches the
+        // merged configuration exactly, including any properties the connector removed during migration. This is the
+        // durability boundary of the two-phase migration: once this commit runs the migration is part of the persisted
+        // flow and will be restored on every restart via inheritConfiguration(...).
+        for (final NamedStepConfiguration stepConfig : mergedConfiguration.getNamedStepConfigurations()) {
+            activeFlowContext.getConfigurationContext().replaceProperties(stepConfig.stepName(), stepConfig.configuration());
+        }
+
+        resetValidationState();
+        recreateWorkingFlowContext();
+
+        logger.info("Committed migrated configuration onto active configuration for {}", this);
     }
 
     @Override
@@ -310,41 +391,168 @@ public class StandardConnectorNode implements ConnectorNode, GroupedComponent {
                 final Bundle flowContextBundle) throws FlowUpdateException {
 
         logger.debug("Inheriting configuration for {}", this);
-        final MutableConnectorConfigurationContext configurationContext = createConfigurationContext(activeConfig);
-        final FrameworkFlowContext inheritContext = flowContextFactory.createWorkingFlowContext(identifier,
-            connectorDetails.getComponentLog(), configurationContext, flowContextBundle);
 
-        // Apply the update for the active config
+        // Give the Connector a chance to evolve its persisted property/step names before we build the runtime
+        // configuration contexts. Active and working configs are migrated independently because they can diverge.
+        final Map<String, StepConfiguration> migratedActiveProperties = migrateProperties(activeConfig);
+        final Map<String, StepConfiguration> migratedWorkingProperties = migrateProperties(workingConfig);
+
+        final MutableConnectorConfigurationContext activeSeedContext = createConfigurationContext(migratedActiveProperties);
+        final FrameworkFlowContext inheritContext = flowContextFactory.createWorkingFlowContext(identifier, connectorDetails.getComponentLog(), activeSeedContext, flowContextBundle);
+
+        // Apply the active configuration. This restores activeFlowContext to migratedActiveProperties and internally
+        // rebuilds workingFlowContext aliased to activeFlowContext's configuration; we discard that alias below and
+        // construct an independent working context so active and working do not share configuration state when the
+        // two lists actually diverge.
         applyUpdate(inheritContext);
 
-        // Configure the working config but do not apply
-        for (final VersionedConfigurationStep step : workingConfig) {
-            final StepConfiguration stepConfig = createStepConfiguration(step);
-            setConfiguration(step.getName(), stepConfig, true);
+        // Replace the working context that applyUpdate created aliased to active with an independent context
+        // seeded from migratedWorkingProperties. Then fire onConfigurationStepConfigured for every step so
+        // renamed steps trigger the flow-builder callback under their new name and any value-derived flow
+        // state (resolved asset paths, secret values, etc.) is populated against the fresh working context.
+        final MutableConnectorConfigurationContext workingConfigContext = createConfigurationContext(migratedWorkingProperties);
+        final WorkingFlowContextState independentWorkingContextState = installReplacementWorkingFlowContext(workingConfigContext, flowContextBundle, true);
+        final FrameworkFlowContext independentWorkingContext = independentWorkingContextState.getContext();
+
+        getComponentLog().info("Working Flow Context has been rebuilt with independent configuration");
+
+        try {
+            for (final String stepName : migratedWorkingProperties.keySet()) {
+                notifyStepConfigured(stepName, independentWorkingContext);
+            }
+        } finally {
+            releaseWorkingFlowContext(independentWorkingContextState);
         }
 
         logger.debug("Successfully inherited configuration for {}", this);
     }
 
-    private StepConfiguration createStepConfiguration(final VersionedConfigurationStep step) {
-        final Map<String, ConnectorValueReference> convertedProperties = new HashMap<>();
-        if (step.getProperties() != null) {
-            for (final Map.Entry<String, VersionedConnectorValueReference> entry : step.getProperties().entrySet()) {
-                final ConnectorValueReference valueReference = createValueReference(entry.getValue());
-                convertedProperties.put(entry.getKey(), valueReference);
+    /**
+     * Removes the current working process group before creating its replacement. Working-context copies reuse the same
+     * connection identifiers as the active flow, and the cluster load-balance client registry allows only one
+     * registration per connection ID, so the previous group must be gone before the factory copies the active group.
+     * The published working context is never set to null: callers that arrive while the previous group is being
+     * destroyed still see that context, and callers that arrive while the replacement is created wait on the monitor.
+     */
+    private WorkingFlowContextState installReplacementWorkingFlowContext(final MutableConnectorConfigurationContext configurationContext, final Bundle bundle, final boolean incrementUseCount) {
+        final WorkingFlowContextState previousWorkingFlowContextState;
+        final boolean destroyPrevious;
+        synchronized (workingFlowContextLock) {
+            while (workingContextReplacementInProgress) {
+                try {
+                    workingFlowContextLock.wait();
+                } catch (final InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    throw new IllegalStateException("Interrupted while waiting to replace the working flow context of " + this, e);
+                }
+            }
+
+            workingContextReplacementInProgress = true;
+            previousWorkingFlowContextState = workingFlowContextState;
+            previousWorkingFlowContextState.retire();
+            destroyPrevious = previousWorkingFlowContextState.claimDestruction();
+        }
+
+        if (destroyPrevious) {
+            destroyWorkingContext(previousWorkingFlowContextState.getContext());
+        }
+
+        final WorkingFlowContextState replacementWorkingFlowContextState;
+        synchronized (workingFlowContextLock) {
+            try {
+                final FrameworkFlowContext replacementWorkingFlowContext = flowContextFactory.createWorkingFlowContext(identifier,
+                    connectorDetails.getComponentLog(), configurationContext, bundle);
+                replacementWorkingFlowContextState = new WorkingFlowContextState(replacementWorkingFlowContext);
+                if (incrementUseCount) {
+                    replacementWorkingFlowContextState.incrementUseCount();
+                }
+                workingFlowContextState = replacementWorkingFlowContextState;
+            } finally {
+                workingContextReplacementInProgress = false;
+                workingFlowContextLock.notifyAll();
             }
         }
 
-        return new StepConfiguration(convertedProperties);
+        getComponentLog().info("Working Flow Context has been set");
+        return replacementWorkingFlowContextState;
     }
 
-    private MutableConnectorConfigurationContext createConfigurationContext(final List<VersionedConfigurationStep> flowConfiguration) {
+    private Map<String, StepConfiguration> migrateProperties(final List<VersionedConfigurationStep> flowConfiguration) {
+        // Preserve persisted step order so the notifyStepConfigured loop in inheritConfiguration fires in a
+        // deterministic order matching the flow definition.
+        final Map<String, StepConfiguration> initial = new LinkedHashMap<>();
+        for (final VersionedConfigurationStep versionedConfigStep : flowConfiguration) {
+            initial.put(versionedConfigStep.getName(), new StepConfiguration(toValueReferenceMap(versionedConfigStep)));
+        }
+
+        final Set<String> persistedStepNames = new LinkedHashSet<>(initial.keySet());
+        final StandardConnectorPropertyConfiguration propertyConfiguration = new StandardConnectorPropertyConfiguration(initial, this.toString());
+        try (final NarCloseable ignored = NarCloseable.withComponentNarLoader(extensionManager, getConnector().getClass(), getIdentifier())) {
+            getConnector().migrateProperties(propertyConfiguration);
+            return applyMissingRequiredPropertyDefaults(propertyConfiguration.getMutatedProperties(), persistedStepNames, getConnector().getConfigurationSteps());
+        }
+    }
+
+    /**
+     * Fills in the default value for any required property that has no value in the migrated configuration, so a NAR
+     * upgrade that adds a required property with a default does not make the Connector invalid. A step the Connector
+     * removed during migration (present in {@code persistedStepNames} but absent from {@code migratedProperties}) is
+     * not re-created; a declared step in neither is newly added by this version and is created, but only if at least
+     * one required default applies to it.
+     */
+    private Map<String, StepConfiguration> applyMissingRequiredPropertyDefaults(final Map<String, StepConfiguration> migratedProperties,
+            final Set<String> persistedStepNames, final List<ConfigurationStep> configurationSteps) {
+        if (configurationSteps == null || configurationSteps.isEmpty()) {
+            return migratedProperties;
+        }
+
+        final Map<String, StepConfiguration> propertiesWithDefaults = new LinkedHashMap<>(migratedProperties);
+        for (final ConfigurationStep configurationStep : configurationSteps) {
+            final String stepName = configurationStep.getName();
+            final StepConfiguration existingConfiguration = propertiesWithDefaults.get(stepName);
+            if (existingConfiguration == null && persistedStepNames.contains(stepName)) {
+                continue;
+            }
+
+            final Map<String, ConnectorValueReference> existingValues = existingConfiguration == null ? null : existingConfiguration.getPropertyValues();
+            final Map<String, ConnectorValueReference> propertyValues = existingValues == null ? new LinkedHashMap<>() : new LinkedHashMap<>(existingValues);
+            boolean appliedMissingDefault = false;
+            for (final ConnectorPropertyGroup propertyGroup : configurationStep.getPropertyGroups()) {
+                for (final ConnectorPropertyDescriptor descriptor : propertyGroup.getProperties()) {
+                    if (!descriptor.isRequired() || descriptor.getDefaultValue() == null || propertyValues.containsKey(descriptor.getName())) {
+                        continue;
+                    }
+
+                    propertyValues.put(descriptor.getName(), new StringLiteralValue(descriptor.getDefaultValue()));
+                    appliedMissingDefault = true;
+                    logger.debug("Applied default value for required property [{}] of configuration step [{}] on {}", descriptor.getName(), stepName, this);
+                }
+            }
+
+            if (appliedMissingDefault) {
+                propertiesWithDefaults.put(stepName, new StepConfiguration(propertyValues));
+            }
+        }
+
+        return propertiesWithDefaults;
+    }
+
+    private Map<String, ConnectorValueReference> toValueReferenceMap(final VersionedConfigurationStep step) {
+        final Map<String, ConnectorValueReference> convertedProperties = new HashMap<>();
+        if (step.getProperties() != null) {
+            for (final Map.Entry<String, VersionedConnectorValueReference> entry : step.getProperties().entrySet()) {
+                convertedProperties.put(entry.getKey(), createValueReference(entry.getValue()));
+            }
+        }
+        return convertedProperties;
+    }
+
+    private MutableConnectorConfigurationContext createConfigurationContext(final Map<String, StepConfiguration> migratedConfiguration) {
         final StandardConnectorConfigurationContext configurationContext = new StandardConnectorConfigurationContext(
             initializationContext.getAssetManager(), initializationContext.getSecretsManager());
 
-        for (final VersionedConfigurationStep versionedConfigStep : flowConfiguration) {
-            final StepConfiguration stepConfig = createStepConfiguration(versionedConfigStep);
-            configurationContext.setProperties(versionedConfigStep.getName(), stepConfig);
+        for (final Map.Entry<String, StepConfiguration> entry : migratedConfiguration.entrySet()) {
+            configurationContext.setProperties(entry.getKey(), entry.getValue());
         }
 
         return configurationContext;
@@ -362,8 +570,10 @@ public class StandardConnectorNode implements ConnectorNode, GroupedComponent {
 
     @Override
     public void applyUpdate() throws FlowUpdateException {
+        final WorkingFlowContextState workingContextState = acquireWorkingFlowContext();
+        final FrameworkFlowContext contextToInherit = workingContextState.getContext();
         try {
-            applyUpdate(workingFlowContext);
+            applyUpdate(contextToInherit);
         } catch (final FlowUpdateException e) {
             // Since we failed to update, make sure that we stop the Connector. Note that we do not do this for all
             // throwables because IllegalStateException for example indicates that we did not even attempt to perform the update.
@@ -374,6 +584,8 @@ public class StandardConnectorNode implements ConnectorNode, GroupedComponent {
             }
 
             throw e;
+        } finally {
+            releaseWorkingFlowContext(workingContextState);
         }
     }
 
@@ -397,7 +609,7 @@ public class StandardConnectorNode implements ConnectorNode, GroupedComponent {
 
             // The update has been completed. Tear down and recreate the working flow context to ensure it is in a clean state.
             resetValidationState();
-            recreateWorkingFlowContext();
+            replaceWorkingFlowContextFromActive();
         } catch (final Throwable t) {
             logger.error("Failed to finish update for {}", this, t);
             stateTransition.setCurrentState(ConnectorState.UPDATE_FAILED);
@@ -411,20 +623,36 @@ public class StandardConnectorNode implements ConnectorNode, GroupedComponent {
         logger.info("Successfully applied update for {}", this);
     }
 
-    private void destroyWorkingContext() {
-        if (this.workingFlowContext == null) {
+    private void destroyWorkingContext(final FrameworkFlowContext context) {
+        if (context == null) {
             return;
         }
 
         try {
-            workingFlowContext.getManagedProcessGroup().purge().get(1, TimeUnit.MINUTES);
+            context.getManagedProcessGroup().purge().get(1, TimeUnit.MINUTES);
         } catch (final Exception e) {
             logger.warn("Failed to purge working flow context for {}", this, e);
         }
 
-        flowManager.onProcessGroupRemoved(workingFlowContext.getManagedProcessGroup());
+        flowManager.onProcessGroupRemoved(context.getManagedProcessGroup());
+    }
 
-        this.workingFlowContext = null;
+    private WorkingFlowContextState acquireWorkingFlowContext() {
+        synchronized (workingFlowContextLock) {
+            workingFlowContextState.incrementUseCount();
+            return workingFlowContextState;
+        }
+    }
+
+    private void releaseWorkingFlowContext(final WorkingFlowContextState workingContextState) {
+        final boolean destroyNow;
+        synchronized (workingFlowContextLock) {
+            destroyNow = workingContextState.decrementUseCount();
+        }
+
+        if (destroyNow) {
+            destroyWorkingContext(workingContextState.getContext());
+        }
     }
 
     @Override
@@ -432,9 +660,14 @@ public class StandardConnectorNode implements ConnectorNode, GroupedComponent {
         stateTransition.setCurrentState(ConnectorState.UPDATE_FAILED);
         stateTransition.setDesiredState(ConnectorState.UPDATE_FAILED);
 
+        final WorkingFlowContextState workingContextState = acquireWorkingFlowContext();
+        final FrameworkFlowContext workingContext = workingContextState.getContext();
         try (final NarCloseable ignored = NarCloseable.withComponentNarLoader(extensionManager, getConnector().getClass(), getIdentifier())) {
-            getConnector().abortUpdate(workingFlowContext, cause);
+            getConnector().abortUpdate(workingContext, cause);
+        } finally {
+            releaseWorkingFlowContext(workingContextState);
         }
+
         logger.debug("Aborted update for {}", this);
     }
 
@@ -454,33 +687,56 @@ public class StandardConnectorNode implements ConnectorNode, GroupedComponent {
                 + " while it is in Troubleshooting mode; exit Troubleshooting mode before modifying Connector configuration.");
         }
 
-        setConfiguration(stepName, configuration, false);
-    }
+        final FrameworkFlowContext workingContext;
+        final WorkingFlowContextState workingContextState;
+        synchronized (workingFlowContextLock) {
+            workingContextState = this.workingFlowContextState;
+            workingContext = workingContextState.getContext();
+            final ConfigurationUpdateResult updateResult = workingContext.getConfigurationContext().setProperties(stepName, configuration);
+            if (updateResult == ConfigurationUpdateResult.NO_CHANGES) {
+                return;
+            }
 
-    private void setConfiguration(final String stepName, final StepConfiguration configuration, final boolean forceOnConfigurationStepConfigured) throws FlowUpdateException {
-        final ConfigurationUpdateResult updateResult = workingFlowContext.getConfigurationContext().setProperties(stepName, configuration);
-        if (updateResult == ConfigurationUpdateResult.NO_CHANGES && !forceOnConfigurationStepConfigured) {
-            return;
+            workingContextState.incrementUseCount();
         }
-        notifyStepConfigured(stepName);
+
+        try {
+            notifyStepConfigured(stepName, workingContext);
+        } finally {
+            releaseWorkingFlowContext(workingContextState);
+        }
     }
 
     @Override
     public void replaceWorkingConfiguration(final String stepName, final StepConfiguration configuration) throws FlowUpdateException {
         // The configuration provider's view is authoritative: any property absent from the provided
         // configuration is removed from the step.
-        final ConfigurationUpdateResult updateResult = workingFlowContext.getConfigurationContext().replaceProperties(stepName, configuration);
-        if (updateResult == ConfigurationUpdateResult.NO_CHANGES) {
-            return;
+        final FrameworkFlowContext workingContext;
+        final WorkingFlowContextState workingContextState;
+        synchronized (workingFlowContextLock) {
+            workingContextState = this.workingFlowContextState;
+            workingContext = workingContextState.getContext();
+            final ConfigurationUpdateResult updateResult = workingContext.getConfigurationContext().replaceProperties(stepName, configuration);
+            if (updateResult == ConfigurationUpdateResult.NO_CHANGES) {
+                return;
+            }
+
+            workingContextState.incrementUseCount();
         }
-        notifyStepConfigured(stepName);
+
+        try {
+            notifyStepConfigured(stepName, workingContext);
+        } finally {
+            releaseWorkingFlowContext(workingContextState);
+        }
     }
 
-    private void notifyStepConfigured(final String stepName) throws FlowUpdateException {
+    private void notifyStepConfigured(final String stepName, final FrameworkFlowContext workingContext) throws FlowUpdateException {
         final Connector connector = connectorDetails.getConnector();
         try (final NarCloseable ignored = NarCloseable.withComponentNarLoader(extensionManager, connector.getClass(), getIdentifier())) {
             logger.debug("Notifying {} of configuration change for configuration step {}", this, stepName);
-            connector.onConfigurationStepConfigured(stepName, workingFlowContext);
+            connector.onConfigurationStepConfigured(stepName, workingContext);
+
             logger.debug("Successfully notified {} of configuration change for step {}", this, stepName);
         } catch (final FlowUpdateException e) {
             throw e;
@@ -537,30 +793,41 @@ public class StandardConnectorNode implements ConnectorNode, GroupedComponent {
 
             verifyCanStart();
 
-            final ConnectorState currentState = getCurrentState();
-            switch (currentState) {
-                case STARTING -> {
-                    logger.debug("{} is already starting; adding future to pending start futures", this);
-                    stateTransition.addPendingStartFuture(startCompleteFuture);
-                }
-                case RUNNING -> {
-                    logger.debug("{} is already {}; will not attempt to start", this, currentState);
-                    startCompleteFuture.complete(null);
-                }
-                case STOPPING -> {
-                    // We have set the Desired State to RUNNING so when the Connector fully stops, it will be started again automatically
-                    logger.info("{} is currently stopping so will not trigger Connector to start until it has fully stopped", this);
-                    stateTransition.addPendingStartFuture(startCompleteFuture);
-                }
-                case STOPPED, PREPARING_FOR_UPDATE, UPDATED -> {
-                    stateTransition.setCurrentState(ConnectorState.STARTING);
-                    scheduler.schedule(() -> startComponent(scheduler, startCompleteFuture), 0, TimeUnit.SECONDS);
-                }
-                default -> {
-                    logger.warn("{} is in state {} and cannot be started", this, currentState);
-                    stateTransition.addPendingStartFuture(startCompleteFuture);
+            boolean startScheduled = false;
+            while (!startScheduled) {
+                final ConnectorState currentState = getCurrentState();
+                switch (currentState) {
+                    case STARTING -> {
+                        logger.debug("{} is already starting; adding future to pending start futures", this);
+                        stateTransition.addPendingStartFuture(startCompleteFuture);
+                        return;
+                    }
+                    case RUNNING -> {
+                        logger.debug("{} is already {}; will not attempt to start", this, currentState);
+                        startCompleteFuture.complete(null);
+                        return;
+                    }
+                    case STOPPING -> {
+                        // We have set the Desired State to RUNNING so when the Connector fully stops, it will be started again automatically
+                        logger.info("{} is currently stopping so will not trigger Connector to start until it has fully stopped", this);
+                        stateTransition.addPendingStartFuture(startCompleteFuture);
+                        return;
+                    }
+                    case STOPPED, PREPARING_FOR_UPDATE, UPDATED -> {
+                        startScheduled = stateTransition.trySetCurrentState(currentState, ConnectorState.STARTING);
+                        if (startScheduled) {
+                            logger.info("Starting {}", this);
+                        }
+                    }
+                    default -> {
+                        logger.warn("{} is in state {} and cannot be started", this, currentState);
+                        stateTransition.addPendingStartFuture(startCompleteFuture);
+                        return;
+                    }
                 }
             }
+
+            scheduler.schedule(() -> startComponent(scheduler, startCompleteFuture), 0, TimeUnit.SECONDS);
         } catch (final Exception e) {
             logger.error("Failed to start {}", this, e);
             startCompleteFuture.completeExceptionally(e);
@@ -594,11 +861,45 @@ public class StandardConnectorNode implements ConnectorNode, GroupedComponent {
             }
 
             stateUpdated = stateTransition.trySetCurrentState(currentState, ConnectorState.STOPPING);
+
+            // Check current state for existing start request in progress
+            if (stateUpdated && currentState == ConnectorState.STARTING) {
+                stateTransition.addPendingStopFuture(stopCompleteFuture);
+                stopManagedProcessGroup(scheduler);
+                return stopCompleteFuture;
+            }
         }
 
         scheduler.schedule(() -> stopComponent(scheduler, stopCompleteFuture), 0, TimeUnit.SECONDS);
 
         return stopCompleteFuture;
+    }
+
+    private void stopManagedProcessGroup(final FlowEngine scheduler) {
+        if (getCurrentState() != ConnectorState.STOPPING) {
+            return;
+        }
+
+        logger.info("Stopping the managed Process Group for {} so that its startup can finish and the Connector can stop", this);
+        final CompletableFuture<Void> processGroupStopFuture;
+        try {
+            processGroupStopFuture = activeFlowContext.getRootGroup().getLifecycle().stop();
+        } catch (final Exception e) {
+            logger.warn("Failed to stop the managed Process Group for {}. The Connector cannot finish stopping until its components stop, so this will be tried again in 10 seconds", this, e);
+            scheduler.schedule(() -> stopManagedProcessGroup(scheduler), 10, TimeUnit.SECONDS);
+            return;
+        }
+
+        processGroupStopFuture.whenComplete((result, failure) -> {
+            if (failure != null) {
+                logger.warn("Failed to stop the managed Process Group for {}. The Connector cannot finish stopping until its components stop, so this will be tried again in 10 seconds",
+                    this, failure);
+                scheduler.schedule(() -> stopManagedProcessGroup(scheduler), 10, TimeUnit.SECONDS);
+                return;
+            }
+
+            scheduler.schedule(() -> completeDeferredStop(scheduler), 0, TimeUnit.SECONDS);
+        });
     }
 
     @Override
@@ -719,47 +1020,94 @@ public class StandardConnectorNode implements ConnectorNode, GroupedComponent {
     }
 
     private void stopComponent(final FlowEngine scheduler, final CompletableFuture<Void> stopCompleteFuture) {
-        logger.debug("Stopping component for {}", this);
-        try (final NarCloseable ignored = NarCloseable.withComponentNarLoader(extensionManager, connectorDetails.getConnector().getClass(), getIdentifier())) {
-            connectorDetails.getConnector().stop(activeFlowContext);
-        } catch (final Exception e) {
-            logger.error("Failed to stop {}. Will try again in 10 seconds", this, e);
-            scheduler.schedule(() -> stopComponent(scheduler, stopCompleteFuture), 10, TimeUnit.SECONDS);
-            return;
-        }
+        componentLifecycleLock.lock();
+        try {
+            if (getCurrentState() != ConnectorState.STOPPING) {
+                return;
+            }
 
-        stateTransition.setCurrentState(ConnectorState.STOPPED);
-        stopCompleteFuture.complete(null);
-        logger.info("Successfully stopped {}", this);
+            logger.debug("Stopping component for {}", this);
+            try (final NarCloseable ignored = NarCloseable.withComponentNarLoader(extensionManager, connectorDetails.getConnector().getClass(), getIdentifier())) {
+                connectorDetails.getConnector().stop(activeFlowContext);
+            } catch (final Exception e) {
+                logger.error("Failed to stop {}. Will try again in 10 seconds", this, e);
+                scheduler.schedule(() -> stopComponent(scheduler, stopCompleteFuture), 10, TimeUnit.SECONDS);
+                return;
+            }
 
-        final ConnectorState desiredState = getDesiredState();
-        if (desiredState == ConnectorState.RUNNING) {
-            logger.info("{} was requested to be RUNNING while it was stopping so will attempt to start again", this);
-            start(scheduler, new CompletableFuture<>());
+            stateTransition.setCurrentState(ConnectorState.STOPPED);
+            stopCompleteFuture.complete(null);
+            logger.info("Successfully stopped {}", this);
+
+            final ConnectorState desiredState = getDesiredState();
+            if (desiredState == ConnectorState.RUNNING) {
+                logger.info("{} was requested to be RUNNING while it was stopping so will attempt to start again", this);
+                start(scheduler, new CompletableFuture<>());
+            }
+        } finally {
+            componentLifecycleLock.unlock();
         }
     }
 
-    private void startComponent(final ScheduledExecutorService scheduler, final CompletableFuture<Void> startCompleteFuture) {
-        logger.debug("Starting component for {}", this);
-        final ConnectorState desiredState = getDesiredState();
-        if (desiredState != ConnectorState.RUNNING) {
-            logger.info("Will not start {} because the desired state is no longer RUNNING but is now {}", this, desiredState);
-            return;
+    private void startComponent(final FlowEngine scheduler, final CompletableFuture<Void> startCompleteFuture) {
+        componentLifecycleLock.lock();
+        try {
+            logger.debug("Starting component for {}", this);
+            final ConnectorState desiredState = getDesiredState();
+            if (desiredState != ConnectorState.RUNNING) {
+                logger.info("Will not start {} because the desired state is no longer RUNNING but is now {}", this, desiredState);
+                completeDeferredStop(scheduler);
+                return;
+            }
+
+            try (final NarCloseable ignored = NarCloseable.withComponentNarLoader(extensionManager, connectorDetails.getConnector().getClass(), getIdentifier())) {
+                connectorDetails.getConnector().start(activeFlowContext);
+            } catch (final Exception e) {
+                if (getCurrentState() == ConnectorState.STOPPING) {
+                    logger.error("Failed to start {} and a stop has since been requested, so the Connector will be stopped instead of started", this, e);
+                    completeDeferredStop(scheduler);
+                } else {
+                    logger.error("Failed to start {} retrying in 10 seconds", this, e);
+                    scheduler.schedule(() -> startComponent(scheduler, startCompleteFuture), 10, TimeUnit.SECONDS);
+                }
+
+                return;
+            }
+        } finally {
+            componentLifecycleLock.unlock();
         }
 
-        try (final NarCloseable ignored = NarCloseable.withComponentNarLoader(extensionManager, connectorDetails.getConnector().getClass(), getIdentifier())) {
-            connectorDetails.getConnector().start(activeFlowContext);
-        } catch (final Exception e) {
-            logger.error("Failed to start {}. Will try again in 10 seconds", this, e);
-            scheduler.schedule(() -> startComponent(scheduler, startCompleteFuture), 10, TimeUnit.SECONDS);
-            return;
-        }
-
-        stateTransition.setCurrentState(ConnectorState.RUNNING);
+        // Reconcile the state after releasing the lock so a completed disable operation can acquire it and finish a pending stop.
+        // A stop requested while the Connector was starting transitioned the current state away from STARTING, so the
+        // Connector may be reported as RUNNING only if it is still STARTING. Otherwise, this thread owns the stop that
+        // was deferred while the start was in flight.
+        final boolean transitionedToRunning = stateTransition.trySetCurrentState(ConnectorState.STARTING, ConnectorState.RUNNING);
         startCompleteFuture.complete(null);
-        logger.info("Successfully started {}", this);
+
+        if (transitionedToRunning) {
+            logger.info("Successfully started {}", this);
+        } else {
+            logger.info("Started {} but its current state is now {} so it will not be reported as RUNNING", this, getCurrentState());
+            completeDeferredStop(scheduler);
+        }
     }
 
+    private void completeDeferredStop(final FlowEngine scheduler) {
+        if (!componentLifecycleLock.tryLock()) {
+            logger.debug("{} has not finished its start invocation, so the Connector stop will be checked again", this);
+            scheduler.schedule(() -> completeDeferredStop(scheduler), 100, TimeUnit.MILLISECONDS);
+            return;
+        }
+
+        try {
+            if (getCurrentState() == ConnectorState.STOPPING) {
+                logger.info("{} was requested to stop while it was starting so will now be stopped", this);
+                stopComponent(scheduler, new CompletableFuture<>());
+            }
+        } finally {
+            componentLifecycleLock.unlock();
+        }
+    }
 
     @Override
     public void verifyCanDelete() {
@@ -982,29 +1330,41 @@ public class StandardConnectorNode implements ConnectorNode, GroupedComponent {
 
     @Override
     public List<DescribedValue> fetchAllowableValues(final String stepName, final String propertyName) {
-        if (workingFlowContext == null) {
-            throw new IllegalStateException("Cannot fetch Allowable Values for %s.%s because %s is not being updated.".formatted(
-                stepName, propertyName, this));
-        }
+        final WorkingFlowContextState workingContextState = acquireWorkingFlowContext();
+        final FrameworkFlowContext workingContext = workingContextState.getContext();
+        try {
+            if (workingContext == null) {
+                throw new IllegalStateException("Cannot fetch Allowable Values for %s.%s because %s is not being updated.".formatted(
+                    stepName, propertyName, this));
+            }
 
-        workingFlowContext.getConfigurationContext().resolvePropertyValues();
+            workingContext.getConfigurationContext().resolvePropertyValues();
 
-        try (NarCloseable ignored = NarCloseable.withComponentNarLoader(extensionManager, getConnector().getClass(), getIdentifier())) {
-            return getConnector().fetchAllowableValues(stepName, propertyName, workingFlowContext);
+            try (NarCloseable ignored = NarCloseable.withComponentNarLoader(extensionManager, getConnector().getClass(), getIdentifier())) {
+                return getConnector().fetchAllowableValues(stepName, propertyName, workingContext);
+            }
+        } finally {
+            releaseWorkingFlowContext(workingContextState);
         }
     }
 
     @Override
     public List<DescribedValue> fetchAllowableValues(final String stepName, final String propertyName, final String filter) {
-        if (workingFlowContext == null) {
-            throw new IllegalStateException("Cannot fetch Allowable Values for %s.%s because %s is not being updated.".formatted(
-                stepName, propertyName, this));
-        }
+        final WorkingFlowContextState workingContextState = acquireWorkingFlowContext();
+        final FrameworkFlowContext workingContext = workingContextState.getContext();
+        try {
+            if (workingContext == null) {
+                throw new IllegalStateException("Cannot fetch Allowable Values for %s.%s because %s is not being updated.".formatted(
+                    stepName, propertyName, this));
+            }
 
-        workingFlowContext.getConfigurationContext().resolvePropertyValues();
+            workingContext.getConfigurationContext().resolvePropertyValues();
 
-        try (NarCloseable ignored = NarCloseable.withComponentNarLoader(extensionManager, getConnector().getClass(), getIdentifier())) {
-            return getConnector().fetchAllowableValues(stepName, propertyName, workingFlowContext, filter);
+            try (NarCloseable ignored = NarCloseable.withComponentNarLoader(extensionManager, getConnector().getClass(), getIdentifier())) {
+                return getConnector().fetchAllowableValues(stepName, propertyName, workingContext, filter);
+            }
+        } finally {
+            releaseWorkingFlowContext(workingContextState);
         }
     }
 
@@ -1052,6 +1412,197 @@ public class StandardConnectorNode implements ConnectorNode, GroupedComponent {
 
         resetValidationState();
         recreateWorkingFlowContext();
+    }
+
+    @Override
+    public boolean isMigrationSupported(final ConnectorMigrationContext context) {
+        try (final NarCloseable ignored = NarCloseable.withComponentNarLoader(extensionManager, getConnector().getClass(), getIdentifier())) {
+            final Connector connector = getConnector();
+            if (!(connector instanceof final MigratableConnector migratableConnector)) {
+                return false;
+            }
+            return migratableConnector.isMigrationSupported(context);
+        } catch (final Exception e) {
+            getComponentLog().warn("Failed to evaluate whether migration is supported for {}; assuming migration is not supported", context.getSourceFlow(), e);
+            return false;
+        }
+    }
+
+    /**
+     * Determines whether the Connector has been modified since it was created. Rather than comparing the managed flow
+     * structure (which a Connector derives entirely from its configuration), this considers the Connector modified when
+     * either of the following holds for the Active or Working configuration:
+     * <ul>
+     *   <li>any configured property differs from the property's declared default value; or</li>
+     *   <li>any Processor or Controller Service in the managed flow has stored component state.</li>
+     * </ul>
+     * A configuration whose properties are all at their defaults produces the initial flow, so an unmodified Connector
+     * can be safely migrated without discarding user changes. Any deviation in configuration, or any component state
+     * accumulated by running the flow, means migration would overwrite those changes and is therefore disallowed.
+     *
+     * @return {@code true} if the Connector's Active or Working configuration deviates from its defaults or any managed
+     *         component has stored state; {@code false} otherwise
+     */
+    @Override
+    public boolean isModified() {
+        final Map<String, ConfigurationStep> stepsByName = indexConfigurationSteps();
+
+        synchronized (workingFlowContextLock) {
+            final FrameworkFlowContext workingFlowContext = workingFlowContextState.getContext();
+            if (configurationDiffersFromDefaults(activeFlowContext, stepsByName) || configurationDiffersFromDefaults(workingFlowContext, stepsByName)) {
+                return true;
+            }
+
+            return hasComponentState(activeFlowContext) || hasComponentState(workingFlowContext);
+        }
+    }
+
+    /**
+     * Indexes the Connector's declared {@link ConfigurationStep configuration steps} by name so that per-property
+     * default values can be resolved without pre-flattening every descriptor into an intermediate map.
+     */
+    private Map<String, ConfigurationStep> indexConfigurationSteps() {
+        final Map<String, ConfigurationStep> stepsByName = new HashMap<>();
+
+        final List<ConfigurationStep> configurationSteps = getConfigurationSteps();
+        if (configurationSteps == null) {
+            return stepsByName;
+        }
+
+        for (final ConfigurationStep configurationStep : configurationSteps) {
+            stepsByName.put(configurationStep.getName(), configurationStep);
+        }
+
+        return stepsByName;
+    }
+
+    /**
+     * Returns the declared default value of the named property within the given configuration step, or {@code null}
+     * when the step is {@code null} or the property is not declared. A {@code null} return value matches an unset (or
+     * explicitly {@code null}) configured value under {@link Objects#equals(Object, Object)}.
+     */
+    private String defaultFor(final ConfigurationStep configurationStep, final String propertyName) {
+        if (configurationStep == null) {
+            return null;
+        }
+        for (final ConnectorPropertyGroup propertyGroup : configurationStep.getPropertyGroups()) {
+            for (final ConnectorPropertyDescriptor descriptor : propertyGroup.getProperties()) {
+                if (Objects.equals(descriptor.getName(), propertyName)) {
+                    return descriptor.getDefaultValue();
+                }
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Determines whether the configuration held by the given flow context deviates from the Connector's default
+     * configuration. A property is treated as modified when it is configured with a String literal whose value differs
+     * from the property's declared default, or with a populated Secret or Asset reference (neither of which can
+     * represent a default). A structurally-empty Secret or Asset reference is a placeholder for an unset property and is
+     * not treated as a modification.
+     */
+    private boolean configurationDiffersFromDefaults(final FrameworkFlowContext flowContext, final Map<String, ConfigurationStep> stepsByName) {
+        if (flowContext == null) {
+            return false;
+        }
+
+        final MutableConnectorConfigurationContext configurationContext = flowContext.getConfigurationContext();
+        if (configurationContext == null) {
+            return false;
+        }
+
+        final ConnectorConfiguration configuration = configurationContext.toConnectorConfiguration();
+        for (final NamedStepConfiguration namedStepConfiguration : configuration.getNamedStepConfigurations()) {
+            final ConfigurationStep configurationStep = stepsByName.get(namedStepConfiguration.stepName());
+
+            for (final Map.Entry<String, ConnectorValueReference> propertyEntry : namedStepConfiguration.configuration().getPropertyValues().entrySet()) {
+                final String propertyName = propertyEntry.getKey();
+                final ConnectorValueReference valueReference = propertyEntry.getValue();
+                if (valueReference == null) {
+                    continue;
+                }
+
+                if (valueReference instanceof final StringLiteralValue stringLiteralValue) {
+                    if (!Objects.equals(stringLiteralValue.getValue(), defaultFor(configurationStep, propertyName))) {
+                        logger.debug("{} differs from its initial flow because property [{}] of configuration step [{}] is not set to its default value",
+                            this, propertyName, namedStepConfiguration.stepName());
+                        return true;
+                    }
+                } else if (!isStructurallyEmptyReference(valueReference)) {
+                    logger.debug("{} differs from its initial flow because property [{}] of configuration step [{}] is configured with a {} reference",
+                        this, propertyName, namedStepConfiguration.stepName(), valueReference.getValueType());
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Determines whether the given non-{@code StringLiteralValue} reference is structurally empty, meaning it carries no
+     * actual referenced value and acts as a placeholder for an unset property rather than a configured one. A
+     * structurally-empty {@link SecretReference} has no provider or secret name; a structurally-empty
+     * {@link AssetReference} has no asset identifiers.
+     */
+    private boolean isStructurallyEmptyReference(final ConnectorValueReference valueReference) {
+        return switch (valueReference) {
+            case SecretReference secretReference -> isEmptySecretReference(secretReference);
+            case AssetReference assetReference -> assetReference.getAssetIdentifiers() == null || assetReference.getAssetIdentifiers().isEmpty();
+            default -> false;
+        };
+    }
+
+    /**
+     * Determines whether any Processor or Controller Service within the given flow context's managed Process Group has
+     * stored component state in either the local or cluster scope. A component with stored state has been run since the
+     * Connector was created, so the managed flow no longer reflects the Connector's initial flow.
+     */
+    private boolean hasComponentState(final FrameworkFlowContext flowContext) {
+        if (flowContext == null) {
+            return false;
+        }
+
+        final ProcessGroup managedProcessGroup = flowContext.getManagedProcessGroup();
+        if (managedProcessGroup == null) {
+            return false;
+        }
+
+        for (final ProcessorNode processor : managedProcessGroup.findAllProcessors()) {
+            if (componentHasStoredState(processor.getIdentifier())) {
+                logger.debug("{} differs from its initial flow because Processor [{}] has stored component state", this, processor.getIdentifier());
+                return true;
+            }
+        }
+
+        for (final ControllerServiceNode controllerService : managedProcessGroup.findAllControllerServices()) {
+            if (componentHasStoredState(controllerService.getIdentifier())) {
+                logger.debug("{} differs from its initial flow because Controller Service [{}] has stored component state", this, controllerService.getIdentifier());
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private boolean componentHasStoredState(final String componentIdentifier) {
+        final StateManager stateManager = stateManagerProvider.getStateManager(componentIdentifier);
+        if (stateManager == null) {
+            return false;
+        }
+
+        return hasStoredState(stateManager, Scope.LOCAL) || hasStoredState(stateManager, Scope.CLUSTER);
+    }
+
+    private boolean hasStoredState(final StateManager stateManager, final Scope scope) {
+        try {
+            final StateMap stateMap = stateManager.getState(scope);
+            return stateMap != null && !stateMap.toMap().isEmpty();
+        } catch (final IOException e) {
+            logger.warn("Failed to read {} state for a component of {} while checking whether it matches its initial flow; treating the component as having no state in this scope", scope, this, e);
+            return false;
+        }
     }
 
     private void stopComponents(final VersionedProcessGroup group) {
@@ -1167,31 +1718,41 @@ public class StandardConnectorNode implements ConnectorNode, GroupedComponent {
         return availableBundles.size() == 1;
     }
 
-    private void recreateWorkingFlowContext() {
-        destroyWorkingContext();
-        workingFlowContext = flowContextFactory.createWorkingFlowContext(identifier,
-            connectorDetails.getComponentLog(), activeFlowContext.getConfigurationContext(), activeFlowContext.getBundle());
+    @Override
+    public void recreateWorkingFlowContext() {
+        replaceWorkingFlowContextFromActive();
+    }
 
-        getComponentLog().info("Working Flow Context has been set");
+    private void replaceWorkingFlowContextFromActive() {
+        final boolean notifyReplacementSteps = initializationContext != null;
+        final WorkingFlowContextState replacementWorkingFlowContextState = installReplacementWorkingFlowContext(
+            activeFlowContext.getConfigurationContext(), activeFlowContext.getBundle(), notifyReplacementSteps);
+        final FrameworkFlowContext replacementWorkingFlowContext = replacementWorkingFlowContextState.getContext();
 
-        // Re-fire onConfigurationStepConfigured for every step so flow parameters derived from the
-        // configuration (e.g., resolved asset paths, secret values) are refreshed against the new
-        // working context. Step failures are logged so the remaining steps can still be refreshed.
-        // Skipped before the connector has been initialized because there is no flow to update yet.
-        if (initializationContext == null) {
-            return;
-        }
-        final ConnectorConfiguration config = workingFlowContext.getConfigurationContext().toConnectorConfiguration();
-        for (final NamedStepConfiguration stepConfig : config.getNamedStepConfigurations()) {
-            try {
-                setConfiguration(stepConfig.stepName(), stepConfig.configuration(), true);
-            } catch (final Exception e) {
-                logger.warn("Failed to refresh resolved configuration for step [{}] of {}",
-                    stepConfig.stepName(), this, e);
+        try {
+            // Re-fire onConfigurationStepConfigured for every step so flow parameters derived from the
+            // configuration (e.g., resolved asset paths, secret values) are refreshed against the new
+            // working context. Step failures are logged so the remaining steps can still be refreshed.
+            // Skipped before the connector has been initialized because there is no flow to update yet.
+            // Configuration values are already present on the replacement; this loop only notifies.
+            if (notifyReplacementSteps) {
+                final ConnectorConfiguration config = replacementWorkingFlowContext.getConfigurationContext().toConnectorConfiguration();
+                for (final NamedStepConfiguration stepConfig : config.getNamedStepConfigurations()) {
+                    try {
+                        notifyStepConfigured(stepConfig.stepName(), replacementWorkingFlowContext);
+                    } catch (final Exception e) {
+                        logger.warn("Failed to refresh resolved configuration for step [{}] of {}",
+                            stepConfig.stepName(), this, e);
+                    }
+                }
+
+                getComponentLog().info("Working Flow Context configuration has been refreshed");
+            }
+        } finally {
+            if (notifyReplacementSteps) {
+                releaseWorkingFlowContext(replacementWorkingFlowContextState);
             }
         }
-
-        getComponentLog().info("Working Flow Context configuration has been refreshed");
     }
 
     @Override
@@ -1219,66 +1780,73 @@ public class StandardConnectorNode implements ConnectorNode, GroupedComponent {
         }
 
         logger.debug("Verifying configuration step {} for {}", stepName, this);
-        final List<ConfigVerificationResult> results = new ArrayList<>();
-        try (final NarCloseable ignored = NarCloseable.withComponentNarLoader(extensionManager, getConnector().getClass(), getIdentifier())) {
+        final WorkingFlowContextState workingContextState = acquireWorkingFlowContext();
+        final FrameworkFlowContext workingContext = workingContextState.getContext();
+        try {
+            final List<ConfigVerificationResult> results = new ArrayList<>();
+            try (final NarCloseable ignored = NarCloseable.withComponentNarLoader(extensionManager, getConnector().getClass(), getIdentifier())) {
 
-            final Optional<ConfigurationStep> optionalStep = getConfigurationStep(stepName);
-            if (optionalStep.isEmpty()) {
-                results.add(new ConfigVerificationResult.Builder()
-                    .verificationStepName("Property Validation")
-                    .outcome(Outcome.FAILED)
-                    .explanation("Configuration step with name '" + stepName + "' does not exist.")
-                    .build());
+                final Optional<ConfigurationStep> optionalStep = getConfigurationStep(stepName);
+                if (optionalStep.isEmpty()) {
+                    results.add(new ConfigVerificationResult.Builder()
+                        .verificationStepName("Property Validation")
+                        .outcome(Outcome.FAILED)
+                        .explanation("Configuration step with name '" + stepName + "' does not exist.")
+                        .build());
+                    return results;
+                }
+
+                final ConfigurationStep configurationStep = optionalStep.get();
+                final List<SecretReference> invalidSecretRefs = new ArrayList<>();
+                final List<AssetReference> invalidAssetRefs = new ArrayList<>();
+
+                // Bypass the Secret value cache during verification so the user sees results based on the current
+                // Secret values rather than potentially stale cached values awaiting TTL expiration.
+                final Map<String, String> resolvedPropertyOverrides = resolvePropertyReferences(workingContext, configurationStep, configurationOverrides, invalidSecretRefs, invalidAssetRefs, false);
+
+                final DescribedValueProvider allowableValueProvider = (step, propertyName) -> fetchAllowableValues(step, propertyName, workingContext);
+
+                final MutableConnectorConfigurationContext configContext = workingContext.getConfigurationContext().createWithOverrides(stepName, resolvedPropertyOverrides);
+                final ConnectorConfiguration connectorConfig = configContext.toConnectorConfiguration();
+                final ParameterContextFacade paramContext = workingContext.getParameterContext();
+                final ConnectorValidationContext validationContext = new StandardConnectorValidationContext(connectorConfig, allowableValueProvider, paramContext);
+
+                final List<ValidationResult> validationResults = new ArrayList<>();
+                validatePropertyReferences(configurationStep, configurationOverrides, validationResults);
+
+                // If there are any invalid secrets or assets referenced, add Validation Results for them.
+                addInvalidReferenceResults(validationResults, invalidSecretRefs, invalidAssetRefs);
+
+                // If there are any framework-level validation failures, we do not run the Connector-specific validation because
+                // doing so would mean that we must provide weak guarantees about the state of the configuration when the Connector's
+                // validation is invoked. But if there are no framework-level validation failures, we can proceed to invoke the
+                // Connector's validation logic.
+                if (validationResults.isEmpty()) {
+                    final List<ValidationResult> implValidationResults = getConnector().validateConfigurationStep(configurationStep, configContext, validationContext);
+                    validationResults.addAll(implValidationResults);
+                }
+
+                final List<ConfigVerificationResult> invalidConfigResults = validationResults.stream()
+                    .filter(result -> !result.isValid())
+                    .map(this::createConfigVerificationResult)
+                    .toList();
+
+                if (invalidConfigResults.isEmpty()) {
+                    results.add(new ConfigVerificationResult.Builder()
+                        .verificationStepName("Property Validation")
+                        .outcome(Outcome.SUCCESSFUL)
+                        .build());
+
+                    results.addAll(getConnector().verifyConfigurationStep(stepName, resolvedPropertyOverrides, workingContext));
+                } else {
+                    results.addAll(invalidConfigResults);
+                }
+
+                logger.debug("Completed verification of configuration step {} for {}", stepName, this);
                 return results;
             }
-
-            final ConfigurationStep configurationStep = optionalStep.get();
-            final List<SecretReference> invalidSecretRefs = new ArrayList<>();
-            final List<AssetReference> invalidAssetRefs = new ArrayList<>();
-            // Bypass the Secret value cache during verification so the user sees results based on the current
-            // Secret values rather than potentially stale cached values awaiting TTL expiration.
-            final Map<String, String> resolvedPropertyOverrides = resolvePropertyReferences(configurationStep, configurationOverrides, invalidSecretRefs, invalidAssetRefs, false);
-
-            final DescribedValueProvider allowableValueProvider = (step, propertyName) -> fetchAllowableValues(step, propertyName, workingFlowContext);
-
-            final MutableConnectorConfigurationContext configContext = workingFlowContext.getConfigurationContext().createWithOverrides(stepName, resolvedPropertyOverrides);
-            final ConnectorConfiguration connectorConfig = configContext.toConnectorConfiguration();
-            final ParameterContextFacade paramContext = workingFlowContext.getParameterContext();
-            final ConnectorValidationContext validationContext = new StandardConnectorValidationContext(connectorConfig, allowableValueProvider, paramContext);
-
-            final List<ValidationResult> validationResults = new ArrayList<>();
-            validatePropertyReferences(configurationStep, configurationOverrides, validationResults);
-
-            // If there are any invalid secrets or assets referenced, add Validation Results for them.
-            addInvalidReferenceResults(validationResults, invalidSecretRefs, invalidAssetRefs);
-
-            // If there are any framework-level validation failures, we do not run the Connector-specific validation because
-            // doing so would mean that we must provide weak guarantees about the state of the configuration when the Connector's
-            // validation is invoked. But if there are no framework-level validation failures, we can proceed to invoke the
-            // Connector's validation logic.
-            if (validationResults.isEmpty()) {
-                final List<ValidationResult> implValidationResults = getConnector().validateConfigurationStep(configurationStep, configContext, validationContext);
-                validationResults.addAll(implValidationResults);
-            }
-
-            final List<ConfigVerificationResult> invalidConfigResults = validationResults.stream()
-                .filter(result -> !result.isValid())
-                .map(this::createConfigVerificationResult)
-                .toList();
-
-            if (invalidConfigResults.isEmpty()) {
-                results.add(new ConfigVerificationResult.Builder()
-                    .verificationStepName("Property Validation")
-                    .outcome(Outcome.SUCCESSFUL)
-                    .build());
-
-                results.addAll(getConnector().verifyConfigurationStep(stepName, resolvedPropertyOverrides, workingFlowContext));
-            } else {
-                results.addAll(invalidConfigResults);
-            }
-
-            logger.debug("Completed verification of configuration step {} for {}", stepName, this);
-            return results;
+        } finally {
+            releaseWorkingFlowContext(workingContextState);
         }
     }
 
@@ -1291,11 +1859,12 @@ public class StandardConnectorNode implements ConnectorNode, GroupedComponent {
             .build();
     }
 
-    private Map<String, String> resolvePropertyReferences(final ConfigurationStep configurationStep, final StepConfiguration configurationOverrides,
+    private Map<String, String> resolvePropertyReferences(final FrameworkFlowContext workingContext, final ConfigurationStep configurationStep, final StepConfiguration configurationOverrides,
                                                           final List<SecretReference> invalidSecretRefs, final List<AssetReference> invalidAssetRefs, final boolean useCache) {
 
         final Map<String, String> resolvedProperties = new HashMap<>();
         final Map<String, ConnectorPropertyDescriptor> descriptorLookup = buildPropertyDescriptorLookup(configurationStep);
+        final StepConfiguration effectiveConfiguration = createEffectiveStepConfiguration(workingContext, configurationStep.getName(), configurationOverrides);
 
         try {
             // Secret References can be expensive to lookup so we don't want to call getSecret() for each one. Instead, we
@@ -1307,7 +1876,7 @@ public class StandardConnectorNode implements ConnectorNode, GroupedComponent {
                 .filter(entry -> !isEmptySecretReference((SecretReference) entry.getValue()))
                 .filter(entry -> {
                     final ConnectorPropertyDescriptor descriptor = descriptorLookup.get(entry.getKey());
-                    return descriptor == null || isPropertyDependencySatisfied(descriptor, descriptorLookup::get, configurationOverrides);
+                    return descriptor == null || isPropertyDependencySatisfied(descriptor, descriptorLookup::get, effectiveConfiguration);
                 })
                 .map(entry -> (SecretReference) entry.getValue())
                 .collect(Collectors.toSet());
@@ -1330,7 +1899,7 @@ public class StandardConnectorNode implements ConnectorNode, GroupedComponent {
                 }
 
                 final ConnectorPropertyDescriptor descriptor = descriptorLookup.get(propertyName);
-                if (descriptor != null && !isPropertyDependencySatisfied(descriptor, descriptorLookup::get, configurationOverrides)) {
+                if (descriptor != null && !isPropertyDependencySatisfied(descriptor, descriptorLookup::get, effectiveConfiguration)) {
                     // Omit values for properties that are not applicable so merged configuration does not retain stale overrides
                     // (createWithOverrides removes keys when the override value is null).
                     resolvedProperties.put(propertyName, null);
@@ -1360,11 +1929,40 @@ public class StandardConnectorNode implements ConnectorNode, GroupedComponent {
                     invalidAssetRefs.add((AssetReference) valueReference);
                 }
             }
+
+            for (final ConnectorPropertyDescriptor descriptor : descriptorLookup.values()) {
+                if (descriptor.getDefaultValue() != null
+                        && !effectiveConfiguration.getPropertyValues().containsKey(descriptor.getName())
+                        && isPropertyDependencySatisfied(descriptor, descriptorLookup::get, effectiveConfiguration)) {
+                    resolvedProperties.put(descriptor.getName(), descriptor.getDefaultValue());
+                }
+            }
         } catch (final IOException ioe) {
             throw new UncheckedIOException("Failed to resolve Secret references for " + this, ioe);
         }
 
         return resolvedProperties;
+    }
+
+    private StepConfiguration createEffectiveStepConfiguration(final FrameworkFlowContext workingContext, final String stepName, final StepConfiguration configurationOverrides) {
+        final Map<String, ConnectorValueReference> effectiveProperties = new HashMap<>();
+        final NamedStepConfiguration workingStepConfiguration = workingContext.getConfigurationContext()
+            .toConnectorConfiguration()
+            .getNamedStepConfiguration(stepName);
+        if (workingStepConfiguration != null) {
+            effectiveProperties.putAll(workingStepConfiguration.configuration().getPropertyValues());
+        }
+
+        for (final Map.Entry<String, ConnectorValueReference> entry : configurationOverrides.getPropertyValues().entrySet()) {
+            final ConnectorValueReference valueReference = entry.getValue();
+            if (valueReference == null || valueReference instanceof final StringLiteralValue stringLiteralValue && stringLiteralValue.getValue() == null) {
+                effectiveProperties.remove(entry.getKey());
+            } else {
+                effectiveProperties.put(entry.getKey(), valueReference);
+            }
+        }
+
+        return new StepConfiguration(effectiveProperties);
     }
 
     private static Map<String, ConnectorPropertyDescriptor> buildPropertyDescriptorLookup(final ConfigurationStep configurationStep) {
@@ -1403,7 +2001,7 @@ public class StandardConnectorNode implements ConnectorNode, GroupedComponent {
         if (ref == null) {
             return descriptor.getDefaultValue();
         }
-        if (ref instanceof StringLiteralValue stringLiteralValue) {
+        if (ref instanceof final StringLiteralValue stringLiteralValue) {
             final String value = stringLiteralValue.getValue();
             return value != null ? value : descriptor.getDefaultValue();
         }
@@ -1529,10 +2127,16 @@ public class StandardConnectorNode implements ConnectorNode, GroupedComponent {
             return results;
         }
 
-        workingFlowContext.getConfigurationContext().resolvePropertyValues();
+        final WorkingFlowContextState workingContextState = acquireWorkingFlowContext();
+        final FrameworkFlowContext workingContext = workingContextState.getContext();
+        try {
+            workingContext.getConfigurationContext().resolvePropertyValues();
 
-        try (NarCloseable ignored = NarCloseable.withComponentNarLoader(extensionManager, getConnector().getClass(), getIdentifier())) {
-            results.addAll(getConnector().verify(workingFlowContext));
+            try (NarCloseable ignored = NarCloseable.withComponentNarLoader(extensionManager, getConnector().getClass(), getIdentifier())) {
+                results.addAll(getConnector().verify(workingContext));
+            }
+        } finally {
+            releaseWorkingFlowContext(workingContextState);
         }
 
         logger.debug("Completed verification for {}", this);
@@ -1569,7 +2173,9 @@ public class StandardConnectorNode implements ConnectorNode, GroupedComponent {
 
     @Override
     public FrameworkFlowContext getWorkingFlowContext() {
-        return workingFlowContext;
+        synchronized (workingFlowContextLock) {
+            return workingFlowContextState.getContext();
+        }
     }
 
     @Override
@@ -1599,11 +2205,33 @@ public class StandardConnectorNode implements ConnectorNode, GroupedComponent {
         actions.add(createDrainFlowFilesAction(stopped && !troubleshooting, dataQueued));
         actions.add(createCancelDrainFlowFilesAction(currentState == ConnectorState.DRAINING));
         actions.add(createApplyUpdatesAction(currentState, troubleshooting));
+        actions.add(createMigrateAction(stopped && !troubleshooting));
         actions.add(createDeleteAction(stopped && !troubleshooting, dataQueued));
         actions.add(createEnterTroubleshootingAction(currentState));
         actions.add(createEndTroubleshootingAction());
 
         return actions;
+    }
+
+    private ConnectorAction createMigrateAction(final boolean stopped) {
+        final boolean allowed;
+        final String reason;
+
+        if (!stopped) {
+            allowed = false;
+            reason = "Connector must be stopped";
+        } else if (!(getConnector() instanceof MigratableConnector)) {
+            allowed = false;
+            reason = "Connector does not support migration from a Versioned flow";
+        } else if (isModified()) {
+            allowed = false;
+            reason = "Connector has been modified since it was created; migration would overwrite those modifications";
+        } else {
+            allowed = true;
+            reason = null;
+        }
+
+        return new StandardConnectorAction("MIGRATE", "Migrate a Versioned flow's assets and configuration into this Connector", allowed, reason);
     }
 
     private boolean isStopped() {
@@ -1805,14 +2433,16 @@ public class StandardConnectorNode implements ConnectorNode, GroupedComponent {
     }
 
     private boolean hasWorkingConfigurationChanges() {
-        final FrameworkFlowContext workingContext = this.workingFlowContext;
-        if (workingContext == null) {
-            return false;
-        }
+        synchronized (workingFlowContextLock) {
+            final FrameworkFlowContext workingContext = workingFlowContextState.getContext();
+            if (workingContext == null) {
+                return false;
+            }
 
-        final ConnectorConfiguration activeConfig = activeFlowContext.getConfigurationContext().toConnectorConfiguration();
-        final ConnectorConfiguration workingConfig = workingContext.getConfigurationContext().toConnectorConfiguration();
-        return !Objects.equals(activeConfig, workingConfig);
+            final ConnectorConfiguration activeConfig = activeFlowContext.getConfigurationContext().toConnectorConfiguration();
+            final ConnectorConfiguration workingConfig = workingContext.getConfigurationContext().toConnectorConfiguration();
+            return !Objects.equals(activeConfig, workingConfig);
+        }
     }
 
     @Override
@@ -2004,7 +2634,12 @@ public class StandardConnectorNode implements ConnectorNode, GroupedComponent {
             final List<AssetReference> invalidAssets = new ArrayList<>();
             // Regular validation may run frequently, so cached Secret values are used here to avoid
             // repeatedly fetching from the underlying Secret Providers on every validation cycle.
-            resolvePropertyReferences(step, stepConfiguration, invalidSecrets, invalidAssets, true);
+            final WorkingFlowContextState workingContextState = acquireWorkingFlowContext();
+            try {
+                resolvePropertyReferences(workingContextState.getContext(), step, stepConfiguration, invalidSecrets, invalidAssets, true);
+            } finally {
+                releaseWorkingFlowContext(workingContextState);
+            }
             addInvalidReferenceResults(allResults, invalidSecrets, invalidAssets);
         }
     }
@@ -2113,6 +2748,52 @@ public class StandardConnectorNode implements ConnectorNode, GroupedComponent {
         }
 
         return allowableValues;
+    }
+
+    private static final class WorkingFlowContextState {
+        private final FrameworkFlowContext context;
+        private int useCount;
+        private boolean retired;
+        private boolean destroyed;
+
+        private WorkingFlowContextState(final FrameworkFlowContext context) {
+            this.context = context;
+        }
+
+        private FrameworkFlowContext getContext() {
+            return context;
+        }
+
+        private void incrementUseCount() {
+            useCount++;
+        }
+
+        private boolean decrementUseCount() {
+            if (useCount == 0) {
+                throw new IllegalStateException("Cannot release a working flow context that is not in use");
+            }
+
+            useCount--;
+            return retired && useCount == 0 && claimDestruction();
+        }
+
+        private boolean retire() {
+            if (retired) {
+                return false;
+            }
+
+            retired = true;
+            return useCount == 0;
+        }
+
+        private boolean claimDestruction() {
+            if (destroyed) {
+                return false;
+            }
+
+            destroyed = true;
+            return true;
+        }
     }
 
     @Override

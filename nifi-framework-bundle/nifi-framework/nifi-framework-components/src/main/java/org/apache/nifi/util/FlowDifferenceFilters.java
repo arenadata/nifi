@@ -41,6 +41,7 @@ import org.apache.nifi.flow.VersionedProcessGroup;
 import org.apache.nifi.flow.VersionedProcessor;
 import org.apache.nifi.flow.VersionedPropertyDescriptor;
 import org.apache.nifi.groups.ProcessGroup;
+import org.apache.nifi.migration.StandardControllerServiceFactory;
 import org.apache.nifi.processor.Processor;
 import org.apache.nifi.processor.Relationship;
 import org.apache.nifi.registry.flow.diff.DifferenceType;
@@ -48,7 +49,9 @@ import org.apache.nifi.registry.flow.diff.FlowDifference;
 import org.apache.nifi.registry.flow.mapping.InstantiatedVersionedComponent;
 import org.apache.nifi.registry.flow.mapping.InstantiatedVersionedConnection;
 import org.apache.nifi.registry.flow.mapping.InstantiatedVersionedControllerService;
+import org.apache.nifi.registry.flow.mapping.InstantiatedVersionedProcessGroup;
 import org.apache.nifi.registry.flow.mapping.InstantiatedVersionedProcessor;
+import org.apache.nifi.registry.flow.mapping.VersionedComponentFlowMapper;
 
 import java.util.ArrayList;
 import java.util.Collection;
@@ -104,7 +107,8 @@ public class FlowDifferenceFilters {
             || isPropertyParameterizationRename(difference, evaluatedContext)
             || isPropertyRenameWithMatchingValue(difference, evaluatedContext)
             || isSelectedRelationshipChangeForNewRelationship(difference, flowManager)
-            || isPropertyAddedFromMigration(difference, flowManager);
+            || isPropertyAddedFromMigration(difference, flowManager)
+            || isExternalControllerServiceReferenceChange(difference, flowManager, evaluatedContext);
     }
 
     /**
@@ -184,7 +188,7 @@ public class FlowDifferenceFilters {
     }
 
     private static ComponentNode getComponent(final FlowManager flowManager, final VersionedComponent component) {
-        if (component instanceof InstantiatedVersionedComponent instantiatedComponent) {
+        if (component instanceof final InstantiatedVersionedComponent instantiatedComponent) {
             return getComponent(flowManager, component.getComponentType(), instantiatedComponent.getInstanceIdentifier());
         } else {
             return null;
@@ -202,15 +206,12 @@ public class FlowDifferenceFilters {
         if (difference.getDifferenceType() != DifferenceType.VERSIONED_FLOW_COORDINATES_CHANGED) {
             return false;
         }
-        if (!(difference.getValueA() instanceof VersionedFlowCoordinates)) {
+        if (!(difference.getValueA() instanceof final VersionedFlowCoordinates coordinatesA)) {
             return false;
         }
-        if (!(difference.getValueB() instanceof VersionedFlowCoordinates)) {
+        if (!(difference.getValueB() instanceof final VersionedFlowCoordinates coordinatesB)) {
             return false;
         }
-
-        final VersionedFlowCoordinates coordinatesA = (VersionedFlowCoordinates) difference.getValueA();
-        final VersionedFlowCoordinates coordinatesB = (VersionedFlowCoordinates) difference.getValueB();
 
         if (Objects.equals(coordinatesA.getBucketId(), coordinatesB.getBucketId())
             && Objects.equals(coordinatesA.getFlowId(), coordinatesB.getFlowId())
@@ -229,8 +230,7 @@ public class FlowDifferenceFilters {
 
     public static boolean isPublicPortNameChange(final FlowDifference fd) {
         final VersionedComponent versionedComponent = fd.getComponentA();
-        if (fd.getDifferenceType() == DifferenceType.NAME_CHANGED && versionedComponent instanceof VersionedPort) {
-            final VersionedPort versionedPort = (VersionedPort) versionedComponent;
+        if (fd.getDifferenceType() == DifferenceType.NAME_CHANGED && versionedComponent instanceof final VersionedPort versionedPort) {
             if (versionedPort.isAllowRemoteAccess()) {
                 return true;
             }
@@ -267,11 +267,10 @@ public class FlowDifferenceFilters {
         }
 
         final VersionedComponent componentB = fd.getComponentB();
-        if (!(componentB instanceof VersionedLabel)) {
+        if (!(componentB instanceof final VersionedLabel versionedLabel)) {
             return false;
         }
 
-        final VersionedLabel versionedLabel = (VersionedLabel) componentB;
         if (fd.getDifferenceType() == DifferenceType.ZINDEX_CHANGED) {
             final Long zIndex = versionedLabel.getzIndex();
 
@@ -292,11 +291,10 @@ public class FlowDifferenceFilters {
         }
 
         final VersionedComponent componentB = fd.getComponentB();
-        if (!(componentB instanceof VersionedConnection)) {
+        if (!(componentB instanceof final VersionedConnection versionedConnection)) {
             return false;
         }
 
-        final VersionedConnection versionedConnection = (VersionedConnection) componentB;
         if (fd.getDifferenceType() == DifferenceType.ZINDEX_CHANGED) {
             final Long zIndex = versionedConnection.getzIndex();
 
@@ -317,12 +315,11 @@ public class FlowDifferenceFilters {
         }
 
         final VersionedComponent componentB = fd.getComponentB();
-        if (!(componentB instanceof InstantiatedVersionedProcessor)) {
+        if (!(componentB instanceof final InstantiatedVersionedProcessor instantiatedProcessor)) {
             return false;
         }
 
         final DifferenceType type = fd.getDifferenceType();
-        final InstantiatedVersionedProcessor instantiatedProcessor = (InstantiatedVersionedProcessor) componentB;
         final ProcessorNode processorNode = flowManager.getProcessorNode(instantiatedProcessor.getInstanceIdentifier());
         if (processorNode == null) {
             return false;
@@ -346,12 +343,10 @@ public class FlowDifferenceFilters {
 
         final VersionedComponent componentB = fd.getComponentB();
 
-        if (componentB instanceof InstantiatedVersionedProcessor) {
-            final InstantiatedVersionedProcessor instantiatedProcessor = (InstantiatedVersionedProcessor) componentB;
+        if (componentB instanceof final InstantiatedVersionedProcessor instantiatedProcessor) {
             final ProcessorNode processorNode = flowManager.getProcessorNode(instantiatedProcessor.getInstanceIdentifier());
             return isNewPropertyWithDefaultValue(fd, processorNode);
-        } else if (componentB instanceof InstantiatedVersionedControllerService) {
-            final InstantiatedVersionedControllerService instantiatedControllerService = (InstantiatedVersionedControllerService) componentB;
+        } else if (componentB instanceof final InstantiatedVersionedControllerService instantiatedControllerService) {
             final ControllerServiceNode controllerService = flowManager.getControllerServiceNode(instantiatedControllerService.getInstanceIdentifier());
             return isNewPropertyWithDefaultValue(fd, controllerService);
         }
@@ -441,13 +436,10 @@ public class FlowDifferenceFilters {
             return false;
         }
 
-        if (!(fd.getComponentA() instanceof VersionedProcessor) || !(fd.getComponentB() instanceof InstantiatedVersionedProcessor)) {
+        if (!(fd.getComponentA() instanceof final VersionedProcessor processorA) || !(fd.getComponentB() instanceof final InstantiatedVersionedProcessor processorB)) {
             // Should not happen, since only processors have auto-terminated relationships.
             return false;
         }
-
-        final VersionedProcessor processorA = (VersionedProcessor) fd.getComponentA();
-        final VersionedProcessor processorB = (VersionedProcessor) fd.getComponentB();
 
         // Determine if this Flow Difference indicates that Processor B has all of the same Auto-Terminated Relationships as Processor A, plus some.
         // If that is the case, then it may be that a new Relationship was added, defaulting to 'Auto-Terminated' and that Processor B is still auto-terminated.
@@ -461,8 +453,7 @@ public class FlowDifferenceFilters {
             return false;
         }
 
-        final InstantiatedVersionedProcessor instantiatedVersionedProcessor = (InstantiatedVersionedProcessor) processorB;
-        final ProcessorNode processorNode = flowManager.getProcessorNode(instantiatedVersionedProcessor.getInstanceIdentifier());
+        final ProcessorNode processorNode = flowManager.getProcessorNode(processorB.getInstanceIdentifier());
         if (processorNode == null) {
             return false;
         }
@@ -481,6 +472,10 @@ public class FlowDifferenceFilters {
                 return false;
             }
 
+            if (!replaceNull(processorNode.getConnections(relationship), Collections.emptySet()).isEmpty()) {
+                return false;
+            }
+
             if (hasConnection(processGroup, processorA, relationshipName)) {
                 return false;
             }
@@ -494,11 +489,11 @@ public class FlowDifferenceFilters {
             return false;
         }
 
-        if (!(difference.getComponentA() instanceof VersionedConnection connectionA)) {
+        if (!(difference.getComponentA() instanceof final VersionedConnection connectionA)) {
             return false;
         }
 
-        if (!(difference.getComponentB() instanceof InstantiatedVersionedConnection connectionB)) {
+        if (!(difference.getComponentB() instanceof final InstantiatedVersionedConnection connectionB)) {
             return false;
         }
 
@@ -610,12 +605,10 @@ public class FlowDifferenceFilters {
 
         final VersionedComponent componentB = difference.getComponentB();
 
-        if (componentB instanceof InstantiatedVersionedProcessor) {
-            final InstantiatedVersionedProcessor instantiatedProcessor = (InstantiatedVersionedProcessor) componentB;
+        if (componentB instanceof final InstantiatedVersionedProcessor instantiatedProcessor) {
             final ProcessorNode processorNode = flowManager.getProcessorNode(instantiatedProcessor.getInstanceIdentifier());
             return isStaticPropertyRemoved(fieldName.get(), processorNode);
-        } else if (componentB instanceof InstantiatedVersionedControllerService) {
-            final InstantiatedVersionedControllerService instantiatedControllerService = (InstantiatedVersionedControllerService) componentB;
+        } else if (componentB instanceof final InstantiatedVersionedControllerService instantiatedControllerService) {
             final ControllerServiceNode controllerService = flowManager.getControllerServiceNode(instantiatedControllerService.getInstanceIdentifier());
             return isStaticPropertyRemoved(fieldName.get(), controllerService);
         }
@@ -720,9 +713,16 @@ public class FlowDifferenceFilters {
     }
 
     public static EnvironmentalChangeContext buildEnvironmentalChangeContext(final Collection<FlowDifference> differences, final FlowManager flowManager) {
+        return buildEnvironmentalChangeContext(differences, null, flowManager);
+    }
+
+    public static EnvironmentalChangeContext buildEnvironmentalChangeContext(final Collection<FlowDifference> differences, final VersionedProcessGroup localGroup,
+                                                                             final FlowManager flowManager) {
         if (differences == null || differences.isEmpty() || flowManager == null) {
             return EnvironmentalChangeContext.empty();
         }
+
+        final Set<String> ancestorControllerServiceIds = computeAncestorControllerServiceIds(localGroup, flowManager);
 
         final Map<String, List<PropertyDiffInfo>> parameterizedAddsByComponent = new HashMap<>();
         final Map<String, List<PropertyDiffInfo>> parameterizationRemovalsByComponent = new HashMap<>();
@@ -781,6 +781,12 @@ public class FlowDifferenceFilters {
         final Set<String> serviceIdsWithMatchingAdditions = new HashSet<>();
         for (final FlowDifference difference : differences) {
             if (difference.getDifferenceType() != DifferenceType.COMPONENT_ADDED) {
+                continue;
+            }
+
+            // Only treat the added Controller Service as environmental when it was created by property migration.
+            // A service that a user added has no such marker and must be reported as a local modification.
+            if (!isMigrationCreatedControllerService(difference)) {
                 continue;
             }
 
@@ -869,11 +875,83 @@ public class FlowDifferenceFilters {
             }
         }
 
-        if (serviceIdsWithMatchingAdditions.isEmpty() && parameterizedPropertyRenameDifferences.isEmpty() && propertyRenamesWithMatchingValues.isEmpty()) {
+        if (serviceIdsWithMatchingAdditions.isEmpty() && parameterizedPropertyRenameDifferences.isEmpty() && propertyRenamesWithMatchingValues.isEmpty()
+                && ancestorControllerServiceIds.isEmpty()) {
             return EnvironmentalChangeContext.empty();
         }
 
-        return new EnvironmentalChangeContext(serviceIdsWithMatchingAdditions, parameterizedPropertyRenameDifferences, propertyRenamesWithMatchingValues);
+        return new EnvironmentalChangeContext(serviceIdsWithMatchingAdditions, parameterizedPropertyRenameDifferences, propertyRenamesWithMatchingValues,
+                ancestorControllerServiceIds);
+    }
+
+    /**
+     * Determines whether a Flow Difference represents a change to a property that references an <em>external</em> controller service
+     * (one defined outside the versioned Process Group, e.g. in an ancestor group). Such a reference is environment-specific: the same
+     * logical service typically has a different identifier in each environment, so pointing the property at a different external service
+     * is not treated as a local modification. The change is environmental only when the versioned-snapshot value does not resolve to a
+     * locally-accessible ancestor service while the local value does.
+     */
+    private static boolean isExternalControllerServiceReferenceChange(final FlowDifference difference, final FlowManager flowManager,
+                                                                      final EnvironmentalChangeContext context) {
+        if (difference.getDifferenceType() != DifferenceType.PROPERTY_CHANGED) {
+            return false;
+        }
+
+        final Set<String> ancestorServiceIds = context.ancestorControllerServiceIds();
+        if (ancestorServiceIds.isEmpty()) {
+            return false;
+        }
+
+        if (!isControllerServiceProperty(difference, flowManager)) {
+            return false;
+        }
+
+        final Optional<String> snapshotValue = getPropertyValue(difference, true);
+        final Optional<String> localValue = getPropertyValue(difference, false);
+        if (snapshotValue.isEmpty() || localValue.isEmpty()) {
+            return false;
+        }
+
+        // Parameter-referenced controller services are environment-portable through Parameter Contexts and are not evaluated here.
+        if (isParameterReference(snapshotValue.get()) || isParameterReference(localValue.get())) {
+            return false;
+        }
+
+        // Environmental only when the snapshot reference is not a locally-accessible ancestor controller service but the local reference
+        // is. A switch between two locally-accessible ancestor services remains a reported change, and a reference to a service defined
+        // inside the versioned Process Group is never in the ancestor set, so it always remains a reported change.
+        final boolean snapshotAccessible = ancestorServiceIds.contains(snapshotValue.get());
+        final boolean localAccessible = ancestorServiceIds.contains(localValue.get());
+        return !snapshotAccessible && localAccessible;
+    }
+
+    /**
+     * Computes the set of versioned component identifiers for all controller services accessible from the ancestors of the given (local)
+     * versioned Process Group -- i.e. services defined in the parent group and above. These identify references to external controller
+     * services. Returns an empty set when the group is not an instantiated (live-backed) group, so callers that pass a plain snapshot
+     * group get no suppression.
+     */
+    private static Set<String> computeAncestorControllerServiceIds(final VersionedProcessGroup localGroup, final FlowManager flowManager) {
+        if (flowManager == null || !(localGroup instanceof InstantiatedVersionedProcessGroup instantiatedGroup)) {
+            return Collections.emptySet();
+        }
+
+        final ProcessGroup liveGroup = flowManager.getGroup(instantiatedGroup.getInstanceIdentifier());
+        if (liveGroup == null) {
+            return Collections.emptySet();
+        }
+
+        final ProcessGroup parentGroup = liveGroup.getParent();
+        if (parentGroup == null) {
+            return Collections.emptySet();
+        }
+
+        final Set<String> ancestorServiceIds = new HashSet<>();
+        for (final ControllerServiceNode serviceNode : parentGroup.getControllerServices(true)) {
+            ancestorServiceIds.add(serviceNode.getVersionedComponentId().orElseGet(
+                    () -> VersionedComponentFlowMapper.generateVersionedComponentId(serviceNode.getIdentifier())));
+        }
+        return ancestorServiceIds;
     }
 
     public static boolean isControllerServiceCreatedForNewProperty(final FlowDifference difference, final EnvironmentalChangeContext context) {
@@ -904,6 +982,13 @@ public class FlowDifferenceFilters {
         return false;
     }
 
+    private static boolean isMigrationCreatedControllerService(final FlowDifference difference) {
+        if (difference.getComponentB() instanceof final VersionedControllerService service) {
+            return StandardControllerServiceFactory.MIGRATION_CREATED_COMMENT.equals(service.getComments());
+        }
+        return false;
+    }
+
     private static Set<String> getControllerServiceIdentifiers(final FlowDifference difference) {
         final Set<String> identifiers = new HashSet<>();
 
@@ -918,7 +1003,7 @@ public class FlowDifferenceFilters {
             return;
         }
 
-        if (component instanceof InstantiatedVersionedControllerService instantiatedControllerService) {
+        if (component instanceof final InstantiatedVersionedControllerService instantiatedControllerService) {
             final String instanceIdentifier = instantiatedControllerService.getInstanceIdentifier();
             if (instanceIdentifier != null) {
                 identifiers.add(instanceIdentifier);
@@ -1033,8 +1118,8 @@ public class FlowDifferenceFilters {
             return Optional.empty();
         }
 
-        if (component instanceof InstantiatedVersionedComponent) {
-            final String instanceId = ((InstantiatedVersionedComponent) component).getInstanceIdentifier();
+        if (component instanceof final InstantiatedVersionedComponent instantiatedVersionedComponent) {
+            final String instanceId = instantiatedVersionedComponent.getInstanceIdentifier();
             if (instanceId != null) {
                 return Optional.of(instanceId);
             }
@@ -1099,7 +1184,7 @@ public class FlowDifferenceFilters {
         }
 
         final Object differenceValue = fromComponentA ? difference.getValueA() : difference.getValueB();
-        if (differenceValue instanceof String stringValue) {
+        if (differenceValue instanceof final String stringValue) {
             return Optional.of(stringValue);
         }
 
@@ -1146,11 +1231,11 @@ public class FlowDifferenceFilters {
 
         if (component == null) {
             descriptors = Collections.emptyMap();
-        } else if (component instanceof VersionedConfigurableComponent configurableComponent) {
+        } else if (component instanceof final VersionedConfigurableComponent configurableComponent) {
             descriptors = configurableComponent.getPropertyDescriptors();
-        } else if (component instanceof VersionedProcessor processor) {
+        } else if (component instanceof final VersionedProcessor processor) {
             descriptors = processor.getPropertyDescriptors();
-        } else if (component instanceof VersionedControllerService controllerService) {
+        } else if (component instanceof final VersionedControllerService controllerService) {
             descriptors = controllerService.getPropertyDescriptors();
         } else {
             descriptors = Collections.emptyMap();
@@ -1164,11 +1249,11 @@ public class FlowDifferenceFilters {
 
         if (component == null) {
             properties = Collections.emptyMap();
-        } else if (component instanceof VersionedConfigurableComponent configurableComponent) {
+        } else if (component instanceof final VersionedConfigurableComponent configurableComponent) {
             properties = configurableComponent.getProperties();
-        } else if (component instanceof VersionedProcessor processor) {
+        } else if (component instanceof final VersionedProcessor processor) {
             properties = processor.getProperties();
-        } else if (component instanceof VersionedControllerService controllerService) {
+        } else if (component instanceof final VersionedControllerService controllerService) {
             properties = controllerService.getProperties();
         } else {
             properties = Collections.emptyMap();
@@ -1226,18 +1311,22 @@ public class FlowDifferenceFilters {
     }
 
     public static final class EnvironmentalChangeContext {
-        private static final EnvironmentalChangeContext EMPTY = new EnvironmentalChangeContext(Collections.emptySet(), Collections.emptySet(), Collections.emptySet());
+        private static final EnvironmentalChangeContext EMPTY =
+                new EnvironmentalChangeContext(Collections.emptySet(), Collections.emptySet(), Collections.emptySet(), Collections.emptySet());
 
         private final Set<String> serviceIdsCreatedForNewProperties;
         private final Set<FlowDifference> parameterizedPropertyRenames;
         private final Set<FlowDifference> propertyRenamesWithMatchingValues;
+        private final Set<String> ancestorControllerServiceIds;
 
         private EnvironmentalChangeContext(final Set<String> serviceIdsCreatedForNewProperties,
                                            final Set<FlowDifference> parameterizedPropertyRenames,
-                                           final Set<FlowDifference> propertyRenamesWithMatchingValues) {
+                                           final Set<FlowDifference> propertyRenamesWithMatchingValues,
+                                           final Set<String> ancestorControllerServiceIds) {
             this.serviceIdsCreatedForNewProperties = Collections.unmodifiableSet(new HashSet<>(serviceIdsCreatedForNewProperties));
             this.parameterizedPropertyRenames = Collections.unmodifiableSet(new HashSet<>(parameterizedPropertyRenames));
             this.propertyRenamesWithMatchingValues = Collections.unmodifiableSet(new HashSet<>(propertyRenamesWithMatchingValues));
+            this.ancestorControllerServiceIds = Collections.unmodifiableSet(new HashSet<>(ancestorControllerServiceIds));
         }
 
         static EnvironmentalChangeContext empty() {
@@ -1254,6 +1343,10 @@ public class FlowDifferenceFilters {
 
         Set<FlowDifference> propertyRenamesWithMatchingValues() {
             return propertyRenamesWithMatchingValues;
+        }
+
+        Set<String> ancestorControllerServiceIds() {
+            return ancestorControllerServiceIds;
         }
     }
 }

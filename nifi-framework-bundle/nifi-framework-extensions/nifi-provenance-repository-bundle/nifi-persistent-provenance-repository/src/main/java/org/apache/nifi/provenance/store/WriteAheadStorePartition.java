@@ -41,6 +41,8 @@ import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.nio.file.Files;
+import java.time.ZonedDateTime;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -490,18 +492,22 @@ public class WriteAheadStorePartition implements EventStorePartition {
     }
 
     @Override
-    public void purgeOldEvents(final long olderThan, final TimeUnit unit) {
-        final long timeCutoff = System.currentTimeMillis() - unit.toMillis(olderThan);
-
+    public void purgeOldEvents(final long olderThan, final ChronoUnit timeUnit) {
+        // Use ZDT to allow the system to handle a ChronoUnit that is otherwise "estimated"
+        final long timeCutoff = ZonedDateTime.now()
+                .minus(olderThan, timeUnit)
+                .toInstant().toEpochMilli();
         final List<File> removed = getEventFilesFromDisk().filter(file -> file.lastModified() < timeCutoff)
             .sorted(DirectoryUtils.SMALLEST_ID_FIRST)
             .filter(this::delete)
             .collect(Collectors.toList());
 
+        String thresholdWords = FormatUtils.formatDurationToWords(olderThan, timeUnit);
+
         if (removed.isEmpty()) {
-            logger.debug("No Provenance Event files that exceed time-based threshold of {} {}", olderThan, unit);
+            logger.debug("No Provenance Event files that exceed time-based threshold of {}", thresholdWords);
         } else {
-            logger.info("Purged {} Provenance Event files from Provenance Repository because the events were older than {} {}: {}", removed.size(), olderThan, unit, removed);
+            logger.info("Purged {} Provenance Event files from Provenance Repository because the events were older than {} : {}", removed.size(), thresholdWords, removed);
         }
     }
 
@@ -686,7 +692,7 @@ public class WriteAheadStorePartition implements EventStorePartition {
             reindexedCount.get(), eventFilesToReindex.size(), partitionDirectory, seconds, millisRemainder);
     }
 
-    EventIterator getEventsByTimestamp(final long minTimestmap, final long maxTimestamp) throws IOException {
+    EventIterator getEventsByTimestamp(final long minTimestamp, final long maxTimestamp) throws IOException {
         // Get a list of all Files and order them based on their ID such that the largest ID is first.
         // This allows us to step through the event files in order and read the first event in the file.
         // If the first event comes after out maxTimestamp, then we know that all other events do as well,
@@ -714,13 +720,13 @@ public class WriteAheadStorePartition implements EventStorePartition {
 
             relevantEventFiles.add(eventFile);
 
-            if (eventTime < minTimestmap) {
+            if (eventTime < minTimestamp) {
                 break;
             }
         }
 
         final EventIterator rawEventIterator = new SequentialRecordReaderEventIterator(relevantEventFiles, recordReaderFactory, 0, config.getMaxAttributeChars());
-        return rawEventIterator.filter(event -> event.getEventTime() >= minTimestmap && event.getEventTime() <= maxTimestamp);
+        return rawEventIterator.filter(event -> event.getEventTime() >= minTimestamp && event.getEventTime() <= maxTimestamp);
     }
 
     private ProvenanceEventRecord getFirstEvent(final File eventFile) throws IOException {

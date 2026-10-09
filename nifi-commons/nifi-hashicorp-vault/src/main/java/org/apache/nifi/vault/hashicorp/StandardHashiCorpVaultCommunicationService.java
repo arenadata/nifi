@@ -84,7 +84,7 @@ public class StandardHashiCorpVaultCommunicationService implements HashiCorpVaul
         final ClientOptions clientOptions = vaultConfiguration.clientOptions();
         final PropertySource<?> propertySource = propertySources[0];
         final Object sslContextProperty = propertySource.getProperty(SSL_CONTEXT_PROPERTY);
-        if (sslContextProperty instanceof SSLContext sslContext) {
+        if (sslContextProperty instanceof final SSLContext sslContext) {
             // Customize HttpClient construction with configured SSLContext
             final HttpClient.Builder httpClientBuilder = HttpClient.newBuilder();
             httpClientBuilder.connectTimeout(clientOptions.getConnectionTimeout());
@@ -106,6 +106,8 @@ public class StandardHashiCorpVaultCommunicationService implements HashiCorpVaul
 
         final VaultEndpoint vaultEndpoint = vaultConfiguration.vaultEndpoint();
         final RestTemplate restTemplate = VaultClients.createRestTemplate(vaultEndpoint, clientHttpRequestFactory);
+
+        vaultConfiguration.setClientHttpRequestFactory(clientHttpRequestFactory);
 
         final VaultClient.Builder vaultClientBuilder = VaultClient.builder(restTemplate).endpoint(vaultEndpoint);
         final String namespace = vaultConfiguration.getNamespace();

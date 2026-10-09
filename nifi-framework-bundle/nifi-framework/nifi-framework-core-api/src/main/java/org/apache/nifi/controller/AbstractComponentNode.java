@@ -32,6 +32,7 @@ import org.apache.nifi.components.ConfigurableComponent;
 import org.apache.nifi.components.PropertyDescriptor;
 import org.apache.nifi.components.ValidationContext;
 import org.apache.nifi.components.ValidationResult;
+import org.apache.nifi.components.connector.InvocationFailedException;
 import org.apache.nifi.components.connector.components.ConnectorMethod;
 import org.apache.nifi.components.resource.ResourceContext;
 import org.apache.nifi.components.resource.ResourceReferenceFactory;
@@ -362,7 +363,7 @@ public abstract class AbstractComponentNode implements ComponentNode {
                 logger.debug("Resetting Validation State of {} due to setting properties", this);
                 resetValidationState();
             } else {
-                logger.debug("Properties set for {} but not resettingn validation state because validation is paused", this);
+                logger.debug("Properties set for {} but not resetting validation state because validation is paused", this);
             }
         } finally {
             lock.unlock();
@@ -627,7 +628,7 @@ public abstract class AbstractComponentNode implements ComponentNode {
      * @param name the property to remove
      * @param allowRemovalOfRequiredProperties whether or not the property should be removed if it's required
      * @return true if removed; false otherwise
-     * @throws java.lang.IllegalArgumentException if the name is null
+     * @throws IllegalArgumentException if the name is null
      */
     private boolean removeProperty(final String name, final boolean allowRemovalOfRequiredProperties) {
         if (null == name) {
@@ -846,11 +847,10 @@ public abstract class AbstractComponentNode implements ComponentNode {
             return false;
         }
 
-        if (!(obj instanceof ComponentNode)) {
+        if (!(obj instanceof final ComponentNode other)) {
             return false;
         }
 
-        final ComponentNode other = (ComponentNode) obj;
         return id.equals(other.getIdentifier());
     }
 
@@ -1562,30 +1562,47 @@ public abstract class AbstractComponentNode implements ComponentNode {
         }
     }
 
-    protected List<ConnectorMethod> getConnectorMethods(final Class<?> componentClass) {
-        final List<ConnectorMethod> connectorMethods = new ArrayList<>();
-        for (final Method method : componentClass.getDeclaredMethods()) {
-            final ConnectorMethod annotation = method.getAnnotation(ConnectorMethod.class);
-            connectorMethods.add(annotation);
-        }
+    protected List<ConnectorMethod> getConnectorMethods(final Class<?> componentClass) throws InvocationFailedException {
+        try {
+            final List<ConnectorMethod> connectorMethods = new ArrayList<>();
+            for (final Method method : componentClass.getDeclaredMethods()) {
+                final ConnectorMethod annotation = method.getAnnotation(ConnectorMethod.class);
+                if (annotation != null) {
+                    connectorMethods.add(annotation);
+                }
+            }
 
-        return connectorMethods;
+            final Class<?> superClass = componentClass.getSuperclass();
+            if (superClass != null && !Object.class.equals(superClass)) {
+                connectorMethods.addAll(getConnectorMethods(superClass));
+            }
+
+            return connectorMethods;
+        } catch (final LinkageError e) {
+            throw new InvocationFailedException("Failed to discover Connector Methods on " + componentClass.getName()
+                + " because a class required by the component could not be loaded from the component's ClassLoader", e);
+        }
     }
 
-    protected Method discoverConnectorMethod(final Class<?> componentClass, final String connectorMethodName) {
-        for (final Method method : componentClass.getDeclaredMethods()) {
-            final ConnectorMethod annotation = method.getAnnotation(ConnectorMethod.class);
-            if (annotation != null && annotation.name().equals(connectorMethodName)) {
-                return method;
+    protected Method discoverConnectorMethod(final Class<?> componentClass, final String connectorMethodName) throws InvocationFailedException {
+        try {
+            for (final Method method : componentClass.getDeclaredMethods()) {
+                final ConnectorMethod annotation = method.getAnnotation(ConnectorMethod.class);
+                if (annotation != null && annotation.name().equals(connectorMethodName)) {
+                    return method;
+                }
             }
-        }
 
-        final Class<?> superClass = componentClass.getSuperclass();
-        if (superClass != null && !Object.class.equals(superClass)) {
-            return discoverConnectorMethod(superClass, connectorMethodName);
-        }
+            final Class<?> superClass = componentClass.getSuperclass();
+            if (superClass != null && !Object.class.equals(superClass)) {
+                return discoverConnectorMethod(superClass, connectorMethodName);
+            }
 
-        return null;
+            return null;
+        } catch (final LinkageError e) {
+            throw new InvocationFailedException("Failed to discover Connector Method '" + connectorMethodName + "' on " + componentClass.getName()
+                + " because a class required by the component could not be loaded from the component's ClassLoader", e);
+        }
     }
 
     protected void setAdditionalResourcesFingerprint(String additionalResourcesFingerprint) {

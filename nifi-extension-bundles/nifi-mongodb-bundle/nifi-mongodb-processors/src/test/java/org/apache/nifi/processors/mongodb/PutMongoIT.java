@@ -70,8 +70,8 @@ public class PutMongoIT extends MongoWriteTestBase {
         runner.removeProperty(PutMongo.COLLECTION_NAME);
         pc = runner.getProcessContext();
         results = new HashSet<>();
-        if (pc instanceof MockProcessContext) {
-            results = ((MockProcessContext) pc).validate();
+        if (pc instanceof final MockProcessContext mockProcessContext) {
+            results = mockProcessContext.validate();
         }
         assertEquals(2, results.size());
         Iterator<ValidationResult> it = results.iterator();
@@ -85,8 +85,8 @@ public class PutMongoIT extends MongoWriteTestBase {
         runner.enqueue(new byte[0]);
         pc = runner.getProcessContext();
         results = new HashSet<>();
-        if (pc instanceof MockProcessContext) {
-            results = ((MockProcessContext) pc).validate();
+        if (pc instanceof final MockProcessContext mockProcessContext) {
+            results = mockProcessContext.validate();
         }
         assertEquals(0, results.size());
     }
@@ -278,10 +278,10 @@ public class PutMongoIT extends MongoWriteTestBase {
         assertEquals(found.get("department"), document.get("department"));
         Document contacts = (Document) found.get("contacts");
         assertNotNull(contacts);
-        assertEquals(contacts.get("twitter"), "@JohnSmith");
-        assertEquals(contacts.get("email"), "john.smith@test.com");
-        assertEquals(contacts.get("phone"), "555-555-5555");
-        assertEquals(collection.countDocuments(document), 1);
+        assertEquals("@JohnSmith", contacts.get("twitter"));
+        assertEquals("john.smith@test.com", contacts.get("email"));
+        assertEquals("555-555-5555", contacts.get("phone"));
+        assertEquals(1, collection.countDocuments(document));
     }
 
     @Test
@@ -523,7 +523,7 @@ public class PutMongoIT extends MongoWriteTestBase {
     public void testUpsertWithOid() throws Exception {
         TestRunner runner = init(PutMongo.class);
         runner.setProperty(PutMongo.UPDATE_QUERY_KEY, "_id");
-        byte[] bytes = documentToByteArray(oidDocument);
+        byte[] bytes = documentToByteArray(OID_DOCUMENT);
 
         runner.setProperty(PutMongo.MODE, "update");
         runner.setProperty(PutMongo.UPSERT, "true");
@@ -534,13 +534,13 @@ public class PutMongoIT extends MongoWriteTestBase {
         MockFlowFile out = runner.getFlowFilesForRelationship(PutMongo.REL_SUCCESS).getFirst();
         out.assertContentEquals(bytes);
 
-        out.assertAttributeEquals(PutMongo.ATTRIBUTE_UPSERT_ID, oidDocument.getObjectId("_id").toString());
+        out.assertAttributeEquals(PutMongo.ATTRIBUTE_UPSERT_ID, OID_DOCUMENT.getObjectId("_id").toString());
         out.assertAttributeEquals(PutMongo.ATTRIBUTE_UPDATE_MODIFY_COUNT, String.valueOf(0));
         out.assertAttributeEquals(PutMongo.ATTRIBUTE_UPDATE_MATCH_COUNT, String.valueOf(0));
 
         // verify 1 doc inserted into the collection
         assertEquals(1, collection.countDocuments());
-        assertEquals(oidDocument, collection.find().first());
+        assertEquals(OID_DOCUMENT, collection.find().first());
     }
 
     @Test
@@ -614,7 +614,7 @@ public class PutMongoIT extends MongoWriteTestBase {
         for (Document doc : array) {
             String msg = doc.getString("msg");
             assertNotNull(msg, "Msg was null");
-            assertEquals(msg, "Hi", "Msg had wrong value");
+            assertEquals("Hi", msg, "Msg had wrong value");
         }
     }
 

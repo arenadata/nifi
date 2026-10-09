@@ -27,7 +27,7 @@ import org.apache.nifi.processors.mqtt.common.StandardMqttMessage;
 import org.apache.nifi.provenance.ProvenanceEventRecord;
 import org.apache.nifi.provenance.ProvenanceEventType;
 import org.apache.nifi.reporting.InitializationException;
-import org.apache.nifi.ssl.SSLContextService;
+import org.apache.nifi.ssl.SSLContextProvider;
 import org.apache.nifi.util.MockFlowFile;
 import org.apache.nifi.util.TestRunner;
 import org.apache.nifi.util.TestRunners;
@@ -532,7 +532,7 @@ public class TestConsumeMQTT {
         testRunner.run(1, false, false);
 
         final List<MockFlowFile> flowFiles = testRunner.getFlowFilesForRelationship(ConsumeMQTT.REL_MESSAGE);
-        assertEquals(flowFiles.size(), 1);
+        assertEquals(1, flowFiles.size());
         assertEquals("{\"name\":\"Apache NiFi\"}\\n"
                         + THIS_IS_NOT_JSON + "\\n"
                         + "{\"name\":\"Apache NiFi\"}",
@@ -831,12 +831,12 @@ public class TestConsumeMQTT {
     }
 
     private static String addSSLContextService(TestRunner testRunner) throws InitializationException {
-        final SSLContextService sslContextService = mock(SSLContextService.class);
-        final String identifier = SSLContextService.class.getSimpleName();
-        when(sslContextService.getIdentifier()).thenReturn(identifier);
+        final SSLContextProvider sslContextProvider = mock(SSLContextProvider.class);
+        final String identifier = SSLContextProvider.class.getSimpleName();
+        when(sslContextProvider.getIdentifier()).thenReturn(identifier);
 
-        testRunner.addControllerService(identifier, sslContextService);
-        testRunner.enableControllerService(sslContextService);
+        testRunner.addControllerService(identifier, sslContextProvider);
+        testRunner.enableControllerService(sslContextProvider);
         return identifier;
     }
 }

@@ -29,8 +29,6 @@ import org.apache.nifi.util.TestRunner;
 import org.apache.nifi.util.TestRunners;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.condition.DisabledOnJre;
-import org.junit.jupiter.api.condition.JRE;
 
 import java.nio.file.Files;
 import java.nio.file.Paths;
@@ -45,7 +43,6 @@ import java.util.stream.Collectors;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
-@DisabledOnJre(value = { JRE.JAVA_25 }, disabledReason = "java.security.auth.Subject.getSubject() is not supported")
 public class TestGetHDFSFileInfo {
     private static final Pattern SINGLE_JSON_PATTERN = Pattern.compile("^\\{[^\\}]*\\}$");
 
@@ -182,10 +179,10 @@ public class TestGetHDFSFileInfo {
         final MockFlowFile mff = runner.getFlowFilesForRelationship(GetHDFSFileInfo.REL_ORIGINAL).getFirst();
         ProcessContext context = runner.getProcessContext();
 
-        assertEquals(context.getProperty(GetHDFSFileInfo.FULL_PATH).evaluateAttributeExpressions(mff).getValue(), "/some/home/mydir");
-        assertEquals(context.getProperty(GetHDFSFileInfo.DIR_FILTER).evaluateAttributeExpressions(mff).getValue(), "^(dir.*)$");
-        assertEquals(context.getProperty(GetHDFSFileInfo.FILE_FILTER).evaluateAttributeExpressions(mff).getValue(), "^(.*)$");
-        assertEquals(context.getProperty(GetHDFSFileInfo.FILE_EXCLUDE_FILTER).evaluateAttributeExpressions(mff).getValue(), "^(none.*)$");
+        assertEquals("/some/home/mydir", context.getProperty(GetHDFSFileInfo.FULL_PATH).evaluateAttributeExpressions(mff).getValue());
+        assertEquals("^(dir.*)$", context.getProperty(GetHDFSFileInfo.DIR_FILTER).evaluateAttributeExpressions(mff).getValue());
+        assertEquals("^(.*)$", context.getProperty(GetHDFSFileInfo.FILE_FILTER).evaluateAttributeExpressions(mff).getValue());
+        assertEquals("^(none.*)$", context.getProperty(GetHDFSFileInfo.FILE_EXCLUDE_FILTER).evaluateAttributeExpressions(mff).getValue());
     }
 
     @Test
@@ -211,7 +208,7 @@ public class TestGetHDFSFileInfo {
         final MockFlowFile mff = runner.getFlowFilesForRelationship(GetHDFSFileInfo.REL_ORIGINAL).getFirst();
         ProcessContext context = runner.getProcessContext();
 
-        assertEquals(context.getProperty(GetHDFSFileInfo.FULL_PATH).evaluateAttributeExpressions(mff).getValue(), "/some/home/mydir");
+        assertEquals("/some/home/mydir", context.getProperty(GetHDFSFileInfo.FULL_PATH).evaluateAttributeExpressions(mff).getValue());
     }
 
     @Test
@@ -528,7 +525,7 @@ public class TestGetHDFSFileInfo {
                 runner.assertNotValid();
             }
         }
-        assertEquals(matchCount, 9);
+        assertEquals(9, matchCount);
     }
 
     @Test
@@ -632,7 +629,7 @@ public class TestGetHDFSFileInfo {
                 runner.assertNotValid();
             }
         }
-        assertEquals(matchCount, 5);
+        assertEquals(5, matchCount);
     }
 
     @Test

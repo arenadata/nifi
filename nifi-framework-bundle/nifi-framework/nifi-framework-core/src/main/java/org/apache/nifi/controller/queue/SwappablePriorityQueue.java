@@ -178,6 +178,39 @@ public class SwappablePriorityQueue {
         }
     }
 
+    /**
+     * Acquires the queue's write lock so the caller can freeze all mutating operations
+     * (put/poll/swap/drop) on this queue until {@link #unlockForSnapshot()} is called. Used by
+     * load-balanced queues to capture a consistent snapshot across all of their partitions.
+     */
+    public void lockForSnapshot() {
+        writeLock.lock();
+    }
+
+    public void unlockForSnapshot() {
+        writeLock.unlock("snapshot");
+    }
+
+    public FlowFileQueueSnapshot getQueueSnapshot() {
+        readLock.lock();
+        try {
+            final QueueSize snapshotSize = getFlowFileQueueSize().toQueueSize();
+            // java.util.PriorityQueue iterates in heap order, not priority/poll order. Re-heap into a fresh
+            // PriorityQueue using the same prioritizer and drain it to capture the FlowFiles in the order
+            // a caller would receive them via poll() — i.e. true queue order.
+            final Queue<FlowFileRecord> ordered = new PriorityQueue<>(Math.max(1, activeQueue.size()), new QueuePrioritizer(getPriorities()));
+            ordered.addAll(activeQueue);
+            final List<FlowFileRecord> snapshotActiveFlowFiles = new ArrayList<>(ordered.size());
+            FlowFileRecord next;
+            while ((next = ordered.poll()) != null) {
+                snapshotActiveFlowFiles.add(next);
+            }
+            return new FlowFileQueueSnapshot(snapshotSize, snapshotActiveFlowFiles);
+        } finally {
+            readLock.unlock("getQueueSnapshot");
+        }
+    }
+
     public boolean isUnacknowledgedFlowFile() {
         return getFlowFileQueueSize().getUnacknowledgedCount() > 0;
     }
@@ -826,7 +859,7 @@ public class SwappablePriorityQueue {
                 } catch (final IOException ioe) {
                     logger.error("Failed to drop the FlowFiles from queue {}", getQueueIdentifier(), ioe);
 
-                    dropRequest.setState(DropFlowFileState.FAILURE, "Failed to drop FlowFiles due to " + ioe.toString());
+                    dropRequest.setState(DropFlowFileState.FAILURE, "Failed to drop FlowFiles due to " + ioe);
                     return;
                 }
 
@@ -848,7 +881,7 @@ public class SwappablePriorityQueue {
                 } catch (final IOException ioe) {
                     logger.error("Failed to drop the FlowFiles from queue {}", getQueueIdentifier(), ioe);
 
-                    dropRequest.setState(DropFlowFileState.FAILURE, "Failed to drop FlowFiles due to " + ioe.toString());
+                    dropRequest.setState(DropFlowFileState.FAILURE, "Failed to drop FlowFiles due to " + ioe);
                     return;
                 }
 
@@ -891,7 +924,7 @@ public class SwappablePriorityQueue {
                                 + ". The FlowFiles contained in this Swap File will not be dropped from the queue");
                         }
 
-                        dropRequest.setState(DropFlowFileState.FAILURE, "Failed to swap in FlowFiles from Swap File " + swapLocation + " due to " + ioe.toString());
+                        dropRequest.setState(DropFlowFileState.FAILURE, String.format("Failed to swap in FlowFiles from Swap File %s due to %s", swapLocation, ioe));
                         if (swapContents != null) {
                             activeQueue.addAll(swapContents.getFlowFiles()); // ensure that we don't lose the FlowFiles from our queue.
                         }
@@ -915,7 +948,7 @@ public class SwappablePriorityQueue {
                 dropRequest.setState(DropFlowFileState.COMPLETE);
             } catch (final Exception e) {
                 logger.error("Failed to drop FlowFiles from Connection with ID {}", getQueueIdentifier(), e);
-                dropRequest.setState(DropFlowFileState.FAILURE, "Failed to drop FlowFiles due to " + e.toString());
+                dropRequest.setState(DropFlowFileState.FAILURE, "Failed to drop FlowFiles due to " + e);
             }
         } finally {
             writeLock.unlock("Drop FlowFiles");
@@ -1146,7 +1179,7 @@ public class SwappablePriorityQueue {
                 logger.error("", ioe);
                 if (eventReporter != null) {
                     eventReporter.reportEvent(Severity.ERROR, "FlowFile Swapping", "Failed to determine whether or not any Swap Files exist for FlowFile Queue " +
-                        getQueueIdentifier() + "; see logs for more detials");
+                        getQueueIdentifier() + "; see logs for more details");
                 }
                 return null;
             }

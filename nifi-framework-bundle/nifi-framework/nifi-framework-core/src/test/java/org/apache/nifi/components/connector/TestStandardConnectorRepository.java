@@ -24,6 +24,7 @@ import org.apache.nifi.components.ConfigVerificationResult;
 import org.apache.nifi.components.connector.components.FlowContext;
 import org.apache.nifi.components.connector.components.FlowContextType;
 import org.apache.nifi.components.connector.secrets.SecretsManager;
+import org.apache.nifi.controller.MockStateManagerProvider;
 import org.apache.nifi.controller.ParameterProviderNode;
 import org.apache.nifi.controller.flow.FlowManager;
 import org.apache.nifi.controller.queue.QueueSize;
@@ -36,6 +37,7 @@ import org.apache.nifi.flow.VersionedExternalFlow;
 import org.apache.nifi.flow.VersionedProcessGroup;
 import org.apache.nifi.groups.ProcessGroup;
 import org.apache.nifi.logging.ComponentLog;
+import org.apache.nifi.migration.ConnectorPropertyConfiguration;
 import org.apache.nifi.nar.ExtensionManager;
 import org.apache.nifi.util.MockComponentLog;
 import org.junit.jupiter.api.Test;
@@ -68,6 +70,7 @@ import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anySet;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
@@ -129,6 +132,127 @@ public class TestStandardConnectorRepository {
         repository.restoreConnector(connector);
         assertEquals(1, repository.getConnectors(ConnectorSyncMode.SYNC_WITH_PROVIDER).size());
         assertEquals(connector, repository.getConnector("connector-1", ConnectorSyncMode.SYNC_WITH_PROVIDER));
+    }
+
+    @Test
+    public void testRestoreConnectorDoesNotCleanUpAssetsBeforeSynchronization() {
+        final AssetManager assetManager = mock(AssetManager.class);
+        final StandardConnectorRepository repository = createRepositoryWithProviderAndAssetManager(null, assetManager);
+
+        // At restore time the Connector's managed flow has not yet been synchronized: its Managed Process Group
+        // and managed Parameter Context are empty, so its flow contexts reference no assets. Deleting assets here
+        // would discard assets that the Connector's not-yet-restored flow still references. A Connector restored in
+        // Troubleshooting mode relies on these assets surviving until restoreTroubleshootingFlow re-establishes the
+        // references, so restoreConnector must not delete any assets.
+        final Asset asset = mock(Asset.class);
+        when(asset.getIdentifier()).thenReturn("asset-1");
+        when(asset.getName()).thenReturn("asset-1.txt");
+
+        final ConnectorNode connector = mock(ConnectorNode.class);
+        when(connector.getIdentifier()).thenReturn("connector-1");
+        when(assetManager.getAssets("connector-1")).thenReturn(List.of(asset));
+
+        repository.restoreConnector(connector);
+
+        verify(assetManager, never()).deleteAsset(anyString());
+    }
+
+    @Test
+    public void testSyncConnectorCleansUpUnreferencedAssets() throws Exception {
+        final AssetManager assetManager = mock(AssetManager.class);
+        final StandardConnectorRepository repository = createRepositoryWithProviderAndAssetManager(null, assetManager);
+
+        final Asset referencedAsset = mock(Asset.class);
+        when(referencedAsset.getIdentifier()).thenReturn("referenced-asset");
+        when(referencedAsset.getName()).thenReturn("referenced.txt");
+
+        final Asset unreferencedAsset = mock(Asset.class);
+        when(unreferencedAsset.getIdentifier()).thenReturn("unreferenced-asset");
+        when(unreferencedAsset.getName()).thenReturn("unreferenced.txt");
+
+        final MutableConnectorConfigurationContext activeConfigContext = mock(MutableConnectorConfigurationContext.class);
+        final ConnectorConfiguration activeConfiguration = new ConnectorConfiguration(Set.of(
+            new NamedStepConfiguration("step1", new StepConfiguration(Map.of("property", new AssetReference(Set.of("referenced-asset")))))
+        ));
+        when(activeConfigContext.toConnectorConfiguration()).thenReturn(activeConfiguration);
+
+        final FrameworkFlowContext activeFlowContext = mock(FrameworkFlowContext.class);
+        when(activeFlowContext.getConfigurationContext()).thenReturn(activeConfigContext);
+
+        final MutableConnectorConfigurationContext workingConfigContext = mock(MutableConnectorConfigurationContext.class);
+        when(workingConfigContext.toConnectorConfiguration()).thenReturn(new ConnectorConfiguration(Set.of()));
+
+        final FrameworkFlowContext workingFlowContext = mock(FrameworkFlowContext.class);
+        when(workingFlowContext.getConfigurationContext()).thenReturn(workingConfigContext);
+
+        final ConnectorNode connector = mock(ConnectorNode.class);
+        when(connector.getIdentifier()).thenReturn("connector-1");
+        when(connector.getCurrentState()).thenReturn(ConnectorState.STOPPED);
+        when(connector.getActiveFlowContext()).thenReturn(activeFlowContext);
+        when(connector.getWorkingFlowContext()).thenReturn(workingFlowContext);
+
+        repository.restoreConnector(connector);
+
+        when(assetManager.getAssets("connector-1")).thenReturn(List.of(referencedAsset, unreferencedAsset));
+
+        final VersionedConnector versioned = createVersionedConnector("connector-1", "Test Connector", VersionedConnectorState.ENABLED, List.of());
+        repository.syncConnector(versioned);
+
+        verify(assetManager).deleteAsset("unreferenced-asset");
+        verify(assetManager, never()).deleteAsset("referenced-asset");
+    }
+
+    @Test
+    public void testSyncConnectorSkipsAssetCleanupWhileMigrationInProgress() throws Exception {
+        final AssetManager assetManager = mock(AssetManager.class);
+        final StandardConnectorRepository repository = createRepositoryWithProviderAndAssetManager(null, assetManager);
+
+        final Asset unreferencedAsset = mock(Asset.class);
+        when(unreferencedAsset.getIdentifier()).thenReturn("copied-during-migration");
+        when(unreferencedAsset.getName()).thenReturn("copied.txt");
+
+        final ConnectorNode connector = createConnectorNodeWithEmptyWorkingConfig("connector-1", "Test Connector");
+        when(connector.getCurrentState()).thenReturn(ConnectorState.STOPPED);
+        repository.restoreConnector(connector);
+
+        when(assetManager.getAssets("connector-1")).thenReturn(List.of(unreferencedAsset));
+
+        final VersionedConnector versioned = createVersionedConnector("connector-1", "Test Connector", VersionedConnectorState.ENABLED, List.of());
+
+        // While a migration is in progress, a sync must not reclaim assets the migration may have copied before the
+        // managed Process Group is rebuilt to reference them, even though they appear unreferenced.
+        repository.beginMigration("connector-1");
+        repository.syncConnector(versioned);
+        verify(assetManager, never()).deleteAsset(anyString());
+
+        // Once the migration completes, the next sync reclaims the now-genuinely-unreferenced asset.
+        repository.endMigration("connector-1");
+        repository.syncConnector(versioned);
+        verify(assetManager).deleteAsset("copied-during-migration");
+    }
+
+    @Test
+    public void testSyncConnectorInTroubleshootingDoesNotCleanUpAssets() throws Exception {
+        final AssetManager assetManager = mock(AssetManager.class);
+        final StandardConnectorRepository repository = createRepositoryWithProviderAndAssetManager(null, assetManager);
+
+        // An Asset uploaded while in Troubleshooting mode may not be referenced by the experimental flow yet, and the
+        // user may have temporarily overridden the authoritative Asset reference. Restoring the Connector in
+        // Troubleshooting mode must therefore retain every Asset rather than deleting those that appear unreferenced.
+        final Asset unreferencedAsset = mock(Asset.class);
+        when(unreferencedAsset.getIdentifier()).thenReturn("uploaded-during-troubleshooting");
+        when(unreferencedAsset.getName()).thenReturn("uploaded.txt");
+
+        final ConnectorNode connector = createConnectorNodeWithEmptyWorkingConfig("connector-1", "Test Connector");
+        when(connector.getCurrentState()).thenReturn(ConnectorState.STOPPED);
+        repository.restoreConnector(connector);
+
+        when(assetManager.getAssets("connector-1")).thenReturn(List.of(unreferencedAsset));
+
+        final VersionedConnector versioned = createVersionedConnector("connector-1", "Test Connector", VersionedConnectorState.TROUBLESHOOTING, List.of());
+        repository.syncConnector(versioned);
+
+        verify(assetManager, never()).deleteAsset(anyString());
     }
 
     @Test
@@ -274,7 +398,7 @@ public class TestStandardConnectorRepository {
     }
 
     @Test
-    public void testGetConnectorWithProviderThrowsException() {
+    public void testGetConnectorToleratesProviderException() {
         final ConnectorConfigurationProvider provider = mock(ConnectorConfigurationProvider.class);
         final StandardConnectorRepository repository = createRepositoryWithProvider(provider);
 
@@ -283,8 +407,48 @@ public class TestStandardConnectorRepository {
 
         when(provider.load("connector-1")).thenThrow(new ConnectorConfigurationProviderException("Provider failure"));
 
-        assertThrows(ConnectorConfigurationProviderException.class, () -> repository.getConnector("connector-1", ConnectorSyncMode.SYNC_WITH_PROVIDER));
+        // A configuration-load failure on a read must not propagate: the connector must remain readable
+        // (and therefore deletable). The node is returned with its existing state untouched -- in particular
+        // it is NOT marked invalid, so a transient failure does not leave a healthy connector permanently
+        // invalid (markInvalid is not cleared by a subsequent successful read).
+        final ConnectorNode result = repository.getConnector("connector-1", ConnectorSyncMode.SYNC_WITH_PROVIDER);
+
+        assertNotNull(result);
+        assertEquals(connector, result);
+        verify(connector, never()).markInvalid(anyString(), anyString());
         verify(connector, never()).setName(anyString());
+    }
+
+    @Test
+    public void testGetConnectorsToleratesProviderException() {
+        final ConnectorConfigurationProvider provider = mock(ConnectorConfigurationProvider.class);
+        final StandardConnectorRepository repository = createRepositoryWithProvider(provider);
+
+        final ConnectorNode connector = createSimpleConnectorNode("connector-1", "Original Name");
+        repository.addConnector(connector);
+
+        when(provider.load("connector-1")).thenThrow(new ConnectorConfigurationProviderException("Provider failure"));
+
+        final List<ConnectorNode> results = repository.getConnectors(ConnectorSyncMode.SYNC_WITH_PROVIDER);
+
+        assertEquals(1, results.size());
+        assertTrue(results.contains(connector));
+        verify(connector, never()).markInvalid(anyString(), anyString());
+        verify(connector, never()).setName(anyString());
+    }
+
+    @Test
+    public void testAddConnectorPropagatesProviderException() {
+        final ConnectorConfigurationProvider provider = mock(ConnectorConfigurationProvider.class);
+        final StandardConnectorRepository repository = createRepositoryWithProvider(provider);
+
+        final ConnectorNode connector = createSimpleConnectorNode("connector-1", "Original Name");
+        when(provider.load("connector-1")).thenThrow(new ConnectorConfigurationProviderException("Provider failure"));
+
+        // Write paths must remain strict: a configuration-load failure during create must propagate so that
+        // create/apply-config does not silently proceed on a bad configuration (only reads are made tolerant).
+        assertThrows(ConnectorConfigurationProviderException.class, () -> repository.addConnector(connector));
+        verify(connector, never()).markInvalid(anyString(), anyString());
     }
 
     @Test
@@ -913,7 +1077,7 @@ public class TestStandardConnectorRepository {
         // Step 1: provider.syncAssets() called
         verify(provider).syncAssets("connector-1");
         // Step 2: provider.load() called to reload updated config (may also have been called during addConnector)
-        verify(provider, org.mockito.Mockito.atLeastOnce()).load("connector-1");
+        verify(provider, atLeastOnce()).load("connector-1");
     }
 
     @Test
@@ -1016,6 +1180,34 @@ public class TestStandardConnectorRepository {
 
         verify(connector, timeout(5000)).abortUpdate(any(FlowUpdateException.class));
         verify(connector, never()).markInvalid(anyString(), anyString());
+    }
+
+    @Test
+    public void testApplyUpdateAbortsWhenClusterStateRepeatedlyUnavailable() throws Exception {
+        final StandardConnectorRepository repository = new StandardConnectorRepository();
+        final ConnectorRepositoryInitializationContext initContext = mock(ConnectorRepositoryInitializationContext.class);
+        when(initContext.getFlowManager()).thenReturn(mock(FlowManager.class));
+        when(initContext.getExtensionManager()).thenReturn(mock(ExtensionManager.class));
+
+        final AssetManager assetManager = mock(AssetManager.class);
+        when(assetManager.getAssets("connector-1")).thenReturn(List.of());
+        when(initContext.getAssetManager()).thenReturn(assetManager);
+
+        final ConnectorRequestReplicator requestReplicator = mock(ConnectorRequestReplicator.class);
+        when(requestReplicator.getState(anyString())).thenThrow(new IOException("cluster state unavailable"));
+        when(initContext.getRequestReplicator()).thenReturn(requestReplicator);
+        repository.initialize(initContext);
+
+        final ConnectorNode connector = mock(ConnectorNode.class);
+        when(connector.getIdentifier()).thenReturn("connector-1");
+        when(connector.getDesiredState()).thenReturn(ConnectorState.STOPPED);
+        repository.addConnector(connector);
+
+        repository.applyUpdate(connector, mock(ConnectorUpdateContext.class));
+
+        // An inability to read cluster state must abort the update rather than retry indefinitely. The IOException
+        // propagates out of waitForState and is handed to abortUpdate, rather than being swallowed by a retry loop.
+        verify(connector, timeout(5000)).abortUpdate(any(IOException.class));
     }
 
     @Test
@@ -1688,6 +1880,61 @@ public class TestStandardConnectorRepository {
         verify(connector).setCustomLoggingAttributes(expected);
     }
 
+    @Test
+    public void testVerifyMigrationDelegatesToProvider() {
+        final ConnectorConfigurationProvider provider = mock(ConnectorConfigurationProvider.class);
+        final StandardConnectorRepository repository = createRepositoryWithProvider(provider);
+
+        repository.verifyMigration("connector-1");
+        verify(provider).verifyMigration("connector-1");
+
+        doThrow(new ConnectorConfigurationProviderException("provider rejected")).when(provider).verifyMigration("connector-1");
+        assertThrows(ConnectorConfigurationProviderException.class, () -> repository.verifyMigration("connector-1"));
+    }
+
+    @Test
+    public void testVerifyMigrationWithNullProviderIsNoOp() {
+        final StandardConnectorRepository repository = createRepositoryWithProvider(null);
+        repository.verifyMigration("connector-1");
+    }
+
+    @Test
+    public void testNotifyMigrationCompleteDelegatesToProvider() {
+        final ConnectorConfigurationProvider provider = mock(ConnectorConfigurationProvider.class);
+        final StandardConnectorRepository repository = createRepositoryWithProvider(provider);
+
+        repository.notifyMigrationComplete("connector-1", "source-group");
+        verify(provider).migrationComplete("connector-1", "source-group");
+
+        repository.notifyMigrationComplete("connector-1", null);
+        verify(provider).migrationComplete("connector-1", null);
+    }
+
+    @Test
+    public void testNotifyMigrationCompleteWithNullProviderIsNoOp() {
+        final StandardConnectorRepository repository = createRepositoryWithProvider(null);
+        repository.notifyMigrationComplete("connector-1", "source-group");
+    }
+
+    @Test
+    public void testNotifyMigrationCompleteSavesWorkingConfigurationToProvider() {
+        final ConnectorConfigurationProvider provider = mock(ConnectorConfigurationProvider.class);
+        final StandardConnectorRepository repository = createRepositoryWithProvider(provider);
+
+        final ConnectorNode connector = createConnectorNodeWithEmptyWorkingConfig("connector-1", "Test Connector");
+        repository.addConnector(connector);
+
+        // notifyMigrationComplete runs after commitMigratedConfiguration has already written the merged configuration
+        // onto the active configuration and rebuilt the working flow context from it, so the working flow context
+        // reflects the migrated configuration by the time this call is made.
+        repository.notifyMigrationComplete("connector-1", "source-group");
+
+        final ArgumentCaptor<ConnectorWorkingConfiguration> configCaptor = ArgumentCaptor.forClass(ConnectorWorkingConfiguration.class);
+        verify(provider).save(eq("connector-1"), configCaptor.capture());
+        assertEquals("Test Connector", configCaptor.getValue().getName());
+        verify(provider).migrationComplete("connector-1", "source-group");
+    }
+
     // --- Helper Methods ---
 
     private StandardConnectorRepository createRepositoryWithProviderAndAssetManager(
@@ -1842,7 +2089,7 @@ public class TestStandardConnectorRepository {
         final ConnectorDetails connectorDetails = new ConnectorDetails(connector, bundleCoordinate, componentLog);
 
         final StandardConnectorNode node = new StandardConnectorNode(
-                identifier, mock(FlowManager.class), extensionManager, null, connectorDetails,
+                identifier, mock(FlowManager.class), extensionManager, new MockStateManagerProvider(), null, connectorDetails,
                 "TestConnector", connector.getClass().getCanonicalName(),
                 new StandardConnectorConfigurationContext(assetManager, secretsManager),
                 stateTransition, flowContextFactory, validationTrigger, false);
@@ -1926,6 +2173,188 @@ public class TestStandardConnectorRepository {
 
         public void reset() {
             onStepConfiguredCalls.clear();
+        }
+    }
+
+    @Test
+    public void testInheritConfigurationMigratesActiveAndWorkingIndependently() throws FlowUpdateException {
+        final MigratingConnector connector = new MigratingConnector();
+        connector.setMigration(config -> config.forStep("step1").renameProperty("legacy", "renamed"));
+        final StandardConnectorNode node = createRealConnectorNode("connector-1", connector);
+
+        final Bundle bundle = new Bundle();
+        bundle.setGroup("org.apache.nifi");
+        bundle.setArtifact("test-bundle");
+        bundle.setVersion("1.0.0");
+
+        final VersionedConfigurationStep activeStep = createVersionedStep("step1",
+                Map.of("legacy", createStringLiteralRef("active-value")));
+        final VersionedConfigurationStep workingStep = createVersionedStep("step1",
+                Map.of("legacy", createStringLiteralRef("working-value")));
+
+        node.transitionStateForUpdating();
+        node.prepareForUpdate();
+        node.inheritConfiguration(List.of(activeStep), List.of(workingStep), bundle);
+
+        assertNotSame(node.getActiveFlowContext().getConfigurationContext(),
+                node.getWorkingFlowContext().getConfigurationContext());
+        assertEquals("active-value",
+                node.getActiveFlowContext().getConfigurationContext().getProperty("step1", "renamed").getValue());
+        assertEquals("working-value",
+                node.getWorkingFlowContext().getConfigurationContext().getProperty("step1", "renamed").getValue());
+        assertFalse(node.getActiveFlowContext().getConfigurationContext().getPropertyNames("step1").contains("legacy"));
+        assertFalse(node.getWorkingFlowContext().getConfigurationContext().getPropertyNames("step1").contains("legacy"));
+    }
+
+    @Test
+    public void testInheritConfigurationInvokesMigratePropertiesWithEmptyStepLists() throws FlowUpdateException {
+        final MigratingConnector connector = new MigratingConnector();
+        connector.setMigration(config -> config.forStep("added-by-migration").setProperty("prop", "value"));
+        final StandardConnectorNode node = createRealConnectorNode("connector-1", connector);
+
+        final Bundle bundle = new Bundle();
+        bundle.setGroup("org.apache.nifi");
+        bundle.setArtifact("test-bundle");
+        bundle.setVersion("1.0.0");
+
+        node.transitionStateForUpdating();
+        node.prepareForUpdate();
+        node.inheritConfiguration(List.of(), List.of(), bundle);
+
+        assertNotSame(node.getActiveFlowContext().getConfigurationContext(),
+                node.getWorkingFlowContext().getConfigurationContext());
+        assertEquals("value",
+                node.getActiveFlowContext().getConfigurationContext().getProperty("added-by-migration", "prop").getValue());
+        assertEquals("value",
+                node.getWorkingFlowContext().getConfigurationContext().getProperty("added-by-migration", "prop").getValue());
+    }
+
+    @Test
+    public void testMigratePropertiesRenamePropertyPropagatesToLiveConfiguration() throws FlowUpdateException {
+        final MigratingConnector connector = new MigratingConnector();
+        connector.setMigration(config -> config.forStep("step1").renameProperty("legacy", "renamed"));
+        final StandardConnectorNode node = createRealConnectorNode("connector-1", connector);
+
+        final Bundle bundle = new Bundle();
+        bundle.setGroup("org.apache.nifi");
+        bundle.setArtifact("test-bundle");
+        bundle.setVersion("1.0.0");
+
+        final VersionedConfigurationStep step = createVersionedStep("step1", Map.of("legacy", createStringLiteralRef("kept-value")));
+        node.transitionStateForUpdating();
+        node.prepareForUpdate();
+        node.inheritConfiguration(List.of(step), List.of(step), bundle);
+
+        final Set<String> workingPropertyNames = node.getWorkingFlowContext().getConfigurationContext().getPropertyNames("step1");
+        assertTrue(workingPropertyNames.contains("renamed"));
+        assertFalse(workingPropertyNames.contains("legacy"));
+        assertEquals("kept-value", node.getWorkingFlowContext().getConfigurationContext().getProperty("step1", "renamed").getValue());
+
+        final Set<String> activePropertyNames = node.getActiveFlowContext().getConfigurationContext().getPropertyNames("step1");
+        assertTrue(activePropertyNames.contains("renamed"));
+        assertFalse(activePropertyNames.contains("legacy"));
+    }
+
+    @Test
+    public void testMigratePropertiesRemovePropertyPropagatesToLiveConfiguration() throws FlowUpdateException {
+        final MigratingConnector connector = new MigratingConnector();
+        connector.setMigration(config -> config.forStep("step1").removeProperty("obsolete"));
+        final StandardConnectorNode node = createRealConnectorNode("connector-1", connector);
+
+        final Bundle bundle = new Bundle();
+        bundle.setGroup("org.apache.nifi");
+        bundle.setArtifact("test-bundle");
+        bundle.setVersion("1.0.0");
+
+        final VersionedConfigurationStep step = createVersionedStep("step1",
+                Map.of("obsolete", createStringLiteralRef("gone"), "kept", createStringLiteralRef("value")));
+        node.transitionStateForUpdating();
+        node.prepareForUpdate();
+        node.inheritConfiguration(List.of(step), List.of(step), bundle);
+
+        final Set<String> propertyNames = node.getWorkingFlowContext().getConfigurationContext().getPropertyNames("step1");
+        assertFalse(propertyNames.contains("obsolete"));
+        assertTrue(propertyNames.contains("kept"));
+    }
+
+    @Test
+    public void testMigratePropertiesAddPropertyPropagatesToLiveConfiguration() throws FlowUpdateException {
+        final MigratingConnector connector = new MigratingConnector();
+        connector.setMigration(config -> config.forStep("step1").setProperty("added", "new-value"));
+        final StandardConnectorNode node = createRealConnectorNode("connector-1", connector);
+
+        final Bundle bundle = new Bundle();
+        bundle.setGroup("org.apache.nifi");
+        bundle.setArtifact("test-bundle");
+        bundle.setVersion("1.0.0");
+
+        final VersionedConfigurationStep step = createVersionedStep("step1", Map.of("original", createStringLiteralRef("v")));
+        node.transitionStateForUpdating();
+        node.prepareForUpdate();
+        node.inheritConfiguration(List.of(step), List.of(step), bundle);
+
+        final Set<String> propertyNames = node.getWorkingFlowContext().getConfigurationContext().getPropertyNames("step1");
+        assertTrue(propertyNames.contains("added"));
+        assertEquals("new-value", node.getWorkingFlowContext().getConfigurationContext().getProperty("step1", "added").getValue());
+    }
+
+    @Test
+    public void testMigratePropertiesRenameStepPreservesAllPropertiesAndFiresCallback() throws FlowUpdateException {
+        final MigratingConnector connector = new MigratingConnector();
+        connector.setMigration(config -> config.renameStep("old-step", "new-step"));
+        final StandardConnectorNode node = createRealConnectorNode("connector-1", connector);
+
+        final Bundle bundle = new Bundle();
+        bundle.setGroup("org.apache.nifi");
+        bundle.setArtifact("test-bundle");
+        bundle.setVersion("1.0.0");
+
+        final VersionedConfigurationStep step = createVersionedStep("old-step",
+                Map.of("a", createStringLiteralRef("A"), "b", createStringLiteralRef("B")));
+        node.transitionStateForUpdating();
+        node.prepareForUpdate();
+        node.inheritConfiguration(List.of(step), List.of(step), bundle);
+
+        assertTrue(node.getWorkingFlowContext().getConfigurationContext().getPropertyNames("old-step").isEmpty());
+        final Set<String> newStepProperties = node.getWorkingFlowContext().getConfigurationContext().getPropertyNames("new-step");
+        assertEquals(Set.of("a", "b"), newStepProperties);
+        assertEquals("A", node.getWorkingFlowContext().getConfigurationContext().getProperty("new-step", "a").getValue());
+        assertEquals("B", node.getWorkingFlowContext().getConfigurationContext().getProperty("new-step", "b").getValue());
+
+        assertTrue(connector.wasOnStepConfiguredCalled("new-step"));
+    }
+
+    @Test
+    public void testMigratePropertiesRemoveStepDropsAllProperties() throws FlowUpdateException {
+        final MigratingConnector connector = new MigratingConnector();
+        connector.setMigration(config -> config.removeStep("obsolete-step"));
+        final StandardConnectorNode node = createRealConnectorNode("connector-1", connector);
+
+        final Bundle bundle = new Bundle();
+        bundle.setGroup("org.apache.nifi");
+        bundle.setArtifact("test-bundle");
+        bundle.setVersion("1.0.0");
+
+        final VersionedConfigurationStep obsolete = createVersionedStep("obsolete-step", Map.of("a", createStringLiteralRef("A")));
+        final VersionedConfigurationStep survivor = createVersionedStep("survivor", Map.of("b", createStringLiteralRef("B")));
+        node.transitionStateForUpdating();
+        node.prepareForUpdate();
+        node.inheritConfiguration(List.of(obsolete, survivor), List.of(obsolete, survivor), bundle);
+
+        assertTrue(node.getWorkingFlowContext().getConfigurationContext().getPropertyNames("obsolete-step").isEmpty());
+        assertEquals(Set.of("b"), node.getWorkingFlowContext().getConfigurationContext().getPropertyNames("survivor"));
+    }
+
+    private static class MigratingConnector extends TrackingConnector {
+        private java.util.function.Consumer<ConnectorPropertyConfiguration> migration = config -> { };
+
+        public void setMigration(final java.util.function.Consumer<ConnectorPropertyConfiguration> migration) {
+            this.migration = migration;
+        }
+
+        @Override
+        public void migrateProperties(final ConnectorPropertyConfiguration config) {
+            migration.accept(config);
         }
     }
 }

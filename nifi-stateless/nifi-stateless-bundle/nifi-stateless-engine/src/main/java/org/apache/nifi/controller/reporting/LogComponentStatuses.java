@@ -20,8 +20,8 @@ package org.apache.nifi.controller.reporting;
 import org.apache.nifi.controller.Counter;
 import org.apache.nifi.controller.ProcessorNode;
 import org.apache.nifi.controller.flow.FlowManager;
+import org.apache.nifi.controller.metrics.ProcessSessionEvent;
 import org.apache.nifi.controller.repository.CounterRepository;
-import org.apache.nifi.controller.repository.FlowFileEvent;
 import org.apache.nifi.controller.repository.FlowFileEventRepository;
 import org.apache.nifi.groups.ProcessGroup;
 import org.apache.nifi.util.FormatUtils;
@@ -96,7 +96,7 @@ public class LogComponentStatuses implements Runnable {
         long totalNanos = 0L;
         final List<ProcessorAndEvent> processorsAndEvents = new ArrayList<>();
         for (final ProcessorNode processorNode : allProcessors) {
-            final FlowFileEvent flowFileEvent = flowFileEventRepository.reportTransferEvents(processorNode.getIdentifier(), timestamp);
+            final ProcessSessionEvent flowFileEvent = flowFileEventRepository.reportTransferEvents(processorNode.getIdentifier(), timestamp);
             if (flowFileEvent == null) {
                 continue;
             }
@@ -126,14 +126,14 @@ public class LogComponentStatuses implements Runnable {
 
     private void addStatus(final ProcessorAndEvent processorAndEvent, final StringBuilder builder, final int secondsInEvent, final long totalNanos) {
         final ProcessorNode processorNode = processorAndEvent.getProcessorNode();
-        final FlowFileEvent flowFileEvent = processorAndEvent.getEvent();
+        final ProcessSessionEvent flowFileEvent = processorAndEvent.getEvent();
 
         final long bytesReadPerSecond = flowFileEvent.getBytesRead() / secondsInEvent;
         final long bytesWrittenPerSecond = flowFileEvent.getBytesWritten() / secondsInEvent;
-        final double invocations = (double) flowFileEvent.getInvocations() / (double) secondsInEvent;
+        final double invocations = (double) flowFileEvent.getInvocations() / secondsInEvent;
         final long nanos = flowFileEvent.getProcessingNanoseconds();
-        final double nanosPer = (double) nanos / invocations;
-        final double nanosRatio = (double) nanos / (double) totalNanos;
+        final double nanosPer = nanos / invocations;
+        final double nanosRatio = (double) nanos / totalNanos;
         final double processingPercent = nanosRatio * 100D;
         final String processingPercentTwoDecimals = String.format("%.2f %%", processingPercent);
 
@@ -164,7 +164,7 @@ public class LogComponentStatuses implements Runnable {
 
         final long now = System.currentTimeMillis();
         final long millisSinceLastTrigger = now - lastTriggerTime;
-        final double secondsSinceLastTrigger = (double) millisSinceLastTrigger / 1000D;
+        final double secondsSinceLastTrigger = millisSinceLastTrigger / 1000D;
         lastTriggerTime = now;
 
         final List<Counter> counters = counterRepository.getCounters();
@@ -175,7 +175,7 @@ public class LogComponentStatuses implements Runnable {
             final long lastValue = previousCounterValues.getOrDefault(counterId, 0L);
             previousCounterValues.put(counterId, counter.getValue());
             final long increaseSinceLast = counter.getValue() - lastValue;
-            final double increasePerSecond = (double) increaseSinceLast / secondsSinceLastTrigger;
+            final double increasePerSecond = increaseSinceLast / secondsSinceLastTrigger;
             final String increase = String.format("%.2f", increasePerSecond);
 
             builder.append(String.format(COUNTER_LINE_FORMAT, counter.getContext(), counter.getName(), counter.getValue(), increase));
@@ -187,9 +187,9 @@ public class LogComponentStatuses implements Runnable {
 
     private static class ProcessorAndEvent {
         private final ProcessorNode processorNode;
-        private final FlowFileEvent event;
+        private final ProcessSessionEvent event;
 
-        public ProcessorAndEvent(final ProcessorNode processorNode, final FlowFileEvent event) {
+        public ProcessorAndEvent(final ProcessorNode processorNode, final ProcessSessionEvent event) {
             this.processorNode = processorNode;
             this.event = event;
         }
@@ -198,7 +198,7 @@ public class LogComponentStatuses implements Runnable {
             return processorNode;
         }
 
-        public FlowFileEvent getEvent() {
+        public ProcessSessionEvent getEvent() {
             return event;
         }
     }

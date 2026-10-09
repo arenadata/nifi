@@ -18,7 +18,7 @@
     <parent>
         <groupId>org.apache.nifi</groupId>
         <artifactId>nifi-standard-shared-bom</artifactId>
-        <version>2.10.0.1</version>
+        <version>2.12.0.1</version>
         <relativePath>../nifi-standard-shared-bundle/nifi-standard-shared-bom</relativePath>
     </parent>
     <artifactId>nifi-standard-bundle</artifactId>
@@ -34,34 +34,34 @@
         <module>nifi-standard-content-viewer-nar</module>
     </modules>
     <properties>
-        <tika.version>3.3.1</tika.version>
+        <tika.version>4.0.0</tika.version>
     </properties>
     <dependencyManagement>
         <dependencies>
             <dependency>
                 <groupId>org.apache.nifi</groupId>
                 <artifactId>nifi-standard-processors</artifactId>
-                <version>2.10.0.1</version>
+                <version>2.12.0.1</version>
             </dependency>
             <dependency>
                 <groupId>org.apache.nifi</groupId>
                 <artifactId>nifi-expression-language</artifactId>
-                <version>2.10.0.1</version>
+                <version>2.12.0.1</version>
             </dependency>
             <dependency>
                 <groupId>org.apache.nifi</groupId>
                 <artifactId>nifi-standard-reporting-tasks</artifactId>
-                <version>2.10.0.1</version>
+                <version>2.12.0.1</version>
             </dependency>
             <dependency>
                 <groupId>org.apache.nifi</groupId>
                 <artifactId>nifi-standard-rules</artifactId>
-                <version>2.10.0.1</version>
+                <version>2.12.0.1</version>
             </dependency>
             <dependency>
                 <groupId>org.apache.nifi</groupId>
                 <artifactId>nifi-standard-parameter-providers</artifactId>
-                <version>2.10.0.1</version>
+                <version>2.12.0.1</version>
             </dependency>
             <dependency>
                 <groupId>jakarta.activation</groupId>
@@ -106,7 +106,7 @@
             <dependency>
                 <groupId>net.sf.saxon</groupId>
                 <artifactId>Saxon-HE</artifactId>
-                <version>12.9</version>
+                <version>12.10</version>
             </dependency>
             <dependency>
                 <groupId>javax.jms</groupId>
@@ -147,7 +147,7 @@
             <dependency>
                 <groupId>com.github.wnameless.json</groupId>
                 <artifactId>json-flattener</artifactId>
-                <version>0.18.1</version>
+                <version>0.18.3</version>
             </dependency>
             <dependency>
                 <groupId>io.krakens</groupId>
@@ -174,6 +174,16 @@
                         <artifactId>commons-logging</artifactId>
                     </exclusion>
                 </exclusions>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.httpcomponents.core5</groupId>
+                <artifactId>httpcore5</artifactId>
+                <version>${org.apache.httpcomponents.httpcore5.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.httpcomponents.core5</groupId>
+                <artifactId>httpcore5-h2</artifactId>
+                <version>${org.apache.httpcomponents.httpcore5.version}</version>
             </dependency>
             <!-- Override Commons Compiler 3.1.9 from calcite-core -->
             <dependency>
@@ -209,12 +219,12 @@
             <dependency>
                 <groupId>com.google.guava</groupId>
                 <artifactId>guava</artifactId>
-                <version>33.6.0-jre</version>
+                <version>33.7.1-jre</version>
             </dependency>
             <dependency>
                 <groupId>com.networknt</groupId>
                 <artifactId>json-schema-validator</artifactId>
-                <version>2.0.1</version>
+                <version>2.0.7</version>
             </dependency>
         </dependencies>
     </dependencyManagement>

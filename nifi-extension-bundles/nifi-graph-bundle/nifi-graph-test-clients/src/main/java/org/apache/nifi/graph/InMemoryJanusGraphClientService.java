@@ -50,7 +50,7 @@ public class InMemoryJanusGraphClientService extends AbstractControllerService i
      * @param query A gremlin query (Groovy syntax)
      * @param parameters A map of parameters to be injected into the script. This can be structured the way you would
      *                   expect a REST API call to Gremlin Server.
-     * @param handler The callback for parsing the rsponse.
+     * @param handler The callback for parsing the response.
      * @return Empty map. This API feature is only filled with values typically when dealing with Cypher clients, Neo4J
      * in particular.
      */
@@ -65,8 +65,7 @@ public class InMemoryJanusGraphClientService extends AbstractControllerService i
         try {
             Object response = engine.eval(query);
 
-            if (response instanceof Map) {
-                Map resp = (Map) response;
+            if (response instanceof final Map resp) {
                 Map<String, Object> result = new HashMap<>();
                 result.put("result", resp.entrySet().iterator().next());
                 handler.process(result, false);

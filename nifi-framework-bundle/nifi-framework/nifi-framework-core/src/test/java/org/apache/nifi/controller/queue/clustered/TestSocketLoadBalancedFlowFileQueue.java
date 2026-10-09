@@ -26,6 +26,7 @@ import org.apache.nifi.connectable.Connection;
 import org.apache.nifi.controller.MockFlowFileRecord;
 import org.apache.nifi.controller.MockSwapManager;
 import org.apache.nifi.controller.ProcessScheduler;
+import org.apache.nifi.controller.queue.FlowFileQueueSnapshot;
 import org.apache.nifi.controller.queue.QueueSize;
 import org.apache.nifi.controller.queue.clustered.client.async.AsyncLoadBalanceClientRegistry;
 import org.apache.nifi.controller.queue.clustered.partition.FlowFilePartitioner;
@@ -47,7 +48,6 @@ import org.apache.nifi.provenance.StandardProvenanceEventRecord;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
-import org.mockito.Mockito;
 import org.mockito.stubbing.Answer;
 
 import java.io.IOException;
@@ -61,6 +61,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -69,6 +72,7 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.Mockito.any;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
@@ -87,8 +91,8 @@ public class TestSocketLoadBalancedFlowFileQueue {
     private List<NodeIdentifier> nodeIds;
     private int nodePort = 4096;
 
-    private List<RepositoryRecord> repoRecords = new ArrayList<>();
-    private List<ProvenanceEventRecord> provRecords = new ArrayList<>();
+    private final List<RepositoryRecord> repoRecords = new ArrayList<>();
+    private final List<ProvenanceEventRecord> provRecords = new ArrayList<>();
 
     @BeforeEach
     @SuppressWarnings("unchecked")
@@ -114,14 +118,14 @@ public class TestSocketLoadBalancedFlowFileQueue {
         nodeIds.add(createNodeIdentifier("11111111-1111-1111-1111-111111111111"));
         nodeIds.add(createNodeIdentifier("22222222-2222-2222-2222-222222222222"));
 
-        Mockito.doAnswer((Answer<Set<NodeIdentifier>>) invocation -> new HashSet<>(nodeIds)).when(clusterCoordinator).getNodeIdentifiers();
+        doAnswer((Answer<Set<NodeIdentifier>>) invocation -> new HashSet<>(nodeIds)).when(clusterCoordinator).getNodeIdentifiers();
 
         when(clusterCoordinator.getLocalNodeIdentifier()).thenReturn(localNodeIdentifier);
 
         doAnswer(invocation -> {
             clusterTopologyEventListener = invocation.getArgument(0);
             return null;
-        }).when(clusterCoordinator).registerEventListener(Mockito.any(ClusterTopologyEventListener.class));
+        }).when(clusterCoordinator).registerEventListener(any(ClusterTopologyEventListener.class));
 
         when(provRepo.eventBuilder()).thenReturn(new StandardProvenanceEventRecord.Builder());
         doAnswer((Answer<Object>) invocation -> {
@@ -130,19 +134,22 @@ public class TestSocketLoadBalancedFlowFileQueue {
                 provRecords.add(record);
             }
             return null;
-        }).when(provRepo).registerEvents(Mockito.any(Iterable.class));
+        }).when(provRepo).registerEvents(any(Iterable.class));
 
         doAnswer((Answer<Object>) invocation -> {
             final Collection<RepositoryRecord> records = (Collection<RepositoryRecord>) invocation.getArguments()[0];
             repoRecords.addAll(records);
             return null;
-        }).when(flowFileRepo).updateRepository(Mockito.any(Collection.class));
+        }).when(flowFileRepo).updateRepository(any(Collection.class));
 
         final ProcessScheduler scheduler = mock(ProcessScheduler.class);
 
         final AsyncLoadBalanceClientRegistry registry = mock(AsyncLoadBalanceClientRegistry.class);
         queue = new SocketLoadBalancedFlowFileQueue("unit-test", scheduler, flowFileRepo, provRepo,
             contentRepo, clusterCoordinator, registry, swapManager, 10000, eventReporter);
+
+        // Load balancing is started for every connection when the flow is initialized, so tests operate on a started queue
+        queue.startLoadBalancing();
     }
 
     private NodeIdentifier createNodeIdentifier() {
@@ -675,6 +682,120 @@ public class TestSocketLoadBalancedFlowFileQueue {
         }
 
         assertEquals(3, queue.getPartitionCount());
+    }
+
+    @Test
+    public void testGetQueueSnapshotReportsClusterWideTotalAcrossPartitions() {
+        // Push two FlowFiles into the local partition and one into a remote partition. The snapshot's
+        // QueueSize must sum every partition on this node, so all three FlowFiles must be counted; the
+        // active list must contain only the local partition's contents (the two locally-routed FlowFiles).
+        // This proves that the snapshot reflects every partition, not just the local one, and that the
+        // active list and the total are mutually consistent.
+        final int localPartitionIndex = determineLocalPartitionIndex();
+        final int remotePartitionIndex = determineRemotePartitionIndex();
+        final int[] sequence = new int[] {localPartitionIndex, localPartitionIndex, remotePartitionIndex};
+        queue.setFlowFilePartitioner(new StaticSequencePartitioner(sequence, false));
+
+        final MockFlowFileRecord firstLocal = new MockFlowFileRecord(10L);
+        final MockFlowFileRecord secondLocal = new MockFlowFileRecord(20L);
+        final MockFlowFileRecord remote = new MockFlowFileRecord(40L);
+        queue.put(firstLocal);
+        queue.put(secondLocal);
+        queue.put(remote);
+
+        final FlowFileQueueSnapshot snapshot = queue.getQueueSnapshot();
+
+        assertEquals(3, snapshot.queueSize().getObjectCount());
+        assertEquals(70L, snapshot.queueSize().getByteCount());
+        assertEquals(2, snapshot.activeFlowFiles().size());
+        assertTrue(snapshot.activeFlowFiles().contains(firstLocal));
+        assertTrue(snapshot.activeFlowFiles().contains(secondLocal));
+        assertFalse(snapshot.activeFlowFiles().contains(remote));
+    }
+
+    @Test
+    @Timeout(10)
+    public void testGetQueueSnapshotBlocksConcurrentPutsAndReturnsConsistentView() throws InterruptedException {
+        // Send every FlowFile to the local partition so the snapshot's active list and total
+        // {@link QueueSize} must match exactly: anything counted in the total must also be in the
+        // active list. While the snapshot is computing, manually hold the local partition's snapshot
+        // lock to simulate the lock window inside getQueueSnapshot(); concurrent puts must block
+        // until the lock is released. After the lock is released and the puts drain, the next
+        // snapshot must see the updated counts and the active list must still match the total.
+        final int localPartitionIndex = determineLocalPartitionIndex();
+        queue.setFlowFilePartitioner(new StaticFlowFilePartitioner(localPartitionIndex));
+
+        for (int i = 0; i < 5; i++) {
+            queue.put(new MockFlowFileRecord(1L));
+        }
+
+        final FlowFileQueueSnapshot initialSnapshot = queue.getQueueSnapshot();
+        assertEquals(5, initialSnapshot.queueSize().getObjectCount());
+        assertEquals(5, initialSnapshot.activeFlowFiles().size());
+        assertEquals(initialSnapshot.queueSize().getObjectCount(), initialSnapshot.activeFlowFiles().size(),
+                "active list size must equal queueSize().getObjectCount() when every FlowFile is in the local partition");
+
+        // Hold the local partition's snapshot lock and confirm that a concurrent put cannot proceed.
+        // This is what the production getQueueSnapshot() relies on to keep the snapshot atomic.
+        final QueuePartition localPartition = queue.getLocalPartition();
+        localPartition.lockForSnapshot();
+        final CountDownLatch putThreadStarted = new CountDownLatch(1);
+        final AtomicBoolean putReturned = new AtomicBoolean(false);
+        final Thread putThread = new Thread(() -> {
+            putThreadStarted.countDown();
+            queue.put(new MockFlowFileRecord(1L));
+            putReturned.set(true);
+        }, "TestQueueSnapshotConcurrentPut");
+        putThread.setDaemon(true);
+        putThread.start();
+        try {
+            assertTrue(putThreadStarted.await(5, TimeUnit.SECONDS), "Put thread did not start");
+            // Give the put thread plenty of time to attempt the put. If the lock is not honored, the
+            // put will complete and putReturned will flip to true before we release the lock.
+            Thread.sleep(200L);
+            assertFalse(putReturned.get(), "Put completed while local partition snapshot lock was held");
+        } finally {
+            localPartition.unlockForSnapshot();
+        }
+
+        putThread.join(5_000L);
+        assertTrue(putReturned.get(), "Put did not complete after the snapshot lock was released");
+
+        final FlowFileQueueSnapshot afterPutSnapshot = queue.getQueueSnapshot();
+        assertEquals(6, afterPutSnapshot.queueSize().getObjectCount());
+        assertEquals(6, afterPutSnapshot.activeFlowFiles().size());
+    }
+
+    @Test
+    public void testGetQueueSnapshotIncludesRebalancingPartition() {
+        // Route FlowFiles to the local partition, then move every partition's contents into the rebalancing
+        // partition and prevent it from redistributing them. FlowFiles sitting in the rebalancing partition
+        // (being redistributed across the cluster) must still be counted in the snapshot's total QueueSize.
+        final int localPartitionIndex = determineLocalPartitionIndex();
+        queue.setFlowFilePartitioner(new StaticFlowFilePartitioner(localPartitionIndex));
+
+        // Stopping load balancing stops the rebalancing partition, after which no FlowFile moved into it can be
+        // redistributed, so the FlowFiles are guaranteed to remain there for the duration of this test.
+        queue.stopLoadBalancing();
+
+        final long bytesPerFlowFile = 5L;
+        final int flowFileCount = 4;
+        for (int i = 0; i < flowFileCount; i++) {
+            queue.put(new MockFlowFileRecord(bytesPerFlowFile));
+        }
+
+        // Changing the partitioner packages every partition's contents and hands them to the rebalancing partition.
+        queue.setFlowFilePartitioner(new StaticFlowFilePartitioner(determineRemotePartitionIndex()));
+
+        for (int i = 0; i < queue.getPartitionCount(); i++) {
+            assertEquals(0, queue.getPartition(i).size().getObjectCount());
+        }
+
+        final FlowFileQueueSnapshot snapshot = queue.getQueueSnapshot();
+        assertEquals(flowFileCount, snapshot.queueSize().getObjectCount());
+        assertEquals(flowFileCount * bytesPerFlowFile, snapshot.queueSize().getByteCount());
+        assertEquals(queue.size(), snapshot.queueSize());
+        assertTrue(snapshot.activeFlowFiles().isEmpty());
     }
 
     private void assertPartitionSizes(final int[] expectedSizes) {

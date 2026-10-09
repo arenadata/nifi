@@ -64,13 +64,13 @@ public abstract class ProcessSessionWrap implements ProcessSession {
     list of files to be sent to failure on error
     on get() we will store here clone
     */
-    private List<FlowFile> toFail = new ArrayList<>();
+    private final List<FlowFile> toFail = new ArrayList<>();
 
     /*
     list of files to be dropped on error
     on get(),create(),write(),... we will store here last version of file by id
     */
-    private Map<String, FlowFile> toDrop = new HashMap<>();
+    private final Map<String, FlowFile> toDrop = new HashMap<>();
 
     public ProcessSessionWrap(final ProcessSession session, final boolean toFailureOnError) {
         if (session instanceof ProcessSessionWrap) {
@@ -91,7 +91,7 @@ public abstract class ProcessSessionWrap implements ProcessSession {
      *         if (f == null) {
      *             return null;
      *         }
-     *         if (f instanceof SessionFile sessionFile) {
+     *         if (f instanceof final SessionFile sessionFile) {
      *             return sessionFile;
      *         }
      *             return new SessionFile(this, f);
@@ -105,7 +105,7 @@ public abstract class ProcessSessionWrap implements ProcessSession {
             return null;
         }
         for (int i = 0; i < ff.size(); i++) {
-            ff.set(i, wrap((FlowFile) ff.get(i)));
+            ff.set(i, wrap(ff.get(i)));
         }
         return ff;
     }
@@ -114,8 +114,8 @@ public abstract class ProcessSessionWrap implements ProcessSession {
         if (f == null) {
             return null;
         }
-        if (f instanceof SessionFile) {
-            return ((SessionFile) f).flowFile;
+        if (f instanceof final SessionFile sessionFile) {
+            return sessionFile.flowFile;
         }
         return f;
     }
@@ -313,8 +313,18 @@ public abstract class ProcessSessionWrap implements ProcessSession {
     }
 
     @Override
+    public void adjustCounter(final String name, final long delta, final Map<String, String> attributes, final CommitTiming commitTiming) {
+        session.adjustCounter(name, delta, attributes, commitTiming);
+    }
+
+    @Override
     public void recordGauge(final String name, final double value, final CommitTiming commitTiming) {
         session.recordGauge(name, value, commitTiming);
+    }
+
+    @Override
+    public void recordGauge(final String name, final double value, final Map<String, String> attributes, final CommitTiming commitTiming) {
+        session.recordGauge(name, value, attributes, commitTiming);
     }
 
     /**
@@ -963,7 +973,7 @@ public abstract class ProcessSessionWrap implements ProcessSession {
      * of the FlowFile is destroyed.
      * @throws FlowFileAccessException if some IO problem occurs accessing
      * FlowFile content; if an attempt is made to access the OutputStream
-     * provided to the given OutputStreamCallaback after this method completed
+     * provided to the given OutputStreamCallback after this method completed
      * its execution
      */
     @Override

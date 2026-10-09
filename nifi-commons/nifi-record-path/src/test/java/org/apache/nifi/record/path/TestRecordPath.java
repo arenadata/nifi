@@ -648,8 +648,8 @@ public class TestRecordPath {
                     List.of(
                             1234567890L,
                             0L,
-                            ((long) Integer.MAX_VALUE) + 1L,
-                            ((long) Integer.MIN_VALUE) - 1L,
+                            Integer.MAX_VALUE + 1L,
+                            Integer.MIN_VALUE - 1L,
                             Long.MIN_VALUE,
                             Long.MAX_VALUE
 
@@ -827,9 +827,9 @@ public class TestRecordPath {
                 final List<T> expectedUnchangedValues,
                 final List<Object> expectedAdjustedValues) {
             final Stream<Map.Entry<Object, Object>> expectedValues = Stream.concat(
-                    expectedUnchangedValues.stream().map(value -> Map.entry(value, value)),
+                    expectedUnchangedValues.stream().map(value -> entry(value, value)),
                     expectedAdjustedValues.stream().map(
-                            value -> Map.entry(value, DataTypeUtils.convertType(value, expectedType, "field"))
+                            value -> entry(value, DataTypeUtils.convertType(value, expectedType, "field"))
                     )
             );
 
@@ -2379,7 +2379,7 @@ public class TestRecordPath {
                 record.setValue("name", "<xml>value</xml>");
                 Exception exception =
                         assertThrows(Exception.class, () -> evaluateSingleFieldValue("unescapeJson(/name)", record));
-                assertEquals("Unable to deserialise JSON String into Record Path value", exception.getMessage());
+                assertEquals("Unable to deserialize JSON String into Record Path value", exception.getMessage());
             }
         }
 
@@ -2763,9 +2763,9 @@ public class TestRecordPath {
                 assertEquals(expected, fieldValue.getValue().toString());
             }
             @Test
-            public void supportsPostiveDoubleOverflow() {
-                final String subtractionWithPostiveDoubleOverflow = "subtract('%s', '%s')".formatted(Double.MAX_VALUE, -1.0e308);
-                final FieldValue fieldValue = evaluateSingleFieldValue(subtractionWithPostiveDoubleOverflow, record);
+            public void supportsPositiveDoubleOverflow() {
+                final String subtractionWithPositiveDoubleOverflow = "subtract('%s', '%s')".formatted(Double.MAX_VALUE, -1.0e308);
+                final FieldValue fieldValue = evaluateSingleFieldValue(subtractionWithPositiveDoubleOverflow, record);
 
                 assertEquals(RecordFieldType.DOUBLE, fieldValue.getField().getDataType().getFieldType());
                 assertEquals("Infinity", fieldValue.getValue().toString());
@@ -2831,7 +2831,7 @@ public class TestRecordPath {
             @Test
             public void supportsNull() {
                 final FieldValue fieldValue = evaluateSingleFieldValue("toNumber(/notAField)", record);
-                assertEquals(null, fieldValue.getValue());
+                assertNull(fieldValue.getValue());
             }
             @Test
             public void throwsExceptionOnUnsupportedType() {
@@ -3795,9 +3795,9 @@ public class TestRecordPath {
 
     private static DataType choiceTypeOf(final Object... fieldTypes) {
         final List<DataType> typedFieldTypes = Arrays.stream(fieldTypes).map(rawFieldType -> {
-            if (rawFieldType instanceof RecordFieldType recordFieldType) {
+            if (rawFieldType instanceof final RecordFieldType recordFieldType) {
                 return recordFieldType.getDataType();
-            } else if (rawFieldType instanceof DataType dataType) {
+            } else if (rawFieldType instanceof final DataType dataType) {
                 return dataType;
             }
             throw new IllegalArgumentException("fieldTypes passed to choiceTypeOf must be either RecordFieldType or DataType");

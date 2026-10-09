@@ -325,8 +325,8 @@ public class PutSQL extends AbstractSessionFactoryProcessor {
         final Map<String, StatementFlowFileEnclosure> sqlToEnclosure = new HashMap<>();
 
         for (final FlowFile flowFile : flowFiles) {
-            final String sql = context.getProperty(PutSQL.SQL_STATEMENT).isSet()
-                    ? context.getProperty(PutSQL.SQL_STATEMENT).evaluateAttributeExpressions(flowFile).getValue()
+            final String sql = context.getProperty(SQL_STATEMENT).isSet()
+                    ? context.getProperty(SQL_STATEMENT).evaluateAttributeExpressions(flowFile).getValue()
                     : getSQL(session, flowFile);
 
             final StatementFlowFileEnclosure enclosure = sqlToEnclosure
@@ -338,8 +338,8 @@ public class PutSQL extends AbstractSessionFactoryProcessor {
 
     private final GroupingFunction groupFlowFilesBySQLBatch = (context, session, fc, conn, flowFiles, groups, result) -> {
         for (final FlowFile flowFile : flowFiles) {
-            final String sql = context.getProperty(PutSQL.SQL_STATEMENT).isSet()
-                    ? context.getProperty(PutSQL.SQL_STATEMENT).evaluateAttributeExpressions(flowFile).getValue()
+            final String sql = context.getProperty(SQL_STATEMENT).isSet()
+                    ? context.getProperty(SQL_STATEMENT).evaluateAttributeExpressions(flowFile).getValue()
                     : getSQL(session, flowFile);
 
             // Create a new PreparedStatement or reuse the one from the last group if that is the same.
@@ -367,8 +367,8 @@ public class PutSQL extends AbstractSessionFactoryProcessor {
 
     private final GroupingFunction groupFlowFilesBySQL = (context, session, fc, conn, flowFiles, groups, result) -> {
         for (final FlowFile flowFile : flowFiles) {
-            final String sql = context.getProperty(PutSQL.SQL_STATEMENT).isSet()
-                    ? context.getProperty(PutSQL.SQL_STATEMENT).evaluateAttributeExpressions(flowFile).getValue()
+            final String sql = context.getProperty(SQL_STATEMENT).isSet()
+                    ? context.getProperty(SQL_STATEMENT).evaluateAttributeExpressions(flowFile).getValue()
                     : getSQL(session, flowFile);
 
             // Create a new PreparedStatement or reuse the one from the last group if that is the same.
@@ -424,8 +424,8 @@ public class PutSQL extends AbstractSessionFactoryProcessor {
             for (final FlowFile flowFile : enclosure.getFlowFiles()) {
 
                 final StatementFlowFileEnclosure targetEnclosure
-                        = enclosure instanceof FragmentedEnclosure
-                        ? ((FragmentedEnclosure) enclosure).getTargetEnclosure(flowFile)
+                        = enclosure instanceof final FragmentedEnclosure fragmentedEnclosure
+                        ? fragmentedEnclosure.getTargetEnclosure(flowFile)
                         : enclosure;
 
                 // Execute update one by one.
@@ -903,9 +903,9 @@ public class PutSQL extends AbstractSessionFactoryProcessor {
         final Map<String, String> attributes = new HashMap<>();
         attributes.put(ERROR_MESSAGE_ATTR, exception.getMessage());
 
-        if (exception instanceof SQLException) {
-            int errorCode = ((SQLException) exception).getErrorCode();
-            String sqlState = ((SQLException) exception).getSQLState();
+        if (exception instanceof final SQLException sqlException) {
+            int errorCode = sqlException.getErrorCode();
+            String sqlState = sqlException.getSQLState();
 
             // Handle positive and negative error codes
             if (errorCode != 0) {
@@ -1117,7 +1117,7 @@ public class PutSQL extends AbstractSessionFactoryProcessor {
             if (obj == this) {
                 return false;
             }
-            if (!(obj instanceof StatementFlowFileEnclosure other)) {
+            if (!(obj instanceof final StatementFlowFileEnclosure other)) {
                 return false;
             }
 

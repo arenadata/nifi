@@ -69,27 +69,27 @@ public class WebSocketMessageRouter {
         final String sessionId = session.getSessionId();
         sessions.put(sessionId, session);
 
-        if (processor != null && processor instanceof ConnectedListener) {
-            ((ConnectedListener) processor).connected(session);
+        if (processor != null && processor instanceof final ConnectedListener connectedListener) {
+            connectedListener.connected(session);
         }
     }
 
     public void onWebSocketClose(final String sessionId, final int statusCode, final String reason) {
-        if (processor instanceof ConnectedListener connectedListener) {
+        if (processor instanceof final ConnectedListener connectedListener) {
             connectedListener.disconnected(getSessionOrFail(sessionId));
         }
         sessions.remove(sessionId);
     }
 
     public void onWebSocketText(final String sessionId, final String message) {
-        if (processor != null && processor instanceof TextMessageConsumer) {
-            ((TextMessageConsumer) processor).consume(getSessionOrFail(sessionId), message);
+        if (processor != null && processor instanceof final TextMessageConsumer textMessageConsumer) {
+            textMessageConsumer.consume(getSessionOrFail(sessionId), message);
         }
     }
 
     public void onWebSocketBinary(final String sessionId, final byte[] payload, final int offset, final int length) {
-        if (processor != null && processor instanceof BinaryMessageConsumer) {
-            ((BinaryMessageConsumer) processor).consume(getSessionOrFail(sessionId), payload, offset, length);
+        if (processor != null && processor instanceof final BinaryMessageConsumer binaryMessageConsumer) {
+            binaryMessageConsumer.consume(getSessionOrFail(sessionId), payload, offset, length);
         }
     }
 

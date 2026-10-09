@@ -21,7 +21,9 @@ import org.apache.nifi.components.state.StateManager;
 import org.apache.nifi.connectable.Connectable;
 import org.apache.nifi.connectable.Connection;
 import org.apache.nifi.controller.metrics.ComponentMetricContext;
+import org.apache.nifi.controller.metrics.ConnectionStatusEvent;
 import org.apache.nifi.controller.metrics.GaugeRecord;
+import org.apache.nifi.controller.metrics.ProcessSessionEvent;
 import org.apache.nifi.controller.repository.claim.ContentClaimWriteCache;
 import org.apache.nifi.controller.repository.metrics.PerformanceTracker;
 import org.apache.nifi.flowfile.FlowFile;
@@ -32,6 +34,7 @@ import org.apache.nifi.provenance.ProvenanceEventRepository;
 
 import java.util.Collection;
 import java.util.List;
+import java.util.Map;
 import java.util.function.Predicate;
 
 public interface RepositoryContext {
@@ -45,7 +48,11 @@ public interface RepositoryContext {
 
     ContentRepository getContentRepository();
 
+    ContentClaimCreationContext getContentClaimCreationContext();
+
     FlowFileRepository getFlowFileRepository();
+
+    FlowFileUpdateContext getFlowFileUpdateContext();
 
     FlowFileEventRepository getFlowFileEventRepository();
 
@@ -63,9 +70,15 @@ public interface RepositoryContext {
 
     long getNextFlowFileSequence();
 
-    void adjustCounter(String name, long delta);
+    void adjustCounter(String name, long delta, Map<String, String> attributes);
 
     void recordGauge(GaugeRecord gaugeRecord);
+
+    void recordProcessSessionEvent(ProcessSessionEvent event);
+
+    void recordConnectionStatusEvent(ConnectionStatusEvent event);
+
+    boolean isRecordConnectionStatusEventEnabled();
 
     ProvenanceEventBuilder createProvenanceEventBuilder();
 

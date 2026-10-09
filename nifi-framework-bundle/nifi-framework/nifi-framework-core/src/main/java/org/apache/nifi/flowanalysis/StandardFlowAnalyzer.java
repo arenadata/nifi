@@ -27,6 +27,7 @@ import org.apache.nifi.flow.ComponentType;
 import org.apache.nifi.flow.VersionedComponent;
 import org.apache.nifi.flow.VersionedConnection;
 import org.apache.nifi.flow.VersionedControllerService;
+import org.apache.nifi.flow.VersionedFunnel;
 import org.apache.nifi.flow.VersionedProcessGroup;
 import org.apache.nifi.flow.VersionedProcessor;
 import org.apache.nifi.nar.ExtensionManager;
@@ -47,10 +48,10 @@ import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 /**
- * {@link FlowAnalyzer} that uses {@link org.apache.nifi.flowanalysis.FlowAnalysisRule FlowAnalysisRules}.
+ * {@link FlowAnalyzer} that uses {@link FlowAnalysisRule FlowAnalysisRules}.
  */
 public class StandardFlowAnalyzer implements FlowAnalyzer {
-    private Logger logger = LoggerFactory.getLogger(this.getClass());
+    private final Logger logger = LoggerFactory.getLogger(this.getClass());
 
     private final RuleViolationsManager ruleViolationsManager;
 
@@ -256,8 +257,10 @@ public class StandardFlowAnalyzer implements FlowAnalyzer {
     private String getDisplayName(VersionedComponent component) {
         final String displayName;
 
-        if (component instanceof VersionedConnection) {
-            VersionedConnection connection = (VersionedConnection) component;
+        if (component instanceof VersionedFunnel) {
+            displayName = "Funnel";
+        } else if (component instanceof final VersionedConnection versionedConnection) {
+            VersionedConnection connection = versionedConnection;
             displayName = connection.getSource().getName() + " > " + connection.getSelectedRelationships().stream().collect(Collectors.joining(","));
         } else {
             displayName = component.getName();

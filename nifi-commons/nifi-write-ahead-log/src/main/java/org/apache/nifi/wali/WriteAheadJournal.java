@@ -45,9 +45,17 @@ public interface WriteAheadJournal<T> extends Closeable {
      * Returns information about what was written to the journal
      *
      * @return A JournalSummary indicating what was written to the journal
-     * @throws IOException if unable to write to the underlying storage mechanism.
      */
     JournalSummary getSummary();
+
+    /**
+     * Returns the amount of storage that has been consumed by this journal. This includes the journal file itself as well as any
+     * overflow files that the journal references, so that the value reflects the amount of disk space that must be reclaimed by
+     * checkpointing the journal.
+     *
+     * @return the number of bytes that have been written to storage for this journal
+     */
+    long getBytesWritten();
 
     /**
      * @return <code>true</code> if the journal is healthy and can be written to, <code>false</code> if either the journal has been closed or is poisoned

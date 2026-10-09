@@ -114,10 +114,10 @@ public class StandardLoadBalanceProtocol implements LoadBalanceProtocol {
     public void receiveFlowFiles(final Socket socket, final InputStream in, final OutputStream out) throws IOException {
         String peerDescription = socket.getInetAddress().getHostName();
         String channelDescription = socket.getLocalSocketAddress() + "::" + socket.getRemoteSocketAddress();
-        if (socket instanceof SSLSocket) {
+        if (socket instanceof final SSLSocket sslSocket) {
             logger.debug("Connection received from peer {}", peerDescription);
 
-            peerDescription = authorizer.authorize((SSLSocket) socket);
+            peerDescription = authorizer.authorize(sslSocket);
             channelDescription = peerDescription + "::" + channelDescription;
             logger.debug("Client Identities are authorized to load balance data for peer {}", peerDescription);
         }
@@ -207,12 +207,10 @@ public class StandardLoadBalanceProtocol implements LoadBalanceProtocol {
         }
 
         final FlowFileQueue flowFileQueue = connection.getFlowFileQueue();
-        if (!(flowFileQueue instanceof LoadBalancedFlowFileQueue)) {
+        if (!(flowFileQueue instanceof final LoadBalancedFlowFileQueue loadBalancedFlowFileQueue)) {
             throw new TransactionAbortedException("Attempted to receive FlowFiles from Peer " + peerDescription + " for Connection with ID " + connectionId + " but the Connection with that ID is " +
                     "not configured to allow for Load Balancing");
         }
-
-        final LoadBalancedFlowFileQueue loadBalancedFlowFileQueue = (LoadBalancedFlowFileQueue) flowFileQueue;
 
         final int spaceCheck = dataIn.read();
         if (spaceCheck < 0) {
@@ -268,7 +266,7 @@ public class StandardLoadBalanceProtocol implements LoadBalanceProtocol {
                 }
             }
 
-            // When the Content Claim is created initially, it has a Claimaint Count of 1. We then increment the Claimant Count for each FlowFile that we add to the Content Claim,
+            // When the Content Claim is created initially, it has a Claimant Count of 1. We then increment the Claimant Count for each FlowFile that we add to the Content Claim,
             // which means that the claimant count is currently 1 larger than it needs to be. So we will decrement the claimant count now. If that results in a count of 0, then
             // we can go ahead and remove the Content Claim, since we know it's not being referenced.
             final int count = contentRepository.decrementClaimantCount(contentClaim);
@@ -454,7 +452,7 @@ public class StandardLoadBalanceProtocol implements LoadBalanceProtocol {
 
     private long readChecksum(final InputStream in) throws IOException {
         final byte[] buffer = getDataBuffer();
-        StreamUtils.read(in, buffer, 8);
+        in.readNBytes(buffer, 0, 8);
         return ByteBuffer.wrap(buffer, 0, 8).getLong();
     }
 

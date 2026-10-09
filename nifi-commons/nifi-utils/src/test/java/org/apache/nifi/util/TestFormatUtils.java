@@ -21,6 +21,7 @@ import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
 
 import java.text.DecimalFormatSymbols;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
@@ -179,19 +180,101 @@ public class TestFormatUtils {
 
     private static Stream<Arguments> getFormatTime() {
         return Stream.of(Arguments.of(0L, TimeUnit.DAYS, "00:00:00.000"),
-            Arguments.of(1L, TimeUnit.HOURS, "01:00:00.000"),
-            Arguments.of(2L, TimeUnit.HOURS, "02:00:00.000"),
-            Arguments.of(1L, TimeUnit.MINUTES, "00:01:00.000"),
-            Arguments.of(10L, TimeUnit.SECONDS, "00:00:10.000"),
-            Arguments.of(777L, TimeUnit.MILLISECONDS, "00:00:00.777"),
-            Arguments.of(7777, TimeUnit.MILLISECONDS, "00:00:07.777"),
-            Arguments.of(TimeUnit.MILLISECONDS.convert(20, TimeUnit.HOURS)
-                         + TimeUnit.MILLISECONDS.convert(11, TimeUnit.MINUTES)
-                         + TimeUnit.MILLISECONDS.convert(36, TimeUnit.SECONDS)
-                         + TimeUnit.MILLISECONDS.convert(897, TimeUnit.MILLISECONDS), TimeUnit.MILLISECONDS, "20:11:36.897"),
-            Arguments.of(TimeUnit.MILLISECONDS.convert(999, TimeUnit.HOURS)
-                         + TimeUnit.MILLISECONDS.convert(60, TimeUnit.MINUTES)
-                         + TimeUnit.MILLISECONDS.convert(60, TimeUnit.SECONDS)
-                         + TimeUnit.MILLISECONDS.convert(1001, TimeUnit.MILLISECONDS), TimeUnit.MILLISECONDS, "1000:01:01.001"));
+                Arguments.of(1L, TimeUnit.HOURS, "01:00:00.000"),
+                Arguments.of(2L, TimeUnit.HOURS, "02:00:00.000"),
+                Arguments.of(1L, TimeUnit.MINUTES, "00:01:00.000"),
+                Arguments.of(10L, TimeUnit.SECONDS, "00:00:10.000"),
+                Arguments.of(777L, TimeUnit.MILLISECONDS, "00:00:00.777"),
+                Arguments.of(7777, TimeUnit.MILLISECONDS, "00:00:07.777"),
+                Arguments.of(TimeUnit.MILLISECONDS.convert(20, TimeUnit.HOURS)
+                        + TimeUnit.MILLISECONDS.convert(11, TimeUnit.MINUTES)
+                        + TimeUnit.MILLISECONDS.convert(36, TimeUnit.SECONDS)
+                        + TimeUnit.MILLISECONDS.convert(897, TimeUnit.MILLISECONDS), TimeUnit.MILLISECONDS, "20:11:36.897"),
+                Arguments.of(TimeUnit.MILLISECONDS.convert(999, TimeUnit.HOURS)
+                        + TimeUnit.MILLISECONDS.convert(60, TimeUnit.MINUTES)
+                        + TimeUnit.MILLISECONDS.convert(60, TimeUnit.SECONDS)
+                        + TimeUnit.MILLISECONDS.convert(1001, TimeUnit.MILLISECONDS), TimeUnit.MILLISECONDS, "1000:01:01.001"));
+    }
+
+    @ParameterizedTest
+    @MethodSource("getRelativeTimeArguments")
+    public void testFormatRelativeTime(final long differenceMillis, final String expected) {
+        final Instant reference = Instant.parse("2026-05-15T10:00:00Z");
+        final Instant from = reference.minusMillis(differenceMillis);
+        assertEquals(expected, FormatUtils.formatRelativeTime(from, reference));
+    }
+
+    private static Stream<Arguments> getRelativeTimeArguments() {
+        final long second = 1_000L;
+        final long minute = 60L * second;
+        final long hour = 60L * minute;
+        final long day = 24L * hour;
+        final long week = 7L * day;
+        final long month = 30L * day;
+        final long year = 365L * day;
+        return Stream.of(
+            Arguments.of(0L, "1 sec ago"),
+            Arguments.of(500L, "1 sec ago"),
+            Arguments.of(second, "1 sec ago"),
+            Arguments.of(45L * second, "45 secs ago"),
+            Arguments.of(minute, "1 min ago"),
+            Arguments.of(2L * minute, "2 mins ago"),
+            Arguments.of(59L * minute, "59 mins ago"),
+            Arguments.of(hour, "1 hour ago"),
+            Arguments.of(5L * hour, "5 hours ago"),
+            Arguments.of(day, "yesterday"),
+            Arguments.of(2L * day, "2 days ago"),
+            Arguments.of(6L * day, "6 days ago"),
+            Arguments.of(week, "1 week ago"),
+            Arguments.of(3L * week, "3 weeks ago"),
+            Arguments.of(month, "1 month ago"),
+            Arguments.of(6L * month, "6 months ago"),
+            Arguments.of(year, "1 year ago"),
+            Arguments.of(3L * year, "3 years ago"),
+            // Half-unit boundary values: a difference that rounds up to a full next unit must be
+            // promoted to that unit rather than rendering an overflowed count in the smaller unit.
+            Arguments.of(minute - second / 2 - 1L, "59 secs ago"),
+            Arguments.of(minute - second / 2, "1 min ago"),
+            Arguments.of(hour - minute / 2 - second, "59 mins ago"),
+            Arguments.of(hour - minute / 2, "1 hour ago"),
+            Arguments.of(day - hour / 2 - minute, "23 hours ago"),
+            Arguments.of(day - hour / 2, "yesterday"),
+            Arguments.of(week - day / 2 - hour, "6 days ago"),
+            Arguments.of(week - day / 2, "1 week ago"),
+            Arguments.of(month - week / 2, "4 weeks ago"),
+            // Negative offset (from is after to): future-tense rendering
+            Arguments.of(-1L * second, "in 1 sec"),
+            Arguments.of(-2L * minute, "in 2 mins"),
+            Arguments.of(-1L * day, "tomorrow"),
+            Arguments.of(-3L * day, "in 3 days"),
+            Arguments.of(-1L * year, "in 1 year")
+        );
+    }
+
+    @ParameterizedTest
+    @MethodSource("getDurationValues")
+    public void testFormatDurationToWords(Duration duration, String expected) {
+        assertEquals(expected, FormatUtils.formatDurationToWords(duration));
+    }
+
+    private static Stream<Arguments> getDurationValues() {
+        return Stream.of(
+                Arguments.of(Duration.parse("PT0.000000001S"), "0ms 1ns"),
+                Arguments.of(Duration.parse("PT0.001000001S"), "1ms 1ns"),
+                Arguments.of(Duration.parse("PT0.000000002S"), "0ms 2ns"),
+                Arguments.of(Duration.parse("PT1S"), "1s"),
+                Arguments.of(Duration.parse("PT1.001S"), "1s 1ms"),
+                Arguments.of(Duration.parse("PT1.000000001S"), "1s 0ms 1ns"),
+                Arguments.of(Duration.parse("PT1.001000001S"), "1s 1ms 1ns"),
+                Arguments.of(Duration.parse("PT2S"), "2s"),
+                Arguments.of(Duration.parse("PT1M"), "1m 0s"),
+                Arguments.of(Duration.parse("PT2M"), "2m 0s"),
+                Arguments.of(Duration.parse("PT1H"), "1h 0m 0s"),
+                Arguments.of(Duration.parse("PT2H"), "2h 0m 0s"),
+                Arguments.of(Duration.parse("P1D"), "1d 0h 0m 0s"),
+                Arguments.of(Duration.parse("PT25H"), "1d 1h 0m 0s"),
+                Arguments.of(Duration.parse("P35D"), "35d 0h 0m 0s"),
+                Arguments.of(Duration.parse("P366D"), "366d 0h 0m 0s")
+        );
     }
 }

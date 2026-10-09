@@ -339,8 +339,8 @@ public class ExpressionCompiler {
 
     private void verifyMappingEvaluatorReduced(final Evaluator<?> evaluator) {
         final Evaluator<?> rightMostEvaluator;
-        if (evaluator instanceof IteratingEvaluator) {
-            rightMostEvaluator = ((IteratingEvaluator<?>) evaluator).getLogicEvaluator();
+        if (evaluator instanceof final IteratingEvaluator<?> iteratingEvaluator) {
+            rightMostEvaluator = iteratingEvaluator.getLogicEvaluator();
         } else {
             rightMostEvaluator = evaluator;
         }
@@ -365,8 +365,7 @@ public class ExpressionCompiler {
         }
 
         final Evaluator<?> rootEvaluator = getRootSubjectEvaluator(evaluator);
-        if (rootEvaluator instanceof MultiAttributeEvaluator) {
-            final MultiAttributeEvaluator multiAttrEval = (MultiAttributeEvaluator) rootEvaluator;
+        if (rootEvaluator instanceof final MultiAttributeEvaluator multiAttrEval) {
             switch (multiAttrEval.getEvaluationType()) {
                 case ALL_ATTRIBUTES:
                 case ALL_MATCHING_ATTRIBUTES:
@@ -417,8 +416,7 @@ public class ExpressionCompiler {
         Evaluator<?> chosenEvaluator = evaluator;
         final Evaluator<?> rootEvaluator = getRootSubjectEvaluator(evaluator);
         if (rootEvaluator != null) {
-            if (rootEvaluator instanceof MultiAttributeEvaluator) {
-                final MultiAttributeEvaluator multiAttrEval = (MultiAttributeEvaluator) rootEvaluator;
+            if (rootEvaluator instanceof final MultiAttributeEvaluator multiAttrEval) {
 
                 switch (multiAttrEval.getEvaluationType()) {
                     case ANY_ATTRIBUTE:
@@ -432,8 +430,8 @@ public class ExpressionCompiler {
                         final ResultType resultType = evaluator.getResultType();
                         if (resultType == ResultType.BOOLEAN) {
                             chosenEvaluator = new AllAttributesEvaluator((BooleanEvaluator) evaluator, multiAttrEval);
-                        } else if (evaluator instanceof ReduceEvaluator) {
-                            chosenEvaluator = new MappingEvaluator((ReduceEvaluator) evaluator, multiAttrEval);
+                        } else if (evaluator instanceof final ReduceEvaluator reduceEvaluator) {
+                            chosenEvaluator = new MappingEvaluator(reduceEvaluator, multiAttrEval);
                         } else {
                             throw new AttributeExpressionLanguageException("Cannot evaluate Expression because it attempts to reference multiple attributes but does not use a reducing function");
                         }
@@ -1167,7 +1165,7 @@ public class ExpressionCompiler {
                         toStringEvaluator(argEvaluators.get(0), "first argument to trimDelimitedList")), "trimDelimitedList");
             }
             default:
-                throw new AttributeExpressionLanguageParsingException("Expected a Function-type expression but got " + tree.toString());
+                throw new AttributeExpressionLanguageParsingException("Expected a Function-type expression but got " + tree);
         }
     }
 
@@ -1253,7 +1251,7 @@ public class ExpressionCompiler {
                     case ANY_MATCHING_ATTRIBUTE ->
                         addToken(new MultiMatchAttributeEvaluator(attributeNames, ANY_MATCHING_ATTRIBUTE), "anyMatchingAttribute");
                     default ->
-                        throw new AssertionError("Illegal Multi-Attribute Reference: " + functionTypeTree.toString());
+                        throw new AssertionError("Illegal Multi-Attribute Reference: " + functionTypeTree);
                 };
             }
             case ATTR_NAME: {
@@ -1344,7 +1342,7 @@ public class ExpressionCompiler {
                 return addToken(new GetUriEvaluator(uriArgs), "getUri");
             }
             default:
-                throw new AttributeExpressionLanguageParsingException("Unexpected token: " + tree.toString());
+                throw new AttributeExpressionLanguageParsingException("Unexpected token: " + tree);
         }
     }
 
@@ -1469,7 +1467,7 @@ public class ExpressionCompiler {
             case TRUE -> addToken(new BooleanLiteralEvaluator(true), "true");
             case FALSE -> addToken(new BooleanLiteralEvaluator(false), "true");
             default ->
-                    throw new AttributeExpressionLanguageParsingException("Cannot build Boolean evaluator from tree " + tree.toString());
+                    throw new AttributeExpressionLanguageParsingException("Cannot build Boolean evaluator from tree " + tree);
         };
     }
 

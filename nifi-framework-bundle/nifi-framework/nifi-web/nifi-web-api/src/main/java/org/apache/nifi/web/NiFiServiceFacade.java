@@ -30,6 +30,7 @@ import org.apache.nifi.c2.protocol.component.api.ParameterProviderDefinition;
 import org.apache.nifi.c2.protocol.component.api.ProcessorDefinition;
 import org.apache.nifi.c2.protocol.component.api.ReportingTaskDefinition;
 import org.apache.nifi.c2.protocol.component.api.RuntimeManifest;
+import org.apache.nifi.components.BacklogReportingException;
 import org.apache.nifi.components.ConfigurableComponent;
 import org.apache.nifi.controller.ScheduledState;
 import org.apache.nifi.controller.repository.claim.ContentDirection;
@@ -105,6 +106,7 @@ import org.apache.nifi.web.api.entity.ActionEntity;
 import org.apache.nifi.web.api.entity.ActivateControllerServicesEntity;
 import org.apache.nifi.web.api.entity.AffectedComponentEntity;
 import org.apache.nifi.web.api.entity.AssetEntity;
+import org.apache.nifi.web.api.entity.BacklogEntity;
 import org.apache.nifi.web.api.entity.BulletinEntity;
 import org.apache.nifi.web.api.entity.ClearBulletinsForGroupResultsEntity;
 import org.apache.nifi.web.api.entity.ClearBulletinsResultEntity;
@@ -152,6 +154,7 @@ import org.apache.nifi.web.api.entity.ProcessorDiagnosticsEntity;
 import org.apache.nifi.web.api.entity.ProcessorEntity;
 import org.apache.nifi.web.api.entity.ProcessorStatusEntity;
 import org.apache.nifi.web.api.entity.ProcessorsRunStatusDetailsEntity;
+import org.apache.nifi.web.api.entity.RebaseAnalysisEntity;
 import org.apache.nifi.web.api.entity.RemoteProcessGroupEntity;
 import org.apache.nifi.web.api.entity.RemoteProcessGroupPortEntity;
 import org.apache.nifi.web.api.entity.RemoteProcessGroupStatusEntity;
@@ -167,6 +170,7 @@ import org.apache.nifi.web.api.entity.UserGroupEntity;
 import org.apache.nifi.web.api.entity.VersionControlComponentMappingEntity;
 import org.apache.nifi.web.api.entity.VersionControlInformationEntity;
 import org.apache.nifi.web.api.entity.VersionedFlowEntity;
+import org.apache.nifi.web.api.entity.VersionedFlowMigrationSourcesEntity;
 import org.apache.nifi.web.api.entity.VersionedFlowSnapshotMetadataEntity;
 import org.apache.nifi.web.api.entity.VersionedReportingTaskImportResponseEntity;
 import org.apache.nifi.web.api.request.FlowMetricsRegistry;
@@ -181,6 +185,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.BooleanSupplier;
 import java.util.function.Function;
 import java.util.function.Supplier;
 
@@ -242,6 +247,46 @@ public interface NiFiServiceFacade {
 
     ProcessGroupStatusEntity getConnectorProcessGroupStatus(String id, Boolean recursive);
 
+    /**
+     * Gets the status history for a Processor inside the Connector's managed flow. The status history is available
+     * regardless of whether the Connector is in Troubleshooting mode.
+     *
+     * @param connectorId the connector id
+     * @param processorId the processor id within the connector's managed flow
+     * @return the status history
+     */
+    StatusHistoryEntity getConnectorProcessorStatusHistory(String connectorId, String processorId);
+
+    /**
+     * Gets the status history for a Connection inside the Connector's managed flow. The status history is available
+     * regardless of whether the Connector is in Troubleshooting mode.
+     *
+     * @param connectorId the connector id
+     * @param connectionId the connection id within the connector's managed flow
+     * @return the status history
+     */
+    StatusHistoryEntity getConnectorConnectionStatusHistory(String connectorId, String connectionId);
+
+    /**
+     * Gets the status history for a Process Group inside the Connector's managed flow. The status history is available
+     * regardless of whether the Connector is in Troubleshooting mode.
+     *
+     * @param connectorId the connector id
+     * @param processGroupId the process group id within the connector's managed flow
+     * @return the status history
+     */
+    StatusHistoryEntity getConnectorProcessGroupStatusHistory(String connectorId, String processGroupId);
+
+    /**
+     * Gets the status history for a Remote Process Group inside the Connector's managed flow. The status history is
+     * available regardless of whether the Connector is in Troubleshooting mode.
+     *
+     * @param connectorId the connector id
+     * @param remoteProcessGroupId the remote process group id within the connector's managed flow
+     * @return the status history
+     */
+    StatusHistoryEntity getConnectorRemoteProcessGroupStatusHistory(String connectorId, String remoteProcessGroupId);
+
     Set<ControllerServiceEntity> getConnectorControllerServices(String connectorId, String processGroupId, boolean includeAncestorGroups,
                                                                 boolean includeDescendantGroups, boolean includeReferencingComponents);
 
@@ -270,6 +315,23 @@ public interface NiFiServiceFacade {
     List<AssetEntity> getConnectorAssets(String connectorId);
 
     Optional<Asset> getConnectorAsset(String assetId);
+
+    VersionedFlowMigrationSourcesEntity getConnectorMigrationSources(String connectorId);
+
+    void verifyCanMigrateConnector(String connectorId, String processGroupId);
+
+    /**
+     * Verifies that the target Connector is itself ready to receive a migration, independent of any particular
+     * source. This asserts the Connector is stopped and that its active flow has not been modified from its initial
+     * flow, so that a migration request submitted for an uploaded-payload source reports an unready Connector
+     * immediately rather than only after the asynchronous migration task runs.
+     *
+     * @param connectorId the identifier of the target Connector
+     * @throws IllegalStateException if the Connector is not in a state that can receive a migration
+     */
+    void verifyConnectorReadyForMigration(String connectorId);
+
+    ConnectorEntity migrateConnector(String connectorId, String processGroupId, RegisteredFlowSnapshot flowSnapshot, BooleanSupplier cancellationCheck);
 
     /**
      * Verifies that the connector is in a state where FlowFiles can be purged.
@@ -812,6 +874,39 @@ public interface NiFiServiceFacade {
     ProcessorDiagnosticsEntity getProcessorDiagnostics(String id);
 
     /**
+     * Verifies that the Processor with the given id is in an appropriate state to be asked for a backlog report.
+     *
+     * @param processorId the id of the Processor
+     */
+    void verifyCanReportProcessorBacklog(String processorId);
+
+    /**
+     * Returns a backlog snapshot for the Processor with the given id. Callers must invoke
+     * {@link #verifyCanReportProcessorBacklog(String)} before invoking this method.
+     *
+     * @param processorId the id of the Processor
+     * @return the backlog entity; the wrapped DTO is null when the Processor returns {@link Optional#empty()}
+     * @throws BacklogReportingException if the Processor attempts to determine its backlog and fails
+     */
+    BacklogEntity getProcessorBacklog(String processorId) throws BacklogReportingException;
+
+    /**
+     * Verifies that the Connector with the given id can be asked for a connector-scope backlog report.
+     *
+     * @param connectorId the id of the Connector
+     */
+    void verifyCanReportConnectorBacklog(String connectorId);
+
+    /**
+     * Returns a backlog snapshot for the Connector with the given id, computed against the Connector's active flow.
+     *
+     * @param connectorId the id of the Connector
+     * @return the backlog entity; the wrapped DTO is null when the Connector returns {@link Optional#empty()}
+     * @throws BacklogReportingException if the Connector attempts to determine its backlog and fails
+     */
+    BacklogEntity getConnectorBacklog(String connectorId) throws BacklogReportingException;
+
+    /**
      * Gets the processor status.
      *
      * @param id id
@@ -851,7 +946,7 @@ public interface NiFiServiceFacade {
      *
      * @param groupId group
      * @param includeDescendants if processors from descendent groups should be included
-     * @return List of all the Processor transfer object
+     * @return Set of all the Processor transfer object
      */
     Set<ProcessorEntity> getProcessors(String groupId, boolean includeDescendants);
 
@@ -1711,6 +1806,49 @@ public interface NiFiServiceFacade {
     FlowComparisonEntity getLocalModifications(String processGroupId);
 
     /**
+     * Performs a rebase analysis for the given Process Group, comparing local modifications against
+     * upstream changes between the current version and the specified target version.
+     *
+     * @param processGroupId the ID of the Process Group
+     * @param targetVersion the target version to rebase to
+     * @return a RebaseAnalysisEntity that contains the analysis of local and upstream changes
+     * @throws IllegalStateException if the Process Group with the given ID is not under version control
+     */
+    RebaseAnalysisEntity getRebaseAnalysis(String processGroupId, String targetVersion);
+
+    /**
+     * Verifies that the Process Group with the given identifier can be rebased to a new version.
+     *
+     * @param processGroupId the ID of the Process Group
+     * @param targetVersion the target version to rebase to
+     * @throws IllegalStateException if the Process Group cannot be rebased
+     */
+    void verifyCanRebase(String processGroupId, String targetVersion);
+
+    /**
+     * Returns a FlowSnapshotContainer for the target version of the flow with the merged rebase contents applied.
+     * This re-runs the rebase analysis and verifies the fingerprint before producing the merged snapshot.
+     *
+     * @param processGroupId the ID of the Process Group
+     * @param targetVersion the target version to rebase to
+     * @param expectedAnalysisFingerprint the expected analysis fingerprint to validate that the analysis has not changed
+     * @return a FlowSnapshotContainer containing the target version snapshot with merged local changes applied
+     * @throws IllegalStateException if the rebase is not allowed or the fingerprint does not match
+     */
+    FlowSnapshotContainer getRebasedFlowSnapshot(String processGroupId, String targetVersion, String expectedAnalysisFingerprint);
+
+    /**
+     * Resets the Version Control Information snapshot for a process group to the clean target version after a rebase.
+     * The rebase synchronizes the flow to the merged snapshot (target version plus preserved local changes); this
+     * re-fetches the clean target version from the Flow Registry and stores it as the VCI snapshot so that subsequent
+     * local modification checks correctly detect the preserved local changes. It relies only on the process group's own
+     * Version Control Information, so it can be invoked on every node that applies the rebase.
+     *
+     * @param processGroupId the process group ID
+     */
+    void resetVersionControlSnapshotToCleanTarget(String processGroupId);
+
+    /**
      * Determines whether the process group with the given id or any of its descendants are under version control.
      *
      * @param groupId the ID of the Process Group
@@ -1886,6 +2024,21 @@ public interface NiFiServiceFacade {
      * @return the current Process Group converted to a Versioned Flow Snapshot for download
      */
     RegisteredFlowSnapshot getCurrentFlowSnapshotByGroupId(String processGroupId, boolean includeReferencedServices, boolean includeComponentState);
+
+    /**
+     * Get the current state of the Process Group with the given ID, converted to a Versioned Flow Snapshot for download.
+     * Optionally includes referenced controller services from parent groups, component state, and asset references.
+     * Asset references identify assets by their NiFi-internal identifiers, which are meaningful only on this instance;
+     * they should be mapped only for the Connector migration source capture and not for general process-group export.
+     *
+     * @param processGroupId the ID of the Process Group
+     * @param includeReferencedServices whether to include referenced controller services from parent groups
+     * @param includeComponentState whether to include component state in the export. When true, all processors must be stopped
+     *                              and all controller services must be disabled.
+     * @param mapAssetReferences whether to include asset references in the exported snapshot
+     * @return the current Process Group converted to a Versioned Flow Snapshot for download
+     */
+    RegisteredFlowSnapshot getCurrentFlowSnapshotByGroupId(String processGroupId, boolean includeReferencedServices, boolean includeComponentState, boolean mapAssetReferences);
 
     /**
      * Returns the name of the Flow Registry that is registered with the given ID. If no Flow Registry exists with the given ID, will return
@@ -2166,6 +2319,17 @@ public interface NiFiServiceFacade {
      * @return the cleared component state
      */
     ComponentStateDTO clearConnectorProcessorState(String connectorId, String processorId, ComponentStateDTO componentStateDTO);
+
+    /**
+     * Gets a controller service within a connector's managed process group. Available regardless of whether
+     * the Connector is in Troubleshooting mode.
+     *
+     * @param connectorId         the connector id
+     * @param controllerServiceId the controller service id
+     * @param includeReferencingComponents whether to include referencing components in the response
+     * @return the controller service entity
+     */
+    ControllerServiceEntity getConnectorControllerService(String connectorId, String controllerServiceId, boolean includeReferencingComponents);
 
     /**
      * Gets the state for a controller service within a connector's managed process group.
@@ -3348,7 +3512,7 @@ public interface NiFiServiceFacade {
      * Get all dynamically defined data ingress ports provided by Listen Components (e.g., Processors and Controller Services)
      *
      * @param user the user performing the lookup
-     * @return the list of listen Ports accessible to the current user
+     * @return the Set of listen Ports accessible to the current user
      */
     Set<ListenPortDTO> getListenPorts(NiFiUser user);
 

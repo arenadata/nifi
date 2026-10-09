@@ -24,6 +24,7 @@ import org.apache.nifi.flow.VersionedProcessGroup;
 import org.apache.nifi.flow.VersionedProcessor;
 import org.apache.nifi.registry.bucket.Bucket;
 import org.apache.nifi.registry.db.entity.BucketEntity;
+import org.apache.nifi.registry.db.entity.BundleEntity;
 import org.apache.nifi.registry.db.entity.FlowEntity;
 import org.apache.nifi.registry.db.entity.FlowSnapshotEntity;
 import org.apache.nifi.registry.diff.ComponentDifference;
@@ -65,6 +66,7 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -109,7 +111,7 @@ public class TestRegistryService {
         final Bucket createdBucket = registryService.createBucket(bucket);
         assertNotNull(createdBucket);
         assertNotNull(createdBucket.getIdentifier());
-        assertNotNull(createdBucket.getCreatedTimestamp());
+        assertTrue(createdBucket.getCreatedTimestamp() > 0);
 
         assertEquals(bucket.getIdentifier(), createdBucket.getIdentifier());
         assertEquals(bucket.getName(), createdBucket.getName());
@@ -293,6 +295,31 @@ public class TestRegistryService {
 
         verify(flowPersistenceProvider, times(1))
                 .deleteAllFlowContent(eq(bucketToDelete.getId()), eq(flowToDelete.getId()));
+    }
+
+    @Test
+    public void testDeleteBucketWithInvalidBundleCoordinates() {
+        final BucketEntity bucketToDelete = new BucketEntity();
+        bucketToDelete.setId("b1");
+        bucketToDelete.setName("My Bucket");
+        bucketToDelete.setCreated(new Date());
+
+        final BundleEntity unsafeBundle = new BundleEntity();
+        unsafeBundle.setId("bundle1");
+        unsafeBundle.setBucketId(bucketToDelete.getId());
+        unsafeBundle.setGroupId("..");
+        unsafeBundle.setArtifactId("..");
+
+        when(metadataService.getBucketById(bucketToDelete.getId())).thenReturn(bucketToDelete);
+        when(metadataService.getFlowsByBucket(bucketToDelete.getId())).thenReturn(Collections.emptyList());
+        when(metadataService.getBundlesByBucket(bucketToDelete.getId())).thenReturn(Collections.singletonList(unsafeBundle));
+
+        final Bucket deletedBucket = registryService.deleteBucket(bucketToDelete.getId());
+        assertNotNull(deletedBucket);
+        assertEquals(bucketToDelete.getId(), deletedBucket.getIdentifier());
+
+        verify(metadataService).deleteBucket(bucketToDelete);
+        verify(bundlePersistenceProvider, never()).deleteAllBundleVersions(any());
     }
 
     // ---------------------- Test VersionedFlow methods ---------------------------------------------
@@ -1261,7 +1288,6 @@ public class TestRegistryService {
 
         final VersionedFlow versionedFlow = returnedSnapshot.getFlow();
         assertNotNull(versionedFlow);
-        assertNotNull(versionedFlow.getVersionCount());
         assertTrue(versionedFlow.getVersionCount() > 0);
 
         final Bucket bucket = returnedSnapshot.getBucket();

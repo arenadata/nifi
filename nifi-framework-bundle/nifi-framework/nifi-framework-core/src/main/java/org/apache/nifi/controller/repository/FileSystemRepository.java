@@ -141,8 +141,8 @@ public class FileSystemRepository implements ContentRepository {
     public FileSystemRepository(final NiFiProperties nifiProperties) throws IOException {
         this.nifiProperties = nifiProperties;
         // determine the file repository paths and ensure they exist
-        final Map<String, Path> fileRespositoryPaths = nifiProperties.getContentRepositoryPaths();
-        for (final Path path : fileRespositoryPaths.values()) {
+        final Map<String, Path> fileRepositoryPaths = nifiProperties.getContentRepositoryPaths();
+        for (final Path path : fileRepositoryPaths.values()) {
             Files.createDirectories(path);
         }
         this.writableClaimQueue = new LinkedBlockingQueue<>(1024);
@@ -160,7 +160,7 @@ public class FileSystemRepository implements ContentRepository {
         }
         this.minTruncatableClaimLength = Math.min(1_000_000L, this.maxAppendableClaimLength);
 
-        this.containers = new HashMap<>(fileRespositoryPaths);
+        this.containers = new HashMap<>(fileRepositoryPaths);
         this.containerNames = new ArrayList<>(containers.keySet());
         index = new AtomicLong(0L);
 
@@ -337,8 +337,8 @@ public class FileSystemRepository implements ContentRepository {
             try {
                 future.get();
             } catch (final ExecutionException | InterruptedException e) {
-                if (e.getCause() instanceof IOException) {
-                    throw (IOException) e.getCause();
+                if (e.getCause() instanceof final IOException ioException) {
+                    throw ioException;
                 } else {
                     throw new RuntimeException(e);
                 }
@@ -640,6 +640,11 @@ public class FileSystemRepository implements ContentRepository {
     }
 
     @Override
+    public long getMaxAppendableClaimBytes() {
+        return maxAppendableClaimLength;
+    }
+
+    @Override
     public ContentClaim create(final boolean lossTolerant) throws IOException {
         ResourceClaim resourceClaim;
 
@@ -771,7 +776,7 @@ public class FileSystemRepository implements ContentRepository {
         final ContentClaim newClaim = create(lossTolerant);
         try (final InputStream in = read(original);
              final OutputStream out = write(newClaim)) {
-            StreamUtils.copy(in, out);
+            in.transferTo(out);
         } catch (final IOException ioe) {
             decrementClaimantCount(newClaim);
             remove(newClaim);
@@ -790,7 +795,7 @@ public class FileSystemRepository implements ContentRepository {
     @Override
     public long importFrom(final InputStream content, final ContentClaim claim) throws IOException {
         try (final OutputStream out = write(claim, false)) {
-            return StreamUtils.copy(content, out);
+            return content.transferTo(out);
         }
     }
 
@@ -806,7 +811,7 @@ public class FileSystemRepository implements ContentRepository {
 
         try (final InputStream in = read(claim);
              final FileOutputStream fos = new FileOutputStream(destination.toFile(), append)) {
-            final long copied = StreamUtils.copy(in, fos);
+            final long copied = in.transferTo(fos);
             if (alwaysSync) {
                 fos.getFD().sync();
             }
@@ -853,7 +858,7 @@ public class FileSystemRepository implements ContentRepository {
         }
 
         try (final InputStream in = read(claim)) {
-            return StreamUtils.copy(in, destination);
+            return in.transferTo(destination);
         }
     }
 

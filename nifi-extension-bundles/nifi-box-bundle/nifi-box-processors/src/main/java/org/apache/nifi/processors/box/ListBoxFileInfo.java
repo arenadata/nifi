@@ -222,7 +222,7 @@ public class ListBoxFileInfo extends AbstractBoxProcessor {
                 }
 
                 final Map<String, String> recordAttributes = new HashMap<>(writeResult.getAttributes());
-                recordAttributes.put("record.count", String.valueOf(writeResult.getRecordCount()));
+                recordAttributes.put("record.count", valueOf(writeResult.getRecordCount()));
                 recordAttributes.put(CoreAttributes.MIME_TYPE.key(), mimeType);
                 flowFile = session.putAllAttributes(flowFile, recordAttributes);
 
@@ -267,13 +267,13 @@ public class ListBoxFileInfo extends AbstractBoxProcessor {
                 "content_modified_at",
                 "path_collection"
         )) {
-            if (itemInfo instanceof BoxFile.Info fileInfo) {
+            if (itemInfo instanceof final BoxFile.Info fileInfo) {
                 long createdAt = itemInfo.getCreatedAt().getTime();
 
                 if (createdAt <= createdAtMax) {
                     fileInfos.add(fileInfo);
                 }
-            } else if (recursive && itemInfo instanceof BoxFolder.Info subFolderInfo) {
+            } else if (recursive && itemInfo instanceof final BoxFolder.Info subFolderInfo) {
                 listFolder(fileInfos, subFolderInfo.getID(), recursive, createdAtMax);
             }
         }

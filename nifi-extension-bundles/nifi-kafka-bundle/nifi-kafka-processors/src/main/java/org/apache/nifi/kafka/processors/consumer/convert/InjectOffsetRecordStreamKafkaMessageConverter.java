@@ -16,6 +16,7 @@
  */
 package org.apache.nifi.kafka.processors.consumer.convert;
 
+import org.apache.nifi.kafka.processors.common.HeaderValueConverter;
 import org.apache.nifi.kafka.processors.consumer.OffsetTracker;
 import org.apache.nifi.kafka.service.api.record.ByteRecord;
 import org.apache.nifi.kafka.shared.property.KeyEncoding;
@@ -29,7 +30,6 @@ import org.apache.nifi.serialization.record.RecordField;
 import org.apache.nifi.serialization.record.RecordFieldType;
 import org.apache.nifi.serialization.record.RecordSchema;
 
-import java.nio.charset.Charset;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -48,24 +48,26 @@ public class InjectOffsetRecordStreamKafkaMessageConverter extends AbstractRecor
     public InjectOffsetRecordStreamKafkaMessageConverter(
             final RecordReaderFactory readerFactory,
             final RecordSetWriterFactory writerFactory,
-            final Charset headerEncoding,
+            final HeaderValueConverter headerValueConverter,
             final Pattern headerNamePattern,
             final KeyEncoding keyEncoding,
             final boolean commitOffsets,
             final OffsetTracker offsetTracker,
             final ComponentLog logger,
-            final String brokerUri
+            final String brokerUri,
+            final RecordGroupingStrategy recordGroupingStrategy
     ) {
         super(
                 readerFactory,
                 writerFactory,
-                headerEncoding,
+                headerValueConverter,
                 headerNamePattern,
                 keyEncoding,
                 commitOffsets,
                 offsetTracker,
                 logger,
-                brokerUri
+                brokerUri,
+                recordGroupingStrategy
         );
     }
 

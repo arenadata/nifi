@@ -55,7 +55,7 @@ import org.apache.nifi.nar.ExtensionManager;
 import org.apache.nifi.nar.NarCloseable;
 import org.apache.nifi.processor.ProcessContext;
 import org.apache.nifi.processor.Processor;
-import org.apache.nifi.processor.SimpleProcessLogger;
+import org.apache.nifi.processor.StandardComponentLog;
 import org.apache.nifi.processor.StandardProcessContext;
 import org.apache.nifi.reporting.ReportingTask;
 import org.apache.nifi.scheduling.SchedulingStrategy;
@@ -71,6 +71,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.Callable;
+import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
@@ -104,6 +105,7 @@ public final class StandardProcessScheduler implements ProcessScheduler {
     private final ReloadComponent reloadComponent;
 
     private final ConcurrentMap<SchedulingStrategy, SchedulingAgent> strategyAgentMap = new ConcurrentHashMap<>();
+    private final ConcurrentMap<String, CompletableFuture<Void>> processorStartFutures = new ConcurrentHashMap<>();
 
     // thread pool for starting/stopping components
     private volatile boolean shutdown = false;
@@ -322,12 +324,12 @@ public final class StandardProcessScheduler implements ProcessScheduler {
                     }
                 } catch (final Exception e) {
                     final Throwable cause = e instanceof InvocationTargetException ? e.getCause() : e;
-                    final ComponentLog componentLog = new SimpleProcessLogger(reportingTask.getIdentifier(), reportingTask, new StandardLoggingContext());
+                    final ComponentLog componentLog = new StandardComponentLog(reportingTask.getIdentifier(), reportingTask, new StandardLoggingContext());
                     componentLog.error("Failed to invoke @OnScheduled method due to {}", cause);
 
                     LOG.error("Failed to invoke the On-Scheduled Lifecycle methods of {} due to {}; administratively yielding this "
                             + "ReportingTask and will attempt to schedule it again after {}",
-                            reportingTask, e.toString(), administrativeYieldDuration, e);
+                            reportingTask, e, administrativeYieldDuration, e);
 
                     try (final NarCloseable ignored = NarCloseable.withComponentNarLoader(extensionManager, reportingTask.getClass(), reportingTask.getIdentifier())) {
                         ReflectionUtils.quietlyInvokeMethodsWithAnnotation(OnUnscheduled.class, reportingTask, taskNode.getConfigurationContext());
@@ -372,7 +374,7 @@ public final class StandardProcessScheduler implements ProcessScheduler {
                     ReflectionUtils.invokeMethodsWithAnnotation(OnUnscheduled.class, reportingTask, configurationContext);
                 } catch (final Exception e) {
                     final Throwable cause = e instanceof InvocationTargetException ? e.getCause() : e;
-                    final ComponentLog componentLog = new SimpleProcessLogger(reportingTask.getIdentifier(), reportingTask, new StandardLoggingContext());
+                    final ComponentLog componentLog = new StandardComponentLog(reportingTask.getIdentifier(), reportingTask, new StandardLoggingContext());
                     componentLog.error("Failed to invoke @OnUnscheduled method due to {}", cause);
 
                     LOG.error("Failed to invoke the @OnUnscheduled methods of {} due to {}; administratively yielding this ReportingTask and will attempt to schedule it again after {}",
@@ -424,6 +426,7 @@ public final class StandardProcessScheduler implements ProcessScheduler {
                     getSchedulingAgent(procNode).schedule(procNode, lifecycleState);
                 }
 
+                processorStartFutures.remove(procNode.getIdentifier(), future);
                 future.complete(null);
             }
 
@@ -443,6 +446,7 @@ public final class StandardProcessScheduler implements ProcessScheduler {
 
         procNode.reloadAdditionalResourcesIfNecessary();
 
+        processorStartFutures.put(procNode.getIdentifier(), future);
         procNode.start(componentMonitoringThreadPool, administrativeYieldMillis, processorStartTimeoutMillis, processContextFactory, callback, failIfStopping, scheduleActions);
         return future;
     }
@@ -595,7 +599,13 @@ public final class StandardProcessScheduler implements ProcessScheduler {
             getStateManager(procNode), lifecycleState::isTerminated, nodeTypeProvider);
 
         LOG.info("Stopping {}", procNode);
-        return procNode.stop(this, this.componentLifeCycleThreadPool, processContext, getSchedulingAgent(procNode), lifecycleState, lifecycleMethods);
+        final CompletableFuture<Void> stopFuture = procNode.stop(this, this.componentLifeCycleThreadPool, processContext, getSchedulingAgent(procNode), lifecycleState, lifecycleMethods);
+        final CompletableFuture<Void> startFuture = processorStartFutures.remove(procNode.getIdentifier());
+        if (startFuture != null) {
+            startFuture.completeExceptionally(new CancellationException("Processor start cancelled by stop request"));
+        }
+
+        return stopFuture;
     }
 
     @Override
@@ -778,7 +788,7 @@ public final class StandardProcessScheduler implements ProcessScheduler {
         getSchedulingAgent(connectable).unschedule(connectable, state);
 
         if (!state.isScheduled() && state.getActiveThreadCount() == 0 && state.mustCallOnStoppedMethods()) {
-            final StateManager stateManager = (connectable instanceof ProcessorNode) ? getStateManager((ProcessorNode) connectable) : getStateManager(connectable.getIdentifier());
+            final StateManager stateManager = (connectable instanceof final ProcessorNode processorNode) ? getStateManager(processorNode) : getStateManager(connectable.getIdentifier());
             final ConnectableProcessContext processContext = new ConnectableProcessContext(connectable, stateManager);
             try (final NarCloseable ignored = NarCloseable.withComponentNarLoader(extensionManager, connectable.getClass(), connectable.getIdentifier())) {
                 ReflectionUtils.quietlyInvokeMethodsWithAnnotation(OnStopped.class, connectable, processContext);
@@ -812,7 +822,7 @@ public final class StandardProcessScheduler implements ProcessScheduler {
             throw new IllegalArgumentException();
         }
 
-        ((AbstractPort) port).disable();
+        port.disable();
     }
 
     @Override
@@ -863,8 +873,8 @@ public final class StandardProcessScheduler implements ProcessScheduler {
     }
 
     private String getComponentId(final Object scheduled) {
-        if (scheduled instanceof ComponentAuthorizable) {
-            return ((ComponentAuthorizable) scheduled).getIdentifier();
+        if (scheduled instanceof final ComponentAuthorizable componentAuthorizable) {
+            return componentAuthorizable.getIdentifier();
         }
 
         return null;

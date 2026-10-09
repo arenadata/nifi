@@ -64,7 +64,6 @@ import org.apache.nifi.processors.standard.http.HttpProtocolStrategy;
 import org.apache.nifi.processors.standard.util.HTTPUtils;
 import org.apache.nifi.scheduling.ExecutionNode;
 import org.apache.nifi.ssl.SSLContextProvider;
-import org.apache.nifi.stream.io.StreamUtils;
 import org.eclipse.jetty.ee11.servlet.ServletContextHandler;
 import org.eclipse.jetty.ee11.servlet.ServletContextRequest;
 import org.eclipse.jetty.server.Connector;
@@ -448,8 +447,8 @@ public class HandleHttpRequest extends AbstractProcessor implements ListenCompon
         final Set<String> parametersToMakeAttributes = new HashSet<>();
         final String parametersToAttributesPropertyValue = context.getProperty(PARAMETERS_TO_ATTRIBUTES).getValue();
         if (parametersToAttributesPropertyValue != null) {
-            for (final String paremeterName : parametersToAttributesPropertyValue.split(",")) {
-                final String trimmed = paremeterName.trim();
+            for (final String parameterName : parametersToAttributesPropertyValue.split(",")) {
+                final String trimmed = parameterName.trim();
                 if (!trimmed.isEmpty()) {
                     parametersToMakeAttributes.add(trimmed);
                 }
@@ -546,8 +545,8 @@ public class HandleHttpRequest extends AbstractProcessor implements ListenCompon
 
     protected int getPort() {
         for (final Connector connector : server.getConnectors()) {
-            if (connector instanceof ServerConnector) {
-                return ((ServerConnector) connector).getLocalPort();
+            if (connector instanceof final ServerConnector serverConnector) {
+                return serverConnector.getLocalPort();
             }
         }
 
@@ -658,7 +657,7 @@ public class HandleHttpRequest extends AbstractProcessor implements ListenCompon
                     Part part = parts.get(i);
                     FlowFile flowFile = session.create();
                     try (OutputStream flowFileOut = session.write(flowFile)) {
-                        StreamUtils.copy(part.getInputStream(), flowFileOut);
+                        part.getInputStream().transferTo(flowFileOut);
                     } catch (IOException e) {
                         handleFlowContentStreamingError(session, container, Optional.of(flowFile), e);
                         return;
@@ -690,7 +689,7 @@ public class HandleHttpRequest extends AbstractProcessor implements ListenCompon
         } else {
             FlowFile flowFile = session.create();
             try (OutputStream flowFileOut = session.write(flowFile)) {
-                StreamUtils.copy(request.getInputStream(), flowFileOut);
+                request.getInputStream().transferTo(flowFileOut);
             } catch (final IOException e) {
                 handleFlowContentStreamingError(session, container, Optional.of(flowFile), e);
                 return;

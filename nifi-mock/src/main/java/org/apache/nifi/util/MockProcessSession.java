@@ -77,8 +77,8 @@ public class MockProcessSession implements ProcessSession {
     private final Map<Long, MockFlowFile> currentVersions = new HashMap<>();
     private final Map<Long, MockFlowFile> originalVersions = new HashMap<>();
     private final SharedSessionState sharedState;
-    private final Map<String, Long> counterMap = new HashMap<>();
-    private final Map<String, List<Double>> namedGaugeValues = new HashMap<>();
+    private final Map<MetricKey, Long> counterMap = new HashMap<>();
+    private final List<GaugeMeasurement> gaugeMeasurementsSessionCommitted = new ArrayList<>();
     private final Map<FlowFile, Integer> readRecursionSet = new HashMap<>();
     private final Set<FlowFile> writeRecursionSet = new HashSet<>();
     private final MockProvenanceReporter provenanceReporter;
@@ -140,32 +140,41 @@ public class MockProcessSession implements ProcessSession {
 
     @Override
     public void adjustCounter(final String name, final long delta, final boolean immediate) {
-        if (immediate) {
-            sharedState.adjustCounter(name, delta);
-            return;
-        }
+        adjustCounter(name, delta, Map.of(), immediate ? CommitTiming.NOW : CommitTiming.SESSION_COMMITTED);
+    }
 
-        Long counter = counterMap.get(name);
-        if (counter == null) {
-            counter = delta;
-            counterMap.put(name, counter);
-            return;
-        }
+    @Override
+    public void adjustCounter(final String name, final long delta, final Map<String, String> attributes, final CommitTiming commitTiming) {
+        Objects.requireNonNull(name, "Counter Name required");
+        Objects.requireNonNull(attributes, "Counter Attributes required");
+        Objects.requireNonNull(commitTiming, "Commit Timing required");
 
-        counter = counter + delta;
-        counterMap.put(name, counter);
+        final MetricKey counterKey = new MetricKey(name, Map.copyOf(attributes));
+
+        if (CommitTiming.NOW == commitTiming) {
+            sharedState.adjustCounter(counterKey, delta);
+        } else {
+            counterMap.merge(counterKey, delta, Long::sum);
+        }
     }
 
     @Override
     public void recordGauge(final String name, final double value, final CommitTiming commitTiming) {
+        recordGauge(name, value, Map.of(), commitTiming);
+    }
+
+    @Override
+    public void recordGauge(final String name, final double value, final Map<String, String> attributes, final CommitTiming commitTiming) {
+        Objects.requireNonNull(name, "Gauge Name required");
+        Objects.requireNonNull(attributes, "Gauge Attributes required");
+        Objects.requireNonNull(commitTiming, "Commit Timing required");
+
+        final MetricKey gaugeKey = new MetricKey(name, Map.copyOf(attributes));
+
         if (CommitTiming.NOW == commitTiming) {
-            sharedState.recordGauge(name, value);
+            sharedState.recordGauge(gaugeKey, value);
         } else {
-            namedGaugeValues.compute(name, (gaugeName, values) -> {
-                final List<Double> gaugeValues = Objects.requireNonNullElseGet(values, ArrayList::new);
-                gaugeValues.add(value);
-                return gaugeValues;
-            });
+            gaugeMeasurementsSessionCommitted.add(new GaugeMeasurement(gaugeKey, value));
         }
     }
 
@@ -273,7 +282,7 @@ public class MockProcessSession implements ProcessSession {
     public MockFlowFile clone(FlowFile flowFile, final long offset, final long size) {
         flowFile = validateState(flowFile);
         if (offset + size > flowFile.getSize()) {
-            throw new FlowFileHandlingException("Specified offset of " + offset + " and size " + size + " exceeds size of " + flowFile.toString());
+            throw new FlowFileHandlingException(String.format("Specified offset of %s and size %s exceeds size of %s", offset, size, flowFile));
         }
 
         final MockFlowFile newFlowFile = new MockFlowFile(sharedState.nextFlowFileId(), flowFile);
@@ -337,21 +346,18 @@ public class MockProcessSession implements ProcessSession {
         originalVersions.clear();
         created.clear();
 
-        for (final Map.Entry<String, Long> entry : counterMap.entrySet()) {
+        for (final Map.Entry<MetricKey, Long> entry : counterMap.entrySet()) {
             sharedState.adjustCounter(entry.getKey(), entry.getValue());
         }
 
-        for (final Map.Entry<String, List<Double>> namedGaugeEntry : namedGaugeValues.entrySet()) {
-            final String name = namedGaugeEntry.getKey();
-            final List<Double> gaugeValues = namedGaugeEntry.getValue();
-            for (final Double gaugeValue : gaugeValues) {
-                sharedState.recordGauge(name, gaugeValue);
-            }
+        for (final GaugeMeasurement gaugeMeasurement : gaugeMeasurementsSessionCommitted) {
+            sharedState.recordGauge(gaugeMeasurement.key(), gaugeMeasurement.value());
         }
 
         sharedState.addProvenanceEvents(provenanceReporter.getEvents());
         provenanceReporter.clear();
         counterMap.clear();
+        gaugeMeasurementsSessionCommitted.clear();
     }
 
     @Override
@@ -370,16 +376,20 @@ public class MockProcessSession implements ProcessSession {
             commitInternal();
         } catch (final Throwable t) {
             rollback();
-            onFailure.accept(t);
+            if (onFailure != null) {
+                onFailure.accept(t);
+            }
             throw t;
         }
 
-        onSuccess.run();
+        if (onSuccess != null) {
+            onSuccess.run();
+        }
     }
 
     /**
      * Clear the 'committed' flag so that we can test that the next iteration of
-     * {@link org.apache.nifi.processor.Processor#onTrigger} commits or rolls back the
+     * {@link Processor#onTrigger} commits or rolls back the
      * session
      */
     public void clearCommitted() {
@@ -388,7 +398,7 @@ public class MockProcessSession implements ProcessSession {
 
     /**
      * Clear the 'rolledBack' flag so that we can test that the next iteration
-     * of {@link org.apache.nifi.processor.Processor#onTrigger} commits or rolls back the
+     * of {@link Processor#onTrigger} commits or rolls back the
      * session
      */
     public void clearRollback() {
@@ -425,11 +435,9 @@ public class MockProcessSession implements ProcessSession {
             throw new IllegalArgumentException("arguments cannot be null");
         }
 
-        if (!(flowFile instanceof MockFlowFile)) {
+        if (!(flowFile instanceof final MockFlowFile mock)) {
             throw new IllegalArgumentException("Cannot export a flow file that I did not create");
         }
-
-        final MockFlowFile mock = (MockFlowFile) flowFile;
 
         try {
             out.write(mock.getData());
@@ -444,11 +452,9 @@ public class MockProcessSession implements ProcessSession {
         if (flowFile == null || path == null) {
             throw new IllegalArgumentException("argument cannot be null");
         }
-        if (!(flowFile instanceof MockFlowFile)) {
+        if (!(flowFile instanceof final MockFlowFile mock)) {
             throw new IllegalArgumentException("Cannot export a flow file that I did not create");
         }
-
-        final MockFlowFile mock = (MockFlowFile) flowFile;
 
         final OpenOption mode = append ? StandardOpenOption.APPEND : StandardOpenOption.CREATE;
 
@@ -527,10 +533,9 @@ public class MockProcessSession implements ProcessSession {
         if (in == null || flowFile == null) {
             throw new IllegalArgumentException("argument cannot be null");
         }
-        if (!(flowFile instanceof MockFlowFile)) {
+        if (!(flowFile instanceof final MockFlowFile mock)) {
             throw new IllegalArgumentException("Cannot export a flow file that I did not create");
         }
-        final MockFlowFile mock = (MockFlowFile) flowFile;
 
         final MockFlowFile newFlowFile = new MockFlowFile(mock.getId(), flowFile);
         currentVersions.put(newFlowFile.getId(), newFlowFile);
@@ -549,10 +554,9 @@ public class MockProcessSession implements ProcessSession {
         if (path == null || flowFile == null) {
             throw new IllegalArgumentException("argument cannot be null");
         }
-        if (!(flowFile instanceof MockFlowFile)) {
+        if (!(flowFile instanceof final MockFlowFile mock)) {
             throw new IllegalArgumentException("Cannot export a flow file that I did not create");
         }
-        final MockFlowFile mock = (MockFlowFile) flowFile;
         MockFlowFile newFlowFile = new MockFlowFile(mock.getId(), flowFile);
         currentVersions.put(newFlowFile.getId(), newFlowFile);
 
@@ -596,10 +600,9 @@ public class MockProcessSession implements ProcessSession {
         if (attrs == null || flowFile == null) {
             throw new IllegalArgumentException("argument cannot be null");
         }
-        if (!(flowFile instanceof MockFlowFile)) {
+        if (!(flowFile instanceof final MockFlowFile mock)) {
             throw new IllegalArgumentException("Cannot update attributes of a flow file that I did not create");
         }
-        final MockFlowFile mock = (MockFlowFile) flowFile;
         final MockFlowFile newFlowFile = new MockFlowFile(mock.getId(), flowFile);
         currentVersions.put(newFlowFile.getId(), newFlowFile);
 
@@ -620,7 +623,7 @@ public class MockProcessSession implements ProcessSession {
         if (attrName == null || attrValue == null || flowFile == null) {
             throw new IllegalArgumentException("argument cannot be null");
         }
-        if (!(flowFile instanceof MockFlowFile)) {
+        if (!(flowFile instanceof final MockFlowFile mock)) {
             throw new IllegalArgumentException("Cannot update attributes of a flow file that I did not create");
         }
 
@@ -628,7 +631,6 @@ public class MockProcessSession implements ProcessSession {
             Assertions.fail("Should not be attempting to set FlowFile UUID via putAttribute. This will be ignored in production");
         }
 
-        final MockFlowFile mock = (MockFlowFile) flowFile;
         final MockFlowFile newFlowFile = new MockFlowFile(mock.getId(), flowFile);
         currentVersions.put(newFlowFile.getId(), newFlowFile);
 
@@ -645,10 +647,9 @@ public class MockProcessSession implements ProcessSession {
         }
 
         flowFile = validateState(flowFile);
-        if (!(flowFile instanceof MockFlowFile)) {
+        if (!(flowFile instanceof final MockFlowFile mock)) {
             throw new IllegalArgumentException("Cannot export a flow file that I did not create");
         }
-        final MockFlowFile mock = (MockFlowFile) flowFile;
 
         final ByteArrayInputStream bais = new ByteArrayInputStream(mock.getData());
         incrementReadCount(flowFile);
@@ -788,10 +789,9 @@ public class MockProcessSession implements ProcessSession {
         if (attrNames == null || flowFile == null) {
             throw new IllegalArgumentException("argument cannot be null");
         }
-        if (!(flowFile instanceof MockFlowFile)) {
+        if (!(flowFile instanceof final MockFlowFile mock)) {
             throw new IllegalArgumentException("Cannot export a flow file that I did not create");
         }
-        final MockFlowFile mock = (MockFlowFile) flowFile;
 
         final MockFlowFile newFlowFile = new MockFlowFile(mock.getId(), flowFile);
         currentVersions.put(newFlowFile.getId(), newFlowFile);
@@ -826,10 +826,9 @@ public class MockProcessSession implements ProcessSession {
         if (attrName == null || flowFile == null) {
             throw new IllegalArgumentException("argument cannot be null");
         }
-        if (!(flowFile instanceof MockFlowFile)) {
+        if (!(flowFile instanceof final MockFlowFile mock)) {
             throw new IllegalArgumentException("Cannot export a flow file that I did not create");
         }
-        final MockFlowFile mock = (MockFlowFile) flowFile;
         final MockFlowFile newFlowFile = new MockFlowFile(mock.getId(), flowFile);
         currentVersions.put(newFlowFile.getId(), newFlowFile);
 
@@ -892,7 +891,7 @@ public class MockProcessSession implements ProcessSession {
     @Override
     public void transfer(FlowFile flowFile) {
         flowFile = validateState(flowFile);
-        if (!(flowFile instanceof MockFlowFile)) {
+        if (!(flowFile instanceof final MockFlowFile mockFlowFile)) {
             throw new IllegalArgumentException("I only accept MockFlowFile");
         }
 
@@ -903,7 +902,6 @@ public class MockProcessSession implements ProcessSession {
             throw new IllegalArgumentException("Cannot transfer FlowFiles that are created in this Session back to self");
         }
 
-        final MockFlowFile mockFlowFile = (MockFlowFile) flowFile;
         beingProcessed.remove(flowFile.getId());
         processorQueue.offer(mockFlowFile);
         updateLastQueuedDate(mockFlowFile);
@@ -968,10 +966,9 @@ public class MockProcessSession implements ProcessSession {
         if (callback == null || flowFile == null) {
             throw new IllegalArgumentException("argument cannot be null");
         }
-        if (!(flowFile instanceof MockFlowFile)) {
+        if (!(flowFile instanceof final MockFlowFile mock)) {
             throw new IllegalArgumentException("Cannot export a flow file that I did not create");
         }
-        final MockFlowFile mock = (MockFlowFile) flowFile;
 
         final ByteArrayOutputStream baos = new ByteArrayOutputStream();
         writeRecursionSet.add(flowFile);

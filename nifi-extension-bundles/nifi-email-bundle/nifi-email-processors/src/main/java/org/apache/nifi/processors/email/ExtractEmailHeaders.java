@@ -99,7 +99,7 @@ public class ExtractEmailHeaders extends AbstractProcessor {
             .build();
 
     private static final AllowableValue STRICT_ADDRESSING = new AllowableValue("true", "Strict Address Parsing",
-        "Strict email address format will be enforced. FlowFiles will be transfered to the failure relationship if the email address is invalid.");
+        "Strict email address format will be enforced. FlowFiles will be transferred to the failure relationship if the email address is invalid.");
     private static final AllowableValue NONSTRICT_ADDRESSING = new AllowableValue("false", "Non-Strict Address Parsing",
         "Accept emails, even if the address is poorly formed and doesn't strictly comply with RFC Validation.");
     public static final PropertyDescriptor STRICT_PARSING = new PropertyDescriptor.Builder()
@@ -249,13 +249,13 @@ public class ExtractEmailHeaders extends AbstractProcessor {
         final String disposition = parentPart.getDisposition();
 
         final Object parentContent = parentPart.getContent();
-        if (parentContent instanceof Multipart multipart) {
+        if (parentContent instanceof final Multipart multipart) {
             final int count = multipart.getCount();
 
             final int partDepth = depth + 1;
             for (int i = 0; i < count; i++) {
                 final BodyPart bodyPart = multipart.getBodyPart(i);
-                if (bodyPart instanceof MimeBodyPart mimeBodyPart) {
+                if (bodyPart instanceof final MimeBodyPart mimeBodyPart) {
                     countAttachments(counter, mimeBodyPart, partDepth);
                 }
             }

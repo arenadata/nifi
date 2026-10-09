@@ -54,6 +54,7 @@ import org.apache.nifi.python.PythonProcessorDetails;
 import org.apache.nifi.registry.flow.FlowRegistryClient;
 import org.apache.nifi.reporting.InitializationException;
 import org.apache.nifi.reporting.ReportingTask;
+import org.apache.nifi.security.encryption.PropertyEncryptionProvider;
 import org.apache.nifi.util.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -137,6 +138,7 @@ public class StandardExtensionDiscoveringManager implements ExtensionDiscovering
         definitionMap.put(AssetManager.class, new HashSet<>());
         definitionMap.put(FlowActionReporter.class, new HashSet<>());
         definitionMap.put(ComponentMetricReporter.class, new HashSet<>());
+        definitionMap.put(PropertyEncryptionProvider.class, new HashSet<>());
         definitionMap.put(Connector.class, new HashSet<>());
 
         additionalExtensionTypes.forEach(type -> definitionMap.putIfAbsent(type, new HashSet<>()));
@@ -591,7 +593,7 @@ public class StandardExtensionDiscoveringManager implements ExtensionDiscovering
                         final ConfigurableComponent component = getTempComponent(classType, bundle.getBundleDetails().getCoordinate());
                         final Set<BundleCoordinate> reachableApiBundles = findReachableApiBundles(component);
 
-                        while (ancestorClassLoader instanceof NarClassLoader) {
+                        while (ancestorClassLoader instanceof final NarClassLoader ancestorNarClassLoader) {
                             final Bundle ancestorNarBundle = classLoaderBundleLookup.get(ancestorClassLoader);
 
                             // stop including ancestor resources when we reach one of the APIs, or when we hit the Jetty NAR
@@ -599,8 +601,6 @@ public class StandardExtensionDiscoveringManager implements ExtensionDiscovering
                                 || ancestorNarBundle.getBundleDetails().getCoordinate().getId().equals(NarClassLoaders.JETTY_NAR_ID)) {
                                 break;
                             }
-
-                            final NarClassLoader ancestorNarClassLoader = (NarClassLoader) ancestorClassLoader;
 
                             narNativeLibDirs.add(ancestorNarClassLoader.getNARNativeLibDir());
                             Collections.addAll(instanceUrls, ancestorNarClassLoader.getURLs());
@@ -699,8 +699,7 @@ public class StandardExtensionDiscoveringManager implements ExtensionDiscovering
 
     @Override
     public void closeURLClassLoader(final String instanceIdentifier, final ClassLoader classLoader) {
-        if ((classLoader instanceof URLClassLoader)) {
-            final URLClassLoader urlClassLoader = (URLClassLoader) classLoader;
+        if (classLoader instanceof final URLClassLoader urlClassLoader) {
             try {
                 urlClassLoader.close();
             } catch (IOException e) {
@@ -752,9 +751,9 @@ public class StandardExtensionDiscoveringManager implements ExtensionDiscovering
         final ClassLoader removedBundleClassLoader = removedBundle.getClassLoader();
         classLoaderBundleLookup.remove(removedBundleClassLoader);
 
-        if (removedBundleClassLoader instanceof URLClassLoader) {
+        if (removedBundleClassLoader instanceof final URLClassLoader urlClassLoader) {
             try {
-                ((URLClassLoader) removedBundleClassLoader).close();
+                urlClassLoader.close();
             } catch (final IOException e) {
                 logger.warn("Failed to close ClassLoader for {}", bundleCoordinate, e);
             }
@@ -877,8 +876,7 @@ public class StandardExtensionDiscoveringManager implements ExtensionDiscovering
             return tempComponent;
         } catch (final Exception e) {
             logger.error("Could not instantiate class of type {} using ClassLoader for bundle {}", classType, bundleCoordinate, e);
-            if (logger.isDebugEnabled() && bundleClassLoader instanceof URLClassLoader) {
-                final URLClassLoader urlClassLoader = (URLClassLoader) bundleClassLoader;
+            if (logger.isDebugEnabled() && bundleClassLoader instanceof final URLClassLoader urlClassLoader) {
                 final List<URL> availableUrls = Arrays.asList(urlClassLoader.getURLs());
                 logger.debug("Available URLs for Bundle ClassLoader {}: {}", bundleCoordinate, availableUrls);
             }
@@ -956,8 +954,8 @@ public class StandardExtensionDiscoveringManager implements ExtensionDiscovering
         sb.append(prefix).append("Files loaded: ").append(bundle.getBundleDetails().getCoordinate().getCoordinate());
 
         final ClassLoader classLoader = bundle.getClassLoader();
-        if (classLoader instanceof URLClassLoader) {
-            final URL[] urls = ((URLClassLoader) bundle.getClassLoader()).getURLs();
+        if (classLoader instanceof final URLClassLoader urlClassLoader) {
+            final URL[] urls = urlClassLoader.getURLs();
             for (final URL url : urls) {
                 sb.append(prefix).append("    ").append(url.getFile());
             }

@@ -24,8 +24,10 @@ import org.apache.nifi.connectable.Connection;
 import org.apache.nifi.controller.ProcessorNode;
 import org.apache.nifi.controller.metrics.ComponentMetricContext;
 import org.apache.nifi.controller.metrics.ComponentMetricReporter;
+import org.apache.nifi.controller.metrics.ConnectionStatusEvent;
 import org.apache.nifi.controller.metrics.CounterRecord;
 import org.apache.nifi.controller.metrics.GaugeRecord;
+import org.apache.nifi.controller.metrics.ProcessSessionEvent;
 import org.apache.nifi.flowfile.FlowFile;
 import org.apache.nifi.processor.Relationship;
 import org.apache.nifi.provenance.InternalProvenanceReporter;
@@ -55,6 +57,8 @@ public abstract class AbstractRepositoryContext implements RepositoryContext {
     private final AtomicLong connectionIndex;
     private final StateManager stateManager;
     private final ComponentMetricContext componentMetricContext;
+    private final ContentClaimCreationContext contentClaimCreationContext;
+    private final FlowFileUpdateContext flowFileUpdateContext;
 
     private final String componentNameCounterContext;
     private final String componentTypeCounterContext;
@@ -80,11 +84,19 @@ public abstract class AbstractRepositoryContext implements RepositoryContext {
 
         this.connectionIndex = connectionIndex;
         this.stateManager = stateManager;
-        final Map<String, String> groupAttributes = connectable.getProcessGroup().getLoggingAttributes();
-        this.componentMetricContext = new ComponentMetricContext(connectable.getIdentifier(), connectable.getName(), connectable.getComponentType(), groupAttributes);
+        this.componentMetricContext = new ComponentMetricContext(
+                connectable.getIdentifier(),
+                connectable.getName(),
+                connectable.getComponentType(),
+                connectable.getProcessGroup().getLoggingAttributes());
 
         this.componentNameCounterContext = connectable.getName() + " (" + connectable.getIdentifier() + ")";
         this.componentTypeCounterContext = "All " + connectable.getComponentType() + "'s";
+
+        final String connectorIdentifier = connectable.getProcessGroup().findOwningConnectorIdentifier().orElse(null);
+        final LossTolerance lossTolerance = connectable.isLossTolerant() ? LossTolerance.LOSS_TOLERANT : LossTolerance.LOSS_INTOLERANT;
+        this.contentClaimCreationContext = new StandardContentClaimCreationContext(connectable.getIdentifier(), connectorIdentifier, lossTolerance);
+        this.flowFileUpdateContext = new StandardFlowFileUpdateContext(connectable.getIdentifier(), connectorIdentifier);
     }
 
     @Override
@@ -161,11 +173,11 @@ public abstract class AbstractRepositoryContext implements RepositoryContext {
     }
 
     @Override
-    public void adjustCounter(final String name, final long delta) {
+    public void adjustCounter(final String name, final long delta, final Map<String, String> attributes) {
         counterRepo.adjustCounter(componentNameCounterContext, name, delta);
         counterRepo.adjustCounter(componentTypeCounterContext, name, delta);
 
-        final CounterRecord counterRecord = new CounterRecord(name, delta, Instant.now(), componentMetricContext);
+        final CounterRecord counterRecord = new CounterRecord(name, delta, attributes, Instant.now(), componentMetricContext);
         componentMetricReporter.recordCounter(counterRecord);
     }
 
@@ -175,13 +187,38 @@ public abstract class AbstractRepositoryContext implements RepositoryContext {
     }
 
     @Override
+    public void recordProcessSessionEvent(final ProcessSessionEvent event) {
+        componentMetricReporter.recordProcessSessionEvent(event);
+    }
+
+    @Override
+    public void recordConnectionStatusEvent(final ConnectionStatusEvent event) {
+        componentMetricReporter.recordConnectionStatusEvent(event);
+    }
+
+    @Override
+    public boolean isRecordConnectionStatusEventEnabled() {
+        return componentMetricReporter.isRecordConnectionStatusEventEnabled();
+    }
+
+    @Override
     public ContentRepository getContentRepository() {
         return contentRepo;
     }
 
     @Override
+    public ContentClaimCreationContext getContentClaimCreationContext() {
+        return contentClaimCreationContext;
+    }
+
+    @Override
     public FlowFileRepository getFlowFileRepository() {
         return flowFileRepo;
+    }
+
+    @Override
+    public FlowFileUpdateContext getFlowFileUpdateContext() {
+        return flowFileUpdateContext;
     }
 
     @Override
@@ -209,7 +246,7 @@ public abstract class AbstractRepositoryContext implements RepositoryContext {
      * A Relationship is said to be Available if and only if all Connections for that Relationship are either self-loops or have non-full queues.
      *
      * @param requiredNumber minimum number of relationships that must have availability
-     * @return Checks if at least <code>requiredNumber</code> of Relationationships are "available." If so, returns <code>true</code>, otherwise returns <code>false</code>
+     * @return Checks if at least <code>requiredNumber</code> of Relationships are "available." If so, returns <code>true</code>, otherwise returns <code>false</code>
      */
     @Override
     public boolean isRelationshipAvailabilitySatisfied(final int requiredNumber) {

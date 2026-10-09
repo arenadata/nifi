@@ -107,16 +107,15 @@ public final class AuthorizerFactory {
         // 1 - the authorizer supports auditing
         // 2 - the request is an access attempt
         // 3 - the result is either approved/denied, when resource is not found a subsequent request may be following with the parent resource
-        if (authorizer instanceof AuthorizationAuditor && request.isAccessAttempt() && !Result.ResourceNotFound.equals(result.getResult())) {
-            ((AuthorizationAuditor) authorizer).auditAccessAttempt(request, result);
+        if (authorizer instanceof final AuthorizationAuditor authorizationAuditor && request.isAccessAttempt() && !Result.ResourceNotFound.equals(result.getResult())) {
+            authorizationAuditor.auditAccessAttempt(request, result);
         }
     }
 
     public static Authorizer installIntegrityChecks(final Authorizer baseAuthorizer) {
         Authorizer authorizer;
 
-        if (baseAuthorizer instanceof ManagedAuthorizer) {
-            final ManagedAuthorizer baseManagedAuthorizer = (ManagedAuthorizer) baseAuthorizer;
+        if (baseAuthorizer instanceof final ManagedAuthorizer baseManagedAuthorizer) {
             authorizer = new ManagedAuthorizer() {
                 @Override
                 public String getFingerprint() throws AuthorizationAccessException {
@@ -141,8 +140,7 @@ public final class AuthorizerFactory {
                 @Override
                 public AccessPolicyProvider getAccessPolicyProvider() {
                     final AccessPolicyProvider baseAccessPolicyProvider = baseManagedAuthorizer.getAccessPolicyProvider();
-                    if (baseAccessPolicyProvider instanceof ConfigurableAccessPolicyProvider) {
-                        final ConfigurableAccessPolicyProvider baseConfigurableAccessPolicyProvider = (ConfigurableAccessPolicyProvider) baseAccessPolicyProvider;
+                    if (baseAccessPolicyProvider instanceof final ConfigurableAccessPolicyProvider baseConfigurableAccessPolicyProvider) {
                         return new ConfigurableAccessPolicyProvider() {
                             @Override
                             public String getFingerprint() throws AuthorizationAccessException {
@@ -211,8 +209,7 @@ public final class AuthorizerFactory {
                             @Override
                             public UserGroupProvider getUserGroupProvider() {
                                 final UserGroupProvider baseUserGroupProvider = baseConfigurableAccessPolicyProvider.getUserGroupProvider();
-                                if (baseUserGroupProvider instanceof ConfigurableUserGroupProvider) {
-                                    final ConfigurableUserGroupProvider baseConfigurableUserGroupProvider = (ConfigurableUserGroupProvider) baseUserGroupProvider;
+                                if (baseUserGroupProvider instanceof final ConfigurableUserGroupProvider baseConfigurableUserGroupProvider) {
                                     return new ConfigurableUserGroupProvider() {
                                         @Override
                                         public String getFingerprint() throws AuthorizationAccessException {
@@ -458,8 +455,8 @@ public final class AuthorizerFactory {
         }
 
         // conditionally add support for the audit methods
-        if (baseAuthorizer instanceof AuthorizationAuditor) {
-            final AuthorizationAuditorInvocationHandler invocationHandler = new AuthorizationAuditorInvocationHandler(authorizer, (AuthorizationAuditor) baseAuthorizer);
+        if (baseAuthorizer instanceof final AuthorizationAuditor authorizationAuditor) {
+            final AuthorizationAuditorInvocationHandler invocationHandler = new AuthorizationAuditorInvocationHandler(authorizer, authorizationAuditor);
 
             final List<Class<?>> interfaceList = ClassUtils.getAllInterfaces(authorizer.getClass());
             interfaceList.add(AuthorizationAuditor.class);

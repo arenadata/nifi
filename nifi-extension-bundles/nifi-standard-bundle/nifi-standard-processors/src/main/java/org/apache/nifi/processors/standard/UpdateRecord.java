@@ -246,7 +246,7 @@ public class UpdateRecord extends AbstractRecordProcessor {
                     result.getSelectedFields().forEach(fieldVal -> {
                         fieldVariables.clear();
                         fieldVariables.put(FIELD_NAME, fieldVal.getField().getFieldName());
-                        fieldVariables.put(FIELD_VALUE, DataTypeUtils.toString(fieldVal.getValue(), (String) null));
+                        fieldVariables.put(FIELD_VALUE, DataTypeUtils.toString(fieldVal.getValue(), null));
                         fieldVariables.put(FIELD_TYPE, fieldVal.getField().getDataType().getFieldType().name());
                         fieldVariables.put(RECORD_INDEX, String.valueOf(count));
 
@@ -300,13 +300,13 @@ public class UpdateRecord extends AbstractRecordProcessor {
                 return record;
             }
 
-            if (replacement instanceof Record) {
-                return (Record) replacement;
+            if (replacement instanceof final Record recordObj) {
+                return recordObj;
             }
 
             final FieldValue replacementFieldValue = (FieldValue) replacement;
-            if (replacementFieldValue.getValue() instanceof Record) {
-                return (Record) replacementFieldValue.getValue();
+            if (replacementFieldValue.getValue() instanceof final Record recordObj) {
+                return recordObj;
             }
 
             final List<RecordField> fields = selectedFields.stream().map(FieldValue::getField).collect(Collectors.toList());
@@ -327,7 +327,7 @@ public class UpdateRecord extends AbstractRecordProcessor {
     }
 
     private void updateFieldValue(final FieldValue fieldValue, final Object replacement) {
-        if (replacement instanceof FieldValue replacementFieldValue) {
+        if (replacement instanceof final FieldValue replacementFieldValue) {
             fieldValue.updateValue(replacementFieldValue.getValue(), replacementFieldValue.getField().getDataType());
         } else {
             fieldValue.updateValue(replacement);

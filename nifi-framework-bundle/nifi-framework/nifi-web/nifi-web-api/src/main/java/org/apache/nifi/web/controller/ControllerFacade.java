@@ -414,10 +414,7 @@ public class ControllerFacade implements Authorizable {
      * @return status history
      */
     public StatusHistoryDTO getRemoteProcessGroupStatusHistory(final String remoteProcessGroupId) {
-        final ProcessGroup root = getRootGroup();
-        final RemoteProcessGroup remoteProcessGroup = root.findRemoteProcessGroup(remoteProcessGroupId);
-
-        // ensure the output port was found
+        final RemoteProcessGroup remoteProcessGroup = flowController.findRemoteProcessGroupIncludingConnectorManaged(remoteProcessGroupId);
         if (remoteProcessGroup == null) {
             throw new ResourceNotFoundException(String.format("Unable to locate remote process group with id '%s'.", remoteProcessGroupId));
         }
@@ -431,6 +428,54 @@ public class ControllerFacade implements Authorizable {
         }
 
         return statusHistory;
+    }
+
+    /**
+     * Returns the status history for a Processor inside a Connector's managed flow. The component is resolved and
+     * authorized at the Connector level before this method is invoked, so the status history is read directly from the
+     * repository by id without consulting the root flow hierarchy or applying per-component authorization masking.
+     *
+     * @param processorId processor id
+     * @return status history
+     */
+    public StatusHistoryDTO getConnectorProcessorStatusHistory(final String processorId) {
+        return flowController.getProcessorStatusHistory(processorId, true);
+    }
+
+    /**
+     * Returns the status history for a Connection inside a Connector's managed flow. The component is resolved and
+     * authorized at the Connector level before this method is invoked, so the status history is read directly from the
+     * repository by id without consulting the root flow hierarchy or applying per-component authorization masking.
+     *
+     * @param connectionId connection id
+     * @return status history
+     */
+    public StatusHistoryDTO getConnectorConnectionStatusHistory(final String connectionId) {
+        return flowController.getConnectionStatusHistory(connectionId);
+    }
+
+    /**
+     * Returns the status history for a Process Group inside a Connector's managed flow. The component is resolved and
+     * authorized at the Connector level before this method is invoked, so the status history is read directly from the
+     * repository by id without consulting the root flow hierarchy or applying per-component authorization masking.
+     *
+     * @param processGroupId process group id
+     * @return status history
+     */
+    public StatusHistoryDTO getConnectorProcessGroupStatusHistory(final String processGroupId) {
+        return flowController.getProcessGroupStatusHistory(processGroupId);
+    }
+
+    /**
+     * Returns the status history for a Remote Process Group inside a Connector's managed flow. The component is resolved
+     * and authorized at the Connector level before this method is invoked, so the status history is read directly from
+     * the repository by id without consulting the root flow hierarchy or applying per-component authorization masking.
+     *
+     * @param remoteProcessGroupId remote process group id
+     * @return status history
+     */
+    public StatusHistoryDTO getConnectorRemoteProcessGroupStatusHistory(final String remoteProcessGroupId) {
+        return flowController.getRemoteProcessGroupStatusHistory(remoteProcessGroupId);
     }
 
     /**
@@ -969,10 +1014,7 @@ public class ControllerFacade implements Authorizable {
      * @return the status for the specified remote process group
      */
     public RemoteProcessGroupStatus getRemoteProcessGroupStatus(final String remoteProcessGroupId) {
-        final ProcessGroup root = getRootGroup();
-        final RemoteProcessGroup remoteProcessGroup = root.findRemoteProcessGroup(remoteProcessGroupId);
-
-        // ensure the output port was found
+        final RemoteProcessGroup remoteProcessGroup = flowController.findRemoteProcessGroupIncludingConnectorManaged(remoteProcessGroupId);
         if (remoteProcessGroup == null) {
             throw new ResourceNotFoundException(String.format("Unable to locate remote process group with id '%s'.", remoteProcessGroupId));
         }
@@ -1951,7 +1993,7 @@ public class ControllerFacade implements Authorizable {
             final ConfigurationContext configurationContext = new StandardConfigurationContext(componentNode, controllerServiceProvider, null);
             final ConfigurableComponent component = componentNode.getComponent();
             // All components are expected to be ListenComponents, so this check is just for safe casting
-            if (component instanceof ListenComponent listenComponent) {
+            if (component instanceof final ListenComponent listenComponent) {
                 listenComponent.getListenPorts(configurationContext).forEach(listenPort -> {
                     final ListenPortDTO listenPortDTO = new ListenPortDTO();
                     listenPortDTO.setPortName(listenPort.getPortName());

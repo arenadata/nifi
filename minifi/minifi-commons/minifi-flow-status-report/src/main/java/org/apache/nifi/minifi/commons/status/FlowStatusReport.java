@@ -28,10 +28,11 @@ import org.apache.nifi.minifi.commons.status.rpg.RemoteProcessGroupStatusBean;
 import org.apache.nifi.minifi.commons.status.system.SystemDiagnosticsStatus;
 
 import java.io.IOException;
+import java.io.Serializable;
 import java.io.StringWriter;
 import java.util.List;
 
-public class FlowStatusReport implements java.io.Serializable {
+public class FlowStatusReport implements Serializable {
     private List<ControllerServiceStatus> controllerServiceStatusList;
     private List<ProcessorStatusBean> processorStatusList;
     private List<ConnectionStatusBean> connectionStatusList;
@@ -170,7 +171,6 @@ public class FlowStatusReport implements java.io.Serializable {
             generator.writeObjectField("reportingTaskStatusList", reportingTaskStatusList);
             generator.writeObjectField("errorsGeneratingReport", errorsGeneratingReport);
             generator.writeEndObject();
-            generator.close();
         } catch (IOException e) {
             //this should not occur since we are using a StringWriter, however, in the event it does. Generate
             //the old style report
