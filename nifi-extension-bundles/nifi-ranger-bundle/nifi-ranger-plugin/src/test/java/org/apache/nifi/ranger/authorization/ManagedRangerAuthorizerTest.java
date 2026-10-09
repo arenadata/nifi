@@ -29,7 +29,6 @@ import org.apache.nifi.util.MockPropertyValue;
 import org.apache.ranger.authorization.hadoop.config.RangerPluginConfig;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.mockito.Mockito;
 
 import java.io.File;
 
@@ -180,7 +179,7 @@ public class ManagedRangerAuthorizerTest {
     }
 
     private ManagedRangerAuthorizer getStandardManagedAuthorizer(final UserGroupProvider userGroupProvider) {
-        final RangerBasePluginWithPolicies rangerBasePlugin = Mockito.mock(RangerBasePluginWithPolicies.class);
+        final RangerBasePluginWithPolicies rangerBasePlugin = mock(RangerBasePluginWithPolicies.class);
 
         final RangerPluginConfig pluginConfig = new RangerPluginConfig(serviceType, null, appId, null, null, null);
         when(rangerBasePlugin.getConfig()).thenReturn(pluginConfig);

@@ -61,9 +61,9 @@ public class UnloadInsertDataQueryFactory implements InsertDataQueryFactory {
         GpfdistUnloadMetadata unloadMetadata = (GpfdistUnloadMetadata) metadata;
         ReadContext readContext = readContextManager.get(unloadMetadata.getContextId())
                 .map(context -> (ReadContext) context)
-                .orElseThrow(() -> new IllegalArgumentException(String.format("Failed to find read context with id %s",
+                .orElseThrow(() -> new IllegalArgumentException(format("Failed to find read context with id %s",
                         unloadMetadata.getContextId())));
-        final String segmentPredicate = String.format("gp_segment_id %% %d = %d",
+        final String segmentPredicate = format("gp_segment_id %% %d = %d",
                 readContext.getGlobalParallelFactor(),
                 unloadMetadata.getGlobalWorkerIndex());
         final String maxValuePredicate = readContext.getTableColumnsMaxValueContext(unloadMetadata.getProcessorTaskId())

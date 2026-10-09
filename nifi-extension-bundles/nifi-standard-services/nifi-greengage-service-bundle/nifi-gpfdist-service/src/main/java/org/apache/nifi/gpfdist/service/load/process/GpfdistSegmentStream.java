@@ -96,7 +96,7 @@ public class GpfdistSegmentStream {
     }
 
     private long getBytesBuffered() {
-        return (long) queue.size() * (long) avgGpfdistPacketSize;
+        return (long) queue.size() * avgGpfdistPacketSize;
     }
 
     public void complete() {
