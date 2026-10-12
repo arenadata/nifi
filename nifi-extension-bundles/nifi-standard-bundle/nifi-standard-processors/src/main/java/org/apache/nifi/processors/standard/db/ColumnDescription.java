@@ -28,17 +28,36 @@ public class ColumnDescription {
     private final boolean required;
     private final Integer columnSize;
     private final boolean nullable;
+    private final String typeName;
 
-    public ColumnDescription(final String columnName, final int dataType, final boolean required, final Integer columnSize, final boolean nullable) {
+    public ColumnDescription(final String columnName,
+                             final int dataType,
+                             final boolean required,
+                             final Integer columnSize,
+                             final boolean nullable) {
+        this(columnName, dataType, required, columnSize, nullable, null);
+    }
+
+    public ColumnDescription(final String columnName,
+                             final int dataType,
+                             final boolean required,
+                             final Integer columnSize,
+                             final boolean nullable,
+                             final String typeName) {
         this.columnName = columnName;
         this.dataType = dataType;
         this.required = required;
         this.columnSize = columnSize;
         this.nullable = nullable;
+        this.typeName = typeName;
     }
 
     public int getDataType() {
         return dataType;
+    }
+
+    public String getTypeName() {
+        return typeName;
     }
 
     public String getColumnName() {
@@ -68,6 +87,7 @@ public class ColumnDescription {
         final String defaultValue = resultSet.getString("COLUMN_DEF");
         final String columnName = resultSet.getString("COLUMN_NAME");
         final int dataType = resultSet.getInt("DATA_TYPE");
+        final String typeName = resultSet.getString("TYPE_NAME");
         final int colSize = resultSet.getInt("COLUMN_SIZE");
 
         final String nullableValue = resultSet.getString("IS_NULLABLE");
@@ -81,7 +101,7 @@ public class ColumnDescription {
         final boolean isAutoIncrement = "YES".equalsIgnoreCase(autoIncrementValue);
         final boolean required = !isNullable && !isAutoIncrement && defaultValue == null;
 
-        return new ColumnDescription(columnName, dataType, required, colSize == 0 ? null : colSize, isNullable);
+        return new ColumnDescription(columnName, dataType, required, colSize == 0 ? null : colSize, isNullable, typeName);
     }
 
     public static String normalizeColumnName(final String colName, final boolean translateColumnNames) {
@@ -90,6 +110,6 @@ public class ColumnDescription {
 
     @Override
     public String toString() {
-        return "Column[name=" + columnName + ", dataType=" + dataType + ", required=" + required + ", columnSize=" + columnSize + "]";
+        return "Column[name=" + columnName + ", dataType=" + dataType + ", typeName=" + typeName + ", required=" + required + ", columnSize=" + columnSize + "]";
     }
 }

@@ -3,5 +3,6 @@ CREATE TABLE person (
     age INT,
     favorite_color VARCHAR(255),
     dob DATE,
-    lastTransactionTime TIMESTAMP WITH TIME ZONE
+    lastTransactionTime TIMESTAMP WITH TIME ZONE,
+    salary MONEY
 );
