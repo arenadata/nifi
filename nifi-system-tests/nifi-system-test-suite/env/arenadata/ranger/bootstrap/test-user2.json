@@ -1,0 +1,12 @@
+{
+  "name": "test-user2",
+  "firstName": "test-user2",
+  "lastName": "test-user2",
+  "loginId": "test-user2",
+  "password": "RangerUser1!",
+  "status": 1,
+  "isVisible": 1,
+  "userRoleList": [
+    "ROLE_USER"
+  ]
+}

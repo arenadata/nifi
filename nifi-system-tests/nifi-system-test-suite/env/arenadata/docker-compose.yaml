@@ -158,9 +158,9 @@ services:
             - '5432:5432'
         healthcheck:
             test: psql -d postgres -U nifi -Atc 'SELECT 1;'
-            interval: 30s
-            timeout: 15s
-            retries: 3
+            interval: 5s
+            timeout: 1s
+            retries: 10
 
     zookeeper:
       image: 'zookeeper:latest'
@@ -168,103 +168,321 @@ services:
         - ALLOW_ANONYMOUS_LOGIN=yes
       healthcheck:
         test: [ "CMD", "zkServer.sh", "status"]
-        interval: 30s
-        timeout: 15s
-        retries: 3
+        interval: 5s
+        timeout: 1s
+        retries: 10
       networks:
         - nifinet
 
     nifi01:
         image: apache/nifi:${NIFI_IMAGE_VERSION}
+        hostname: nifi01.demo
         ports:
-        - 9091:8080
-        - 8001:8000 #debug port
+        - 9091:8443  # HTTPS port
+        - 8001:8000  # debug port
         networks:
           - nifinet
         environment:
-          - SINGLE_USER_CREDENTIALS_USERNAME=admin
-          - SINGLE_USER_CREDENTIALS_PASSWORD=admin1234567890
+          # Security and Authorization
+          - NIFI_SECURITY_USER_AUTHORIZER=ranger-authorizer
+          - NIFI_SECURITY_USER_LOGIN_IDENTITY_PROVIDER=kerberos-ldap-provider
+
+          # HTTPS Configuration
+          - NIFI_WEB_HTTPS_PORT=8443
+          - NIFI_WEB_HTTPS_HOST=nifi01.demo
+          - NIFI_WEB_PROXY_HOST=localhost:9091,localhost:9092,localhost:9093,nifi01.demo,nifi02.demo,nifi03.demo
+          - NIFI_SECURITY_KEYSTORE=/opt/nifi/nifi-current/conf/keystore.p12
+          - NIFI_SECURITY_KEYSTORETYPE=PKCS12
+          - NIFI_SECURITY_KEYSTOREPASSWD=changeit
+          - NIFI_SECURITY_KEYPASSWD=changeit
+          - NIFI_SECURITY_TRUSTSTORE=/opt/nifi/nifi-current/conf/truststore.p12
+          - NIFI_SECURITY_TRUSTSTORETYPE=PKCS12
+          - NIFI_SECURITY_TRUSTSTOREPASSWD=changeit
+
+          # Cluster Configuration
           - NIFI_JVM_DEBUGGER=true
-          - NIFI_WEB_HTTP_PORT=8080
           - NIFI_CLUSTER_IS_NODE=true
           - NIFI_CLUSTER_NODE_PROTOCOL_PORT=8082
           - NIFI_ZK_CONNECT_STRING=zookeeper:2181
           - NIFI_ELECTION_MAX_WAIT=1 min
           - NIFI_SENSITIVE_PROPS_KEY=MySuperSecretKey
+        depends_on:
+          kdc-server:
+            condition: service_healthy
+          samba:
+            condition: service_healthy
+          ranger-bootstrap:
+            condition: service_completed_successfully
         healthcheck:
-          test: [ "CMD", "curl", "-f", "http://nifi01:8080/nifi-api/flow/status" ]
-          interval: 60s
-          timeout: 15s
-          retries: 3
+          test:
+            [
+              "CMD-SHELL",
+              "curl -k -sS --connect-timeout 1 --max-time 4 --cert-type P12 --cert /opt/nifi/nifi-current/conf/keystore.p12:changeit -o /dev/null -w '%{http_code}' https://nifi01.demo:8443/nifi-api/flow/process-groups/root | grep -Eq '200'"
+            ]
+          interval: 5s
+          timeout: 5s
+          retries: 40
         entrypoint: [ "bash","/opt/nifi/nifi-current/prepare_nifi_configs.sh"]
         volumes:
-          - "nifi_node3_data:/data"
+          - "nifi_node1_data:/data"
+          - "secrets:/opt/nifi/secrets"
           - "../../target/postgresql-42.6.1.jar:/opt/postgresql-42.6.1.jar"
           - "./nifi-cluster/conf/start.sh:/opt/nifi/scripts/start.sh"
           - "./prepare_nifi_configs.sh:/opt/nifi/nifi-current/prepare_nifi_configs.sh"
+          - "../../../../nifi-extension-bundles/nifi-ranger-bundle/nifi-ranger-nar/target/nifi-ranger-nar-${NIFI_VERSION}.nar:/opt/nifi/nifi-current/lib/nifi-ranger-nar-${NIFI_VERSION}.nar"
+          - "./nifi-ranger:/tmp/custom-configs"
+          - "./kerberos/krb5.conf:/etc/krb5.conf"
+          - "./nifi-certs/nifi01-keystore.p12:/opt/nifi/nifi-current/conf/keystore.p12:ro"
+          - "./nifi-certs/truststore.p12:/opt/nifi/nifi-current/conf/truststore.p12:ro"
 
     nifi02:
         image: apache/nifi:${NIFI_IMAGE_VERSION}
+        hostname: nifi02.demo
         ports:
-          - 9092:8080
-          - 8002:8000
+          - 9092:8443  # HTTPS port
+          - 8002:8000  # debug port
         networks:
           - nifinet
         environment:
-          - SINGLE_USER_CREDENTIALS_USERNAME=admin
-          - SINGLE_USER_CREDENTIALS_PASSWORD=admin1234567890
+          # Security and Authorization
+          - NIFI_SECURITY_USER_AUTHORIZER=ranger-authorizer
+          - NIFI_SECURITY_USER_LOGIN_IDENTITY_PROVIDER=kerberos-ldap-provider
+
+          # HTTPS Configuration
+          - NIFI_WEB_HTTPS_PORT=8443
+          - NIFI_WEB_HTTPS_HOST=nifi02.demo
+          - NIFI_WEB_PROXY_HOST=localhost:9091,localhost:9092,localhost:9093,nifi01.demo,nifi02.demo,nifi03.demo
+          - NIFI_SECURITY_KEYSTORE=/opt/nifi/nifi-current/conf/keystore.p12
+          - NIFI_SECURITY_KEYSTORETYPE=PKCS12
+          - NIFI_SECURITY_KEYSTOREPASSWD=changeit
+          - NIFI_SECURITY_KEYPASSWD=changeit
+          - NIFI_SECURITY_TRUSTSTORE=/opt/nifi/nifi-current/conf/truststore.p12
+          - NIFI_SECURITY_TRUSTSTORETYPE=PKCS12
+          - NIFI_SECURITY_TRUSTSTOREPASSWD=changeit
+
+          # Cluster Configuration
           - NIFI_JVM_DEBUGGER=true
-          - NIFI_WEB_HTTP_PORT=8080
           - NIFI_CLUSTER_IS_NODE=true
           - NIFI_CLUSTER_NODE_PROTOCOL_PORT=8082
           - NIFI_ZK_CONNECT_STRING=zookeeper:2181
           - NIFI_ELECTION_MAX_WAIT=1 min
           - NIFI_SENSITIVE_PROPS_KEY=MySuperSecretKey
+        depends_on:
+          kdc-server:
+            condition: service_healthy
+          samba:
+            condition: service_healthy
+          ranger-bootstrap:
+            condition: service_completed_successfully
         healthcheck:
-          test: [ "CMD", "curl", "-f", "http://nifi02:8080/nifi-api/flow/status" ]
-          interval: 60s
-          timeout: 15s
-          retries: 3
+          test:
+            [
+              "CMD-SHELL",
+              "curl -k -sS --connect-timeout 1 --max-time 4 --cert-type P12 --cert /opt/nifi/nifi-current/conf/keystore.p12:changeit -o /dev/null -w '%{http_code}' https://nifi02.demo:8443/nifi-api/flow/process-groups/root | grep -Eq '200'"
+            ]
+          interval: 5s
+          timeout: 5s
+          retries: 40
         entrypoint: [ "bash","/opt/nifi/nifi-current/prepare_nifi_configs.sh" ]
         volumes:
-          - "nifi_node3_data:/data"
+          - "nifi_node2_data:/data"
+          - "secrets:/opt/nifi/secrets"
           - "../../target/postgresql-42.6.1.jar:/opt/postgresql-42.6.1.jar"
           - "./nifi-cluster/conf/start.sh:/opt/nifi/scripts/start.sh"
           - "./prepare_nifi_configs.sh:/opt/nifi/nifi-current/prepare_nifi_configs.sh"
+          - "../../../../nifi-extension-bundles/nifi-ranger-bundle/nifi-ranger-nar/target/nifi-ranger-nar-${NIFI_VERSION}.nar:/opt/nifi/nifi-current/lib/nifi-ranger-nar-${NIFI_VERSION}.nar"
+          - "./nifi-ranger:/tmp/custom-configs"
+          - "./kerberos/krb5.conf:/etc/krb5.conf"
+          - "./nifi-certs/nifi02-keystore.p12:/opt/nifi/nifi-current/conf/keystore.p12:ro"
+          - "./nifi-certs/truststore.p12:/opt/nifi/nifi-current/conf/truststore.p12:ro"
 
     nifi03:
         image: apache/nifi:${NIFI_IMAGE_VERSION}
+        hostname: nifi03.demo
         ports:
-          - 9093:8080
-          - 8003:8000
+          - 9093:8443  # HTTPS port
+          - 8003:8000  # debug port
         networks:
           - nifinet
         environment:
-          - SINGLE_USER_CREDENTIALS_USERNAME=admin
-          - SINGLE_USER_CREDENTIALS_PASSWORD=admin1234567890
+          # Security and Authorization
+          - NIFI_SECURITY_USER_AUTHORIZER=ranger-authorizer
+          - NIFI_SECURITY_USER_LOGIN_IDENTITY_PROVIDER=kerberos-ldap-provider
+
+          # HTTPS Configuration
+          - NIFI_WEB_HTTPS_PORT=8443
+          - NIFI_WEB_HTTPS_HOST=nifi03.demo
+          - NIFI_WEB_PROXY_HOST=localhost:9091,localhost:9092,localhost:9093,nifi01.demo,nifi02.demo,nifi03.demo
+          - NIFI_SECURITY_KEYSTORE=/opt/nifi/nifi-current/conf/keystore.p12
+          - NIFI_SECURITY_KEYSTORETYPE=PKCS12
+          - NIFI_SECURITY_KEYSTOREPASSWD=changeit
+          - NIFI_SECURITY_KEYPASSWD=changeit
+          - NIFI_SECURITY_TRUSTSTORE=/opt/nifi/nifi-current/conf/truststore.p12
+          - NIFI_SECURITY_TRUSTSTORETYPE=PKCS12
+          - NIFI_SECURITY_TRUSTSTOREPASSWD=changeit
+
+          # Cluster Configuration
           - NIFI_JVM_DEBUGGER=true
-          - NIFI_WEB_HTTP_PORT=8080
           - NIFI_CLUSTER_IS_NODE=true
           - NIFI_CLUSTER_NODE_PROTOCOL_PORT=8082
           - NIFI_ZK_CONNECT_STRING=zookeeper:2181
           - NIFI_ELECTION_MAX_WAIT=1 min
           - NIFI_SENSITIVE_PROPS_KEY=MySuperSecretKey
+        depends_on:
+          kdc-server:
+            condition: service_healthy
+          samba:
+            condition: service_healthy
+          ranger-bootstrap:
+            condition: service_completed_successfully
         healthcheck:
-          test: [ "CMD", "curl", "-f", "http://nifi03:8080/nifi-api/flow/status" ]
-          interval: 60s
-          timeout: 15s
-          retries: 3
+          test:
+            [
+              "CMD-SHELL",
+              "curl -k -sS --connect-timeout 1 --max-time 4 --cert-type P12 --cert /opt/nifi/nifi-current/conf/keystore.p12:changeit -o /dev/null -w '%{http_code}' https://nifi03.demo:8443/nifi-api/flow/process-groups/root | grep -Eq '200'"
+            ]
+          interval: 5s
+          timeout: 5s
+          retries: 40
         entrypoint: [ "bash","/opt/nifi/nifi-current/prepare_nifi_configs.sh" ]
         volumes:
           - "nifi_node3_data:/data"
+          - "secrets:/opt/nifi/secrets"
           - "../../target/postgresql-42.6.1.jar:/opt/postgresql-42.6.1.jar"
           - "./nifi-cluster/conf/start.sh:/opt/nifi/scripts/start.sh"
           - "./prepare_nifi_configs.sh:/opt/nifi/nifi-current/prepare_nifi_configs.sh"
+          - "../../../../nifi-extension-bundles/nifi-ranger-bundle/nifi-ranger-nar/target/nifi-ranger-nar-${NIFI_VERSION}.nar:/opt/nifi/nifi-current/lib/nifi-ranger-nar-${NIFI_VERSION}.nar"
+          - "./nifi-ranger:/tmp/custom-configs"
+          - "./kerberos/krb5.conf:/etc/krb5.conf"
+          - "./nifi-certs/nifi03-keystore.p12:/opt/nifi/nifi-current/conf/keystore.p12:ro"
+          - "./nifi-certs/truststore.p12:/opt/nifi/nifi-current/conf/truststore.p12:ro"
+
+    ranger-db:
+      image: "docker.io/library/postgres:12.0"
+      restart: unless-stopped
+      environment:
+        POSTGRES_DB: 'postgres'
+        POSTGRES_USER: 'postgres'
+        POSTGRES_PASSWORD: 'rangerR0cks!'
+      networks:
+        - nifinet
+      ports:
+        - '5433:5432'
+      healthcheck:
+        test: psql -d postgres -U postgres -Atc 'SELECT 1;'
+        interval: 5s
+        timeout: 1s
+        retries: 10
+
+    solr:
+      image: solr:8.11
+      ports:
+        - "8983:8983"
+      environment:
+        - SOLR_OPTS=-Dsolr.autoSoftCommit.maxTime=1000
+      networks:
+        - nifinet
+      healthcheck:
+        test: [ "CMD", "curl", "-f", "http://localhost:8983/solr/ranger_audits/select?q=*:*&rows=0" ]
+        interval: 5s
+        timeout: 1s
+        retries: 30
+      command: >
+        bash -c "
+        solr-precreate ranger_audits &&
+        solr-precreate nifi_audits"
+
+    ranger-admin:
+      image: hub.adsw.io/java/ranger-admin:2.6.0.8-2.3.0-0
+      platform: linux/amd64
+      ports:
+        - "6080:6080"
+      networks:
+        - nifinet
+      depends_on:
+        ranger-db:
+          condition: service_healthy
+        solr:
+          condition: service_healthy
+      environment:
+        - POSTGRES_HOST=ranger-db
+        - POSTGRES_DB=postgres
+        - POSTGRES_USER=postgres
+        - POSTGRES_PASSWORD=rangerR0cks!
+        - RANGER_ADMIN_PASSWORD=rangerR0cks!
+        - RANGER_DB_HOST=ranger-db
+        - SOLR_URL=http://solr:8983/solr
+      volumes:
+        - ./nifi-certs:/nifi-certs:ro
+      healthcheck:
+        test: ["CMD-SHELL", "wget -qO- http://localhost:6080/login.jsp > /dev/null 2>&1"]
+        interval: 10s
+        timeout: 1s
+        retries: 30
+
+    ranger-bootstrap:
+      image: curlimages/curl:8.10.1
+      depends_on:
+        ranger-admin:
+          condition: service_healthy
+      networks:
+        - nifinet
+      environment:
+        - RANGER_URL=http://ranger-admin:6080
+        - RANGER_USER=admin
+        - RANGER_PASSWORD=rangerR0cks!
+        - NIFI_SERVICE_NAME=nifi
+        - NIFI_SERVICE_TYPE=nifi
+        - BOOTSTRAP_POLICY_NAME=nifi-admin-bootstrap
+      volumes:
+        - ./ranger/bootstrap:/bootstrap:ro
+      entrypoint: ["/bin/sh", "/bootstrap/bootstrap-ranger.sh"]
+
+    kdc-server:
+      image: hub.adsw.io/java/kdc-server:latest
+      restart: unless-stopped
+      hostname: kdc-server.demo
+      volumes:
+        - secrets:/tmp/secrets
+        - ./kerberos/krb5.conf:/etc/krb5.conf
+        - ./kerberos/kdc.conf:/etc/krb5kdc/kdc.conf
+        - ./kerberos/kdc.conf:/var/kerberos/krb5kdc/kdc.conf
+        - ./kerberos/kadm5.acl:/etc/krb5kdc/kadm5.acl
+        - ./kerberos/kdc-init.sh:/tmp/kdc-init.sh
+      ports:
+        - "749:749"
+        - "88:88/udp"
+      healthcheck:
+        test: ["CMD-SHELL", "bash -c echo -n '' > /dev/tcp/kdc-server.demo/749"]
+        interval: 15s
+        timeout: 5s
+        retries: 5
+      networks:
+        - nifinet
+
+    samba:
+      image: hub.adsw.io/java/samba:latest
+      hostname: samba
+      privileged: true
+      ports:
+        - "389:389"
+      environment:
+        SMB_ADMIN_PASSWORD: "LZ2ibGAn2H0D0UW3"
+      volumes:
+        - ./ldap:/opt/ad-scripts
+      healthcheck:
+        test: ["CMD-SHELL", "ps -e | grep samba"]
+        interval: 15s
+        timeout: 5s
+        retries: 5
+      networks:
+        - nifinet
 
 volumes:
   nifi_node1_data:
   nifi_node2_data:
   nifi_node3_data:
+  secrets:
 
 networks:
   nifinet:

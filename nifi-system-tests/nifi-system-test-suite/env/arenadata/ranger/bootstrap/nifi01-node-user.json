@@ -1,0 +1,11 @@
+{
+  "name": "CN=nifi01.demo, O=NiFi Test, L=Santa Monica, ST=CA, C=US",
+  "firstName": "CN=nifi01.demo, O=NiFi Test, L=Santa Monica, ST=CA, C=US",
+  "lastName": "CN=nifi01.demo, O=NiFi Test, L=Santa Monica, ST=CA, C=US",
+  "loginId": "CN=nifi01.demo, O=NiFi Test, L=Santa Monica, ST=CA, C=US",
+  "password": "RangerUser1!",
+  "status": 1,
+  "userRoleList": [
+    "ROLE_USER"
+  ]
+}

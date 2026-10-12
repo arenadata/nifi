@@ -1,0 +1,7 @@
+{
+  "name": "test-group1",
+  "description": "NiFi Ranger system test group",
+  "groupType": 0,
+  "groupSource": 0,
+  "isVisible": 1
+}

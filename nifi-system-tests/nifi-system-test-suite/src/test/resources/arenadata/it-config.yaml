@@ -29,7 +29,13 @@ postgres:
   password:
   containerAddress: "jdbc:postgresql://postgres:5432/postgres"
 
+ranger:
+  url: "http://localhost:6080"
+  username: admin
+  password: rangerR0cks!
+
 gpfdistPort: 8099
 clientApiPort: 9091
 generalTimeout: 120
 pollInterval: 3
+solrUrl: "http://localhost:8983"

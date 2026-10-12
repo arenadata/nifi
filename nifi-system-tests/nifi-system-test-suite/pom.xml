@@ -449,6 +449,10 @@
             <artifactId>slf4j-api</artifactId>
             <scope>compile</scope>
         </dependency>
+        <dependency>
+            <groupId>com.squareup.okhttp3</groupId>
+            <artifactId>okhttp-jvm</artifactId>
+        </dependency>
         <!-- End things in the NiFi root lib that are not nars -->
         <!-- other nifi components needed for the testing -->
         <dependency>

@@ -1,0 +1,5 @@
+## Generated TLS artifacts for NiFi/Ranger test environment
+nifi-certs/*.pem
+nifi-certs/*.csr
+nifi-certs/*.cnf
+nifi-certs/*.srl

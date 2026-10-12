@@ -1,0 +1,60 @@
+dn: ou=groups,dc=nifi,dc=test
+objectclass: top
+objectclass: organizationalUnit
+ou: groups
+
+dn: ou=people,dc=nifi,dc=test
+objectclass: top
+objectclass: organizationalUnit
+ou: people
+
+dn: cn=test-user1,ou=people,dc=nifi,dc=test
+objectClass: top
+objectClass: person
+objectClass: organizationalPerson
+objectClass: user
+cn: test-user1
+sn: test-user1
+givenName: test-user1
+description: test-pass1 pwd
+unicodePwd::IgB0AGUAcwB0AC0AcABhAHMAcwAxACIA
+userAccountControl: 512
+sAMAccountName: test-user1
+
+dn: cn=test-user2,ou=people,dc=nifi,dc=test
+objectClass: top
+objectClass: person
+objectClass: organizationalPerson
+objectClass: user
+cn: test-user2
+sn: test-user2
+givenName: test-user2
+description: test-pass2 pwd
+unicodePwd::IgB0AGUAcwB0AC0AcABhAHMAcwAyACIA
+userAccountControl: 512
+sAMAccountName: test-user2
+
+dn: cn=admin,ou=people,dc=nifi,dc=test
+objectClass: top
+objectClass: person
+objectClass: organizationalPerson
+objectClass: user
+cn: admin
+sn: admin
+givenName: admin
+description: admin1234567890 pwd
+unicodePwd::IgBhAGQAbQBpAG4AMQAyADMANAA1ADYANwA4ADkAMAAiAA==
+userAccountControl: 512
+sAMAccountName: admin
+
+dn: cn=test-group1,ou=groups,dc=nifi,dc=test
+objectclass: top
+objectclass: groupOfNames
+cn: test-group1
+member: cn=test-user1,ou=people,dc=nifi,dc=test
+
+dn: cn=nifi-admins,ou=groups,dc=nifi,dc=test
+objectclass: top
+objectclass: groupOfNames
+cn: nifi-admins
+member: cn=admin,ou=people,dc=nifi,dc=test
