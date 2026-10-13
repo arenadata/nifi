@@ -20,26 +20,29 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import io.qameta.allure.Step;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.nifi.tests.system.arenadata.NifiSystemContainerizedIT;
 import org.apache.nifi.tests.system.arenadata.service.RangerAdminService;
 import org.apache.nifi.tests.system.arenadata.service.SolrAuditService;
 import org.apache.nifi.toolkit.client.NiFiClient;
+import org.apache.nifi.toolkit.client.ProcessorClient;
 import org.apache.nifi.toolkit.client.RequestConfig;
 import org.apache.nifi.toolkit.client.impl.request.BearerTokenRequestConfig;
 import org.apache.nifi.web.api.dto.PositionDTO;
 import org.apache.nifi.web.api.entity.ProcessorEntity;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
-import org.testcontainers.shaded.org.awaitility.Awaitility;
 
-import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 
 import static org.apache.nifi.tests.system.arenadata.util.ConfigUtil.getTestConfig;
-import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * Base class for Ranger system tests with common setup
@@ -68,7 +71,6 @@ public abstract class RangerTestBase extends NifiSystemContainerizedIT {
     public static void setupRangerInfrastructure() {
         objectMapper = new ObjectMapper();
         rangerAdminService = new RangerAdminService();
-        waitForRangerReady();
         rangerAdminService.ensurePolicyItemUser(NIFI_SERVICE_NAME, NIFI_ADMIN_BOOTSTRAP_POLICY_NAME, NIFI_CLIENT_CERTIFICATE_IDENTITY);
         String solrUrl = getTestConfig().getSolrUrl();
         solrService = new SolrAuditService(solrUrl);
@@ -87,6 +89,7 @@ public abstract class RangerTestBase extends NifiSystemContainerizedIT {
         createdPolicyNames.clear();
     }
 
+    @Step("Delete policy")
     public void deletePolicy(String policyName) {
         log.info("Delete policy {}", policyName);
         JsonNode policies = rangerAdminService.listPolicies(NIFI_SERVICE_NAME);
@@ -100,6 +103,7 @@ public abstract class RangerTestBase extends NifiSystemContainerizedIT {
         }
     }
 
+    @Step("Create Ranger policy")
     public void createPolicy(PolicyBuilder builder, String policyName) {
         ObjectNode policy = builder.build();
         log.info("Policy JSON: {}", policy.toPrettyString());
@@ -107,15 +111,8 @@ public abstract class RangerTestBase extends NifiSystemContainerizedIT {
         createdPolicyNames.add(policyName);
     }
 
-    private static void waitForRangerReady() {
-        log.info("Waiting for Ranger Admin to be ready...");
-        Awaitility.waitAtMost(Duration.ofMinutes(1))
-                .pollInterval(Duration.ofSeconds(5))
-                .until(() -> rangerAdminService.isAccessible());
-        log.info("Ranger Admin is ready");
-    }
-
-    protected ProcessorEntity createProcessor() throws Exception {
+    @Step("Create NiFi processor")
+    public ProcessorEntity createProcessor() throws Exception {
         ProcessorEntity processor = getClientUtil().createProcessor(
                 TEST_PROCESSOR,
                 NIFI_GROUP_ID,
@@ -128,23 +125,26 @@ public abstract class RangerTestBase extends NifiSystemContainerizedIT {
         return processor;
     }
 
-    protected RequestConfig createNifiRequestConfigForUser(String username, String password) throws Exception {
+    public RequestConfig createNifiRequestConfigForUser(String username, String password) throws Exception {
         try (NiFiClient loginClient = createClient(getClientApiPort())) {
             String token = loginClient.getAccessClient().getToken(username, password);
             return new BearerTokenRequestConfig(token);
         }
     }
 
-    protected void performReadOperationWithWait(String user,
+    @Step("Perform read operation with wait")
+    public void performReadOperationWithWait(String user,
                                                 String password,
                                                 ProcessorEntity processor,
                                                 boolean canRead) {
         assertWithPooling(() -> performReadOperation(user,  password, processor, canRead));
     }
 
-    protected void performReadOperation(String user, String password, ProcessorEntity processor, boolean canRead)
+    @Step("Perform read operation")
+    public void performReadOperation(String user, String password, ProcessorEntity processor, boolean canRead)
             throws Exception {
-        var processorClient = getNifiClient().getProcessorClient(createNifiRequestConfigForUser(user, password));
+        ProcessorClient processorClient =
+                getNifiClient().getProcessorClient(createNifiRequestConfigForUser(user, password));
         ProcessorEntity readEntity = null;
         try {
             readEntity = processorClient.getProcessor(processor.getId());
@@ -159,16 +159,19 @@ public abstract class RangerTestBase extends NifiSystemContainerizedIT {
         }
     }
 
-    protected void performWriteOperationWithWait(String user,
+    @Step("Perform write operation with wait")
+    public void performWriteOperationWithWait(String user,
                                                  String password,
                                                  ProcessorEntity processor,
                                                  boolean canWrite) {
         assertWithPooling(() -> performWriteOperation(user,  password, processor, canWrite));
     }
 
-    protected void performWriteOperation(String user, String password, ProcessorEntity processor, boolean canWrite)
+    @Step("Perform write operation")
+    public void performWriteOperation(String user, String password, ProcessorEntity processor, boolean canWrite)
             throws Exception {
-        var processorClient = getNifiClient().getProcessorClient(createNifiRequestConfigForUser(user, password));
+        ProcessorClient processorClient =
+                getNifiClient().getProcessorClient(createNifiRequestConfigForUser(user, password));
         boolean writeSucceeded;
         try {
             ProcessorEntity readEntity = processorClient.getProcessor(processor.getId());
@@ -190,16 +193,19 @@ public abstract class RangerTestBase extends NifiSystemContainerizedIT {
         }
     }
 
-    protected void performDeleteOperationWithWait(String user,
+    @Step("Perform delete operation with wait")
+    public void performDeleteOperationWithWait(String user,
                                                   String password,
                                                   ProcessorEntity processor,
                                                   boolean canDelete) {
         assertWithPooling(() -> performDeleteOperation(user,  password, processor, canDelete));
     }
 
-    protected void performDeleteOperation(String user, String password, ProcessorEntity processor, boolean canDelete)
+    @Step("Perform delete operation")
+    public void performDeleteOperation(String user, String password, ProcessorEntity processor, boolean canDelete)
             throws Exception {
-        var processorClient = getNifiClient().getProcessorClient(createNifiRequestConfigForUser(user, password));
+        ProcessorClient processorClient =
+                getNifiClient().getProcessorClient(createNifiRequestConfigForUser(user, password));
         boolean deleteSucceeded;
         try {
             processorClient.deleteProcessor(processor);
@@ -213,7 +219,7 @@ public abstract class RangerTestBase extends NifiSystemContainerizedIT {
                 "%s should %s be able to DELETE processor".formatted(user, canDelete ? "" : "NOT"));
     }
 
-    protected PolicyBuilder createPolicyBuilder(String policyName, String resourcePath) {
+    public PolicyBuilder createPolicyBuilder(String policyName, String resourcePath) {
         return new PolicyBuilder(objectMapper, NIFI_SERVICE_NAME, policyName, resourcePath);
     }
 

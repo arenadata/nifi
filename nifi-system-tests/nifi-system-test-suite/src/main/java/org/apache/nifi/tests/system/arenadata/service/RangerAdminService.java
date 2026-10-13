@@ -68,28 +68,6 @@ public final class RangerAdminService implements AutoCloseable {
         this.authorizationHeader = Credentials.basic(username, password);
     }
 
-    private String loginPageUrl() {
-        return baseUrl + ENDPOINT_LOGIN;
-    }
-
-    /**
-     * Check if Ranger Admin is accessible
-     */
-    public boolean isAccessible() {
-        try {
-            Request request = authorizedRequest(loginPageUrl())
-                    .get()
-                    .build();
-            try (Response response = httpClient.newCall(request).execute()) {
-                return response.code() == 200;
-            }
-        }
-        catch (Exception e) {
-            log.warn("Ranger Admin not accessible: {}", e.getMessage());
-            return false;
-        }
-    }
-
     /**
      * Create Ranger policy if it doesn't exist
      */
@@ -107,8 +85,7 @@ public final class RangerAdminService implements AutoCloseable {
         try {
             postJson(ENDPOINT_POLICIES, body);
             log.info("Created Ranger policy '{}' on service '{}'", policyName, serviceName);
-        }
-        catch (IllegalStateException e) {
+        } catch (IllegalStateException e) {
             // Only treat as success when OUR named policy is present
             if (e.getMessage() != null && e.getMessage().contains("already exists for matching resource")
                     && policyExists(serviceName, policyName)) {
@@ -143,8 +120,7 @@ public final class RangerAdminService implements AutoCloseable {
                 return body.get("policies");
             }
             throw new IllegalStateException(format("Unexpected Ranger policies response for service %s: %s", serviceName, body));
-        }
-        catch (IOException e) {
+        } catch (IOException e) {
             throw new UncheckedIOException(format("Failed to list Ranger policies for service %s", serviceName), e);
         }
     }
@@ -209,8 +185,7 @@ public final class RangerAdminService implements AutoCloseable {
                         responseBody));
             }
             log.info("Deleted Ranger policy '{}' on service '{}'", policyName, serviceName);
-        }
-        catch (IOException e) {
+        } catch (IOException e) {
             throw new UncheckedIOException(format("Failed to delete Ranger policy %s on service %s", policyName, serviceName), e);
         }
     }
@@ -243,8 +218,7 @@ public final class RangerAdminService implements AutoCloseable {
             String responseBody = response.body() == null ? "" : response.body().string();
             throw new IllegalStateException(format("Ranger Admin request to %s failed with HTTP %s: %s",
                     path, response.code(), responseBody));
-        }
-        catch (IOException e) {
+        } catch (IOException e) {
             throw new UncheckedIOException(format("Ranger Admin request to %s failed", path), e);
         }
     }
@@ -264,8 +238,7 @@ public final class RangerAdminService implements AutoCloseable {
             String responseBody = response.body() == null ? "" : response.body().string();
             throw new IllegalStateException(format("Ranger Admin request to %s failed with HTTP %s: %s",
                     path, response.code(), responseBody));
-        }
-        catch (IOException e) {
+        } catch (IOException e) {
             throw new UncheckedIOException(format("Ranger Admin request to %s failed", path), e);
         }
     }

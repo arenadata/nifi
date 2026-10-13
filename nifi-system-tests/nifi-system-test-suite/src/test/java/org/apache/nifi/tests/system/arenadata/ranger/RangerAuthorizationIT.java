@@ -17,12 +17,14 @@
 package org.apache.nifi.tests.system.arenadata.ranger;
 
 import io.qameta.allure.Feature;
+import io.qameta.allure.Step;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.nifi.toolkit.client.NiFiClientException;
 import org.apache.nifi.web.api.entity.ProcessorEntity;
 import org.junit.jupiter.api.Test;
 
-import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 
 @Slf4j
 @Feature("Ranger Authorization")
@@ -47,7 +49,7 @@ public class RangerAuthorizationIT extends RangerTestBase {
 
     @Test
     public void testDenyPolicyPriority() throws Exception {
-        var processor = createProcessor();
+        ProcessorEntity processor = createProcessor();
         String policyName = "test-policy-processor-deny-priority";
         String resourcePath = "/processors/" + processor.getId();
         PolicyBuilder builder = createPolicyBuilder(policyName, resourcePath);
@@ -70,8 +72,8 @@ public class RangerAuthorizationIT extends RangerTestBase {
 
     @Test
     public void testWildcardPolicy() throws Exception {
-        var processor1 = createProcessor();
-        var processor2 = createProcessor();
+        ProcessorEntity processor1 = createProcessor();
+        ProcessorEntity processor2 = createProcessor();
         String policyName = "test-policy-wildcard-processors";
         String wildcardResourcePath = "/processors/*";
         PolicyBuilder builder = createPolicyBuilder(policyName, wildcardResourcePath);
@@ -83,7 +85,7 @@ public class RangerAuthorizationIT extends RangerTestBase {
 
     @Test
     public void testAllowExceptionPolicy() throws Exception {
-        var processor = createProcessor();
+        ProcessorEntity processor = createProcessor();
         String policyName = "test-policy-allow-exception";
         String resourcePath = "/processors/" + processor.getId();
         PolicyBuilder builder = createPolicyBuilder(policyName, resourcePath);
@@ -96,8 +98,8 @@ public class RangerAuthorizationIT extends RangerTestBase {
 
     @Test
     public void testDenyExceptionPolicy() throws Exception {
-        var processor = createProcessor();
-        String policyName = "test-policy-allow-exception";
+        ProcessorEntity processor = createProcessor();
+        String policyName = "test-policy-deny-exception";
         String resourcePath = "/processors/" + processor.getId();
         PolicyBuilder builder = createPolicyBuilder(policyName, resourcePath);
         builder.addAllowItem(new String[] {TEST_USER1, TEST_USER2}, null, new String[] {"READ", "WRITE"});
@@ -110,7 +112,7 @@ public class RangerAuthorizationIT extends RangerTestBase {
 
     @Test
     public void testDeleteAuthorization() throws Exception {
-        var processor = createProcessor();
+        ProcessorEntity processor = createProcessor();
         String parentGroupId = processor.getComponent().getParentGroupId();
         log.info("Parent process group id={}", parentGroupId);
         String processorPolicyName = "test-policy-processor-delete";
@@ -128,6 +130,7 @@ public class RangerAuthorizationIT extends RangerTestBase {
         verifyDeletePermissionForProcessor(TEST_USER2, TEST_USER2_PASSWORD, processor, true);
     }
 
+    @Step("Verify read permission for root process group")
     private void verifyReadPermissionForRootProcessGroup(String user, String password, boolean hasPermission) {
         log.info("Verify {} read root process group permission", user);
         assertWithPooling(() -> {
@@ -147,6 +150,7 @@ public class RangerAuthorizationIT extends RangerTestBase {
         });
     }
 
+    @Step("Verify read and write processor permissions")
     private void verifyReadAndWriteProcessorPermission(String user,
                                                        String password,
                                                        ProcessorEntity processor,
@@ -160,6 +164,7 @@ public class RangerAuthorizationIT extends RangerTestBase {
         });
     }
 
+    @Step("Verify delete permission for processor")
     private void verifyDeletePermissionForProcessor(String user,
                                                     String password,
                                                     ProcessorEntity processor,

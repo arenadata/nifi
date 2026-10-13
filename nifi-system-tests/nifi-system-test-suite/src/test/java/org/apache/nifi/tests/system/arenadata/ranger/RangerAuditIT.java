@@ -17,6 +17,7 @@
 package org.apache.nifi.tests.system.arenadata.ranger;
 
 import io.qameta.allure.Feature;
+import io.qameta.allure.Step;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.nifi.web.api.entity.ProcessorEntity;
 import org.junit.jupiter.api.Test;
@@ -24,7 +25,9 @@ import org.junit.jupiter.api.Test;
 import java.util.List;
 import java.util.Map;
 
-import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 
 @Slf4j
 @Feature("Ranger Audit")
@@ -81,6 +84,7 @@ public class RangerAuditIT extends RangerTestBase {
         verifyAuditEventInSolr(TEST_USER1, processorResourcePath, "WRITE", 1);
     }
 
+    @Step("Verify audit event in Solr")
     private static void verifyAuditEventInSolr(String user, String resourcePath, String action, int result) {
         List<Map<String, Object>> events = solrService.waitForAuditEvents(user, resourcePath, action, result);
         assertFalse(events.isEmpty(), "Should have at least one audit event with specified parameters");
