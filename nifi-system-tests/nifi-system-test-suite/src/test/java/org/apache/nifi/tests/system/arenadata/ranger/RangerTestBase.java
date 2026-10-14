@@ -21,6 +21,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import io.qameta.allure.Step;
+import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.nifi.tests.system.arenadata.NifiSystemContainerizedIT;
 import org.apache.nifi.tests.system.arenadata.service.RangerAdminService;
@@ -263,7 +264,7 @@ public abstract class RangerTestBase extends NifiSystemContainerizedIT {
         /**
          * Add ALLOW policy item
          */
-        public PolicyBuilder addAllowItem(String[] users, String[] groups, String[] accesses) {
+        public PolicyBuilder addAllowItem(String[] users, String[] groups, AccessType[] accesses) {
             ObjectNode policyItem = policyItems.addObject();
             addPolicyItemContent(policyItem, users, groups, accesses);
             return this;
@@ -272,7 +273,7 @@ public abstract class RangerTestBase extends NifiSystemContainerizedIT {
         /**
          * Add DENY policy item
          */
-        public PolicyBuilder addDenyItem(String[] users, String[] groups, String[] accesses) {
+        public PolicyBuilder addDenyItem(String[] users, String[] groups, AccessType[] accesses) {
             ObjectNode denyPolicyItem = denyPolicyItems.addObject();
             addPolicyItemContent(denyPolicyItem, users, groups, accesses);
             return this;
@@ -281,7 +282,7 @@ public abstract class RangerTestBase extends NifiSystemContainerizedIT {
         /**
          * Add ALLOW exception - users/groups that are excluded from deny rules
          */
-        public PolicyBuilder addAllowException(String[] users, String[] groups, String[] accesses) {
+        public PolicyBuilder addAllowException(String[] users, String[] groups, AccessType[] accesses) {
             ObjectNode allowException = allowExceptions.addObject();
             addPolicyItemContent(allowException, users, groups, accesses);
             return this;
@@ -290,13 +291,16 @@ public abstract class RangerTestBase extends NifiSystemContainerizedIT {
         /**
          * Add DENY exception - users/groups that are excluded from allow rules
          */
-        public PolicyBuilder addDenyException(String[] users, String[] groups, String[] accesses) {
+        public PolicyBuilder addDenyException(String[] users, String[] groups, AccessType[] accesses) {
             ObjectNode denyException = denyExceptions.addObject();
             addPolicyItemContent(denyException, users, groups, accesses);
             return this;
         }
 
-        private void addPolicyItemContent(ObjectNode policyItem, String[] users, String[] groups, String[] accesses) {
+        private void addPolicyItemContent(ObjectNode policyItem,
+                                          String[] users,
+                                          String[] groups,
+                                          AccessType[] accesses) {
             ArrayNode usersArray = policyItem.putArray("users");
             if (users != null) {
                 for (String user : users) {
@@ -311,9 +315,9 @@ public abstract class RangerTestBase extends NifiSystemContainerizedIT {
             }
             ArrayNode accessesArray = policyItem.putArray("accesses");
             if (accesses != null) {
-                for (String access : accesses) {
+                for (AccessType access : accesses) {
                     accessesArray.addObject()
-                            .put("type", access)
+                            .put("type", access.toString())
                             .put("isAllowed", true);
                 }
             }
@@ -325,6 +329,23 @@ public abstract class RangerTestBase extends NifiSystemContainerizedIT {
          */
         public ObjectNode build() {
             return policy;
+        }
+    }
+
+    public enum AccessType {
+        READ,
+        WRITE
+    }
+
+    public enum AuditResult {
+        ALLOWED(1),
+        DENIED(0);
+
+        @Getter
+        private final int value;
+
+        AuditResult(int value) {
+            this.value = value;
         }
     }
 }

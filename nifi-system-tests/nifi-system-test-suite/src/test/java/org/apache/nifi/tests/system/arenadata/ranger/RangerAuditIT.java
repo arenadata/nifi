@@ -25,6 +25,10 @@ import org.junit.jupiter.api.Test;
 import java.util.List;
 import java.util.Map;
 
+import static org.apache.nifi.tests.system.arenadata.ranger.RangerTestBase.AccessType.READ;
+import static org.apache.nifi.tests.system.arenadata.ranger.RangerTestBase.AccessType.WRITE;
+import static org.apache.nifi.tests.system.arenadata.ranger.RangerTestBase.AuditResult.ALLOWED;
+import static org.apache.nifi.tests.system.arenadata.ranger.RangerTestBase.AuditResult.DENIED;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -39,12 +43,12 @@ public class RangerAuditIT extends RangerTestBase {
         String policyName = "test-audit-read";
         String resourcePath = "/processors/" + processor.getId();
         PolicyBuilder builder = createPolicyBuilder(policyName, resourcePath);
-        builder.addAllowItem(new String[]{TEST_USER1}, null, new String[]{"READ"});
+        builder.addAllowItem(new String[]{TEST_USER1}, null, new AccessType[]{READ});
         createPolicy(builder, policyName);
         performReadOperationWithWait(TEST_USER1, TEST_USER1_PASSWORD, processor, true);
         performReadOperationWithWait(TEST_USER2, TEST_USER2_PASSWORD, processor, false);
-        verifyAuditEventInSolr(TEST_USER1, resourcePath, "READ", 1);
-        verifyAuditEventInSolr(TEST_USER2, resourcePath, "READ", 0);
+        verifyAuditEventInSolr(TEST_USER1, resourcePath, READ, ALLOWED);
+        verifyAuditEventInSolr(TEST_USER2, resourcePath, READ, DENIED);
     }
 
     @Test
@@ -53,13 +57,13 @@ public class RangerAuditIT extends RangerTestBase {
         String policyName = "test-audit-write";
         String resourcePath = "/processors/" + processor.getId();
         PolicyBuilder builder = createPolicyBuilder(policyName, resourcePath);
-        builder.addAllowItem(new String[]{TEST_USER1}, null, new String[]{"READ", "WRITE"});
-        builder.addAllowItem(new String[]{TEST_USER2}, null, new String[]{"READ"});
+        builder.addAllowItem(new String[]{TEST_USER1}, null, new AccessType[]{READ, WRITE});
+        builder.addAllowItem(new String[]{TEST_USER2}, null, new AccessType[]{READ});
         createPolicy(builder, policyName);
         performWriteOperationWithWait(TEST_USER1, TEST_USER1_PASSWORD, processor, true);
         performWriteOperationWithWait(TEST_USER2, TEST_USER2_PASSWORD, processor, false);
-        verifyAuditEventInSolr(TEST_USER1, resourcePath, "WRITE", 1);
-        verifyAuditEventInSolr(TEST_USER2, resourcePath, "WRITE", 0);
+        verifyAuditEventInSolr(TEST_USER1, resourcePath, WRITE, ALLOWED);
+        verifyAuditEventInSolr(TEST_USER2, resourcePath, WRITE, DENIED);
     }
 
     @Test
@@ -69,31 +73,36 @@ public class RangerAuditIT extends RangerTestBase {
         String processorPolicyName = "test-audit-delete";
         String processorResourcePath = "/processors/" + processor.getId();
         PolicyBuilder processorPolicyBuilder = createPolicyBuilder(processorPolicyName, processorResourcePath);
-        processorPolicyBuilder.addAllowItem(new String[] {TEST_USER1}, null, new String[] {"READ", "WRITE"});
-        processorPolicyBuilder.addAllowItem(new String[] {TEST_USER2}, null, new String[] {"READ"});
+        processorPolicyBuilder.addAllowItem(new String[] {TEST_USER1}, null, new AccessType[] {READ, WRITE});
+        processorPolicyBuilder.addAllowItem(new String[] {TEST_USER2}, null, new AccessType[] {READ});
         createPolicy(processorPolicyBuilder, processorPolicyName);
         String groupPolicyName = "test-policy-group-delete";
         String groupResourcePath = "/process-groups/" + parentGroupId;
         PolicyBuilder groupPolicyBuilder = createPolicyBuilder(groupPolicyName, groupResourcePath);
-        groupPolicyBuilder.addAllowItem(new String[] {TEST_USER1}, null, new String[] {"READ", "WRITE"});
-        groupPolicyBuilder.addAllowItem(new String[] {TEST_USER2}, null, new String[] {"READ"});
+        groupPolicyBuilder.addAllowItem(new String[] {TEST_USER1}, null, new AccessType[] {READ, WRITE});
+        groupPolicyBuilder.addAllowItem(new String[] {TEST_USER2}, null, new AccessType[] {READ});
         createPolicy(groupPolicyBuilder, groupPolicyName);
         performDeleteOperationWithWait(TEST_USER2, TEST_USER2_PASSWORD, processor, false);
         performDeleteOperationWithWait(TEST_USER1, TEST_USER1_PASSWORD, processor, true);
-        verifyAuditEventInSolr(TEST_USER2, processorResourcePath, "WRITE", 0);
-        verifyAuditEventInSolr(TEST_USER1, processorResourcePath, "WRITE", 1);
+        verifyAuditEventInSolr(TEST_USER2, processorResourcePath, WRITE, DENIED);
+        verifyAuditEventInSolr(TEST_USER1, processorResourcePath, WRITE, ALLOWED);
     }
 
     @Step("Verify audit event in Solr")
-    private static void verifyAuditEventInSolr(String user, String resourcePath, String action, int result) {
-        List<Map<String, Object>> events = solrService.waitForAuditEvents(user, resourcePath, action, result);
+    private static void verifyAuditEventInSolr(String user,
+                                               String resourcePath,
+                                               AccessType action,
+                                               AuditResult result) {
+        List<Map<String, Object>> events =
+                solrService.waitForAuditEvents(user, resourcePath, action.toString(), result.getValue());
         assertFalse(events.isEmpty(), "Should have at least one audit event with specified parameters");
         Map<String, Object> event = events.getFirst();
         log.info("Verify audit event: {}", event);
         assertEquals(user, event.get("reqUser"), "Event user should be " + user);
         assertEquals(resourcePath, event.get("resource"), "Event resource should match");
-        assertEquals(action, event.get("action"), "Event action should be " + action);
-        assertEquals(result, event.get("result"), "Event result should be " + result);
+        assertEquals(action.toString(), event.get("action"), "Event action should be " + action);
+        assertEquals(result.getValue(), event.get("result"), "Event result should be "
+                + "%s(%d)".formatted(result, result.getValue()));
         assertNotNull(event.get("evtTime"), "Event should have evtTime");
         assertNotNull(event.get("repoName"), "Event should have repoName (service name)");
         assertNotNull(event.get("repoType"), "Event should have repoType");

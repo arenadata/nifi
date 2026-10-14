@@ -23,6 +23,8 @@ import org.apache.nifi.toolkit.client.NiFiClientException;
 import org.apache.nifi.web.api.entity.ProcessorEntity;
 import org.junit.jupiter.api.Test;
 
+import static org.apache.nifi.tests.system.arenadata.ranger.RangerTestBase.AccessType.READ;
+import static org.apache.nifi.tests.system.arenadata.ranger.RangerTestBase.AccessType.WRITE;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 
@@ -36,13 +38,13 @@ public class RangerAuthorizationIT extends RangerTestBase {
         String flowResourcePath = "/flow";
         verifyReadPermissionForRootProcessGroup(TEST_USER1, TEST_USER1_PASSWORD, false);
         PolicyBuilder userPolicyBuilder = createPolicyBuilder(flowPolicyName, flowResourcePath);
-        userPolicyBuilder.addAllowItem(new String[] {TEST_USER1}, null, new String[] {"READ"});
+        userPolicyBuilder.addAllowItem(new String[] {TEST_USER1}, null, new AccessType[] {READ});
         createPolicy(userPolicyBuilder, flowPolicyName);
         verifyReadPermissionForRootProcessGroup(TEST_USER1, TEST_USER1_PASSWORD, true);
         deletePolicy(flowPolicyName);
         verifyReadPermissionForRootProcessGroup(TEST_USER1, TEST_USER1_PASSWORD, false);
         PolicyBuilder groupPolicyBuilder = createPolicyBuilder(flowPolicyName, flowResourcePath);
-        groupPolicyBuilder.addAllowItem(null, new String[] {TEST_GROUP1}, new String[] {"READ"});
+        groupPolicyBuilder.addAllowItem(null, new String[] {TEST_GROUP1}, new AccessType[] {READ});
         createPolicy(groupPolicyBuilder, flowPolicyName);
         verifyReadPermissionForRootProcessGroup(TEST_USER1, TEST_USER1_PASSWORD, true);
     }
@@ -53,8 +55,8 @@ public class RangerAuthorizationIT extends RangerTestBase {
         String policyName = "test-policy-processor-deny-priority";
         String resourcePath = "/processors/" + processor.getId();
         PolicyBuilder builder = createPolicyBuilder(policyName, resourcePath);
-        builder.addAllowItem(null, new String[] {TEST_GROUP1}, new String[] {"READ", "WRITE"});
-        builder.addDenyItem(new String[] {TEST_USER1}, null, new String[] {"WRITE"});
+        builder.addAllowItem(null, new String[] {TEST_GROUP1}, new AccessType[] {READ, WRITE});
+        builder.addDenyItem(new String[] {TEST_USER1}, null, new AccessType[] {WRITE});
         createPolicy(builder, policyName);
         verifyReadAndWriteProcessorPermission(TEST_USER1, TEST_USER1_PASSWORD, processor, true, false);
     }
@@ -64,7 +66,7 @@ public class RangerAuthorizationIT extends RangerTestBase {
         String policyName = "test-aggregation-policy-flow";
         String resourcePath = "/flow";
         PolicyBuilder builder = createPolicyBuilder(policyName, resourcePath);
-        builder.addAllowItem(new String[]{TEST_USER2}, new String[]{TEST_GROUP1}, new String[]{"READ"});
+        builder.addAllowItem(new String[]{TEST_USER2}, new String[]{TEST_GROUP1}, new AccessType[]{READ});
         createPolicy(builder, policyName);
         verifyReadPermissionForRootProcessGroup(TEST_USER1, TEST_USER1_PASSWORD, true);
         verifyReadPermissionForRootProcessGroup(TEST_USER2, TEST_USER2_PASSWORD, true);
@@ -77,7 +79,7 @@ public class RangerAuthorizationIT extends RangerTestBase {
         String policyName = "test-policy-wildcard-processors";
         String wildcardResourcePath = "/processors/*";
         PolicyBuilder builder = createPolicyBuilder(policyName, wildcardResourcePath);
-        builder.addAllowItem(new String[] {TEST_USER1}, null, new String[] {"READ"});
+        builder.addAllowItem(new String[] {TEST_USER1}, null, new AccessType[] {READ});
         createPolicy(builder, policyName);
         verifyReadAndWriteProcessorPermission(TEST_USER1, TEST_USER1_PASSWORD, processor1, true, false);
         verifyReadAndWriteProcessorPermission(TEST_USER1, TEST_USER1_PASSWORD, processor2, true, false);
@@ -89,8 +91,8 @@ public class RangerAuthorizationIT extends RangerTestBase {
         String policyName = "test-policy-allow-exception";
         String resourcePath = "/processors/" + processor.getId();
         PolicyBuilder builder = createPolicyBuilder(policyName, resourcePath);
-        builder.addAllowItem(new String[] {TEST_USER1, TEST_USER2}, null, new String[] {"READ", "WRITE"});
-        builder.addAllowException(new String[] {TEST_USER1}, null, new String[] {"WRITE"});
+        builder.addAllowItem(new String[] {TEST_USER1, TEST_USER2}, null, new AccessType[] {READ, WRITE});
+        builder.addAllowException(new String[] {TEST_USER1}, null, new AccessType[] {WRITE});
         createPolicy(builder, policyName);
         verifyReadAndWriteProcessorPermission(TEST_USER1, TEST_USER1_PASSWORD, processor, true, false);
         verifyReadAndWriteProcessorPermission(TEST_USER2, TEST_USER2_PASSWORD, processor, true, true);
@@ -102,9 +104,9 @@ public class RangerAuthorizationIT extends RangerTestBase {
         String policyName = "test-policy-deny-exception";
         String resourcePath = "/processors/" + processor.getId();
         PolicyBuilder builder = createPolicyBuilder(policyName, resourcePath);
-        builder.addAllowItem(new String[] {TEST_USER1, TEST_USER2}, null, new String[] {"READ", "WRITE"});
-        builder.addDenyItem(null, new String[] {TEST_GROUP1}, new String[] {"WRITE"});
-        builder.addDenyException(new String[] {TEST_USER1}, null, new String[] {"WRITE"});
+        builder.addAllowItem(new String[] {TEST_USER1, TEST_USER2}, null, new AccessType[] {READ, WRITE});
+        builder.addDenyItem(null, new String[] {TEST_GROUP1}, new AccessType[] {WRITE});
+        builder.addDenyException(new String[] {TEST_USER1}, null, new AccessType[] {WRITE});
         createPolicy(builder, policyName);
         verifyReadAndWriteProcessorPermission(TEST_USER1, TEST_USER1_PASSWORD, processor, true, true);
         verifyReadAndWriteProcessorPermission(TEST_USER2, TEST_USER2_PASSWORD, processor, true, true);
@@ -118,13 +120,13 @@ public class RangerAuthorizationIT extends RangerTestBase {
         String processorPolicyName = "test-policy-processor-delete";
         String processorResourcePath = "/processors/" + processor.getId();
         PolicyBuilder processorPolicyBuilder = createPolicyBuilder(processorPolicyName, processorResourcePath);
-        processorPolicyBuilder.addAllowItem(new String[] {TEST_USER1}, null, new String[] {"READ"});
-        processorPolicyBuilder.addAllowItem(new String[] {TEST_USER2}, null, new String[] {"READ", "WRITE"});
+        processorPolicyBuilder.addAllowItem(new String[] {TEST_USER1}, null, new AccessType[] {READ});
+        processorPolicyBuilder.addAllowItem(new String[] {TEST_USER2}, null, new AccessType[] {READ, WRITE});
         createPolicy(processorPolicyBuilder, processorPolicyName);
         String groupPolicyName = "test-policy-group-delete";
         String groupResourcePath = "/process-groups/" + parentGroupId;
         PolicyBuilder groupPolicyBuilder = createPolicyBuilder(groupPolicyName, groupResourcePath);
-        groupPolicyBuilder.addAllowItem(new String[] {TEST_USER2}, null, new String[] {"READ", "WRITE"});
+        groupPolicyBuilder.addAllowItem(new String[] {TEST_USER2}, null, new AccessType[] {READ, WRITE});
         createPolicy(groupPolicyBuilder, groupPolicyName);
         verifyDeletePermissionForProcessor(TEST_USER1, TEST_USER1_PASSWORD, processor, false);
         verifyDeletePermissionForProcessor(TEST_USER2, TEST_USER2_PASSWORD, processor, true);
