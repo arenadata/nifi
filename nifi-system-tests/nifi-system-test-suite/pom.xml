@@ -242,6 +242,14 @@
                                         <include>nifi-greengage-service-nar-${nifi.version}.nar</include>
                                     </includes>
                                 </resource>
+                                <resource>
+                                    <directory>
+                                        ../../nifi-nar-bundles/nifi-standard-bundle/nifi-standard-nar/target
+                                    </directory>
+                                    <includes>
+                                        <include>nifi-standard-nar-${nifi.version}.nar</include>
+                                    </includes>
+                                </resource>
                             </resources>
                         </configuration>
                     </execution>

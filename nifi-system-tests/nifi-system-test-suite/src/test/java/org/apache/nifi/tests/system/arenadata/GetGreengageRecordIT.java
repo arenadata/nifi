@@ -76,6 +76,7 @@ public class GetGreengageRecordIT extends NifiSystemContainerizedIT {
         put("f_jsonb", "JSONB");
         put("f_numeric", "DECIMAL(10, 5)");
         put("f_double", "DOUBLE PRECISION");
+        put("f_money", "MONEY");
         put("f_tinyint", "SMALLINT");
         put("f_smallint", "SMALLINT");
         put("f_time", "TIME");
@@ -86,6 +87,7 @@ public class GetGreengageRecordIT extends NifiSystemContainerizedIT {
         put("f_hstore", "HSTORE");
         put("f_enum", "DAY");
     }};
+
     /**
      * PG target columns derived from ADB.
      * Types that GetGreengageRecord converts are mapped to PG-compatible types:
@@ -95,6 +97,7 @@ public class GetGreengageRecordIT extends NifiSystemContainerizedIT {
      * GetGreengageRecord converts TEXT[] to ARRAY and HSTORE to MAP NiFi record types.
      */
     private static final Map<String, String> PG_TABLE_COLUMNS;
+
     static {
         PG_TABLE_COLUMNS = new LinkedHashMap<>(TABLE_COLUMNS);
         PG_TABLE_COLUMNS.remove("f_text_array");
@@ -102,6 +105,7 @@ public class GetGreengageRecordIT extends NifiSystemContainerizedIT {
         PG_TABLE_COLUMNS.put("f_bit", "BOOLEAN");
         PG_TABLE_COLUMNS.put("f_enum", "VARCHAR");
     }
+
     private static final String GENERATE_DATASET_SQL = "select i,\n" +
             "       25000000000 * random(),\n" +
             "       case when random() > 0.5 then 1 else 0 end::bit,\n" +
@@ -116,6 +120,7 @@ public class GetGreengageRecordIT extends NifiSystemContainerizedIT {
             "       '{\"a\": \"b\"}'::jsonb,\n" +
             "       45.51123::decimal,\n" +
             "       1.03e1,\n" +
+            "       (random() * 1000000)::numeric::money,\n" +
             "       15::smallint,\n" +
             "       5000::smallint,\n" +
             "       CURRENT_TIME,\n" +
@@ -151,27 +156,21 @@ public class GetGreengageRecordIT extends NifiSystemContainerizedIT {
 
     @Test
     @SneakyThrows
-    public void testReadRecordsFromAdbForMoneyDataType() {
-        Map<String, String> sourceFieldMap = new LinkedHashMap<>();
-        sourceFieldMap.put("f_money", "MONEY");
-        Map<String, String> targetFieldMap = new LinkedHashMap<>();
-        targetFieldMap.put("f_money", "DOUBLE PRECISION");
-        String insertQuery = String.format("INSERT INTO %s VALUES (10000::money), (1500.50::money), (0.99::money)", GG_TABLE_NAME);
-        initDataset(sourceFieldMap, targetFieldMap, insertQuery);
-        configureNifiFlow(sourceFieldMap);
-        assertWithPooling(() -> assertEquals(3, postgresService.queryCountOfRowsInTable(PG_TABLE_NAME)));
-    }
-
-    @Test
-    @SneakyThrows
     public void testConversionToAnotherDataType() {
         Map<String, String> sourceFieldMap = new LinkedHashMap<>();
         sourceFieldMap.put("f_integer", "INTEGER");
         sourceFieldMap.put("f_bigint", "BIGINT");
+        sourceFieldMap.put("f_double", "DOUBLE PRECISION");
+        sourceFieldMap.put("f_numeric", "NUMERIC(8,2)");
+        sourceFieldMap.put("f_varchar", "VARCHAR");
         Map<String, String> targetFieldMap = new LinkedHashMap<>();
         targetFieldMap.put("f_integer", "BIGINT");
         targetFieldMap.put("f_bigint", "INTEGER");
-        String insertQuery = String.format("INSERT INTO %s VALUES (-2147483648, 2147483647), (0, 0), (2147483647, -2147483648)", GG_TABLE_NAME);
+        targetFieldMap.put("f_double", "MONEY");
+        targetFieldMap.put("f_numeric", "MONEY");
+        targetFieldMap.put("f_varchar", "MONEY");
+        String insertQuery = String.format("INSERT INTO %s VALUES (-2147483648, 2147483647, 1500.50, 0.99, '1500.50'), "
+                + "(0, 0, 0, 0, '0'), (2147483647, -2147483648, 1000, 1, '1')", GG_TABLE_NAME);
         initDataset(sourceFieldMap, targetFieldMap, insertQuery);
         configureNifiFlow(sourceFieldMap);
         assertWithPooling(() -> assertEquals(3, postgresService.queryCountOfRowsInTable(PG_TABLE_NAME)));
