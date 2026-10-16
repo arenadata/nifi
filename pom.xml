@@ -106,7 +106,6 @@
         <maven.surefire.arguments />
         <!-- Set minimum Java version for maven-enforcer-plugin from parent POM -->
         <minimalJavaBuildVersion>21</minimalJavaBuildVersion>
-        <surefire.version>3.5.5</surefire.version>
 
         <!-- Container images -->
         <docker.image.tag>21</docker.image.tag>

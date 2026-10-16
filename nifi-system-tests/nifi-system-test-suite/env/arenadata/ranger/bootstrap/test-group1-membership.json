@@ -1,0 +1,9 @@
+[
+  {
+    "groupName": "test-group1",
+    "addUsers": [
+      "test-user1"
+    ],
+    "delUsers": []
+  }
+]

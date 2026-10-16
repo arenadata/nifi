@@ -48,7 +48,6 @@
                     <plugin>
                         <groupId>org.apache.maven.plugins</groupId>
                         <artifactId>maven-surefire-plugin</artifactId>
-                        <version>${surefire.version}</version>
                         <configuration>
                             <skipTests>false</skipTests>
                             <goal>integration-test</goal>
@@ -74,7 +73,7 @@
                                 </property>
                             </properties>
                             <includes>
-                                <include>org/apache/nifi/tests/system/arenadata/*.java</include>
+                                <include>org/apache/nifi/tests/system/arenadata/**/*.java</include>
                             </includes>
                         </configuration>
                         <dependencies>
@@ -142,7 +141,7 @@
                     <redirectTestOutputToFile>true</redirectTestOutputToFile>
                     <rerunFailingTestsCount>2</rerunFailingTestsCount>
                     <excludes>
-                        <exclude>org/apache/nifi/tests/system/arenadata/*IT.java</exclude>
+                        <exclude>org/apache/nifi/tests/system/arenadata/**/*IT.java</exclude>
                     </excludes>
                 </configuration>
             </plugin>
@@ -296,6 +295,11 @@
                         <phase>process-resources</phase>
                         <configuration>
                             <target>
+                                <replaceregexp
+                                        file="${project.basedir}/env/arenadata/.env"
+                                        match="^NIFI_VERSION=.*$"
+                                        replace="NIFI_VERSION=${project.version}"
+                                        byline="true"/>
                                 <replaceregexp
                                         file="${project.basedir}/env/arenadata/.env"
                                         match="^NIFI_IMAGE_VERSION=.*$"
@@ -461,6 +465,10 @@
             <groupId>org.slf4j</groupId>
             <artifactId>slf4j-api</artifactId>
             <scope>compile</scope>
+        </dependency>
+        <dependency>
+            <groupId>com.squareup.okhttp3</groupId>
+            <artifactId>okhttp-jvm</artifactId>
         </dependency>
         <!-- End things in the NiFi root lib that are not nars -->
         <!-- other nifi components needed for the testing -->
