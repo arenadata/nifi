@@ -19,6 +19,7 @@ package org.apache.nifi.tests.system.arenadata;
 import io.qameta.allure.Step;
 import lombok.SneakyThrows;
 import lombok.val;
+import org.apache.nifi.registry.security.util.KeystoreType;
 import org.apache.nifi.tests.system.NiFiSystemIT;
 import org.apache.nifi.tests.system.arenadata.model.Component;
 import org.apache.nifi.tests.system.arenadata.service.DockerComposeService;
@@ -26,6 +27,7 @@ import org.apache.nifi.tests.system.arenadata.service.JdbcService;
 import org.apache.nifi.tests.system.arenadata.service.JdbcServiceFactory;
 import org.apache.nifi.toolkit.client.NiFiClient;
 import org.apache.nifi.toolkit.client.NiFiClientConfig;
+import org.apache.nifi.toolkit.client.NiFiClientException;
 import org.apache.nifi.toolkit.client.impl.JerseyNiFiClient;
 import org.apache.nifi.web.api.entity.ControllerServiceEntity;
 import org.apache.nifi.web.api.entity.ProcessorEntity;
@@ -37,6 +39,10 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testcontainers.shaded.org.awaitility.Awaitility;
 
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
@@ -47,6 +53,13 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 
 public class NifiSystemContainerizedIT extends NiFiSystemIT {
     private static final Logger logger = LoggerFactory.getLogger(NifiSystemContainerizedIT.class);
+    private static final String NIFI_KEYSTORE_RELATIVE_PATH = "env/arenadata/nifi-certs/nifi01-keystore.p12";
+    private static final String NIFI_KEYSTORE_PROJECT_RELATIVE_PATH = "nifi-system-tests/nifi-system-test-suite/" + NIFI_KEYSTORE_RELATIVE_PATH;
+    private static final String NIFI_KEYSTORE_PASSWORD = "changeit";
+    private static final String NIFI_TRUSTSTORE_RELATIVE_PATH = "env/arenadata/nifi-certs/truststore.p12";
+    private static final String NIFI_TRUSTSTORE_PROJECT_RELATIVE_PATH = "nifi-system-tests/nifi-system-test-suite/" + NIFI_TRUSTSTORE_RELATIVE_PATH;
+    private static final String NIFI_TRUSTSTORE_PASSWORD = "changeit";
+    private static final int NIFI_CLUSTER_NODE_COUNT = 3;
     protected static JdbcService adbService;
     protected static JdbcService postgresService;
     protected static final String CREATE_ENUM_SQL = "DO $$ \n" +
@@ -77,18 +90,59 @@ public class NifiSystemContainerizedIT extends NiFiSystemIT {
 
         Thread.currentThread().setContextClassLoader(ClassLoader.getSystemClassLoader());
         setupClient();
+        waitForAllNodesConnected(NIFI_CLUSTER_NODE_COUNT);
+    }
+
+    @Override
+    protected void destroyFlow() throws NiFiClientException, IOException, InterruptedException {
+        waitForAllNodesConnected(NIFI_CLUSTER_NODE_COUNT);
+        super.destroyFlow();
     }
 
     @Override
     protected NiFiClient createClient(final int port) {
+        final String baseUrl = "https://localhost:" + port;
+
         final NiFiClientConfig.Builder clientConfigBuilder = new NiFiClientConfig.Builder()
-                .baseUrl("http://localhost:" + port)
+                .baseUrl(baseUrl)
                 .connectTimeout(15000)
-                .readTimeout(30000);
+                .readTimeout(30000)
+                .keystoreFilename(getNifiKeystorePath())
+                .keystorePassword(NIFI_KEYSTORE_PASSWORD)
+                .keyPassword(NIFI_KEYSTORE_PASSWORD)
+                .keystoreType(KeystoreType.PKCS12)
+                .truststoreFilename(getNifiTruststorePath())
+                .truststorePassword(NIFI_TRUSTSTORE_PASSWORD)
+                .truststoreType(KeystoreType.PKCS12);
 
         return new JerseyNiFiClient.Builder()
                 .config(clientConfigBuilder.build())
                 .build();
+    }
+
+    private String getNifiKeystorePath() {
+        return getNifiCertificateStorePath(NIFI_KEYSTORE_RELATIVE_PATH, NIFI_KEYSTORE_PROJECT_RELATIVE_PATH, "keystore");
+    }
+
+    private String getNifiTruststorePath() {
+        return getNifiCertificateStorePath(NIFI_TRUSTSTORE_RELATIVE_PATH, NIFI_TRUSTSTORE_PROJECT_RELATIVE_PATH, "truststore");
+    }
+
+    private String getNifiCertificateStorePath(final String moduleRelativePath, final String projectRelativePath, final String storeType) {
+        final Path workingDirectory = Paths.get(System.getProperty("user.dir"));
+        final Path moduleStorePath = workingDirectory.resolve(moduleRelativePath);
+        if (Files.isRegularFile(moduleStorePath)) {
+            return moduleStorePath.toAbsolutePath().normalize().toString();
+        }
+        final Path projectStorePath = workingDirectory.resolve(projectRelativePath);
+        if (Files.isRegularFile(projectStorePath)) {
+            return projectStorePath.toAbsolutePath().normalize().toString();
+        }
+        throw new IllegalStateException(String.format(
+                "NiFi %s not found. Checked [%s] and [%s]. Generate Arenadata NiFi certificates before running containerized system tests.",
+                storeType,
+                moduleStorePath.toAbsolutePath().normalize(),
+                projectStorePath.toAbsolutePath().normalize()));
     }
 
     @Override

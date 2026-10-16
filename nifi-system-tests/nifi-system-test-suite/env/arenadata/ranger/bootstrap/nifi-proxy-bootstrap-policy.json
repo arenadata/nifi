@@ -1,0 +1,39 @@
+{
+  "service": "nifi",
+  "name": "nifi-proxy-bootstrap",
+  "policyType": 0,
+  "description": "Bootstrap policy allowing NiFi nodes to proxy user requests during system tests",
+  "isEnabled": true,
+  "isAuditEnabled": true,
+  "resources": {
+    "nifi-resource": {
+      "values": [
+        "/proxy"
+      ],
+      "isExcludes": false,
+      "isRecursive": false
+    }
+  },
+  "policyItems": [
+    {
+      "users": [
+        "CN=nifi01.demo, O=NiFi Test, L=Santa Monica, ST=CA, C=US",
+        "CN=nifi02.demo, O=NiFi Test, L=Santa Monica, ST=CA, C=US",
+        "CN=nifi03.demo, O=NiFi Test, L=Santa Monica, ST=CA, C=US"
+      ],
+      "groups": [],
+      "accesses": [
+        {
+          "type": "WRITE",
+          "isAllowed": true
+        }
+      ],
+      "delegateAdmin": false
+    }
+  ],
+  "denyPolicyItems": [],
+  "allowExceptions": [],
+  "denyExceptions": [],
+  "dataMaskPolicyItems": [],
+  "rowFilterPolicyItems": []
+}

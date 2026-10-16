@@ -26,9 +26,11 @@ import lombok.NoArgsConstructor;
 public class TestConfig {
     private DataSourceProperties adb;
     private DataSourceProperties postgres;
+    private ServiceProperties ranger;
     private String gpfdistPort;
     private int clientApiPort;
     private int generalTimeout;
     private int pollInterval;
     private String dockerHostIp;
+    private String solrUrl;
 }
