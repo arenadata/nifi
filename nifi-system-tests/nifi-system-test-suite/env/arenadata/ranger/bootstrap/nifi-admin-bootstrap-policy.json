@@ -1,0 +1,52 @@
+{
+  "service": "nifi",
+  "name": "nifi-admin-bootstrap",
+  "policyType": 0,
+  "description": "Bootstrap policy allowing admin to access NiFi during system tests",
+  "isEnabled": true,
+  "isAuditEnabled": true,
+  "resources": {
+    "nifi-resource": {
+      "values": [
+        "*"
+      ],
+      "isExcludes": false,
+      "isRecursive": false
+    }
+  },
+  "policyItems": [
+    {
+      "users": [
+        "admin",
+        "CN=nifi01.demo, O=NiFi Test, L=Santa Monica, ST=CA, C=US",
+        "CN=nifi02.demo, O=NiFi Test, L=Santa Monica, ST=CA, C=US",
+        "CN=nifi03.demo, O=NiFi Test, L=Santa Monica, ST=CA, C=US"
+      ],
+      "groups": [],
+      "accesses": [
+        {
+          "type": "READ",
+          "isAllowed": true
+        },
+        {
+          "type": "WRITE",
+          "isAllowed": true
+        },
+        {
+          "type": "_DELETE",
+          "isAllowed": true
+        },
+        {
+          "type": "_ALL",
+          "isAllowed": true
+        }
+      ],
+      "delegateAdmin": true
+    }
+  ],
+  "denyPolicyItems": [],
+  "allowExceptions": [],
+  "denyExceptions": [],
+  "dataMaskPolicyItems": [],
+  "rowFilterPolicyItems": []
+}

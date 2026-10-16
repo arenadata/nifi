@@ -1,0 +1,78 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<!--
+  Licensed to the Apache Software Foundation (ASF) under one or more
+  contributor license agreements.  See the NOTICE file distributed with
+  this work for additional information regarding copyright ownership.
+  The ASF licenses this file to You under the Apache License, Version 2.0
+  (the "License"); you may not use this file except in compliance with
+  the License.  You may obtain a copy of the License at
+      http://www.apache.org/licenses/LICENSE-2.0
+  Unless required by applicable law or agreed to in writing, software
+  distributed under the License is distributed on an "AS IS" BASIS,
+  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+  See the License for the specific language governing permissions and
+  limitations under the License.
+-->
+<authorizers>
+    <!-- LDAP User Group Provider for getting groups from Samba AD -->
+    <userGroupProvider>
+        <identifier>ldap-user-group-provider</identifier>
+        <class>org.apache.nifi.ldap.tenants.LdapUserGroupProvider</class>
+
+        <!-- LDAP connection configuration -->
+        <property name="Authentication Strategy">SIMPLE</property>
+        <property name="Manager DN">CN=Administrator,CN=Users,DC=nifi,DC=test</property>
+        <property name="Manager Password">LZ2ibGAn2H0D0UW3</property>
+        <property name="Referral Strategy">FOLLOW</property>
+        <property name="Url">ldap://samba:389</property>
+        <property name="Connect Timeout">10 secs</property>
+        <property name="Read Timeout">10 secs</property>
+
+        <!-- User search configuration -->
+        <property name="User Search Base">OU=people,DC=nifi,DC=test</property>
+        <property name="User Object Class">person</property>
+        <property name="User Search Scope">ONE_LEVEL</property>
+        <property name="User Search Filter"></property>
+        <property name="User Identity Attribute">sAMAccountName</property>
+        <property name="User Group Name Attribute"></property>
+        <property name="User Group Name Attribute - Referenced Group Attribute"></property>
+
+        <!-- Group search configuration -->
+        <property name="Group Search Base">OU=groups,DC=nifi,DC=test</property>
+        <property name="Group Object Class">groupOfNames</property>
+        <property name="Group Search Scope">ONE_LEVEL</property>
+        <property name="Group Search Filter"></property>
+        <property name="Group Name Attribute">cn</property>
+        <property name="Group Member Attribute">member</property>
+        <property name="Group Member Attribute - Referenced User Attribute"></property>
+
+        <!-- Page size for LDAP queries -->
+        <property name="Page Size"></property>
+        <property name="Sync Interval">30 mins</property>
+        <property name="Group Membership - Enforce Case Sensitivity">false</property>
+    </userGroupProvider>
+
+    <authorizer>
+        <identifier>ranger-authorizer</identifier>
+        <class>org.apache.nifi.ranger.authorization.ManagedRangerAuthorizer</class>
+
+        <!-- Reference to User Group Provider -->
+        <property name="User Group Provider">ldap-user-group-provider</property>
+
+        <property name="Ranger Audit Config Path">./conf/ranger-nifi-audit.xml</property>
+        <property name="Ranger Security Config Path">./conf/ranger-nifi-security.xml</property>
+        <property name="Ranger Service Type">nifi</property>
+        <property name="Ranger Application Id">nifi</property>
+
+        <!--
+            Ranger Admin Test Connection calls NiFi /nifi-api/resources using the
+            certificate configured in ranger/bootstrap/nifi-service.json. NiFi
+            authenticates that request as the full X.509 subject DN, not as the
+            Ranger UI user. Allow this identity to retrieve resources so Ranger
+            service Test Connection can validate connectivity before policies are
+            fully exercised.
+        -->
+        <property name="Ranger Admin Identity 1">CN=nifi01.demo, O=NiFi Test, L=Santa Monica, ST=CA, C=US</property>
+
+    </authorizer>
+</authorizers>

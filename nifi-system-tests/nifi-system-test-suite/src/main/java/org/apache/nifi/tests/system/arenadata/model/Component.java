@@ -30,7 +30,12 @@ public enum Component {
     ZOOKEEPER("zookeeper", 0),
     NIFI01("nifi01", 6980),
     NIFI02("nifi02", 6979),
-    NIFI03("nifi03", 6978);
+    NIFI03("nifi03", 6978),
+    RANGER_DB("ranger-db", 5433),
+    RANGER_ADMIN("ranger-admin", 6080),
+    SOLR("solr", 8983),
+    KDC_SERVER("kdc-server", 749),
+    SAMBA("samba", 389);
 
     private final String name;
     private final int port;
