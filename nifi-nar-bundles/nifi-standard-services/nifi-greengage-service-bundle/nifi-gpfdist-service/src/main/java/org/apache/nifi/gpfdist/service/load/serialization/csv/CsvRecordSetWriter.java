@@ -84,7 +84,7 @@ public class CsvRecordSetWriter extends AbstractRecordSetWriter implements Recor
         this.columnDescriptions = columnDescriptions;
         final OutputStreamWriter streamWriter = new OutputStreamWriter(out, charSet);
         printer = new CSVPrinter(streamWriter, csvFormat);
-        fieldValues = new Object[recordSchema.getFieldCount()];
+        fieldValues = new Object[columnDescriptions.size()];
         this.logger = logger;
     }
 
@@ -139,10 +139,13 @@ public class CsvRecordSetWriter extends AbstractRecordSetWriter implements Recor
     public Map<String, String> writeRecord(final Record record) {
         try {
             includeHeaderIfNecessary(record, true);
-            int i = 0;
-            for (final RecordField recordField : recordSchema.getFields()) {
-                ColumnDescription columnDesc = columnDescriptions.get(i);
-                fieldValues[i++] = getFieldValue(record, recordField, columnDesc.getDataType());
+            final List<RecordField> recordFields = record.getSchema().getFields();
+            if (recordFields.size() != columnDescriptions.size()) {
+                throw new IllegalArgumentException("Record field count " + recordFields.size()
+                        + " does not match target column count " + columnDescriptions.size());
+            }
+            for (int i = 0; i < recordFields.size(); i++) {
+                fieldValues[i] = getFieldValue(record, recordFields.get(i), columnDescriptions.get(i).getDataType());
             }
             printer.printRecord(fieldValues);
         } catch (Exception e) {

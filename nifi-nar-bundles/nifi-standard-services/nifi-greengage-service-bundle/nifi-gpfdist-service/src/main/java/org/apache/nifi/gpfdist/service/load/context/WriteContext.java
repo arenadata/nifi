@@ -31,6 +31,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.stream.Collectors;
 
@@ -39,6 +40,7 @@ public class WriteContext implements Context {
     private final ConcurrentHashMap<String, Boolean> externalTableCreatedBySink = new ConcurrentHashMap<>();
     private final ContextId contextId;
     private final Map<String, GpfdistLoadMetadata> metadataMap;
+    private final List<GpfdistLoadMetadata> undroppedMetadata = new CopyOnWriteArrayList<>();
     private final Map<String, RecordSink> recordSinkMap;
     private final TransferDataQueryExecutor dropExternalTableQueryExecutor;
     private final ComponentLog logger;
@@ -64,9 +66,24 @@ public class WriteContext implements Context {
         return contextId;
     }
 
-    public GpfdistLoadMetadata addGpfdistLoadMetadata(String sinkId, final GpfdistLoadMetadata metadata) {
-        final GpfdistLoadMetadata existing = metadataMap.putIfAbsent(sinkId, metadata);
-        return existing != null ? existing : metadata;
+    public void replaceGpfdistLoadMetadata(final String sinkId, final GpfdistLoadMetadata metadata) {
+        final GpfdistLoadMetadata previous = metadataMap.put(sinkId, metadata);
+        externalTableCreatedBySink.remove(sinkId);
+        if (previous != null) {
+            dropExternalTable(previous);
+        }
+    }
+
+    private void dropExternalTable(final GpfdistLoadMetadata metadata) {
+        try {
+            dropExternalTableQueryExecutor.execute(metadata).get();
+        } catch (Exception e) {
+            if (e instanceof InterruptedException) {
+                Thread.currentThread().interrupt();
+            }
+            logger.warn("Failed to drop external table {}, retrying on close", metadata.getExternalTable(), e);
+            undroppedMetadata.add(metadata);
+        }
     }
 
     public GpfdistLoadMetadata getGpfdistMetadata(String sinkId) {
@@ -114,7 +131,9 @@ public class WriteContext implements Context {
     @Override
     public void close() {
         final List<CompletableFuture<Void>> dropExternalTableFutures = new ArrayList<>();
-        for (GpfdistLoadMetadata metadata : metadataMap.values()) {
+        final List<GpfdistLoadMetadata> externalTables = new ArrayList<>(metadataMap.values());
+        externalTables.addAll(undroppedMetadata);
+        for (GpfdistLoadMetadata metadata : externalTables) {
             try {
                 dropExternalTableFutures.add(dropExternalTableQueryExecutor.execute(metadata));
             } catch (Exception e) {
@@ -127,6 +146,7 @@ public class WriteContext implements Context {
             logger.warn("One or more external tables were not dropped successfully for context {}", contextId, e);
         } finally {
             metadataMap.clear();
+            undroppedMetadata.clear();
             recordSinkMap.clear();
             externalTableCreatedBySink.clear();
             externalTableLocksBySink.clear();
