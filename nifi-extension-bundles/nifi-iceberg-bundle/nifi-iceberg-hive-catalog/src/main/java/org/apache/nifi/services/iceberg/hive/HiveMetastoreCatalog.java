@@ -25,6 +25,7 @@ import org.apache.hadoop.hive.metastore.api.NoSuchObjectException;
 import org.apache.hadoop.hive.metastore.api.Table;
 import org.apache.hadoop.hive.metastore.api.UnknownDBException;
 import org.apache.hadoop.hive.metastore.conf.MetastoreConf;
+import org.apache.hadoop.security.UserGroupInformation;
 import org.apache.iceberg.BaseMetastoreCatalog;
 import org.apache.iceberg.BaseMetastoreTableOperations;
 import org.apache.iceberg.CatalogProperties;
@@ -44,16 +45,20 @@ import org.apache.iceberg.hadoop.HadoopFileIO;
 import org.apache.iceberg.hive.HiveClientPool;
 import org.apache.iceberg.hive.HiveTableOperations;
 import org.apache.iceberg.hive.MetastoreUtil;
+import org.apache.iceberg.io.DelegateFileIO;
 import org.apache.iceberg.io.FileIO;
 import org.apache.iceberg.util.LocationUtil;
 import org.apache.iceberg.util.PropertyUtil;
 import org.apache.thrift.TException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.function.Supplier;
 
@@ -64,6 +69,8 @@ import java.util.function.Supplier;
  * Metastore clients are created with the Thread Context ClassLoader that initialized the Catalog, because the Hive client
  * loads HiveMetaStoreClient and configured hooks through the Thread Context ClassLoader, which belongs to the calling
  * Processor when a Table commit opens a new connection.
+ * Metastore clients and File IO operations run as the Hadoop Identity of the Controller Service, because the calling
+ * Processor and Iceberg worker threads run as the process-wide login user.
  */
 class HiveMetastoreCatalog extends BaseMetastoreCatalog implements SupportsNamespaces, Configurable {
 
@@ -74,6 +81,16 @@ class HiveMetastoreCatalog extends BaseMetastoreCatalog implements SupportsNames
     private static final String DATABASE_LOCATION_FORMAT = "%s/%s.db";
 
     private static final String TABLE_LOCATION_FORMAT = "%s/%s";
+
+    static final String CLIENT_CONTEXT_PROPERTY = "dfs.client.context";
+
+    static final String DEAD_NODE_DETECTION_PROPERTY = "dfs.client.deadnode.detection.enabled";
+
+    private static final String CLIENT_CONTEXT_FORMAT = "nifi-iceberg-%s";
+
+    private static final String SUBJECT_CLIENT_CONTEXT_FORMAT = "nifi-iceberg-%s-subject";
+
+    private static final Logger LOGGER = LoggerFactory.getLogger(HiveMetastoreCatalog.class);
 
     private String name;
 
@@ -86,6 +103,12 @@ class HiveMetastoreCatalog extends BaseMetastoreCatalog implements SupportsNames
     private FileIO fileIO;
 
     private HiveClientPool clients;
+
+    private final HadoopIdentity identity;
+
+    HiveMetastoreCatalog(final HadoopIdentity identity) {
+        this.identity = Objects.requireNonNull(identity, "Hadoop Identity required");
+    }
 
     @Override
     public void initialize(final String inputName, final Map<String, String> properties) {
@@ -108,11 +131,21 @@ class HiveMetastoreCatalog extends BaseMetastoreCatalog implements SupportsNames
 
         uniqueTableLocation = PropertyUtil.propertyAsBoolean(properties, CatalogProperties.UNIQUE_TABLE_LOCATION, CatalogProperties.UNIQUE_TABLE_LOCATION_DEFAULT);
 
+        final UserGroupInformation userGroupInformation = identity.getUserGroupInformation();
+        final boolean subjectLogin = userGroupInformation.hasKerberosCredentials() && !userGroupInformation.isFromKeytab();
+        final String clientContextFormat = subjectLogin ? SUBJECT_CLIENT_CONTEXT_FORMAT : CLIENT_CONTEXT_FORMAT;
+        conf.setIfUnset(CLIENT_CONTEXT_PROPERTY, clientContextFormat.formatted(userGroupInformation.getUserName()));
+        if (conf.getBoolean(DEAD_NODE_DETECTION_PROPERTY, false)) {
+            LOGGER.warn("HDFS dead node detection disabled for Catalog [{}]: detection threads run as the identity that created the client context", name);
+            conf.setBoolean(DEAD_NODE_DETECTION_PROPERTY, false);
+        }
+
         final String fileIOImpl = properties.get(CatalogProperties.FILE_IO_IMPL);
-        fileIO = fileIOImpl == null ? new HadoopFileIO(conf) : CatalogUtil.loadFileIO(fileIOImpl, properties, conf);
+        final FileIO configuredFileIO = fileIOImpl == null ? new HadoopFileIO(conf) : CatalogUtil.loadFileIO(fileIOImpl, properties, conf);
+        fileIO = configuredFileIO instanceof DelegateFileIO delegateFileIO ? new PrivilegedFileIO(delegateFileIO, identity) : configuredFileIO;
 
         final int poolSize = PropertyUtil.propertyAsInt(properties, CatalogProperties.CLIENT_POOL_SIZE, CatalogProperties.CLIENT_POOL_SIZE_DEFAULT);
-        clients = new ContextClassLoaderHiveClientPool(poolSize, conf, Thread.currentThread().getContextClassLoader());
+        clients = new PrivilegedHiveClientPool(poolSize, conf, Thread.currentThread().getContextClassLoader(), identity);
     }
 
     @Override
@@ -436,12 +469,23 @@ class HiveMetastoreCatalog extends BaseMetastoreCatalog implements SupportsNames
         }
     }
 
-    private static class ContextClassLoaderHiveClientPool extends HiveClientPool {
+    // Hive Metastore Client binds the current user to the connection and to its own reconnects when created
+    private static class PrivilegedHiveClientPool extends HiveClientPool {
         private final ClassLoader classLoader;
 
-        private ContextClassLoaderHiveClientPool(final int poolSize, final Configuration configuration, final ClassLoader classLoader) {
+        private final HadoopIdentity identity;
+
+        private PrivilegedHiveClientPool(final int poolSize, final Configuration configuration, final ClassLoader classLoader, final HadoopIdentity identity) {
             super(poolSize, configuration);
             this.classLoader = classLoader;
+            this.identity = identity;
+        }
+
+        @Override
+        public <R> R run(final Action<R, IMetaStoreClient, TException> action, final boolean retry) throws TException, InterruptedException {
+            // Reconnects inside the Hive client after a lost connection need a valid Ticket Granting Ticket
+            identity.checkLogin();
+            return super.run(action, retry);
         }
 
         @Override
@@ -459,7 +503,7 @@ class HiveMetastoreCatalog extends BaseMetastoreCatalog implements SupportsNames
             final ClassLoader callerClassLoader = thread.getContextClassLoader();
             thread.setContextClassLoader(classLoader);
             try {
-                return supplier.get();
+                return identity.doAs(supplier::get);
             } finally {
                 thread.setContextClassLoader(callerClassLoader);
             }

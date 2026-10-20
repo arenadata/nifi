@@ -18,11 +18,13 @@ package org.apache.nifi.services.iceberg.hive;
 
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hive.metastore.conf.MetastoreConf;
+import org.apache.hadoop.security.UserGroupInformation;
 import org.apache.iceberg.catalog.Catalog;
 import org.apache.iceberg.hive.HiveClientPool;
 import org.apache.nifi.components.PropertyDescriptor;
 import org.apache.nifi.controller.AbstractControllerService;
 import org.apache.nifi.controller.ConfigurationContext;
+import org.apache.nifi.hadoop.SecurityUtil;
 import org.apache.nifi.kerberos.KerberosUserService;
 import org.apache.nifi.reporting.InitializationException;
 import org.apache.nifi.security.krb.KerberosLoginException;
@@ -39,6 +41,7 @@ import org.junit.jupiter.api.io.TempDir;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.security.PrivilegedExceptionAction;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
@@ -50,6 +53,8 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
@@ -73,6 +78,8 @@ class HiveMetastoreIcebergCatalogTest {
     private static final String KERBEROS_SERVICE_ID = "kerberos-user-service";
 
     private static final String PRINCIPAL = "nifi@EXAMPLE.COM";
+
+    private static final String KERBEROS_USER_NAME = "nifi";
 
     private static final String DYNAMIC_PROPERTY_NAME = "clients";
 
@@ -128,6 +135,32 @@ class HiveMetastoreIcebergCatalogTest {
         if (runner.isControllerServiceEnabled(catalogService)) {
             runner.disableControllerService(catalogService);
         }
+        // Kerberos authentication configured by a test is process-wide in Hadoop
+        UserGroupInformation.reset();
+    }
+
+    @Test
+    void testValidWithKerberosUserServiceAndKerberosAuthentication() throws Exception {
+        setKerberosUserService(mock(KerberosUser.class));
+
+        runner.assertValid(catalogService);
+    }
+
+    @Test
+    void testNotValidWithKerberosUserServiceWithoutKerberosAuthentication() throws Exception {
+        setKerberosUserService(mock(KerberosUser.class));
+        runner.removeProperty(catalogService, HiveMetastoreIcebergCatalog.HADOOP_CONFIGURATION_RESOURCES);
+
+        runner.assertNotValid(catalogService);
+    }
+
+    @Test
+    void testNotValidWithKerberosAuthenticationWithoutKerberosUserService() throws IOException {
+        final Path configuration = writeConfiguration(SecurityUtil.HADOOP_SECURITY_AUTHENTICATION, SecurityUtil.KERBEROS);
+        runner.setProperty(catalogService, HiveMetastoreIcebergCatalog.METASTORE_URI, METASTORE_URI);
+        runner.setProperty(catalogService, HiveMetastoreIcebergCatalog.HADOOP_CONFIGURATION_RESOURCES, configuration.toString());
+
+        runner.assertNotValid(catalogService);
     }
 
     @Test
@@ -334,18 +367,32 @@ class HiveMetastoreIcebergCatalogTest {
         when(kerberosUser.getPrincipal()).thenReturn(PRINCIPAL);
         final ConfigurationContext context = getContextWithKerberosUserService(kerberosUser);
 
-        assertEquals(PRINCIPAL, catalogService.getClassloaderIsolationKey(context));
+        assertNull(catalogService.getClassloaderIsolationKey(context));
     }
 
     @Test
-    void testKerberosUserLoggedOutOnDisabled() throws InitializationException {
+    void testZooKeeperKerberosDisabledByDefault() {
+        runner.setProperty(catalogService, HiveMetastoreIcebergCatalog.METASTORE_URI, METASTORE_URI);
+        runner.enableControllerService(catalogService);
+
+        assertFalse(MetastoreConf.getBoolVar(catalogService.getHiveCatalog().getConf(), MetastoreConf.ConfVars.THRIFT_ZOOKEEPER_USE_KERBEROS));
+    }
+
+    @Test
+    void testZooKeeperKerberosFromConfigurationResourcesPreserved() throws IOException {
+        final Path configuration = writeConfiguration(MetastoreConf.ConfVars.THRIFT_ZOOKEEPER_USE_KERBEROS.getHiveName(), Boolean.TRUE.toString());
+        runner.setProperty(catalogService, HiveMetastoreIcebergCatalog.METASTORE_URI, METASTORE_URI);
+        runner.setProperty(catalogService, HiveMetastoreIcebergCatalog.HADOOP_CONFIGURATION_RESOURCES, configuration.toString());
+        runner.enableControllerService(catalogService);
+
+        assertTrue(MetastoreConf.getBoolVar(catalogService.getHiveCatalog().getConf(), MetastoreConf.ConfVars.THRIFT_ZOOKEEPER_USE_KERBEROS));
+    }
+
+    @Test
+    void testKerberosUserLoggedOutOnDisabled() throws Exception {
         final KerberosUser kerberosUser = mock(KerberosUser.class);
         when(kerberosUser.getPrincipal()).thenReturn(PRINCIPAL);
-        runner.addControllerService(KERBEROS_SERVICE_ID, new MockKerberosUserService(kerberosUser));
-        runner.enableControllerService(runner.getControllerService(KERBEROS_SERVICE_ID));
-
-        runner.setProperty(catalogService, HiveMetastoreIcebergCatalog.METASTORE_URI, METASTORE_URI);
-        runner.setProperty(catalogService, HiveMetastoreIcebergCatalog.KERBEROS_USER_SERVICE, KERBEROS_SERVICE_ID);
+        setKerberosUserService(kerberosUser);
         runner.enableControllerService(catalogService);
 
         assertNotNull(catalogService.getCatalog());
@@ -357,7 +404,7 @@ class HiveMetastoreIcebergCatalogTest {
     }
 
     @Test
-    void testEnableFailsWhenKerberosLoginFails() throws InitializationException {
+    void testEnableFailsWhenKerberosLoginFails() throws Exception {
         final KerberosUser kerberosUser = mock(KerberosUser.class);
         doThrow(new KerberosLoginException("Login failed")).when(kerberosUser).login();
         setKerberosUserService(kerberosUser);
@@ -365,11 +412,12 @@ class HiveMetastoreIcebergCatalogTest {
         assertThrows(AssertionError.class, () -> runner.enableControllerService(catalogService));
 
         assertNull(catalogService.getCatalog());
+        verify(kerberosUser).login();
         verify(kerberosUser).logout();
     }
 
     @Test
-    void testDisabledWhenKerberosLogoutFails() throws InitializationException {
+    void testDisabledWhenKerberosLogoutFails() throws Exception {
         final KerberosUser kerberosUser = mock(KerberosUser.class);
         doThrow(new KerberosLoginException("Logout failed")).when(kerberosUser).logout();
         setKerberosUserService(kerberosUser);
@@ -424,7 +472,7 @@ class HiveMetastoreIcebergCatalogTest {
     }
 
     @Test
-    void testEnableFailsWithInvalidCatalogPropertyLogsOut() throws InitializationException {
+    void testEnableFailsWithInvalidCatalogPropertyLogsOut() throws Exception {
         final KerberosUser kerberosUser = mock(KerberosUser.class);
         setKerberosUserService(kerberosUser);
         runner.setProperty(catalogService, FILE_IO_PROPERTY, MISSING_FILE_IO_CLASS);
@@ -435,11 +483,14 @@ class HiveMetastoreIcebergCatalogTest {
         verify(kerberosUser).logout();
     }
 
-    private void setKerberosUserService(final KerberosUser kerberosUser) throws InitializationException {
+    private void setKerberosUserService(final KerberosUser kerberosUser) throws Exception {
+        doReturn(UserGroupInformation.createRemoteUser(KERBEROS_USER_NAME)).when(kerberosUser).doAs(any(PrivilegedExceptionAction.class));
         runner.addControllerService(KERBEROS_SERVICE_ID, new MockKerberosUserService(kerberosUser));
         runner.enableControllerService(runner.getControllerService(KERBEROS_SERVICE_ID));
 
+        final Path configuration = writeConfiguration(SecurityUtil.HADOOP_SECURITY_AUTHENTICATION, SecurityUtil.KERBEROS);
         runner.setProperty(catalogService, HiveMetastoreIcebergCatalog.METASTORE_URI, METASTORE_URI);
+        runner.setProperty(catalogService, HiveMetastoreIcebergCatalog.HADOOP_CONFIGURATION_RESOURCES, configuration.toString());
         runner.setProperty(catalogService, HiveMetastoreIcebergCatalog.KERBEROS_USER_SERVICE, KERBEROS_SERVICE_ID);
     }
 
