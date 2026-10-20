@@ -163,6 +163,8 @@ public final class RangerComponent implements Startable {
 
     private static final int HTTP_NOT_FOUND = 404;
 
+    private static final String DATA_NOT_FOUND = "DATA_NOT_FOUND";
+
     private static final Duration CONNECT_TIMEOUT = Duration.ofSeconds(10);
 
     private static final Duration REQUEST_TIMEOUT = Duration.ofSeconds(60);
@@ -230,6 +232,14 @@ public final class RangerComponent implements Startable {
     private static final String IS_ENABLED = "isEnabled";
 
     private static final String POLICY_ITEMS = "policyItems";
+
+    private static final String DENY_POLICY_ITEMS = "denyPolicyItems";
+
+    private static final List<String> ITEM_FIELDS = List.of(POLICY_ITEMS, DENY_POLICY_ITEMS);
+
+    private static final String ALLOWS = "allows";
+
+    private static final String DENIES = "denies";
 
     private static final String POLICY_TYPE = "policyType";
 
@@ -358,38 +368,89 @@ public final class RangerComponent implements Startable {
      * @throws Exception Thrown on REST failures
      */
     public long allow(final String service, final String resourcePath, final String user, final String... accessTypes) throws Exception {
-        if (accessTypes.length == 0) {
-            throw new IllegalArgumentException("Access types required");
-        }
-        final String serviceType = request(GET, SERVICE_BY_NAME_PATH_FORMAT.formatted(encode(service)), null).path(TYPE).asText();
-        final ObjectNode resources = createResources(serviceType, resourcePath);
-        final ObjectNode policyItem = createPolicyItem(user, accessTypes);
+        return addPolicyItem(POLICY_ITEMS, service, resourcePath, true, user, accessTypes);
+    }
 
-        final Optional<JsonNode> existing = findPolicy(service, resources);
-        final JsonNode policy;
-        if (existing.isPresent()) {
-            final ObjectNode updated = (ObjectNode) existing.get();
-            final JsonNode items = updated.path(POLICY_ITEMS);
-            final ArrayNode policyItems = items.isArray() ? (ArrayNode) items : updated.putArray(POLICY_ITEMS);
-            policyItems.add(policyItem);
-            policy = request(PUT, POLICY_BY_ID_PATH_FORMAT.formatted(updated.path(ID).asLong()) + CREATE_PRINCIPALS_QUERY, updated);
+    /**
+     * Allow access for a user on a resource with HDFS path recursion as requested. Recursive and non-recursive policies
+     * for the same path are separate policies. Ozone keys ignore recursion and match by wildcard only.
+     *
+     * @param service Service name such as dev_hdfs or dev_ozone
+     * @param resourcePath HDFS path or Ozone volume, volume/bucket or volume/bucket/key pattern
+     * @param recursive Whether the HDFS path policy applies to all files and directories below the path
+     * @param user Short user name such as nifi
+     * @param accessTypes Access types
+     * @return Policy identifier
+     * @throws Exception Thrown on REST failures
+     */
+    public long allow(final String service, final String resourcePath, final boolean recursive, final String user, final String... accessTypes) throws Exception {
+        return addPolicyItem(POLICY_ITEMS, service, resourcePath, recursive, user, accessTypes);
+    }
+
+    /**
+     * Deny access for a user on a resource, adding a deny policy item to an existing policy with the same resources.
+     * Deny items take precedence over allow items of all policies matching a request.
+     *
+     * @param service Service name such as dev_hdfs or dev_ozone
+     * @param resourcePath HDFS path, recursive, or Ozone volume, volume/bucket or volume/bucket/key pattern
+     * @param user Short user name such as nifi
+     * @param accessTypes Denied access types
+     * @return Policy identifier
+     * @throws Exception Thrown on REST failures
+     */
+    public long deny(final String service, final String resourcePath, final String user, final String... accessTypes) throws Exception {
+        return addPolicyItem(DENY_POLICY_ITEMS, service, resourcePath, true, user, accessTypes);
+    }
+
+    /**
+     * Remove allow and deny policy items of a user from the enabled policy with the resources and delete the policy
+     * when no policy items remain
+     *
+     * @param service Service name such as dev_hdfs or dev_ozone
+     * @param resourcePath HDFS path or Ozone resource pattern as used for allow or deny
+     * @param user Short user name such as nifi
+     * @throws Exception Thrown on REST failures
+     */
+    public void revoke(final String service, final String resourcePath, final String user) throws Exception {
+        final Optional<JsonNode> existing = findPolicy(service, createResources(getServiceType(service), resourcePath, true));
+        if (existing.isEmpty()) {
+            LOGGER.info("Ranger policy for [{}] in [{}] not found", resourcePath, service);
+            return;
+        }
+        final ObjectNode policy = (ObjectNode) existing.get();
+        final long policyId = policy.path(ID).asLong();
+        boolean remaining = false;
+        for (final String itemsField : ITEM_FIELDS) {
+            final ArrayNode items = objectMapper.createArrayNode();
+            for (final JsonNode item : policy.path(itemsField)) {
+                if (!containsText(item.path(USERS), user)) {
+                    items.add(item);
+                }
+            }
+            policy.set(itemsField, items);
+            remaining = remaining || !items.isEmpty();
+        }
+        if (remaining) {
+            request(PUT, POLICY_BY_ID_PATH_FORMAT.formatted(policyId), policy);
+            LOGGER.info("Ranger policy [{}] no longer contains items for [{}] on [{}] in [{}]", policyId, user, resourcePath, service);
         } else {
-            final ObjectNode created = objectMapper.createObjectNode();
-            created.put(SERVICE, service);
-            created.put(NAME, POLICY_NAME_FORMAT.formatted(user, UUID.randomUUID()));
-            created.put("description", "Created by the Iceberg test cluster");
-            created.put(IS_ENABLED, true);
-            created.put("isAuditEnabled", true);
-            created.set(RESOURCES, resources);
-            created.putArray(POLICY_ITEMS).add(policyItem);
-            policy = request(POST, POLICY_PATH + CREATE_PRINCIPALS_QUERY, created);
+            delete(policyId);
         }
-        final long policyId = policy.path(ID).asLong(UNKNOWN_VERSION);
-        if (policyId == UNKNOWN_VERSION) {
-            throw new IllegalStateException("Policy identifier not found in Ranger response [%s]".formatted(policy));
-        }
-        LOGGER.info("Ranger policy [{}] allows [{}] for [{}] on [{}] in [{}]", policyId, String.join(",", accessTypes), user, resourcePath, service);
-        return policyId;
+    }
+
+    /**
+     * Enable or disable a policy; plugins ignore disabled policies after the next policy refresh
+     *
+     * @param policyId Policy identifier
+     * @param enabled Enabled status
+     * @throws Exception Thrown on REST failures
+     */
+    public void setEnabled(final long policyId, final boolean enabled) throws Exception {
+        final String path = POLICY_BY_ID_PATH_FORMAT.formatted(policyId);
+        final ObjectNode policy = (ObjectNode) request(GET, path, null);
+        policy.put(IS_ENABLED, enabled);
+        request(PUT, path, policy);
+        LOGGER.info("Ranger policy [{}] enabled [{}]", policyId, enabled);
     }
 
     /**
@@ -401,7 +462,11 @@ public final class RangerComponent implements Startable {
     public void delete(final long policyId) throws Exception {
         final String path = POLICY_BY_ID_PATH_FORMAT.formatted(policyId);
         final HttpResponse<String> response = send(DELETE, path, null);
-        if (!isSuccessful(response.statusCode()) && response.statusCode() != HTTP_NOT_FOUND) {
+        if (response.statusCode() == HTTP_NOT_FOUND || response.body().contains(DATA_NOT_FOUND)) {
+            LOGGER.info("Ranger policy [{}] not found", policyId);
+            return;
+        }
+        if (!isSuccessful(response.statusCode())) {
             throw new IOException(REQUEST_FAILED_FORMAT.formatted(DELETE, path, response.statusCode(), response.body()));
         }
         LOGGER.info("Ranger policy [{}] deleted", policyId);
@@ -477,6 +542,49 @@ public final class RangerComponent implements Startable {
         return ARCHIVE_URL_FORMAT.formatted(VERSION, serviceType);
     }
 
+    private long addPolicyItem(final String itemsField, final String service, final String resourcePath, final boolean recursive, final String user,
+                               final String... accessTypes) throws Exception {
+        if (accessTypes.length == 0) {
+            throw new IllegalArgumentException("Access types required");
+        }
+        final ObjectNode resources = createResources(getServiceType(service), resourcePath, recursive);
+        final ObjectNode policyItem = createPolicyItem(user, accessTypes);
+
+        final Optional<JsonNode> existing = findPolicy(service, resources);
+        final JsonNode policy;
+        if (existing.isPresent()) {
+            final ObjectNode updated = (ObjectNode) existing.get();
+            final JsonNode items = updated.path(itemsField);
+            final ArrayNode policyItems = items.isArray() ? (ArrayNode) items : updated.putArray(itemsField);
+            policyItems.add(policyItem);
+            policy = request(PUT, POLICY_BY_ID_PATH_FORMAT.formatted(updated.path(ID).asLong()) + CREATE_PRINCIPALS_QUERY, updated);
+        } else {
+            final ObjectNode created = objectMapper.createObjectNode();
+            created.put(SERVICE, service);
+            created.put(NAME, POLICY_NAME_FORMAT.formatted(user, UUID.randomUUID()));
+            created.put("description", "Created by the Iceberg test cluster");
+            created.put(IS_ENABLED, true);
+            created.put("isAuditEnabled", true);
+            created.set(RESOURCES, resources);
+            for (final String field : ITEM_FIELDS) {
+                created.putArray(field);
+            }
+            ((ArrayNode) created.path(itemsField)).add(policyItem);
+            policy = request(POST, POLICY_PATH + CREATE_PRINCIPALS_QUERY, created);
+        }
+        final long policyId = policy.path(ID).asLong(UNKNOWN_VERSION);
+        if (policyId == UNKNOWN_VERSION) {
+            throw new IllegalStateException("Policy identifier not found in Ranger response [%s]".formatted(policy));
+        }
+        final String verb = DENY_POLICY_ITEMS.equals(itemsField) ? DENIES : ALLOWS;
+        LOGGER.info("Ranger policy [{}] {} [{}] for [{}] on [{}] in [{}]", policyId, verb, String.join(",", accessTypes), user, resourcePath, service);
+        return policyId;
+    }
+
+    private String getServiceType(final String service) throws IOException, InterruptedException {
+        return request(GET, SERVICE_BY_NAME_PATH_FORMAT.formatted(encode(service)), null).path(TYPE).asText();
+    }
+
     private void ensureService(final String name, final String type, final Map<String, String> configs) throws IOException, InterruptedException {
         final String path = SERVICE_BY_NAME_PATH_FORMAT.formatted(encode(name));
         if (send(GET, path, null).statusCode() == HTTP_OK) {
@@ -535,7 +643,7 @@ public final class RangerComponent implements Startable {
         return Optional.empty();
     }
 
-    private ObjectNode createResources(final String serviceType, final String resourcePath) {
+    private ObjectNode createResources(final String serviceType, final String resourcePath, final boolean recursive) {
         final ObjectNode resources = objectMapper.createObjectNode();
         if (OZONE_TYPE.equals(serviceType)) {
             final String[] parts = resourcePath.replaceFirst(LEADING_SEPARATORS, "").split(PATH_SEPARATOR, OZONE_RESOURCE_LEVELS);
@@ -547,7 +655,7 @@ public final class RangerComponent implements Startable {
                 resources.set(OZONE_RESOURCES.get(i), createResource(parts[i], key));
             }
         } else {
-            resources.set(PATH_RESOURCE, createResource(resourcePath, true));
+            resources.set(PATH_RESOURCE, createResource(resourcePath, recursive));
         }
         return resources;
     }
