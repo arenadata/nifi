@@ -35,6 +35,8 @@
         <module>nifi-iceberg-azure-nar</module>
         <module>nifi-iceberg-gcs</module>
         <module>nifi-iceberg-gcs-nar</module>
+        <module>nifi-iceberg-hive-catalog</module>
+        <module>nifi-iceberg-hive-catalog-nar</module>
         <module>nifi-iceberg-parquet-writer</module>
         <module>nifi-iceberg-parquet-writer-nar</module>
         <module>nifi-iceberg-processors</module>
