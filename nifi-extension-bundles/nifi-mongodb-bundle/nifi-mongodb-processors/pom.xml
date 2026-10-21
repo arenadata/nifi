@@ -109,7 +109,7 @@
                 <activeByDefault>false</activeByDefault>
             </activation>
             <properties>
-                <mongo.docker.string>mongo:8</mongo.docker.string>
+                <mongo.docker.string>mongo:9</mongo.docker.string>
             </properties>
             <build>
                 <pluginManagement>
