@@ -27,6 +27,7 @@ import java.util.Objects;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 public class GpfdistRecordSinkManager {
@@ -75,10 +76,12 @@ public class GpfdistRecordSinkManager {
         }
     }
 
-    public RecordSink acquire() throws InterruptedException {
+    public RecordSink tryAcquire(final long timeout, final TimeUnit unit) throws InterruptedException {
         ensureOpen();
-        RecordSink sink = recordPool.take();
-        sink.markAcquiredOrThrow();
+        final RecordSink sink = recordPool.poll(timeout, unit);
+        if (sink != null) {
+            sink.markAcquiredOrThrow();
+        }
         return sink;
     }
 

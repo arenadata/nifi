@@ -29,6 +29,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 
 import java.util.HashMap;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
@@ -61,6 +62,9 @@ public class PutGreengageRecordIT extends NifiSystemContainerizedIT {
     private static final String PG_TABLE_NAME = "pg_test";
     private static final String GG_TABLE_NAME = "test_table";
     private static final String GG_SCHEMA_NAME = "public";
+    private static final String FIRST_TABLE_NAME = "first_table";
+    private static final String SECOND_TABLE_NAME = "second_table";
+    private static final String SOURCE_TABLE_NAME_EXPRESSION = "${tablename}";
     private static final String CREATE_EXTENSION_HSTORE_SQL = "CREATE EXTENSION IF NOT EXISTS hstore";
     private static final String CREATE_EXTENSION_UUID_SQL = "CREATE EXTENSION IF NOT EXISTS \"uuid-ossp\"";
     private static final String CREATE_TABLE_TEMPLATE_SQL = "CREATE TABLE %s (%s)";
@@ -127,6 +131,22 @@ public class PutGreengageRecordIT extends NifiSystemContainerizedIT {
     public void cleanupTables() {
         adbService.exec(String.format("DROP TABLE IF EXISTS %s", GG_TABLE_NAME));
         postgresService.exec(String.format("DROP TABLE IF EXISTS %s", PG_TABLE_NAME));
+        for (String table : List.of(FIRST_TABLE_NAME, SECOND_TABLE_NAME)) {
+            adbService.exec(String.format("DROP TABLE IF EXISTS %s", table));
+            postgresService.exec(String.format("DROP TABLE IF EXISTS %s", table));
+        }
+    }
+
+    @Test
+    @SneakyThrows
+    public void testWriteFlowFilesToTablesFromAttribute() {
+        writeFlowFilesToTablesFromAttribute(false);
+    }
+
+    @Test
+    @SneakyThrows
+    public void testWriteFlowFilesToTablesFromAttributeWithBatching() {
+        writeFlowFilesToTablesFromAttribute(true);
     }
 
     @Test
@@ -273,6 +293,26 @@ public class PutGreengageRecordIT extends NifiSystemContainerizedIT {
         assertWithPooling(() -> assertEquals(10000, adbService.queryCountOfRowsInTable(GG_TABLE_NAME)));
     }
 
+    private void writeFlowFilesToTablesFromAttribute(boolean batchingEnabled) {
+        Map<String, String> fieldMap = new LinkedHashMap<>();
+        fieldMap.put(ID_COLUMN, "BIGINT");
+        fieldMap.put("f_text", "VARCHAR");
+        initTable(FIRST_TABLE_NAME, fieldMap, 3);
+        initTable(SECOND_TABLE_NAME, fieldMap, 5);
+        configureNifiFlowWithTableFromAttribute(fieldMap, batchingEnabled);
+        assertWithPooling(() -> assertEquals(3, adbService.queryCountOfRowsInTable(FIRST_TABLE_NAME)));
+        assertWithPooling(() -> assertEquals(5, adbService.queryCountOfRowsInTable(SECOND_TABLE_NAME)));
+        assertEquals(3, adbService.queryCountOfRowsInTable(FIRST_TABLE_NAME));
+    }
+
+    @Step("Init table with the same name in Postgres and Greengage")
+    private void initTable(String table, Map<String, String> fieldMap, int rowCount) {
+        String fields = getFieldsString(fieldMap);
+        adbService.exec(String.format(CREATE_TABLE_TEMPLATE_SQL, table, fields));
+        postgresService.exec(String.format(CREATE_TABLE_TEMPLATE_SQL, table, fields));
+        postgresService.exec(String.format("INSERT INTO %s SELECT i, md5(i::text) FROM generate_series(1, %d) s(i)", table, rowCount));
+    }
+
     private void initDataset(Map<String, String> fieldMap, String insertQuery) {
         initDataset(fieldMap, fieldMap, insertQuery);
     }
@@ -339,6 +379,34 @@ public class PutGreengageRecordIT extends NifiSystemContainerizedIT {
     }
 
     @SneakyThrows
+    @Step("Configure NiFi flow with target table from source table attribute")
+    private void configureNifiFlowWithTableFromAttribute(Map<String, String> fieldMap, boolean batchingEnabled) {
+        ControllerServiceEntity pgDbcpService = configureDbcpService(getTestConfig().getPostgres());
+        ProcessorEntity firstQueryDbTableProcessor = configureQueryDbTableProcessor(pgDbcpService, FIRST_TABLE_NAME, fieldMap);
+        ProcessorEntity secondQueryDbTableProcessor = configureQueryDbTableProcessor(pgDbcpService, SECOND_TABLE_NAME, fieldMap);
+        updateAttributeProcessor = configureUpdateAttributeProcessor(SOURCE_TABLE_NAME_EXPRESSION, fieldMap);
+        ControllerServiceEntity recordReaderService = configureRecordReaderService();
+        ControllerServiceEntity ggDbcpService = configureDbcpService(getTestConfig().getAdb());
+        ControllerServiceEntity gpfdistRecordProcessingService = configureGpfdistRecordProcessingService(ggDbcpService);
+        putGgRecordProcessor = configurePutGgRecordProcessorWithExpressionLanguage(gpfdistRecordProcessingService,
+                recordReaderService, batchingEnabled);
+        getClientUtil().createConnection(firstQueryDbTableProcessor, updateAttributeProcessor, RELATION_SUCCESS);
+        getClientUtil().createConnection(secondQueryDbTableProcessor, updateAttributeProcessor, RELATION_SUCCESS);
+        ConnectionEntity connectionUpdateAttributeToGg =
+                getClientUtil().createConnection(updateAttributeProcessor, putGgRecordProcessor, RELATION_SUCCESS);
+        for (ProcessorEntity processor : List.of(firstQueryDbTableProcessor, secondQueryDbTableProcessor, updateAttributeProcessor)) {
+            getClientUtil().waitForValidProcessor(processor.getId());
+            getClientUtil().startProcessor(processor);
+            getClientUtil().waitForRunningProcessor(processor.getId());
+        }
+        // Both FlowFiles are queued before the load starts, so they reach one batch and one record sink
+        waitForQueueCount(connectionUpdateAttributeToGg.getId(), 2);
+        getClientUtil().waitForValidProcessor(putGgRecordProcessor.getId());
+        getClientUtil().startProcessor(putGgRecordProcessor);
+        getClientUtil().waitForRunningProcessor(putGgRecordProcessor.getId());
+    }
+
+    @SneakyThrows
     @Step("Configure DBCP service")
     private ControllerServiceEntity configureDbcpService(DataSourceProperties dsProperties) {
         ControllerServiceEntity dbcpService = getClientUtil().createControllerService(DBCP_SERVICE_CLASS_NAME,
@@ -381,15 +449,21 @@ public class PutGreengageRecordIT extends NifiSystemContainerizedIT {
         return gpfdistRecordProcessingService;
     }
 
+    private ProcessorEntity configureQueryDbTableProcessor(ControllerServiceEntity dbcpService, Map<String, String> fieldMap) {
+        return configureQueryDbTableProcessor(dbcpService, PG_TABLE_NAME, fieldMap);
+    }
+
     @SneakyThrows
     @Step("Configure query DB table processor")
-    private ProcessorEntity configureQueryDbTableProcessor(ControllerServiceEntity dbcpService, Map<String, String> fieldMap) {
+    private ProcessorEntity configureQueryDbTableProcessor(ControllerServiceEntity dbcpService,
+                                                           String tableName,
+                                                           Map<String, String> fieldMap) {
         ProcessorEntity queryDbTableProcessor = getClientUtil().createProcessor(QUERY_DB_TABLE_PROCESSOR_CLASS_NAME,
                 NIFI_GROUP_ID, QUERY_DB_TABLE_PROCESSOR_NAR_ARTIFACT, getNiFiVersion());
         Map<String, String> queryDbTableProperties = new HashMap<>();
         queryDbTableProperties.put("Database Connection Pooling Service", dbcpService.getId());
         queryDbTableProperties.put("db-fetch-db-type", "PostgreSQL");
-        queryDbTableProperties.put("Table Name", PG_TABLE_NAME);
+        queryDbTableProperties.put("Table Name", tableName);
         queryDbTableProperties.put("Columns to Return", getFieldNamesString(fieldMap));
         if (fieldMap.containsKey(ID_COLUMN)) {
             queryDbTableProperties.put("Maximum-value Columns", ID_COLUMN);
@@ -417,10 +491,16 @@ public class PutGreengageRecordIT extends NifiSystemContainerizedIT {
         return putGgRecordProcessor;
     }
 
+    private ProcessorEntity configurePutGgRecordProcessorWithExpressionLanguage(ControllerServiceEntity gpfdistRecordProcessingService,
+                                                                                ControllerServiceEntity recordReaderService) {
+        return configurePutGgRecordProcessorWithExpressionLanguage(gpfdistRecordProcessingService, recordReaderService, false);
+    }
+
     @SneakyThrows
     @Step("Configure put Greengage record processor with expression language")
     private ProcessorEntity configurePutGgRecordProcessorWithExpressionLanguage(ControllerServiceEntity gpfdistRecordProcessingService,
-                                                          ControllerServiceEntity recordReaderService) {
+                                                                                ControllerServiceEntity recordReaderService,
+                                                                                boolean batchingEnabled) {
         ProcessorEntity putGgRecordProcessor = getClientUtil().createProcessor(PUT_GG_RECORD_PROCESSOR_CLASS_NAME,
                 NIFI_GROUP_ID, PUT_GG_RECORD_PROCESSOR_NAR_ARTIFACT, getNiFiVersion());
         Map<String, String> putGgRecordProperties = new HashMap<>();
@@ -429,19 +509,24 @@ public class PutGreengageRecordIT extends NifiSystemContainerizedIT {
         putGgRecordProperties.put("put-greengage-record-table-name", String.format("${%s}", TARGET_TABLE_PROPERTY));
         putGgRecordProperties.put("put-greengage-record-schema-name", String.format("${%s}", TARGET_SCHEMA_PROPERTY));
         putGgRecordProperties.put("put-greengage-table-columns", String.format("${%s}", COLS_PROPERTY));
+        putGgRecordProperties.put("flow-file-batching-enabled", String.valueOf(batchingEnabled));
         getClientUtil().updateProcessorProperties(putGgRecordProcessor, putGgRecordProperties);
         putGgRecordProcessor = getClientUtil().setAutoTerminatedRelationships(putGgRecordProcessor, Set.of(RELATION_SUCCESS, RELATION_FAILURE));
         return putGgRecordProcessor;
     }
 
+    private ProcessorEntity configureUpdateAttributeProcessor(Map<String, String> fieldMap) {
+        return configureUpdateAttributeProcessor(GG_TABLE_NAME, fieldMap);
+    }
+
     @SneakyThrows
     @Step("Configure update attribute processor")
-    private ProcessorEntity configureUpdateAttributeProcessor(Map<String, String> fieldMap) {
+    private ProcessorEntity configureUpdateAttributeProcessor(String targetTable, Map<String, String> fieldMap) {
         ProcessorEntity updateAttributeProcessor = getClientUtil().createProcessor(UPDATE_ATTRIBUTE_PROCESSOR_CLASS_NAME,
                 NIFI_GROUP_ID, UPDATE_ATTRIBUTE_PROCESSOR_NAR_ARTIFACT, getNiFiVersion());
         Map<String, String> updateAttributeProperties = new HashMap<>();
         updateAttributeProperties.put(TARGET_SCHEMA_PROPERTY, GG_SCHEMA_NAME);
-        updateAttributeProperties.put(TARGET_TABLE_PROPERTY, GG_TABLE_NAME);
+        updateAttributeProperties.put(TARGET_TABLE_PROPERTY, targetTable);
         updateAttributeProperties.put(COLS_PROPERTY, getFieldNamesString(fieldMap));
         getClientUtil().updateProcessorProperties(updateAttributeProcessor, updateAttributeProperties);
         updateAttributeProcessor = getClientUtil().setAutoTerminatedRelationships(updateAttributeProcessor, Set.of(RELATION_SUCCESS, RELATION_FAILURE));
