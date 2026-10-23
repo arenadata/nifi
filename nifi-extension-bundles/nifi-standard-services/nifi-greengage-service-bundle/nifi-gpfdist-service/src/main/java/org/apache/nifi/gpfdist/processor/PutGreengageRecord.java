@@ -20,7 +20,7 @@ import org.apache.nifi.annotation.behavior.InputRequirement;
 import org.apache.nifi.annotation.documentation.CapabilityDescription;
 import org.apache.nifi.annotation.documentation.Tags;
 import org.apache.nifi.annotation.lifecycle.OnScheduled;
-import org.apache.nifi.annotation.lifecycle.OnUnscheduled;
+import org.apache.nifi.annotation.lifecycle.OnStopped;
 import org.apache.nifi.components.PropertyDescriptor;
 import org.apache.nifi.flowfile.FlowFile;
 import org.apache.nifi.gpfdist.metadata.ColumnDescription;
@@ -38,6 +38,8 @@ import org.apache.nifi.gpfdist.service.load.metadata.GpfdistLoadMetadata;
 import org.apache.nifi.gpfdist.service.load.process.GpfdistRecordSinkManager;
 import org.apache.nifi.processor.AbstractProcessor;
 import org.apache.nifi.processor.DataUnit;
+import org.apache.nifi.processor.FlowFileFilter;
+import org.apache.nifi.processor.FlowFileFilter.FlowFileFilterResult;
 import org.apache.nifi.processor.ProcessContext;
 import org.apache.nifi.processor.ProcessSession;
 import org.apache.nifi.processor.Relationship;
@@ -51,15 +53,22 @@ import org.apache.nifi.serialization.record.RecordSet;
 import org.apache.nifi.util.StopWatch;
 
 import java.io.InputStream;
+import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
-import java.util.Optional;
+import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 import static org.apache.nifi.expression.ExpressionLanguageScope.FLOWFILE_ATTRIBUTES;
 import static org.apache.nifi.gpfdist.service.util.GreengageUtil.QUOTE;
@@ -126,7 +135,8 @@ public class PutGreengageRecord extends AbstractProcessor {
     static final PropertyDescriptor FLOW_FILE_BATCHING_ENABLED = new PropertyDescriptor.Builder()
             .name("flow-file-batching-enabled")
             .displayName("Flow File Batching Enabled")
-            .description("If enabled, processor will group multiple FlowFiles into a single INSERT load based on Batch Size.")
+            .description("If enabled, processor will group multiple FlowFiles with the same Schema Name, Table Name and Table Columns"
+                    + " into a single INSERT load based on Batch Size.")
             .required(false)
             .allowableValues("true", "false")
             .defaultValue("false")
@@ -161,9 +171,16 @@ public class PutGreengageRecord extends AbstractProcessor {
             FLOW_FILE_BATCH_SIZE
     );
 
+    private static final long TABLE_DESCRIPTION_CACHE_NANOS = TimeUnit.MINUTES.toNanos(1);
+    private static final long RECORD_SINK_WAIT_MILLIS = TimeUnit.SECONDS.toMillis(1);
+    private static final int MAX_REJECTED_FLOW_FILES_PER_BATCH = 1000;
+
+    private final Map<TableKey, CachedTableDescription> tableDescriptions = new ConcurrentHashMap<>();
     private ContextManager<Context> writeContextManager;
+    private ExecutorService recordProcessingExecutor;
     private WriteContext writeContext;
     private GpfdistRecordSinkManager recordSinkManager;
+    private String destinationUrl;
 
     @Override
     public Set<Relationship> getRelationships() {
@@ -190,6 +207,7 @@ public class PutGreengageRecord extends AbstractProcessor {
         final GpfdistContextId contextId = new GpfdistContextId(UUID.randomUUID().toString());
 
         writeContextManager = (ContextManager<Context>) gpfdistService.getWriteContextManager();
+        recordProcessingExecutor = Executors.newFixedThreadPool(recordProcessorMaxThreads);
         recordSinkManager = new GpfdistRecordSinkManager(
                 segmentCount,
                 segmentConcurrencyMultiplier,
@@ -197,8 +215,14 @@ public class PutGreengageRecord extends AbstractProcessor {
                 nodeCount,
                 nodeIndex,
                 insertDataQueryExecutor,
-                Executors.newFixedThreadPool(recordProcessorMaxThreads),
+                recordProcessingExecutor,
                 getLogger());
+        if (recordSinkManager.size() == 0) {
+            getLogger().warn("No record sinks for this node: Greengage segment count ({}) multiplied by {} ({}) is less than"
+                            + " the NiFi node count ({}), FlowFiles queued on this node will not be loaded",
+                    segmentCount, GREENGAGE_SEGMENT_CONCURRENCY_MULTIPLIER.getDisplayName(), segmentConcurrencyMultiplier, nodeCount);
+        }
+        destinationUrl = getDestinationUrl(gpfdistService.getGreengageMetadataService());
         writeContext = new WriteContext(
                 contextId,
                 recordSinkManager.getRecordSinks(),
@@ -209,30 +233,46 @@ public class PutGreengageRecord extends AbstractProcessor {
 
     @Override
     public void onTrigger(final ProcessContext context, final ProcessSession session) throws ProcessException {
-        FlowFile firstFlowFile = session.get();
-        if (firstFlowFile == null) {
+        if (recordSinkManager.size() == 0) {
+            context.yield();
             return;
         }
+        final RecordSink recordSink;
+        try {
+            // Yield would pause every task of the processor, so a task waits a bounded time for a busy sink instead
+            recordSink = recordSinkManager.tryAcquire(RECORD_SINK_WAIT_MILLIS, TimeUnit.MILLISECONDS);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return;
+        }
+        if (recordSink == null) {
+            return;
+        }
+        getLogger().info("Acquired record sink: {}", recordSink);
+        try {
+            final FlowFile firstFlowFile = session.get();
+            if (firstFlowFile != null) {
+                loadBatch(context, session, recordSink, firstFlowFile);
+            }
+        } finally {
+            try {
+                recordSinkManager.release(recordSink);
+                getLogger().info("Successfully released record sink: {}", recordSink);
+            } catch (Exception re) {
+                getLogger().error("Failed to release record sink back to pool {}", recordSink, re);
+                context.yield();
+            }
+        }
+    }
 
+    private void loadBatch(final ProcessContext context,
+                           final ProcessSession session,
+                           final RecordSink recordSink,
+                           final FlowFile firstFlowFile) {
         final boolean batchingEnabled = context.getProperty(FLOW_FILE_BATCHING_ENABLED).asBoolean();
         final long batchSizeBytes = context.getProperty(FLOW_FILE_BATCH_SIZE).asDataSize(DataUnit.B).longValue();
         final List<FlowFile> batch = new ArrayList<>();
         batch.add(firstFlowFile);
-
-        long totalBytes = firstFlowFile.getSize();
-        if (batchingEnabled) {
-            while (totalBytes < batchSizeBytes) {
-                final FlowFile next = session.get();
-                if (next == null) {
-                    break;
-                }
-                batch.add(next);
-                totalBytes += next.getSize();
-                if (totalBytes >= batchSizeBytes) {
-                    break;
-                }
-            }
-        }
 
         final GpfdistService gpfdistService = context.getProperty(GPFDIST_SERVICE)
                 .asControllerService(GpfdistService.class);
@@ -240,24 +280,24 @@ public class PutGreengageRecord extends AbstractProcessor {
         final TransferDataQueryExecutor createExternalTableQueryExecutor =
                 gpfdistService.getCreateReadExternalTableQueryExecutor();
 
-        RecordSink recordSink = null;
-        boolean sinkAcquired = false;
         final StopWatch stopWatch = new StopWatch(true);
+        TableKey tableKey = null;
 
         try {
-            recordSink = recordSinkManager.acquire();
-            sinkAcquired = true;
-            getLogger().info("Acquiring record sink: {}", recordSink);
+            if (batchingEnabled && firstFlowFile.getSize() < batchSizeBytes) {
+                batch.addAll(session.get(getSameTargetFilter(context, firstFlowFile, batchSizeBytes)));
+            }
             final String schema = context.getProperty(SCHEMA_NAME)
                     .evaluateAttributeExpressions(firstFlowFile)
                     .getValue();
             final String table = context.getProperty(TABLE_NAME)
                     .evaluateAttributeExpressions(firstFlowFile)
                     .getValue();
+            tableKey = new TableKey(schema, table);
 
-            final TableDescription tableDescription = greengageService.getTableDescription(schema, table);
-            final String destinationUrl = greengageService.getDatabaseMetadata().getURL();
-            final List<ColumnDescription> columnDescriptions = getColumnDescriptions(context, firstFlowFile, tableDescription);
+            final List<String> columnNames = getColumnNames(context, firstFlowFile);
+            final TableDescription tableDescription = getTableDescription(greengageService, tableKey, columnNames);
+            final List<ColumnDescription> columnDescriptions = getColumnDescriptions(columnNames, tableDescription);
             final RecordSchema baseReaderSchema;
 
             //get metadata from firstFlowFile, assumed that other flow files will have the same metadata
@@ -269,12 +309,8 @@ public class PutGreengageRecord extends AbstractProcessor {
             }
 
             final String sinkId = recordSink.getId();
-            final GpfdistLoadMetadata metadata = Optional.ofNullable(writeContext.getGpfdistMetadata(sinkId))
-                    .orElseGet(() -> {
-                        final GpfdistLoadMetadata created = (GpfdistLoadMetadata) gpfdistService.getGpfdistLoadMetadataFactory()
-                                .create(writeContext.getContextId(), sinkId, tableDescription, columnDescriptions, baseReaderSchema);
-                        return writeContext.addGpfdistLoadMetadata(sinkId, created);
-                    });
+            final GpfdistLoadMetadata metadata =
+                    getLoadMetadata(gpfdistService, sinkId, tableDescription, columnDescriptions, baseReaderSchema);
 
             if (baseReaderSchema.getFieldCount() != metadata.getRecordSchema().getFieldCount()) {
                 throw new ProcessException("Schema does not match target column count. reader="
@@ -321,6 +357,7 @@ public class PutGreengageRecord extends AbstractProcessor {
                 }
                 getLogger().info("Successfully loaded flow files: batchSize={}, result: {}", batch.size(), result);
             } else {
+                invalidateTableDescription(tableKey);
                 final String errMsg = result.getErrors().stream()
                         .map(t -> t.getClass().getSimpleName() + ": " + t.getMessage())
                         .collect(Collectors.joining("; "));
@@ -335,11 +372,10 @@ public class PutGreengageRecord extends AbstractProcessor {
             }
         } catch (InterruptedException ie) {
             Thread.currentThread().interrupt();
-            if (recordSink != null) {
-                try {
-                    recordSink.abort();
-                } catch (Exception ignored) {
-                }
+            invalidateTableDescription(tableKey);
+            try {
+                recordSink.abort();
+            } catch (Exception ignored) {
             }
             for (FlowFile ff : batch) {
                 session.penalize(ff);
@@ -347,35 +383,28 @@ public class PutGreengageRecord extends AbstractProcessor {
             }
             context.yield();
         } catch (Exception e) {
-            if (recordSink != null) {
-                try {
-                    recordSink.abort();
-                } catch (Exception ignored) {
-                }
+            invalidateTableDescription(tableKey);
+            try {
+                recordSink.abort();
+            } catch (Exception ignored) {
             }
             getLogger().error("Batch loading failed. batchSize={}", batch.size(), e);
             for (FlowFile flowFile : batch) {
                 session.penalize(flowFile);
                 session.transfer(flowFile, REL_FAILURE);
             }
-        } finally {
-            if (sinkAcquired && recordSink != null) {
-                try {
-                    recordSinkManager.release(recordSink);
-                    getLogger().info("Successfully released record sink: {}", recordSink);
-                } catch (Exception re) {
-                    getLogger().error("Failed to release record sink back to pool {}", recordSink, re);
-                    context.yield();
-                }
-            }
         }
     }
 
-    @OnUnscheduled
-    public void onUnschedule(final ProcessContext context) {
+    @OnStopped
+    public void onStopped(final ProcessContext context) {
+        tableDescriptions.clear();
         try {
             if (recordSinkManager != null) {
                 recordSinkManager.close();
+            }
+            if (recordProcessingExecutor != null) {
+                recordProcessingExecutor.shutdownNow();
             }
             if (writeContext != null && writeContextManager != null) {
                 writeContextManager.remove(writeContext.getContextId());
@@ -386,16 +415,112 @@ public class PutGreengageRecord extends AbstractProcessor {
         }
     }
 
-    private List<ColumnDescription> getColumnDescriptions(ProcessContext context,
-                                                          FlowFile flowFile,
-                                                          TableDescription tableDescription) {
+    private FlowFileFilter getSameTargetFilter(final ProcessContext context,
+                                               final FlowFile firstFlowFile,
+                                               final long batchSizeBytes) {
+        final boolean targetPerFlowFile = Stream.of(SCHEMA_NAME, TABLE_NAME, TABLE_COLUMNS)
+                .anyMatch(property -> context.getProperty(property).isExpressionLanguagePresent());
+        final List<String> target = targetPerFlowFile ? evaluateTarget(context, firstFlowFile) : List.of();
+        final AtomicLong totalBytes = new AtomicLong(firstFlowFile.getSize());
+        final AtomicInteger rejectedCount = new AtomicInteger();
+        return flowFile -> {
+            if (targetPerFlowFile && !hasTarget(context, flowFile, target)) {
+                // The queue stays locked while it is scanned
+                return rejectedCount.incrementAndGet() < MAX_REJECTED_FLOW_FILES_PER_BATCH
+                        ? FlowFileFilterResult.REJECT_AND_CONTINUE
+                        : FlowFileFilterResult.REJECT_AND_TERMINATE;
+            }
+            return totalBytes.addAndGet(flowFile.getSize()) < batchSizeBytes
+                    ? FlowFileFilterResult.ACCEPT_AND_CONTINUE
+                    : FlowFileFilterResult.ACCEPT_AND_TERMINATE;
+        };
+    }
+
+    private boolean hasTarget(final ProcessContext context, final FlowFile flowFile, final List<String> target) {
+        try {
+            return target.equals(evaluateTarget(context, flowFile));
+        } catch (RuntimeException e) {
+            // Routed to failure once the FlowFile heads a batch of its own
+            return false;
+        }
+    }
+
+    private List<String> evaluateTarget(final ProcessContext context, final FlowFile flowFile) {
+        return Stream.of(SCHEMA_NAME, TABLE_NAME, TABLE_COLUMNS)
+                .map(property -> context.getProperty(property).evaluateAttributeExpressions(flowFile).getValue())
+                .toList();
+    }
+
+    private TableDescription getTableDescription(final GreengageService greengageService,
+                                                 final TableKey tableKey,
+                                                 final List<String> columnNames) {
+        final CachedTableDescription cached = tableDescriptions.get(tableKey);
+        // A column missing from the cached description may have been added to the table since
+        if (cached != null
+                && System.nanoTime() - cached.loadedNanos() < TABLE_DESCRIPTION_CACHE_NANOS
+                && cached.description().getColumns().keySet().containsAll(columnNames)) {
+            return cached.description();
+        }
+        final TableDescription description = greengageService.getTableDescription(tableKey.schema(), tableKey.table());
+        tableDescriptions.put(tableKey, new CachedTableDescription(description, System.nanoTime()));
+        return description;
+    }
+
+    private void invalidateTableDescription(final TableKey tableKey) {
+        if (tableKey != null) {
+            tableDescriptions.remove(tableKey);
+        }
+    }
+
+    private static String getDestinationUrl(final GreengageService greengageService) {
+        try {
+            return greengageService.getDatabaseMetadata().getURL();
+        } catch (SQLException e) {
+            throw new ProcessException("Failed to get Greengage database URL", e);
+        }
+    }
+
+    private GpfdistLoadMetadata getLoadMetadata(final GpfdistService gpfdistService,
+                                                final String sinkId,
+                                                final TableDescription tableDescription,
+                                                final List<ColumnDescription> columnDescriptions,
+                                                final RecordSchema readerSchema) {
+        final GpfdistLoadMetadata cached = writeContext.getGpfdistMetadata(sinkId);
+        if (cached != null && isSameTarget(cached, tableDescription, columnDescriptions)) {
+            return cached;
+        }
+        final GpfdistLoadMetadata created = (GpfdistLoadMetadata) gpfdistService.getGpfdistLoadMetadataFactory()
+                .create(writeContext.getContextId(), sinkId, tableDescription, columnDescriptions, readerSchema);
+        writeContext.replaceGpfdistLoadMetadata(sinkId, created);
+        return created;
+    }
+
+    private static boolean isSameTarget(final GpfdistLoadMetadata metadata,
+                                        final TableDescription tableDescription,
+                                        final List<ColumnDescription> columnDescriptions) {
+        final TableDescription cachedTable = metadata.getTableMetadata();
+        return Objects.equals(cachedTable.getSchemaName(), tableDescription.getSchemaName())
+                && Objects.equals(cachedTable.getTableName(), tableDescription.getTableName())
+                && getColumnDefinitions(metadata.getColumnDescriptions()).equals(getColumnDefinitions(columnDescriptions));
+    }
+
+    private static List<List<String>> getColumnDefinitions(final List<ColumnDescription> columnDescriptions) {
+        return columnDescriptions.stream()
+                .map(column -> List.of(column.getName(), column.getDataType().getName()))
+                .toList();
+    }
+
+    private List<String> getColumnNames(ProcessContext context, FlowFile flowFile) {
         String rawColumns = context.getProperty(TABLE_COLUMNS)
                 .evaluateAttributeExpressions(flowFile)
                 .getValue();
 
-        List<String> columns = Arrays.stream(rawColumns.split(","))
+        return Arrays.stream(rawColumns.split(","))
                 .map(col -> col.replace(QUOTE, "").trim())
                 .collect(Collectors.toList());
+    }
+
+    private List<ColumnDescription> getColumnDescriptions(List<String> columns, TableDescription tableDescription) {
         List<ColumnDescription> columnDescriptions = new ArrayList<>();
         for (String s : columns) {
             ColumnDescription columnDescription = tableDescription.getColumns().get(s);
@@ -415,5 +540,11 @@ public class PutGreengageRecord extends AbstractProcessor {
             getLogger().error("Failed to get node index", e);
             throw new RuntimeException(e);
         }
+    }
+
+    private record TableKey(String schema, String table) {
+    }
+
+    private record CachedTableDescription(TableDescription description, long loadedNanos) {
     }
 }

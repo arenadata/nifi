@@ -34,12 +34,14 @@ import org.junit.jupiter.api.Test;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -111,26 +113,58 @@ class CsvRecordSetWriterTest {
         assertEquals("\"{\"\"1\"\", \"\"2\"\", \"\"3\"\"}\"\n", out);
     }
 
+    @Test
+    void recordFieldsMapToColumnsByPosition() throws IOException {
+        Record record = new MapRecord(stringSchema("x", "y"), Map.of("x", "first", "y", "second"));
+
+        String out = write(stringSchema("a", "b"), record, List.of(GreengageDataType.VARCHAR, GreengageDataType.VARCHAR));
+
+        assertEquals("\"first\"|\"second\"\n", out);
+    }
+
+    @Test
+    void recordWithOtherFieldCountThrows() {
+        Record record = new MapRecord(stringSchema("x", "y", "z"), Map.of("x", "1", "y", "2", "z", "3"));
+
+        RuntimeException e = assertThrows(RuntimeException.class,
+                () -> write(stringSchema("a", "b"), record, List.of(GreengageDataType.VARCHAR, GreengageDataType.VARCHAR)));
+        assertTrue(e.getMessage().contains("does not match target column count"), e.getMessage());
+    }
+
     private String write(GreengageDataType columnType, RecordField field, Object value) throws IOException {
         RecordSchema schema = new SimpleRecordSchema(List.of(field));
 
         Map<String, Object> values = new HashMap<>();
         values.put(field.getFieldName(), value);
-        Record record = new MapRecord(schema, values);
+        return write(schema, new MapRecord(schema, values), List.of(columnType));
+    }
 
-        ColumnDataType columnDataType = mock(ColumnDataType.class);
-        when(columnDataType.getType()).thenReturn(columnType);
-        ColumnDescription columnDescription = mock(ColumnDescription.class);
-        when(columnDescription.getDataType()).thenReturn(columnDataType);
-
+    private String write(RecordSchema writerSchema, Record record, List<GreengageDataType> columnTypes) throws IOException {
+        List<ColumnDescription> columnDescriptions = columnTypes.stream()
+                .map(CsvRecordSetWriterTest::mockColumnDescription)
+                .toList();
         CSVFormat csvFormat = new CsvFormatConfig().getCsvFormat().builder().setRecordSeparator('\n').build();
         ByteArrayOutputStream baos = new ByteArrayOutputStream();
 
         try (CsvRecordSetWriter writer = new CsvRecordSetWriter(
-                csvFormat, schema, baos, false, "UTF-8", List.of(columnDescription), mock(ComponentLog.class))) {
+                csvFormat, writerSchema, baos, false, "UTF-8", columnDescriptions, mock(ComponentLog.class))) {
             writer.writeRecord(record);
         }
         return baos.toString(StandardCharsets.UTF_8);
+    }
+
+    private static ColumnDescription mockColumnDescription(GreengageDataType columnType) {
+        ColumnDataType columnDataType = mock(ColumnDataType.class);
+        when(columnDataType.getType()).thenReturn(columnType);
+        ColumnDescription columnDescription = mock(ColumnDescription.class);
+        when(columnDescription.getDataType()).thenReturn(columnDataType);
+        return columnDescription;
+    }
+
+    private static RecordSchema stringSchema(String... fieldNames) {
+        return new SimpleRecordSchema(Arrays.stream(fieldNames)
+                .map(name -> new RecordField(name, RecordFieldType.STRING.getDataType()))
+                .toList());
     }
 
     private static Byte[] toByteObjects(String value) {

@@ -53,12 +53,10 @@ import java.sql.ResultSetMetaData;
 import java.sql.SQLException;
 import java.sql.Types;
 import java.util.ArrayList;
-import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -103,8 +101,6 @@ public class DefaultGreengageService implements GreengageService {
             return createTableDescription(connection,
                     schemaName,
                     tableName,
-                    false,
-                    null,
                     logger);
         } catch (Exception e) {
             String errMsg =
@@ -192,8 +188,6 @@ public class DefaultGreengageService implements GreengageService {
     public GreengageTableDescription createTableDescription(final Connection conn,
                                                             final String schema,
                                                             final String tableName,
-                                                            final boolean translateColumnNames,
-                                                            final String updateKeys,
                                                             ComponentLog logger) throws SQLException {
         final DatabaseMetaData dmd = conn.getMetaData();
         try (final ResultSet colrs = dmd.getColumns(null, schema, tableName, "%")) {
@@ -221,22 +215,6 @@ public class DefaultGreengageService implements GreengageService {
                                 + String.join(".", qualifiedNameSegments)
                                 + " found but no columns were found, if this is not expected then check the user permissions for getting table metadata from the database");
                     }
-                }
-            }
-
-            final Set<String> primaryKeyColumns = new HashSet<>();
-            if (updateKeys == null) {
-                try (final ResultSet pkrs = dmd.getPrimaryKeys(null, schema, tableName)) {
-
-                    while (pkrs.next()) {
-                        final String colName = pkrs.getString("COLUMN_NAME");
-                        primaryKeyColumns.add(colName);
-                    }
-                }
-            } else {
-                // Parse the Update Keys field and normalize the column names
-                for (final String updateKey : updateKeys.split(",")) {
-                    primaryKeyColumns.add(normalizeColumnName(updateKey.trim(), translateColumnNames));
                 }
             }
             return new GreengageTableDescription(schema, tableName, cols.stream()
@@ -527,10 +505,6 @@ public class DefaultGreengageService implements GreengageService {
         logger.warn("{}, using default scale={}", message, DEFAULT_MONEY_TYPE_SCALE, throwable);
         moneyTypeScale = DEFAULT_MONEY_TYPE_SCALE;
         return moneyTypeScale;
-    }
-
-    public static String normalizeColumnName(final String colName, final boolean translateColumnNames) {
-        return colName == null ? null : (translateColumnNames ? colName.toUpperCase().replace("_", "") : colName);
     }
 
     private static final class DataTypeMetadata {
