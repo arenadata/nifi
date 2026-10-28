@@ -19,6 +19,7 @@ package org.apache.nifi.tests.system.arenadata;
 import io.qameta.allure.Feature;
 import io.qameta.allure.Step;
 import lombok.SneakyThrows;
+import org.apache.nifi.scheduling.ExecutionNode;
 import org.apache.nifi.tests.system.arenadata.model.DataSourceProperties;
 import org.apache.nifi.web.api.entity.ConnectionEntity;
 import org.apache.nifi.web.api.entity.ControllerServiceEntity;
@@ -27,6 +28,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -65,6 +67,16 @@ public class PutGreengageRecordIT extends NifiSystemContainerizedIT {
     private static final String FIRST_TABLE_NAME = "first_table";
     private static final String SECOND_TABLE_NAME = "second_table";
     private static final String SOURCE_TABLE_NAME_EXPRESSION = "${tablename}";
+    private static final String TABLE_NAME_ATTRIBUTE = "table_name";
+    private static final String TEXT_COLUMN = "i";
+    private static final String FIRST_JSON_RECORD = "{\"i\":\"111\"}";
+    private static final String SECOND_JSON_RECORD = "{\"i\":\"222\"}";
+    private static final String GENERATE_FLOWFILE_PROCESSOR_CLASS_NAME = "org.apache.nifi.processors.standard.GenerateFlowFile";
+    private static final String GENERATE_FLOWFILE_PROCESSOR_NAR_ARTIFACT = "nifi-standard-nar";
+    private static final String JSON_TREE_READER_SERVICE_CLASS_NAME = "org.apache.nifi.json.JsonTreeReader";
+    private static final String SCHEMA_ACCESS_STRATEGY_PROPERTY = "Schema Access Strategy";
+    private static final String INFER_SCHEMA = "infer-schema";
+    private static final String CREATE_DISTRIBUTED_TEXT_TABLE_SQL = "CREATE TABLE %s (i TEXT) DISTRIBUTED RANDOMLY";
     private static final String CREATE_EXTENSION_HSTORE_SQL = "CREATE EXTENSION IF NOT EXISTS hstore";
     private static final String CREATE_EXTENSION_UUID_SQL = "CREATE EXTENSION IF NOT EXISTS \"uuid-ossp\"";
     private static final String CREATE_TABLE_TEMPLATE_SQL = "CREATE TABLE %s (%s)";
@@ -294,6 +306,40 @@ public class PutGreengageRecordIT extends NifiSystemContainerizedIT {
         initDataset(TABLE_COLUMNS, insertQuery);
         configureNifiFlowWithExpressionLanguage(TABLE_COLUMNS, TABLE_COLUMNS);
         assertWithPooling(() -> assertEquals(10000, adbService.queryCountOfRowsInTable(GG_TABLE_NAME)));
+    }
+
+    @Test
+    @SneakyThrows
+    public void testSequentialJsonRecordsGoToTableFromEachFlowFile() {
+        adbService.exec(String.format(CREATE_DISTRIBUTED_TEXT_TABLE_SQL, FIRST_TABLE_NAME));
+        adbService.exec(String.format(CREATE_DISTRIBUTED_TEXT_TABLE_SQL, SECOND_TABLE_NAME));
+        ProcessorEntity firstGenerator = configureJsonGenerator(FIRST_JSON_RECORD);
+        ProcessorEntity secondGenerator = configureJsonGenerator(SECOND_JSON_RECORD);
+        ProcessorEntity firstUpdateAttribute = configureTableNameUpdateAttribute(FIRST_TABLE_NAME);
+        ProcessorEntity secondUpdateAttribute = configureTableNameUpdateAttribute(SECOND_TABLE_NAME);
+        ControllerServiceEntity recordReaderService = configureJsonTreeReader();
+        ControllerServiceEntity ggDbcpService = configureDbcpService(getTestConfig().getAdb());
+        ControllerServiceEntity gpfdistRecordProcessingService = configureGpfdistRecordProcessingService(ggDbcpService);
+        ProcessorEntity putRecordProcessor = configurePutGgRecordProcessorWithTableAttribute(gpfdistRecordProcessingService, recordReaderService);
+        getClientUtil().createConnection(firstGenerator, firstUpdateAttribute, RELATION_SUCCESS);
+        getClientUtil().createConnection(firstUpdateAttribute, putRecordProcessor, RELATION_SUCCESS);
+        getClientUtil().createConnection(secondGenerator, secondUpdateAttribute, RELATION_SUCCESS);
+        getClientUtil().createConnection(secondUpdateAttribute, putRecordProcessor, RELATION_SUCCESS);
+        for (ProcessorEntity processor : List.of(firstUpdateAttribute, secondUpdateAttribute, putRecordProcessor)) {
+            getClientUtil().waitForValidProcessor(processor.getId());
+            getClientUtil().startProcessor(processor);
+            getClientUtil().waitForRunningProcessor(processor.getId());
+        }
+        getClientUtil().runProcessorOnce(firstGenerator);
+        assertWithPooling(() -> {
+            assertColumnValues(FIRST_TABLE_NAME, List.of("111"));
+            assertColumnValues(SECOND_TABLE_NAME, List.of());
+        });
+        getClientUtil().runProcessorOnce(secondGenerator);
+        assertWithPooling(() -> {
+            assertColumnValues(FIRST_TABLE_NAME, List.of("111"));
+            assertColumnValues(SECOND_TABLE_NAME, List.of("222"));
+        });
     }
 
     private void writeFlowFilesToTablesFromAttribute(boolean batchingEnabled) {
@@ -540,5 +586,73 @@ public class PutGreengageRecordIT extends NifiSystemContainerizedIT {
         updateAttributeProcessor = getClientUtil().setAutoTerminatedRelationships(updateAttributeProcessor,
                 Set.of(RELATION_SUCCESS, RELATION_FAILURE));
         return updateAttributeProcessor;
+    }
+
+    @SneakyThrows
+    @Step("Configure JSON record reader")
+    private ControllerServiceEntity configureJsonTreeReader() {
+        ControllerServiceEntity recordReaderService = getClientUtil().createControllerService(JSON_TREE_READER_SERVICE_CLASS_NAME,
+                ROOT_GROUP_ID, NIFI_GROUP_ID, RECORD_READER_SERVICE_NAR_ARTIFACT, getNiFiVersion());
+        Map<String, String> recordReaderProperties = new HashMap<>();
+        recordReaderProperties.put(SCHEMA_ACCESS_STRATEGY_PROPERTY, INFER_SCHEMA);
+        getClientUtil().updateControllerServiceProperties(recordReaderService, recordReaderProperties);
+        enableControllerServiceAndWait(recordReaderService);
+        return recordReaderService;
+    }
+
+    @SneakyThrows
+    @Step("Configure JSON GenerateFlowFile")
+    private ProcessorEntity configureJsonGenerator(String customText) {
+        ProcessorEntity generator = getClientUtil().createProcessor(GENERATE_FLOWFILE_PROCESSOR_CLASS_NAME,
+                NIFI_GROUP_ID, GENERATE_FLOWFILE_PROCESSOR_NAR_ARTIFACT, getNiFiVersion());
+        Map<String, String> generatorProperties = new HashMap<>();
+        generatorProperties.put("Custom Text", customText);
+        generator = getClientUtil().updateProcessorProperties(generator, generatorProperties);
+        generator = getClientUtil().updateProcessorExecutionNode(generator, ExecutionNode.PRIMARY);
+        return generator;
+    }
+
+    @SneakyThrows
+    @Step("Configure update attribute processor with table name")
+    private ProcessorEntity configureTableNameUpdateAttribute(String tableName) {
+        ProcessorEntity tableNameUpdateAttribute = getClientUtil().createProcessor(UPDATE_ATTRIBUTE_PROCESSOR_CLASS_NAME,
+                NIFI_GROUP_ID, UPDATE_ATTRIBUTE_PROCESSOR_NAR_ARTIFACT, getNiFiVersion());
+        Map<String, String> updateAttributeProperties = new HashMap<>();
+        updateAttributeProperties.put(TABLE_NAME_ATTRIBUTE, tableName);
+        getClientUtil().updateProcessorProperties(tableNameUpdateAttribute, updateAttributeProperties);
+        return tableNameUpdateAttribute;
+    }
+
+    @SneakyThrows
+    @Step("Configure put Greengage record processor with table name from flow file attribute")
+    private ProcessorEntity configurePutGgRecordProcessorWithTableAttribute(ControllerServiceEntity gpfdistRecordProcessingService,
+                                                                            ControllerServiceEntity recordReaderService) {
+        ProcessorEntity putRecordProcessor = getClientUtil().createProcessor(PUT_GG_RECORD_PROCESSOR_CLASS_NAME,
+                NIFI_GROUP_ID, PUT_GG_RECORD_PROCESSOR_NAR_ARTIFACT, getNiFiVersion());
+        Map<String, String> putRecordProperties = new HashMap<>();
+        putRecordProperties.put("gpfdist-record-processing-service", gpfdistRecordProcessingService.getId());
+        putRecordProperties.put("put-greengage-record-record-reader", recordReaderService.getId());
+        putRecordProperties.put("put-greengage-record-table-name", String.format("${%s}", TABLE_NAME_ATTRIBUTE));
+        putRecordProperties.put("put-greengage-record-schema-name", GG_SCHEMA_NAME);
+        putRecordProperties.put("put-greengage-table-columns", TEXT_COLUMN);
+        putRecordProperties.put("flow-file-batching-enabled", "false");
+        getClientUtil().updateProcessorProperties(putRecordProcessor, putRecordProperties);
+        putRecordProcessor = getClientUtil().setAutoTerminatedRelationships(putRecordProcessor, Set.of(RELATION_SUCCESS, RELATION_FAILURE));
+        return putRecordProcessor;
+    }
+
+    private void assertColumnValues(String tableName, List<String> expectedValues) {
+        List<Map<String, Object>> rows = adbService.queryForList(
+                String.format("SELECT %s FROM %s ORDER BY %s", TEXT_COLUMN, tableName, TEXT_COLUMN));
+        List<String> actualValues = new ArrayList<>();
+        for (Map<String, Object> row : rows) {
+            Object value = row.get(TEXT_COLUMN);
+            if (value == null) {
+                actualValues.add(null);
+                continue;
+            }
+            actualValues.add(value.toString());
+        }
+        assertEquals(expectedValues, actualValues);
     }
 }
